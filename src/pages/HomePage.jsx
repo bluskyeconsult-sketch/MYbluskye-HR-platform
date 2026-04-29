@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, useInView, useAnimation } from 'framer-motion'
-import { ArrowRight, Star, Briefcase, BookOpen, FileText, Clock, CheckCircle, Award, Users, TrendingUp } from 'lucide-react'
+import { ArrowRight, Briefcase, FileText, Clock, Award, TrendingUp } from 'lucide-react'
 
 // Animation variants
 const fadeInUp = {
@@ -9,29 +9,11 @@ const fadeInUp = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: 'easeOut' } }
 }
 
-const fadeInLeft = {
-    hidden: { opacity: 0, x: -60 },
-    visible: { opacity: 1, x: 0, transition: { duration: 0.6, ease: 'easeOut' } }
-}
-
-const fadeInRight = {
-    hidden: { opacity: 0, x: 60 },
-    visible: { opacity: 1, x: 0, transition: { duration: 0.6, ease: 'easeOut' } }
-}
-
 const staggerContainer = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
         transition: { staggerChildren: 0.2, delayChildren: 0.3 }
-    }
-}
-
-const cardHover = {
-    hover: { 
-        y: -10, 
-        scale: 1.02,
-        transition: { duration: 0.3, ease: 'easeOut' }
     }
 }
 
@@ -53,16 +35,15 @@ export default function HomePage() {
     ]
 
     const featuredResources = [
-        { title: 'CV Revamp Standard', price: '$15', rating: 4.9, description: 'Professional rewrite of your curriculum vitae to meet industry standards.', icon: FileText, category: 'HIRE VA' },
-        { title: 'CV Revamp Professional', price: '$25', rating: 4.9, description: 'ATS-optimized CV revamp including keyword targeting for senior roles.', icon: FileText, category: 'HIRE VA' },
-        { title: 'HR Policy Draft', price: '$45', rating: 4.9, description: 'Custom drafted HR policy document for your organization.', icon: Briefcase, category: 'HIRE VA' },
+        { title: 'CV Revamp Standard', price: '$15', rating: 4.9, description: 'Professional rewrite of your curriculum vitae to meet industry standards.', icon: FileText },
+        { title: 'CV Revamp Professional', price: '$25', rating: 4.9, description: 'ATS-optimized CV revamp including keyword targeting for senior roles.', icon: FileText },
+        { title: 'HR Policy Draft', price: '$45', rating: 4.9, description: 'Custom drafted HR policy document for your organization.', icon: Briefcase },
     ]
 
     return (
         <div className="bg-[#1a1a2e] min-h-screen pt-20">
             {/* Hero Section */}
             <section className="relative overflow-hidden py-20 md:py-32">
-                {/* Animated Background */}
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 via-purple-900/10 to-transparent"></div>
                 <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-pulse"></div>
                 <div className="absolute bottom-20 right-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-pulse delay-1000"></div>
@@ -130,8 +111,7 @@ export default function HomePage() {
                             <motion.div
                                 key={stat.label}
                                 variants={fadeInUp}
-                                whileHover="hover"
-                                variants={cardHover}
+                                whileHover={{ y: -10, scale: 1.02 }}
                                 className="bg-gradient-to-br from-[#16213e] to-[#0f0f23] rounded-2xl p-8 text-center border border-gray-800 hover:border-blue-500/50 transition-all duration-300 group"
                             >
                                 <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-500/10 rounded-full mb-4 group-hover:scale-110 transition-transform duration-300">
@@ -167,8 +147,7 @@ export default function HomePage() {
                             <motion.div
                                 key={resource.title}
                                 variants={fadeInUp}
-                                whileHover="hover"
-                                variants={cardHover}
+                                whileHover={{ y: -10, scale: 1.02 }}
                                 className="bg-gradient-to-br from-[#16213e] to-[#0f0f23] rounded-2xl overflow-hidden border border-gray-800 hover:border-purple-500/50 transition-all duration-300"
                             >
                                 <div className="p-6">
