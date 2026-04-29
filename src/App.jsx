@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import TermsPopup from './components/TermsPopup'
+import CookieConsent from './components/CookieConsent'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -104,6 +106,14 @@ function CountryManagementPage() {
 }
 
 function App() {
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data?.user || null)
+    })
+  }, [])
+
   return (
     <BrowserRouter>
       <Routes>
@@ -115,6 +125,8 @@ function App() {
         <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
         <Route path="/admin/super/countries" element={<CountryManagementPage />} />
       </Routes>
+      <TermsPopup userId={user?.id} />
+      <CookieConsent />
     </BrowserRouter>
   )
 }
