@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import logo from '../assets/BluSkye.png';  // ← CHANGE EXTENSION if needed
+import logo from '../assets/Bluskye.png';  // ← CORRECT: Your file name is Bluskye.png
 
 export default function Logo() {
   return (
@@ -11,7 +11,7 @@ export default function Logo() {
       {/* Your actual logo image */}
       <img 
         src={logo} 
-        alt="BluSkye Logo" 
+        alt="Bluskye Logo" 
         className="w-8 h-8 object-contain"
       />
       <span className="font-bold text-xl tracking-wide bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
