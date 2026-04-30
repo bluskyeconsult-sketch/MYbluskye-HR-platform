@@ -8,6 +8,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import PremiumTermsPopup from './components/PremiumTermsPopup';
 import CookieConsent from './components/CookieConsent';
+import ODUSBABAChat from './components/ODUSBABAChat';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -120,6 +121,9 @@ function AppContent() {
       <Footer />
       <PremiumTermsPopup userId={user?.id} />
       <CookieConsent />
+      
+      {/* ODUSBABA Floating Chat - Available on EVERY page */}
+      <ODUSBABAChat />
     </>
   );
 }
