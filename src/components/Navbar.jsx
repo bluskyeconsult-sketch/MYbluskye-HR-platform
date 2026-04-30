@@ -41,14 +41,15 @@ export default function Navbar() {
     navigate('/');
   };
 
+  // Main navigation - BOLD and VISIBLE
   const navLinks = [
-    { name: 'Home', path: '/' },
-    { name: 'Jobs', path: '/jobs' },
-    { name: 'Workforce', path: '/workforce' },
-    { name: 'Courses', path: '/courses' },
-    { name: 'Books', path: '/books' },
-    { name: 'Newsletter', path: '/newsletter' },
-    { name: 'Affiliate', path: '/affiliate' },
+    { name: 'Home', path: '/', bold: true },
+    { name: 'Jobs', path: '/jobs', bold: true },
+    { name: 'Workforce', path: '/workforce', bold: true },
+    { name: 'Courses', path: '/courses', bold: true },
+    { name: 'Books', path: '/books', bold: true },
+    { name: 'Newsletter', path: '/newsletter', bold: true },
+    { name: 'Hire VA', path: '/hire-va', bold: true, highlight: true },
   ];
 
   const userLinks = [
@@ -60,11 +61,13 @@ export default function Navbar() {
     { name: 'Company Profile', path: '/company-profile' },
   ];
 
+  // Resources dropdown - Affiliate moved INSIDE here
   const resourcesLinks = [
     { name: 'About', path: '/about' },
     { name: 'Contact', path: '/contact' },
     { name: 'Pricing', path: '/pricing' },
     { name: 'Blog', path: '/blog' },
+    { name: 'Affiliate', path: '/affiliate' },  // MOVED HERE
   ];
 
   const isEmployer = profile?.user_type === 'employer' || profile?.user_type === 'business';
@@ -75,37 +78,53 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           <Link to="/" className="flex-shrink-0"><Logo /></Link>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation - BOLD FONTS */}
           <div className="hidden md:flex items-center space-x-1">
             {navLinks.map((link) => (
-              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+              <Link
+                key={link.name}
+                to={link.path}
+                className={`px-3 py-2 rounded-lg text-sm font-bold tracking-wide transition-colors ${
+                  link.highlight 
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
+                    : 'text-slate-200 hover:text-white hover:bg-slate-800'
+                }`}
+              >
                 {link.name}
               </Link>
             ))}
             
             {/* User-specific links */}
             {user && userLinks.map((link) => (
-              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800 transition-colors">
                 {link.name}
               </Link>
             ))}
             
             {/* Employer-specific links */}
             {isEmployer && employerLinks.map((link) => (
-              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800 transition-colors">
                 {link.name}
               </Link>
             ))}
 
-            {/* Resources Dropdown */}
+            {/* Resources Dropdown - NOW INCLUDES AFFILIATE */}
             <div className="relative">
-              <button onClick={() => setResourcesOpen(!resourcesOpen)} className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+              <button
+                onClick={() => setResourcesOpen(!resourcesOpen)}
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold tracking-wide text-slate-200 hover:text-white hover:bg-slate-800 transition-colors"
+              >
                 Resources <ChevronDown className={`w-4 h-4 transition-transform ${resourcesOpen ? 'rotate-180' : ''}`} />
               </button>
               {resourcesOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
                   {resourcesLinks.map((link) => (
-                    <Link key={link.name} to={link.path} onClick={() => setResourcesOpen(false)} className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">
+                    <Link
+                      key={link.name}
+                      to={link.path}
+                      onClick={() => setResourcesOpen(false)}
+                      className="block px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+                    >
                       {link.name}
                     </Link>
                   ))}
@@ -130,23 +149,32 @@ export default function Navbar() {
           <div className="md:hidden py-4 border-t border-slate-800">
             <div className="flex flex-col space-y-2">
               {navLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800">
+                <Link
+                  key={link.name}
+                  to={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-3 py-2 rounded-lg text-sm font-bold tracking-wide ${
+                    link.highlight 
+                      ? 'bg-emerald-600 text-white text-center' 
+                      : 'text-slate-200 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
                   {link.name}
                 </Link>
               ))}
               {user && userLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800">
+                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800">
                   {link.name}
                 </Link>
               ))}
               {isEmployer && employerLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800">
+                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800">
                   {link.name}
                 </Link>
               ))}
-              <div className="px-3 py-2 text-sm font-medium text-slate-400">Resources</div>
+              <div className="px-3 py-2 text-sm font-bold text-slate-400">Resources</div>
               {resourcesLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="pl-8 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-800">
+                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="pl-8 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800">
                   {link.name}
                 </Link>
               ))}
