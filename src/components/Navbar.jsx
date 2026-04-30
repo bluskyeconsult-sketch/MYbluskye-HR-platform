@@ -48,6 +48,7 @@ export default function Navbar() {
     { name: 'Courses', path: '/courses' },
     { name: 'Books', path: '/books' },
     { name: 'Newsletter', path: '/newsletter' },
+    { name: 'Affiliate', path: '/affiliate' },
   ];
 
   const userLinks = [
