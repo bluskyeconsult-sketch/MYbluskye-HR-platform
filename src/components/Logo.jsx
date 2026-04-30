@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import logo from '../assets/Bluskye.png';  // ← CORRECT: Your file name is Bluskye.png
 
 export default function Logo() {
   return (
@@ -8,9 +7,8 @@ export default function Logo() {
       whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.15 }}
     >
-      {/* Your actual logo image */}
       <img 
-        src={logo} 
+        src="/Bluskye.png" 
         alt="Bluskye Logo" 
         className="w-8 h-8 object-contain"
       />
