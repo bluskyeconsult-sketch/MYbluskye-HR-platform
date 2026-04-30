@@ -46,6 +46,7 @@ import CompanyProfile from './pages/CompanyProfile';
 // Pages - Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
 import CountryManagement from './pages/admin/super/CountryManagement';
+import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
 
 // Pages - Legal
 import TermsPage from './pages/legal/TermsPage';
@@ -144,6 +145,7 @@ function AppContent() {
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
           <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
+          <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
 
           {/* Legal Routes */}
           <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
