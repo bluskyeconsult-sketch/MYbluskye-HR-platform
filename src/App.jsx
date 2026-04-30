@@ -20,6 +20,7 @@ import WorkforceMarketplace from './pages/WorkforceMarketplace';
 import JobsPage from './pages/JobsPage';
 import CoursesPage from './pages/CoursesPage';
 import BooksPage from './pages/BooksPage';
+import NewsletterPage from './pages/NewsletterPage';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
 import PricingPage from './pages/PricingPage';
@@ -87,6 +88,7 @@ function AppContent() {
           <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
           <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
           <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+          <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
           <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
           <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
           <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
