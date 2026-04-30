@@ -72,6 +72,22 @@ function AnimatedPage({ children }) {
   );
 }
 
+// 404 Page Component
+function NotFoundPage() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="text-center">
+        <h1 className="text-6xl font-bold text-white mb-4">404</h1>
+        <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
+        <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+        <a href="/" className="inline-block px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors">
+          Go Home
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const [user, setUser] = useState(null);
   const location = useLocation();
@@ -135,6 +151,9 @@ function AppContent() {
           <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
           <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
           <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+
+          {/* 404 Fallback Route - MUST BE LAST */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AnimatePresence>
       <Footer />
