@@ -10,22 +10,36 @@ export default function TermsPopup({ userId, onAccept }) {
     const [agreed, setAgreed] = useState(false)
 
     useEffect(() => {
+        // Check localStorage FIRST (this survives page refreshes)
+        const localAccepted = localStorage.getItem('terms-accepted')
+        if (localAccepted === 'true') {
+            setIsOpen(false)
+            return
+        }
+
+        // If not in localStorage, check database
         checkTermsAccepted()
     }, [userId])
 
     async function checkTermsAccepted() {
         if (!userId) {
-            setIsOpen(true)
+            // Not logged in - don't show popup
+            setIsOpen(false)
             return
         }
 
         const { data } = await supabase
             .from('profiles')
-            .select('terms_accepted_at, terms_accepted_version')
+            .select('terms_accepted_at')
             .eq('id', userId)
             .single()
 
-        if (!data?.terms_accepted_at) {
+        if (data?.terms_accepted_at) {
+            // Already accepted in database
+            localStorage.setItem('terms-accepted', 'true')
+            setIsOpen(false)
+        } else {
+            // Never accepted - show popup
             setIsOpen(true)
         }
     }
@@ -36,6 +50,7 @@ export default function TermsPopup({ userId, onAccept }) {
             return
         }
 
+        // Save to database
         await supabase
             .from('profiles')
             .update({
@@ -44,6 +59,9 @@ export default function TermsPopup({ userId, onAccept }) {
             })
             .eq('id', userId)
 
+        // Save to localStorage (so it survives page refreshes)
+        localStorage.setItem('terms-accepted', 'true')
+
         setIsOpen(false)
         if (onAccept) onAccept()
     }
@@ -51,73 +69,88 @@ export default function TermsPopup({ userId, onAccept }) {
     if (!isOpen) return null
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg w-[500px] max-w-[90vw] max-h-[80vh] overflow-y-auto p-6">
-                <h2 className="text-xl font-bold mb-4">📋 Terms of Service & Legal Notice</h2>
-                
-                <div className="space-y-4 text-sm text-gray-700">
-                    <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-500">
-                        <p className="font-semibold">⚠️ IMPORTANT LEGAL NOTICE</p>
-                        <p>• By proceeding, you agree to these terms</p>
-                        <p>• We are NOT liable for any hiring or career outcomes</p>
-                        <p>• AI advice is for informational purposes only</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">1. LIMITATION OF LIABILITY</p>
-                        <p>BluSkye Consult shall not be liable for any indirect, incidental, special, consequential, or exemplary damages arising from use of the platform.</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">2. NO RESPONSIBILITY FOR USER DECISIONS</p>
-                        <p>Any hiring, employment, or career decisions made based on platform information are solely your responsibility.</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">3. AI DISCLAIMER</p>
-                        <p>AI-powered features are informational only. They do not constitute professional legal, financial, or career advice.</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">4. AS-IS WARRANTY DISCLAIMER</p>
-                        <p>The platform is provided "AS IS" and "AS AVAILABLE" without warranties of any kind.</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">5. INDEMNIFICATION</p>
-                        <p>You agree to indemnify and hold harmless BluSkye Consult from any claims arising from your platform use.</p>
-                    </div>
-
-                    <div>
-                        <p className="font-semibold">6. GOVERNING LAW</p>
-                        <p>These terms are governed by the laws of the United Kingdom.</p>
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 rounded-xl border border-slate-800 w-[500px] max-w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+                {/* Header */}
+                <div className="border-b border-slate-800 p-5">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500/10 rounded-full flex items-center justify-center">
+                            <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-white">Terms of Service & Legal Notice</h2>
+                            <p className="text-sm text-slate-400">Please read carefully before proceeding</p>
+                        </div>
                     </div>
                 </div>
 
-                <div className="mt-6">
-                    <label className="flex items-center gap-2">
+                {/* Content */}
+                <div className="p-5 space-y-4 text-sm text-slate-300 max-h-[50vh] overflow-y-auto">
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+                        <p className="font-semibold text-amber-400 mb-2">⚠️ IMPORTANT LEGAL NOTICE</p>
+                        <ul className="list-disc list-inside space-y-1 text-slate-300">
+                            <li>By proceeding, you agree to these terms</li>
+                            <li>We are NOT liable for any hiring or career outcomes</li>
+                            <li>AI advice is for informational purposes only</li>
+                        </ul>
+                    </div>
+
+                    <div className="space-y-3">
+                        <div>
+                            <p className="font-semibold text-white">1. LIMITATION OF LIABILITY</p>
+                            <p className="text-slate-400">BluSkye Consult shall not be liable for any indirect, incidental, special, consequential, or exemplary damages arising from use of the platform.</p>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-white">2. NO RESPONSIBILITY FOR USER DECISIONS</p>
+                            <p className="text-slate-400">Any hiring, employment, or career decisions made based on platform information are solely your responsibility.</p>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-white">3. AI DISCLAIMER</p>
+                            <p className="text-slate-400">AI-powered features are informational only. They do not constitute professional legal, financial, or career advice.</p>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-white">4. AS-IS WARRANTY DISCLAIMER</p>
+                            <p className="text-slate-400">The platform is provided "AS IS" and "AS AVAILABLE" without warranties of any kind.</p>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-white">5. INDEMNIFICATION</p>
+                            <p className="text-slate-400">You agree to indemnify and hold harmless BluSkye Consult from any claims arising from your platform use.</p>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-white">6. GOVERNING LAW</p>
+                            <p className="text-slate-400">These terms are governed by the laws of the United Kingdom.</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="border-t border-slate-800 p-5">
+                    <label className="flex items-center gap-3 mb-4 cursor-pointer">
                         <input
                             type="checkbox"
                             checked={agreed}
                             onChange={(e) => setAgreed(e.target.checked)}
-                            className="w-4 h-4"
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-800 checked:bg-emerald-500"
                         />
-                        <span className="text-sm">I have read and agree to the Terms of Service, Privacy Policy, and Legal Disclaimer</span>
+                        <span className="text-sm text-slate-300">I have read and agree to the Terms of Service, Privacy Policy, and Legal Disclaimer</span>
                     </label>
-                </div>
 
-                <div className="flex justify-end gap-3 mt-6">
-                    <button
-                        onClick={acceptTerms}
-                        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                    >
-                        Accept
-                    </button>
-                </div>
+                    <div className="flex justify-end gap-3">
+                        <button
+                            onClick={acceptTerms}
+                            disabled={!agreed}
+                            className="px-5 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Accept & Continue
+                        </button>
+                    </div>
 
-                <p className="text-xs text-gray-500 mt-4 text-center">
-                    <a href="/legal/terms" className="text-blue-500 hover:underline">View full terms</a>
-                </p>
+                    <p className="text-xs text-slate-500 mt-4 text-center">
+                        <a href="/legal/terms" className="text-sky-400 hover:underline">View full terms</a>
+                    </p>
+                </div>
             </div>
         </div>
     )
