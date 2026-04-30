@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import logo from '../assets/BluSkye'; // ← CHANGE THIS to your actual file name
+import logo from '../assets/BluSkye.png';  // ← CHANGE EXTENSION if needed
 
 export default function Logo() {
   return (
