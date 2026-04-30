@@ -4,7 +4,6 @@
 
 @layer base {
   html {
-    /* INCREASED FONT SIZE FOR LEGIBILITY */
     font-size: 18px;
   }
   
@@ -17,7 +16,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
   
-  /* Larger headings */
   h1 {
     @apply text-4xl md:text-5xl lg:text-6xl font-bold;
     letter-spacing: -0.02em;
@@ -32,18 +30,15 @@
     @apply text-xl md:text-2xl font-semibold;
   }
   
-  /* Better paragraph readability */
   p, li, .prose-text {
     @apply text-base;
     line-height: 1.7;
   }
   
-  /* Improved form inputs */
   input, textarea, select {
     @apply text-base py-3;
   }
   
-  /* Better button text */
   button, .btn {
     @apply text-base font-medium;
   }
