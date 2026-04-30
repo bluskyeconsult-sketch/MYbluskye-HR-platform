@@ -29,8 +29,7 @@ export default {
           500: '#EF4444',
           600: '#DC2626',
         },
-        background: '#020617',  // ADD THIS
-        'background-dark': '#020617',
+        background: '#020617',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
@@ -46,16 +45,11 @@ export default {
       },
       animation: {
         'fade-up': 'fadeUp 120ms ease-out',
-        'border-pulse': 'borderPulse 150ms ease-out',
       },
       keyframes: {
         fadeUp: {
           '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        borderPulse: {
-          '0%': { borderColor: 'transparent' },
-          '100%': { borderColor: '#38BDF8' },
         },
       },
     },
