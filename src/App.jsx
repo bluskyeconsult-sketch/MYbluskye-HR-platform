@@ -39,6 +39,7 @@ import UserMessages from './pages/UserMessages';
 import UserSettings from './pages/UserSettings';
 import SavedJobsPage from './pages/SavedJobsPage';
 import JobAlertsPage from './pages/JobAlertsPage';
+import AffiliateDashboard from './pages/AffiliateDashboard';
 
 // Pages - Employer
 import CompanyProfile from './pages/CompanyProfile';
@@ -47,6 +48,7 @@ import CompanyProfile from './pages/CompanyProfile';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import CountryManagement from './pages/admin/super/CountryManagement';
 import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
+import AffiliateManagement from './pages/admin/AffiliateManagement';
 
 // Pages - Legal
 import TermsPage from './pages/legal/TermsPage';
@@ -138,6 +140,7 @@ function AppContent() {
           <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
           <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
           <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
+          <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
 
           {/* Employer Routes */}
           <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
@@ -146,6 +149,7 @@ function AppContent() {
           <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
           <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
           <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
+          <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
 
           {/* Legal Routes */}
           <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
