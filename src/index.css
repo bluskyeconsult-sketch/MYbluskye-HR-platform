@@ -30,7 +30,7 @@
     @apply text-xl md:text-2xl font-semibold;
   }
   
-  p, li, .prose-text {
+  p, li {
     @apply text-base;
     line-height: 1.7;
   }
