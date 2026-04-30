@@ -11,11 +11,9 @@ import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 
-// Pages
+// Pages - Public
 import HomePage from './pages/HomePage';
 import AdminLogin from './pages/AdminLogin';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import CountryManagement from './pages/admin/super/CountryManagement';
 import WorkforceMarketplace from './pages/WorkforceMarketplace';
 import JobsPage from './pages/JobsPage';
 import CoursesPage from './pages/CoursesPage';
@@ -26,17 +24,30 @@ import ContactPage from './pages/ContactPage';
 import PricingPage from './pages/PricingPage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
+
+// Pages - Tester
 import TesterLoginPage from './pages/tester/TesterLoginPage';
 import TesterRegisterPage from './pages/tester/TesterRegisterPage';
 import TesterDashboard from './pages/tester/TesterDashboard';
+
+// Pages - User
 import UserDashboard from './pages/UserDashboard';
 import UserProfile from './pages/UserProfile';
 import UserApplications from './pages/UserApplications';
 import UserSkills from './pages/UserSkills';
 import UserMessages from './pages/UserMessages';
 import UserSettings from './pages/UserSettings';
+import SavedJobsPage from './pages/SavedJobsPage';
+import JobAlertsPage from './pages/JobAlertsPage';
 
-// Legal pages
+// Pages - Employer
+import CompanyProfile from './pages/CompanyProfile';
+
+// Pages - Admin
+import AdminDashboard from './pages/admin/AdminDashboard';
+import CountryManagement from './pages/admin/super/CountryManagement';
+
+// Pages - Legal
 import TermsPage from './pages/legal/TermsPage';
 import PrivacyPage from './pages/legal/PrivacyPage';
 import CookiesPage from './pages/legal/CookiesPage';
@@ -108,6 +119,11 @@ function AppContent() {
           <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
           <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
           <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+          <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
+          <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
+
+          {/* Employer Routes */}
+          <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
