@@ -1,116 +1,135 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import Navbar from './components/Navbar'
-import Footer from './components/Footer'
-import HomePage from './pages/HomePage'
-import TermsPopup from './components/TermsPopup'
-import CookieConsent from './components/CookieConsent'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { AnimatePresence, motion } from 'framer-motion';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Components
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import PremiumTermsPopup from './components/PremiumTermsPopup';
+import CookieConsent from './components/CookieConsent';
 
-// Admin Login Page
-function AdminLogin() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+// Pages
+import HomePage from './pages/HomePage';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import CountryManagement from './pages/admin/super/CountryManagement';
+import WorkforceMarketplace from './pages/WorkforceMarketplace';
+import JobsPage from './pages/JobsPage';
+import CoursesPage from './pages/CoursesPage';
+import BooksPage from './pages/BooksPage';
+import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+import PricingPage from './pages/PricingPage';
+import SignInPage from './pages/SignInPage';
+import SignUpPage from './pages/SignUpPage';
+import TesterLoginPage from './pages/tester/TesterLoginPage';
+import TesterRegisterPage from './pages/tester/TesterRegisterPage';
+import TesterDashboard from './pages/tester/TesterDashboard';
+import UserDashboard from './pages/UserDashboard';
+import UserProfile from './pages/UserProfile';
+import UserApplications from './pages/UserApplications';
+import UserSkills from './pages/UserSkills';
+import UserMessages from './pages/UserMessages';
+import UserSettings from './pages/UserSettings';
 
-  async function handleLogin(e) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      window.location.href = '/admin/dashboard'
-    }
-  }
+// Legal pages
+import TermsPage from './pages/legal/TermsPage';
+import PrivacyPage from './pages/legal/PrivacyPage';
+import CookiesPage from './pages/legal/CookiesPage';
+import DisclaimerPage from './pages/legal/DisclaimerPage';
+import AcceptableUsePage from './pages/legal/AcceptableUsePage';
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Animation wrapper for page transitions
+function AnimatedPage({ children }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1a1a2e]">
-      <div className="bg-[#16213e] p-8 rounded-lg shadow-xl w-96 border border-gray-800">
-        <h1 className="text-2xl font-bold mb-6 text-center text-white">Admin Login</h1>
-        {error && <div className="bg-red-500/20 text-red-400 p-3 rounded mb-4">{error}</div>}
-        <form onSubmit={handleLogin}>
-          <div className="mb-4">
-            <label className="block text-gray-300 mb-2">Email</label>
-            <input
-              type="email"
-              className="w-full bg-[#0f0f23] border border-gray-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="mb-6">
-            <label className="block text-gray-300 mb-2">Password</label>
-            <input
-              type="password"
-              className="w-full bg-[#0f0f23] border border-gray-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Logging in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
-    </div>
-  )
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 0 }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
-// Admin Dashboard Placeholder (will be replaced in Week 2)
-function AdminDashboardPage() {
+function AppContent() {
+  const [user, setUser] = useState(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user || null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
-    <div className="min-h-screen bg-[#1a1a2e] pt-20">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-white mb-4">Admin Dashboard</h1>
-        <p className="text-gray-400">Admin dashboard content will appear here.</p>
-      </div>
-    </div>
-  )
+    <>
+      <Navbar />
+      <AnimatePresence mode="wait">
+        <Routes location={location} key={location.pathname}>
+          {/* Public Routes */}
+          <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+          <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+          <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+          <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+          <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+          <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+          <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+          <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+          <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+          <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+          <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+          {/* Tester Routes */}
+          <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
+          <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
+          <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
+
+          {/* User Routes */}
+          <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
+          <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
+          <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
+          <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
+          <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
+          <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+
+          {/* Admin Routes */}
+          <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
+          <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
+
+          {/* Legal Routes */}
+          <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+          <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+          <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+          <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+          <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+        </Routes>
+      </AnimatePresence>
+      <Footer />
+      <PremiumTermsPopup userId={user?.id} />
+      <CookieConsent />
+    </>
+  );
 }
 
 function App() {
-  const [user, setUser] = useState(null)
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data?.user || null)
-    })
-  }, [])
-
   return (
     <BrowserRouter>
-      <div className="flex flex-col min-h-screen">
-        <Navbar />
-        <main className="flex-grow">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/admin-login" element={<AdminLogin />} />
-            <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-            {/* Add more routes as we build them */}
-          </Routes>
-        </main>
-        <Footer />
-        <TermsPopup userId={user?.id} />
-        <CookieConsent />
-      </div>
+      <AppContent />
     </BrowserRouter>
-  )
+  );
 }
 
-export default App
+export default App;
