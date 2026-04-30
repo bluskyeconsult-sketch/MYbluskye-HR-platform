@@ -9,6 +9,7 @@ import Footer from './components/Footer';
 import PremiumTermsPopup from './components/PremiumTermsPopup';
 import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
+import BrainstormPartner from './components/BrainstormPartner';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -124,6 +125,9 @@ function AppContent() {
       
       {/* ODUSBABA Floating Chat - Available on EVERY page */}
       <ODUSBABAChat />
+      
+      {/* Brainstorm Partner - Super Admin only */}
+      <BrainstormPartner />
     </>
   );
 }
