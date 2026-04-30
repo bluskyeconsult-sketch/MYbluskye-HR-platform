@@ -16,12 +16,10 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
     });
@@ -40,6 +38,7 @@ export default function Navbar() {
     { name: 'Workforce', path: '/workforce' },
     { name: 'Courses', path: '/courses' },
     { name: 'Books', path: '/books' },
+    { name: 'Newsletter', path: '/newsletter' },  // ← NEWSLETTER ADDED
   ];
 
   const resourcesLinks = [
