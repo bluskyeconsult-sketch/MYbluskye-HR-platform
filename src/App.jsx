@@ -24,6 +24,7 @@ import ContactPage from './pages/ContactPage';
 import PricingPage from './pages/PricingPage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
+import HireVirtualAssistant from './pages/HireVirtualAssistant';
 
 // Pages - Tester
 import TesterLoginPage from './pages/tester/TesterLoginPage';
@@ -119,6 +120,7 @@ function AppContent() {
           <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
           <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
           <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+          <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
           <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
           <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
           <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
