@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import logo from '../assets/odasbaba-logo.png'; // Change filename to yours
+import logo from '../assets/BluSkye'; // ← CHANGE THIS to your actual file name
 
 export default function Logo() {
   return (
@@ -11,7 +11,7 @@ export default function Logo() {
       {/* Your actual logo image */}
       <img 
         src={logo} 
-        alt="ODUSBABA Logo" 
+        alt="BluSkye Logo" 
         className="w-8 h-8 object-contain"
       />
       <span className="font-bold text-xl tracking-wide bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
