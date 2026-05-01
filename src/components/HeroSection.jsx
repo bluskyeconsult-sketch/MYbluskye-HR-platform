@@ -7,7 +7,7 @@ export default function HeroSection() {
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 py-20 px-6">
-      {/* Animated background glow - Sky Blue themed */}
+      {/* Animated background glow */}
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-20 left-10 w-64 h-64 bg-primary-500 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-20 right-10 w-80 h-80 bg-primary-400 rounded-full blur-3xl animate-pulse delay-1000" />
@@ -19,30 +19,24 @@ export default function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          {/* Tagline Badge */}
           <span className="inline-block px-3 py-1 rounded-full bg-primary-500/10 text-primary-400 text-sm mb-6 border border-primary-500/20">
             ✨ Creating Value for Partnership
           </span>
 
-          {/* Main Heading - BluSkye Integrated Consult */}
           <h1 className="text-5xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent">
             BluSkye Integrated Consult
           </h1>
           
-          {/* Subheading - Powered by ODUSBABA */}
           <p className="text-lg text-slate-400 mt-2">powered by <span className="text-primary-400 font-semibold">ODUSBABA</span> intelligence</p>
           
-          {/* Tagline */}
           <p className="text-xl text-slate-300 max-w-2xl mx-auto mt-6">
             The Governed Workforce Platform. Verified skills. Trusted hiring.
           </p>
           
-          {/* Description */}
           <p className="text-base text-slate-400 mt-4 max-w-2xl mx-auto">
             An Experience of Value and solution to possible HR realities.
           </p>
 
-          {/* CTA Buttons - Sky Blue Primary */}
           <div className="flex flex-wrap gap-4 justify-center mt-8">
             <a href="/jobs" className="btn-primary">
               Browse Jobs
@@ -56,7 +50,7 @@ export default function HeroSection() {
           </div>
         </motion.div>
 
-        {/* Stats Cards - Centered Grid */}
+        {/* Stats Cards - Centered */}
         <div ref={ref} className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-16 max-w-3xl mx-auto">
           {[
             { value: 98, suffix: '%', label: 'CONFIDENCE', desc: 'Task Execution Success Rate' },
