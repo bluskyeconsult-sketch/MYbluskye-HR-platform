@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
-
+import UsageMeter from './pages/admin/UsageMeter';
+<Route path="/admin/usage" element={<AnimatedPage><UsageMeter /></AnimatedPage>} />
 // Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
