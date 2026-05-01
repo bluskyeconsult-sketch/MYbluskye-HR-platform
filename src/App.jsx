@@ -11,7 +11,10 @@ import PremiumTermsPopup from './components/PremiumTermsPopup';
 import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
+import TermsPopup from './components/TermsPopup';
 
+// Inside AppContent, add before closing </BrowserRouter>
+<TermsPopup />
 // Pages - Public
 import HomePage from './pages/HomePage';
 import AdminLogin from './pages/AdminLogin';
