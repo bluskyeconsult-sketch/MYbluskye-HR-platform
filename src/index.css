@@ -76,3 +76,24 @@
   0% { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
+
+/* ============================================
+   MARQUEE ANIMATION FOR SCROLLING BANNER
+   ============================================ */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+  display: inline-block;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
