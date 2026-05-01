@@ -11,6 +11,7 @@ import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
+import ScrollingBanner from './components/ScrollingBanner';
 
 // Pages - Public
 import HomePage from './pages/HomePage';
@@ -117,64 +118,69 @@ function AppContent() {
   return (
     <>
       <Navbar />
-      <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname}>
-          {/* Public Routes */}
-          <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
-          <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
-          <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
-          <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-          <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
-          <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
-          <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
-          <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
-          <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
-          <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
-          <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
-          <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-          <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+      <ScrollingBanner />
+      <main className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <AnimatePresence mode="wait">
+            <Routes location={location} key={location.pathname}>
+              {/* Public Routes */}
+              <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+              <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+              <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+              <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+              <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+              <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+              <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+              <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+              <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+              <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+              <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+              <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+              <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-          {/* Assessment Routes */}
-          <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-          <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
-          <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+              {/* Assessment Routes */}
+              <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+              <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+              <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
-          {/* Tester Routes */}
-          <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
-          <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
-          <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
+              {/* Tester Routes */}
+              <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
+              <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
+              <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
 
-          {/* User Routes */}
-          <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
-          <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
-          <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
-          <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
-          <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
-          <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
-          <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
-          <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
-          <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
+              {/* User Routes */}
+              <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
+              <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
+              <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
+              <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
+              <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
+              <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+              <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
+              <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
+              <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
 
-          {/* Employer Routes */}
-          <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
+              {/* Employer Routes */}
+              <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
-          {/* Admin Routes */}
-          <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
-          <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
-          <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
-          <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
+              {/* Admin Routes */}
+              <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
+              <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
+              <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
+              <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
 
-          {/* Legal Routes */}
-          <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
-          <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
-          <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
-          <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
-          <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+              {/* Legal Routes */}
+              <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+              <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+              <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+              <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+              <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
 
-          {/* 404 Fallback Route - MUST BE LAST */}
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </AnimatePresence>
+              {/* 404 Fallback Route - MUST BE LAST */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </AnimatePresence>
+        </div>
+      </main>
       <Footer />
       <PremiumTermsPopup userId={user?.id} />
       <CookieConsent />
