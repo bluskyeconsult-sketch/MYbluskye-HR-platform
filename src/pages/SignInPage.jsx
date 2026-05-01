@@ -18,13 +18,29 @@ export default function SignInPage() {
     setLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      navigate('/dashboard');
+    } else if (data.user) {
+      // Get user profile to determine redirect
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type, tier')
+        .eq('id', data.user.id)
+        .single();
+      
+      // Role-based redirect
+      if (profile?.user_type === 'admin' || profile?.user_type === 'super_admin') {
+        navigate('/admin/dashboard');
+      } else if (profile?.user_type === 'employer' || profile?.user_type === 'business') {
+        navigate('/employer/dashboard');
+      } else if (profile?.user_type === 'tester') {
+        navigate('/tester/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
     }
   }
 
@@ -45,10 +61,18 @@ export default function SignInPage() {
             <label className="block text-sm font-medium text-slate-300 mb-1">Password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-emerald-500" required />
           </div>
-          <button type="submit" disabled={loading} className="w-full py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50">{loading ? 'Signing in...' : 'Sign In'}</button>
+          <button type="submit" disabled={loading} className="w-full py-3 bg-primary-500 text-white font-semibold rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50">
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
         </form>
         
-        <p className="text-center text-slate-400 text-sm mt-6">Don't have an account? <Link to="/sign-up" className="text-emerald-400 hover:underline">Sign Up</Link></p>
+        <div className="text-center mt-4">
+          <Link to="/forgot-password" className="text-sm text-slate-400 hover:text-white">Forgot password?</Link>
+        </div>
+        
+        <p className="text-center text-slate-400 text-sm mt-6">
+          Don't have an account? <Link to="/sign-up" className="text-emerald-400 hover:underline">Sign Up</Link>
+        </p>
       </div>
     </div>
   );
