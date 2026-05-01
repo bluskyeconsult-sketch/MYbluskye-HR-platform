@@ -9,7 +9,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
   
-  /* Mobile font size adjustment */
   @media (max-width: 640px) {
     html {
       font-size: 17px;
@@ -25,7 +24,6 @@
     letter-spacing: -0.01em;
   }
   
-  /* Headings - responsive sizes */
   h1 {
     @apply text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold;
     letter-spacing: -0.02em;
@@ -43,39 +41,21 @@
     letter-spacing: -0.01em;
   }
   
-  /* Paragraphs - larger on mobile for readability */
   p, li, .prose-text {
     font-size: 1rem;
     line-height: 1.7;
     color: #cbd5e1;
   }
   
-  @media (max-width: 640px) {
-    p, li, .prose-text {
-      font-size: 1rem;
-      line-height: 1.65;
-    }
-  }
-  
-  /* Form inputs - larger touch targets on mobile */
   input, textarea, select {
     @apply text-base py-3 px-4;
-    font-size: 16px; /* Prevents zoom on iOS */
+    font-size: 16px;
     background-color: #1e293b;
     border: 1px solid #334155;
     border-radius: 0.75rem;
     color: white;
   }
   
-  @media (max-width: 640px) {
-    input, textarea, select {
-      font-size: 16px;
-      padding-top: 0.875rem;
-      padding-bottom: 0.875rem;
-    }
-  }
-  
-  /* Buttons - larger touch targets */
   button, .btn {
     @apply text-base font-semibold px-5 py-3 rounded-xl transition-all duration-200;
     min-height: 48px;
@@ -120,7 +100,6 @@
   }
 }
 
-/* Marquee Animation */
 @keyframes marquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
