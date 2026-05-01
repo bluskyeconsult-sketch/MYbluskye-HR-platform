@@ -20,7 +20,6 @@ export default function ScrollingBanner() {
     "🎓 Take free assessments to discover your strengths",
   ];
 
-  // Duplicate for seamless loop
   const scrollingAnnouncements = [...announcements, ...announcements];
 
   function handleDismiss() {
@@ -34,22 +33,22 @@ export default function ScrollingBanner() {
   return (
     <div className="sticky top-0 z-50 bg-gradient-to-r from-primary-900/50 to-primary-800/30 border-b border-primary-500/20 overflow-hidden">
       <div className="relative">
-        <div className="animate-marquee whitespace-nowrap py-2.5">
+        <div className="animate-marquee whitespace-nowrap py-2.5 sm:py-3">
           {scrollingAnnouncements.map((text, idx) => (
-            <span key={idx} className="inline-flex items-center gap-2 mx-6 text-sm text-slate-300">
-              <span className="text-lg">{text.charAt(0)}</span>
-              {text}
-              <span className="text-slate-500 mx-2">•</span>
+            <span key={idx} className="inline-flex items-center gap-2 mx-4 sm:mx-6 text-xs sm:text-sm text-slate-300">
+              <span className="text-base sm:text-lg">{text.charAt(0)}</span>
+              <span className="truncate max-w-[200px] sm:max-w-none">{text}</span>
+              <span className="text-slate-500 mx-1 sm:mx-2">•</span>
             </span>
           ))}
         </div>
         
         <button 
           onClick={handleDismiss} 
-          className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition-colors z-10 bg-slate-900/50 rounded-full p-1 backdrop-blur-sm"
+          className="absolute right-2 sm:right-4 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition-colors z-10 bg-slate-900/50 rounded-full p-1 backdrop-blur-sm"
           aria-label="Close announcements"
         >
-          <X className="w-4 h-4" />
+          <X className="w-3 h-3 sm:w-4 sm:h-4" />
         </button>
       </div>
     </div>
