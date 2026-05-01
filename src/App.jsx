@@ -64,6 +64,7 @@ import AffiliateManagement from './pages/admin/AffiliateManagement';
 import ArticleEditor from './pages/admin/ArticleEditor';
 import AdminArticles from './pages/admin/AdminArticles';
 import TesterVisibilitySettings from './pages/admin/TesterVisibilitySettings';
+import TestingModeSettings from './pages/admin/TestingModeSettings';
 
 // Pages - Legal
 import TermsPage from './pages/legal/TermsPage';
@@ -183,6 +184,7 @@ function AppContent() {
                 <Route path="/admin/articles/new" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
                 <Route path="/admin/articles/:id" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
                 <Route path="/admin/settings/tester-visibility" element={<AnimatedPage><TesterVisibilitySettings /></AnimatedPage>} />
+                <Route path="/admin/testing-mode" element={<AnimatedPage><TestingModeSettings /></AnimatedPage>} />
 
                 {/* Legal Routes */}
                 <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
