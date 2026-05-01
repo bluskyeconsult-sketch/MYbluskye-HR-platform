@@ -37,7 +37,6 @@ export default function UnifiedAuthButtons({ user, onLogout }) {
 
     return (
         <div className="flex items-center gap-2">
-            {/* Tester Dropdown */}
             <div className="relative">
                 <button
                     onClick={() => setTesterOpen(!testerOpen)}
@@ -55,7 +54,6 @@ export default function UnifiedAuthButtons({ user, onLogout }) {
                 )}
             </div>
 
-            {/* Sign In / Sign Up */}
             <Link to="/sign-in" className="px-4 py-2 text-sm text-slate-300 hover:text-white transition-colors">
                 Sign In
             </Link>
