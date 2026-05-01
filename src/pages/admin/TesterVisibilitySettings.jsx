@@ -11,7 +11,7 @@ export default function TesterVisibilitySettings() {
         show_login_button: false,
         show_register_button: false,
         show_footer_link: false,
-        registration_mode: 'invite_only', // 'hidden', 'invite_only', 'public'
+        registration_mode: 'invite_only',
         allow_public_registration: false,
         require_invite_code: true
     });
@@ -231,7 +231,6 @@ export default function TesterVisibilitySettings() {
                 </div>
             </div>
             
-            {/* Info Box */}
             <div className="mt-6 p-4 bg-primary-500/10 border border-primary-500/20 rounded-lg">
                 <p className="text-sm text-primary-400">
                     💡 <strong>Note:</strong> When Registration Mode is set to "Invite Only" or "Public", 
