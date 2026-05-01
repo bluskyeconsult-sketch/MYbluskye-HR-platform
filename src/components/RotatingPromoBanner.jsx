@@ -98,62 +98,60 @@ export default function RotatingPromoBanner() {
     const currentItem = promoItems[currentIndex];
 
     return (
-        <div className="w-full bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800">
-            <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="w-full bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 py-4">
+            <div className="max-w-4xl mx-auto px-4">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentItem.id}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 15 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.4, ease: "easeOut" }}
-                        className={`relative overflow-hidden rounded-xl bg-gradient-to-r ${currentItem.color} border ${currentItem.borderColor} p-5`}
+                        exit={{ opacity: 0, y: -15 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                        className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${currentItem.color} border ${currentItem.borderColor} p-6 shadow-xl`}
                     >
                         {/* Background decoration */}
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
+                        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-white/10 to-transparent rounded-full blur-2xl" />
+                        <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-tr from-white/5 to-transparent rounded-full blur-2xl" />
                         
-                        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                            <div className="flex items-start gap-4 flex-1">
-                                <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-slate-900/50 flex items-center justify-center">
-                                    <currentItem.icon className={`w-6 h-6 ${currentItem.textColor}`} />
+                        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                            <div className="flex items-center gap-5 flex-1">
+                                <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-slate-900/80 flex items-center justify-center shadow-lg">
+                                    <currentItem.icon className={`w-7 h-7 ${currentItem.textColor}`} />
                                 </div>
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <h3 className="text-lg font-bold text-white">{currentItem.title}</h3>
+                                <div className="flex-1 text-center md:text-left">
+                                    <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
+                                        <h3 className="text-xl md:text-2xl font-bold text-white">{currentItem.title}</h3>
                                         <span className={`text-xs px-2 py-0.5 rounded-full ${currentItem.badgeColor} text-white font-medium`}>
                                             {currentItem.badge}
                                         </span>
                                     </div>
-                                    <p className="text-slate-300 text-sm md:text-base">{currentItem.description}</p>
+                                    <p className="text-slate-300 text-base md:text-lg">{currentItem.description}</p>
                                 </div>
                             </div>
                             <a
                                 href={currentItem.link}
-                                className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-slate-900/80 hover:bg-slate-800 rounded-lg text-sm font-medium text-white transition-all hover:gap-3 group"
+                                className="flex-shrink-0 flex items-center gap-2 px-5 py-3 bg-slate-900/80 hover:bg-slate-800 rounded-xl text-sm font-semibold text-white transition-all hover:gap-3 group shadow-md"
                             >
                                 {currentItem.cta}
-                                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                             </a>
                         </div>
 
                         {/* Progress bar */}
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-800">
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-800/50">
                             <motion.div
                                 key={currentItem.id}
                                 className={`h-full rounded-full ${currentItem.textColor.replace('text-', 'bg-')}`}
                                 initial={{ width: "0%" }}
                                 animate={{ width: "100%" }}
                                 transition={{ duration: 8, ease: "linear" }}
-                                onAnimationComplete={() => {
-                                    // Progress bar complete, next item will trigger via interval
-                                }}
                             />
                         </div>
                     </motion.div>
                 </AnimatePresence>
 
                 {/* Dot indicators */}
-                <div className="flex justify-center gap-2 mt-3">
+                <div className="flex justify-center gap-2 mt-4">
                     {promoItems.map((item, idx) => (
                         <button
                             key={item.id}
@@ -163,7 +161,7 @@ export default function RotatingPromoBanner() {
                             }}
                             className={`transition-all duration-300 rounded-full ${
                                 idx === currentIndex 
-                                    ? `w-6 h-1.5 ${item.textColor.replace('text-', 'bg-')}` 
+                                    ? `w-8 h-1.5 ${item.textColor.replace('text-', 'bg-')}` 
                                     : 'w-1.5 h-1.5 bg-slate-600 hover:bg-slate-500'
                             }`}
                         />
