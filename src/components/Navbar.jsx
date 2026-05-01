@@ -41,13 +41,14 @@ export default function Navbar() {
     navigate('/');
   };
 
-  // Main navigation - BOLD and VISIBLE
+  // Main navigation - BOLD and VISIBLE with Assessments added
   const navLinks = [
     { name: 'Home', path: '/', bold: true },
     { name: 'Jobs', path: '/jobs', bold: true },
     { name: 'Workforce', path: '/workforce', bold: true },
     { name: 'Courses', path: '/courses', bold: true },
     { name: 'Books', path: '/books', bold: true },
+    { name: 'Assessments', path: '/assessments', bold: true },  // ADDED HERE
     { name: 'Newsletter', path: '/newsletter', bold: true },
     { name: 'Hire VA', path: '/hire-va', bold: true, highlight: true },
   ];
@@ -61,13 +62,13 @@ export default function Navbar() {
     { name: 'Company Profile', path: '/company-profile' },
   ];
 
-  // Resources dropdown - Affiliate moved INSIDE here
+  // Resources dropdown - Affiliate inside here
   const resourcesLinks = [
     { name: 'About', path: '/about' },
     { name: 'Contact', path: '/contact' },
     { name: 'Pricing', path: '/pricing' },
     { name: 'Blog', path: '/blog' },
-    { name: 'Affiliate', path: '/affiliate' },  // MOVED HERE
+    { name: 'Affiliate', path: '/affiliate' },
   ];
 
   const isEmployer = profile?.user_type === 'employer' || profile?.user_type === 'business';
@@ -108,7 +109,7 @@ export default function Navbar() {
               </Link>
             ))}
 
-            {/* Resources Dropdown - NOW INCLUDES AFFILIATE */}
+            {/* Resources Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setResourcesOpen(!resourcesOpen)}
