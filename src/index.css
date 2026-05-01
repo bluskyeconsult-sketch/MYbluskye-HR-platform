@@ -17,17 +17,17 @@
 }
 
 @layer components {
-  /* Primary Button - Sky Blue */
+  /* Primary Button - Sky Blue (Main CTA) */
   .btn-primary {
-    @apply bg-primary-500 text-white px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-600 hover:shadow-lg hover:shadow-primary-500/25;
+    @apply bg-primary-500 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-600 hover:shadow-lg hover:shadow-primary-500/25;
   }
   
   /* Secondary Button - Slate */
   .btn-secondary {
-    @apply bg-secondary text-slate-200 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-secondary-light;
+    @apply bg-secondary text-slate-200 px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:bg-secondary-light;
   }
   
-  /* Success/Accept Button - Emerald (Only for accept actions) */
+  /* Success/Accept Button - Emerald (Only for Accept/Confirm actions) */
   .btn-success {
     @apply bg-success text-white px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-success-dark;
   }
@@ -39,7 +39,7 @@
   
   /* Outline Button */
   .btn-outline {
-    @apply border border-primary-500 text-primary-500 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-500/10;
+    @apply border border-primary-500 text-primary-500 px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-500/10;
   }
   
   /* Cards */
@@ -50,4 +50,19 @@
   .card:hover {
     @apply border-primary-500/30 shadow-lg shadow-primary-500/5;
   }
+}
+
+/* Marquee Animation for Sticky Banner */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+  display: inline-block;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
 }
