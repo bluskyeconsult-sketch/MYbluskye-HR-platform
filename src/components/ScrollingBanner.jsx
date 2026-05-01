@@ -15,18 +15,13 @@ export default function ScrollingBanner() {
     { icon: "📢", text: "New jobs added daily from 7 countries" },
     { icon: "🤖", text: "AI-powered CV matching now available" },
     { icon: "📚", text: "New courses and books added weekly" },
-    { icon: "💡", text: "Contact ODUSBABA for any assistance - We're here to help" }
+    { icon: "💡", text: "Contact ODUSBABA for any assistance - We're here to help" },
+    { icon: "⭐", text: "Registered users get FREE unlimited job applications!" },
+    { icon: "🎓", text: "Take free assessments to discover your strengths" },
   ];
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    if (dismissed) return;
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % announcements.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [dismissed]);
+  // Duplicate announcements for seamless loop
+  const scrollingAnnouncements = [...announcements, ...announcements];
 
   function handleDismiss() {
     localStorage.setItem('banner-dismissed', 'true');
@@ -37,27 +32,26 @@ export default function ScrollingBanner() {
   if (!isVisible || dismissed) return null;
 
   return (
-    <div className="bg-gradient-to-r from-sky-900/30 to-emerald-900/30 border-b border-sky-500/20">
-      <div className="max-w-7xl mx-auto px-4 py-2.5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-1 overflow-hidden">
-            <Bell className="w-4 h-4 text-sky-400 flex-shrink-0" />
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{announcements[currentIndex].icon}</span>
-              <p className="text-sm text-slate-300 font-medium truncate">
-                {announcements[currentIndex].text}
-              </p>
-            </div>
-            <ChevronRight className="w-3 h-3 text-slate-500 animate-pulse flex-shrink-0" />
-          </div>
-          <button 
-            onClick={handleDismiss} 
-            className="text-slate-400 hover:text-white transition-colors flex-shrink-0 p-1 rounded-lg hover:bg-slate-800"
-            aria-label="Close announcements"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <div className="bg-gradient-to-r from-sky-900/30 to-emerald-900/30 border-b border-sky-500/20 overflow-hidden">
+      <div className="relative">
+        <div className="animate-marquee whitespace-nowrap py-2.5">
+          {scrollingAnnouncements.map((announcement, idx) => (
+            <span key={idx} className="inline-flex items-center gap-2 mx-6 text-sm text-slate-300">
+              <span className="text-lg">{announcement.icon}</span>
+              {announcement.text}
+              <span className="text-slate-500 mx-2">•</span>
+            </span>
+          ))}
         </div>
+        
+        {/* Dismiss button */}
+        <button 
+          onClick={handleDismiss} 
+          className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition-colors z-10 bg-slate-900/50 rounded-full p-1 backdrop-blur-sm"
+          aria-label="Close announcements"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );
