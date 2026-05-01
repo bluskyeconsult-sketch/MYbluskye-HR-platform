@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { MessageCircle, X, Send, Sparkles, Briefcase, FileText, BookOpen, TrendingUp, Users, Zap } from 'lucide-react';
+import { MessageCircle, X, Send, Sparkles, Briefcase, FileText, BookOpen, TrendingUp, Users, Zap, Rocket, Gift, Star } from 'lucide-react';
 import { getRemainingChatCredits, recordChatUsage, getAIResponse, escalateToAdmin } from '../services/odusbabaChatService';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -17,9 +17,11 @@ export default function ODUSBABAChat() {
     const [remainingCredits, setRemainingCredits] = useState(null);
     const [conversationId, setConversationId] = useState(null);
     const [guestMessageCount, setGuestMessageCount] = useState(0);
+    const [messageCount, setMessageCount] = useState(0);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const GUEST_LIMIT = 5;
+    const CTA_INTERVAL = 2; // Show CTA after every 2 messages
 
     useEffect(() => {
         checkAuth();
@@ -93,6 +95,7 @@ export default function ODUSBABAChat() {
             
             if (msgs && msgs.length > 0) {
                 setMessages(msgs);
+                setMessageCount(msgs.filter(m => m.sender === 'user').length);
             } else {
                 const welcomeMsg = {
                     id: 'welcome',
@@ -105,7 +108,84 @@ export default function ODUSBABAChat() {
         }
     }
 
-    // ENHANCED GUEST RESPONSE FUNCTION
+    // Generate contextual CTA based on user's conversation
+    function getContextualCTA() {
+        const lastUserMessage = [...messages].reverse().find(m => m.sender === 'user')?.message || '';
+        const lowerLastMessage = lastUserMessage.toLowerCase();
+        
+        // Job-related conversations
+        if (lowerLastMessage.includes('job') || lowerLastMessage.includes('work') || lowerLastMessage.includes('position')) {
+            return {
+                title: "🎯 Find Your Dream Job Faster",
+                description: "Sign up to get personalized job matches delivered to your inbox!",
+                cta: "Create Free Account",
+                link: "/sign-up",
+                icon: <Briefcase className="w-5 h-5" />
+            };
+        }
+        
+        // CV-related conversations
+        if (lowerLastMessage.includes('cv') || lowerLastMessage.includes('resume')) {
+            return {
+                title: "📄 Get Your CV Analyzed by AI",
+                description: "Upload your CV and get instant feedback, skill extraction, and job matching!",
+                cta: "Upload CV Now",
+                link: "/sign-up",
+                icon: <FileText className="w-5 h-5" />
+            };
+        }
+        
+        // Interview-related conversations
+        if (lowerLastMessage.includes('interview') || lowerLastMessage.includes('prepare')) {
+            return {
+                title: "🎯 Ace Your Next Interview",
+                description: "Get access to 100+ interview questions and practice with our AI coach!",
+                cta: "Start Practicing",
+                link: "/sign-up",
+                icon: <Users className="w-5 h-5" />
+            };
+        }
+        
+        // Salary-related conversations
+        if (lowerLastMessage.includes('salary') || lowerLastMessage.includes('negotiate')) {
+            return {
+                title: "💰 Know Your Worth",
+                description: "Get salary insights and negotiation scripts tailored to your role and location!",
+                cta: "Get Salary Data",
+                link: "/sign-up",
+                icon: <TrendingUp className="w-5 h-5" />
+            };
+        }
+        
+        // Skill-related conversations
+        if (lowerLastMessage.includes('skill') || lowerLastMessage.includes('learn')) {
+            return {
+                title: "📚 Level Up Your Skills",
+                description: "Discover personalized course recommendations based on your career goals!",
+                cta: "Explore Courses",
+                link: "/courses",
+                icon: <BookOpen className="w-5 h-5" />
+            };
+        }
+        
+        // Default CTA
+        return {
+            title: "✨ Unlock Full AI Features",
+            description: "Sign up for free to get unlimited chat, CV analysis, and personalized job matching!",
+            cta: "Get Started Free",
+            link: "/sign-up",
+            icon: <Rocket className="w-5 h-5" />
+        };
+    }
+
+    // Show CTA after every 2 messages
+    function shouldShowCTA() {
+        if (user) return false; // No CTA for logged-in users
+        if (messageCount === 0) return false;
+        return messageCount % CTA_INTERVAL === 0;
+    }
+
+    // Enhanced guest response function
     function getEnhancedGuestResponse(input) {
         const lowerInput = input.toLowerCase();
         
@@ -554,6 +634,10 @@ Thank you for trying ODUSBABA!`,
             setInput('');
             setLoading(true);
             
+            // Increment message count for CTA trigger
+            const newMessageCount = messageCount + 1;
+            setMessageCount(newMessageCount);
+            
             const enhancedResponse = getEnhancedGuestResponse(input);
             
             const botMsg = {
@@ -563,9 +647,29 @@ Thank you for trying ODUSBABA!`,
                 created_at: new Date().toISOString()
             };
             setMessages(prev => [...prev, botMsg]);
+            
             const newCount = guestMessageCount + 1;
             setGuestMessageCount(newCount);
             localStorage.setItem('guest-chat-count', newCount.toString());
+            
+            // Show CTA after every 2 messages
+            if (newMessageCount % CTA_INTERVAL === 0) {
+                const cta = getContextualCTA();
+                const ctaMsg = {
+                    id: Date.now() + 2,
+                    sender: 'odusbaba',
+                    message: `✨ **${cta.title}**
+
+${cta.description}
+
+👉 [${cta.cta}](${cta.link})
+
+*This message appears after every 2 messages to help you get the most out of ODUSBABA.*`,
+                    created_at: new Date().toISOString()
+                };
+                setMessages(prev => [...prev, ctaMsg]);
+            }
+            
             setLoading(false);
             return;
         }
@@ -694,6 +798,8 @@ Please try again in a moment. If the problem persists, please contact support at
         }
     }
 
+    const showCTA = shouldShowCTA();
+
     return (
         <>
             {/* Chat Button */}
@@ -752,7 +858,9 @@ Please try again in a moment. If the problem persists, please contact support at
                                     className={`max-w-[85%] rounded-2xl px-4 py-2 ${
                                         msg.sender === 'user'
                                             ? 'bg-primary-500 text-white rounded-br-sm'
-                                            : 'bg-slate-800 text-slate-200 rounded-bl-sm'
+                                            : msg.message.includes('✨') && msg.message.includes('unlock')
+                                                ? 'bg-gradient-to-r from-purple-600/30 to-primary-600/30 border border-purple-500/30 text-slate-200 rounded-bl-sm'
+                                                : 'bg-slate-800 text-slate-200 rounded-bl-sm'
                                     }`}
                                 >
                                     <div className="text-sm whitespace-pre-wrap">{msg.message}</div>
