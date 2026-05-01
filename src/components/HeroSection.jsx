@@ -12,7 +12,20 @@ export default function HeroSection() {
     { icon: Users, value: 24, suffix: '/7', label: 'AVAILABILITY', description: 'Always-on AI Assistance' },
     { icon: Award, value: 10, suffix: 'k+', label: 'IMPACT', description: 'Documents Generated Globally' }
   ];
+// Before: bg-emerald-600
+// After: bg-primary-500
 
+<div className="flex flex-wrap gap-4 justify-center mt-8">
+  <a href="/jobs" className="btn-primary">
+    Browse Jobs
+  </a>
+  <a href="/workforce" className="btn-secondary">
+    Workforce Market
+  </a>
+  <a href="/contact" className="btn-outline">
+    Contact ODUSBABA
+  </a>
+</div>
   return (
     <section className="relative overflow-hidden min-h-[90vh] flex items-center">
       {/* Animated Background */}
