@@ -41,14 +41,14 @@ export default function Navbar() {
     navigate('/');
   };
 
-  // Main navigation - BOLD and VISIBLE with Assessments added
+  // Main navigation with BORDER styling for better visibility
   const navLinks = [
     { name: 'Home', path: '/', bold: true },
     { name: 'Jobs', path: '/jobs', bold: true },
     { name: 'Workforce', path: '/workforce', bold: true },
     { name: 'Courses', path: '/courses', bold: true },
     { name: 'Books', path: '/books', bold: true },
-    { name: 'Assessments', path: '/assessments', bold: true },  // ADDED HERE
+    { name: 'Assessments', path: '/assessments', bold: true },
     { name: 'Newsletter', path: '/newsletter', bold: true },
     { name: 'Hire VA', path: '/hire-va', bold: true, highlight: true },
   ];
@@ -62,7 +62,6 @@ export default function Navbar() {
     { name: 'Company Profile', path: '/company-profile' },
   ];
 
-  // Resources dropdown - Affiliate inside here
   const resourcesLinks = [
     { name: 'About', path: '/about' },
     { name: 'Contact', path: '/contact' },
@@ -79,16 +78,16 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           <Link to="/" className="flex-shrink-0"><Logo /></Link>
 
-          {/* Desktop Navigation - BOLD FONTS */}
+          {/* Desktop Navigation - WITH BORDERS */}
           <div className="hidden md:flex items-center space-x-1">
             {navLinks.map((link) => (
               <Link
                 key={link.name}
                 to={link.path}
-                className={`px-3 py-2 rounded-lg text-sm font-bold tracking-wide transition-colors ${
+                className={`px-3 py-2 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 border ${
                   link.highlight 
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
-                    : 'text-slate-200 hover:text-white hover:bg-slate-800'
+                    ? 'bg-primary-500 text-white border-primary-400 hover:bg-primary-600' 
+                    : 'border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-slate-600'
                 }`}
               >
                 {link.name}
@@ -97,23 +96,31 @@ export default function Navbar() {
             
             {/* User-specific links */}
             {user && userLinks.map((link) => (
-              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800 transition-colors">
+              <Link 
+                key={link.name} 
+                to={link.path} 
+                className="px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-slate-600 transition-all duration-200"
+              >
                 {link.name}
               </Link>
             ))}
             
             {/* Employer-specific links */}
             {isEmployer && employerLinks.map((link) => (
-              <Link key={link.name} to={link.path} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800 transition-colors">
+              <Link 
+                key={link.name} 
+                to={link.path} 
+                className="px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-slate-600 transition-all duration-200"
+              >
                 {link.name}
               </Link>
             ))}
 
-            {/* Resources Dropdown */}
+            {/* Resources Dropdown - WITH BORDER */}
             <div className="relative">
               <button
                 onClick={() => setResourcesOpen(!resourcesOpen)}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold tracking-wide text-slate-200 hover:text-white hover:bg-slate-800 transition-colors"
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold tracking-wide border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-slate-600 transition-all duration-200"
               >
                 Resources <ChevronDown className={`w-4 h-4 transition-transform ${resourcesOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -124,7 +131,7 @@ export default function Navbar() {
                       key={link.name}
                       to={link.path}
                       onClick={() => setResourcesOpen(false)}
-                      className="block px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+                      className="block px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white border-b border-slate-700 last:border-b-0"
                     >
                       {link.name}
                     </Link>
@@ -140,12 +147,12 @@ export default function Navbar() {
           </div>
 
           {/* Mobile menu button */}
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800">
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700">
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
 
-        {/* Mobile Navigation */}
+        {/* Mobile Navigation - WITH BORDERS */}
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-slate-800">
             <div className="flex flex-col space-y-2">
@@ -154,28 +161,43 @@ export default function Navbar() {
                   key={link.name}
                   to={link.path}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`px-3 py-2 rounded-lg text-sm font-bold tracking-wide ${
+                  className={`px-3 py-2 rounded-lg text-sm font-bold border ${
                     link.highlight 
-                      ? 'bg-emerald-600 text-white text-center' 
-                      : 'text-slate-200 hover:text-white hover:bg-slate-800'
+                      ? 'bg-primary-500 text-white border-primary-400 text-center' 
+                      : 'border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800'
                   }`}
                 >
                   {link.name}
                 </Link>
               ))}
               {user && userLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800">
+                <Link 
+                  key={link.name} 
+                  to={link.path} 
+                  onClick={() => setMobileMenuOpen(false)} 
+                  className="px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800"
+                >
                   {link.name}
                 </Link>
               ))}
               {isEmployer && employerLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-200 hover:text-white hover:bg-slate-800">
+                <Link 
+                  key={link.name} 
+                  to={link.path} 
+                  onClick={() => setMobileMenuOpen(false)} 
+                  className="px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800"
+                >
                   {link.name}
                 </Link>
               ))}
-              <div className="px-3 py-2 text-sm font-bold text-slate-400">Resources</div>
+              <div className="px-3 py-2 text-sm font-bold text-slate-400 border-b border-slate-700">Resources</div>
               {resourcesLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="pl-8 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                <Link 
+                  key={link.name} 
+                  to={link.path} 
+                  onClick={() => setMobileMenuOpen(false)} 
+                  className="pl-6 px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800"
+                >
                   {link.name}
                 </Link>
               ))}
