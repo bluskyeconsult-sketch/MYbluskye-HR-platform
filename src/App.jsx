@@ -33,6 +33,10 @@ import AssessmentsPage from './pages/AssessmentsPage';
 import TakeAssessment from './pages/TakeAssessment';
 import AssessmentResults from './pages/AssessmentResults';
 
+// Pages - Articles & Blog
+import ArticlesPage from './pages/ArticlesPage';
+import ArticleDetail from './pages/ArticleDetail';
+
 // Pages - Tester
 import TesterLoginPage from './pages/tester/TesterLoginPage';
 import TesterRegisterPage from './pages/tester/TesterRegisterPage';
@@ -57,6 +61,8 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import CountryManagement from './pages/admin/super/CountryManagement';
 import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
 import AffiliateManagement from './pages/admin/AffiliateManagement';
+import ArticleEditor from './pages/admin/ArticleEditor';
+import AdminArticles from './pages/admin/AdminArticles';
 
 // Pages - Legal
 import TermsPage from './pages/legal/TermsPage';
@@ -69,6 +75,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Animation wrapper for page transitions
 function AnimatedPage({ children }) {
   return (
     <motion.div
@@ -82,6 +89,7 @@ function AnimatedPage({ children }) {
   );
 }
 
+// 404 Page Component
 function NotFoundPage() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -122,6 +130,7 @@ function AppContent() {
           <div className="max-w-7xl mx-auto">
             <AnimatePresence mode="wait">
               <Routes location={location} key={location.pathname}>
+                {/* Public Routes */}
                 <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                 <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                 <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
@@ -135,12 +144,22 @@ function AppContent() {
                 <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+                {/* Assessment Routes */}
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                 <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
                 <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+
+                {/* Article Routes */}
+                <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
+
+                {/* Tester Routes */}
                 <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
                 <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
                 <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
+
+                {/* User Routes */}
                 <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
                 <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
                 <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
@@ -150,16 +169,27 @@ function AppContent() {
                 <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
                 <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
                 <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
+
+                {/* Employer Routes */}
                 <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
+
+                {/* Admin Routes */}
                 <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                 <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
                 <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
                 <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
+                <Route path="/admin/articles" element={<AnimatedPage><AdminArticles /></AnimatedPage>} />
+                <Route path="/admin/articles/new" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+                <Route path="/admin/articles/:id" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+
+                {/* Legal Routes */}
                 <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
                 <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
                 <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
                 <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
                 <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+
+                {/* 404 Fallback Route - MUST BE LAST */}
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </AnimatePresence>
