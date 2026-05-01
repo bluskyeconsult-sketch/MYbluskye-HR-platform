@@ -21,10 +21,12 @@ export default function HomePage() {
     <main className="min-h-screen bg-background relative">
       <AnimatedBackground />
       <div className="relative z-10">
-        {/* ROTATING PROMO BANNER - AT THE TOP */}
+        {/* SCROLLING BANNER - MOVED TO TOP */}
+        <ScrollingBanner />
+        
+        {/* ROTATING PROMO BANNER - NOW BELOW SCROLLING BANNER */}
         <RotatingPromoBanner />
         
-        <ScrollingBanner />
         <HeroSection />
         
         {/* AI Governed Workforce Platform Banner */}
