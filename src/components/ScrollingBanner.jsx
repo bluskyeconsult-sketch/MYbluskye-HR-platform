@@ -11,7 +11,7 @@ export default function ScrollingBanner() {
   }, []);
 
   const announcements = [
-    "🎉 Welcome to ODUSBABA - Creating Value for Partnership",
+    "🎉 Welcome to BluSkye Integrated Consult - Creating Value for Partnership",
     "📢 New jobs added daily from 7 countries",
     "🤖 AI-powered CV matching now available",
     "📚 New courses and books added weekly",
@@ -32,7 +32,7 @@ export default function ScrollingBanner() {
   if (!isVisible || dismissed) return null;
 
   return (
-    <div className="sticky top-0 z-40 bg-gradient-to-r from-sky-900/30 to-emerald-900/30 border-b border-sky-500/20 overflow-hidden">
+    <div className="sticky top-0 z-50 bg-gradient-to-r from-primary-900/50 to-primary-800/30 border-b border-primary-500/20 overflow-hidden">
       <div className="relative">
         <div className="animate-marquee whitespace-nowrap py-2.5">
           {scrollingAnnouncements.map((text, idx) => (
