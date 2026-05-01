@@ -28,7 +28,10 @@ export default function HomePage() {
         <RotatingPromoBanner />
         
         <HeroSection />
-        
+        <h1 className="text-5xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent">
+  BluSkye Integrated Consult
+</h1>
+<p className="text-lg text-slate-400 mt-2">powered by <span className="text-emerald-400 font-semibold">ODUSBABA</span> intelligence</p>
         {/* AI Governed Workforce Platform Banner */}
         <section className="py-12 px-6 bg-gradient-to-r from-slate-900/80 to-slate-950/80 backdrop-blur-sm border-y border-slate-800">
           <div className="max-w-4xl mx-auto text-center">
