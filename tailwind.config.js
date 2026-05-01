@@ -10,8 +10,6 @@ export default {
         // Primary brand color - Sky Blue (Trust/Authority)
         primary: {
           DEFAULT: '#0B3C5D',
-          light: '#1a5270',
-          dark: '#082b42',
           50: '#e8f0f5',
           100: '#d1e1eb',
           200: '#a3c3d7',
@@ -29,7 +27,7 @@ export default {
           light: '#374151',
           dark: '#111827',
         },
-        // Success/Accept - Emerald (Keep for approvals only)
+        // Success/Accept - Emerald (ONLY for accept actions)
         success: {
           DEFAULT: '#10B981',
           dark: '#059669',
@@ -44,7 +42,6 @@ export default {
         },
         // Background
         background: '#020617',
-        'background-dark': '#020617',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
