@@ -7,50 +7,47 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Primary brand color - Sky Blue (Trust/Authority)
         primary: {
           DEFAULT: '#0B3C5D',
-          deep: '#0B3C5D',
+          light: '#1a5270',
+          dark: '#082b42',
+          50: '#e8f0f5',
+          100: '#d1e1eb',
+          200: '#a3c3d7',
+          300: '#75a5c3',
+          400: '#4787af',
+          500: '#0B3C5D',
+          600: '#09304a',
+          700: '#072438',
+          800: '#041825',
+          900: '#020c12',
         },
-        slate: {
-          800: '#1F2937',
-          500: '#64748B',
+        // Secondary - Slate (Professional neutral)
+        secondary: {
+          DEFAULT: '#1F2937',
+          light: '#374151',
+          dark: '#111827',
         },
-        emerald: {
-          500: '#10B981',
-          600: '#059669',
+        // Success/Accept - Emerald (Keep for approvals only)
+        success: {
+          DEFAULT: '#10B981',
+          dark: '#059669',
         },
-        sky: {
-          400: '#38BDF8',
+        // Warning - Amber
+        warning: {
+          DEFAULT: '#F59E0B',
         },
-        amber: {
-          500: '#F59E0B',
+        // Danger/Reject - Red
+        danger: {
+          DEFAULT: '#EF4444',
         },
-        red: {
-          500: '#EF4444',
-          600: '#DC2626',
-        },
+        // Background
         background: '#020617',
+        'background-dark': '#020617',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-      },
-      fontSize: {
-        '3xl': ['30px', { lineHeight: '1.2' }],
-        '2xl': ['24px', { lineHeight: '1.3' }],
-        'xl': ['20px', { lineHeight: '1.4' }],
-        'lg': ['18px', { lineHeight: '1.5' }],
-        'base': ['16px', { lineHeight: '1.5' }],
-        'sm': ['14px', { lineHeight: '1.5' }],
-        'xs': ['12px', { lineHeight: '1.5' }],
-      },
-      animation: {
-        'fade-up': 'fadeUp 120ms ease-out',
-      },
-      keyframes: {
-        fadeUp: {
-          '0%': { opacity: '0', transform: 'translateY(4px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
       },
     },
   },
