@@ -19,12 +19,17 @@ import JobsPage from './pages/JobsPage';
 import CoursesPage from './pages/CoursesPage';
 import BooksPage from './pages/BooksPage';
 import NewsletterPage from './pages/NewsletterPage';
+import HireVirtualAssistant from './pages/HireVirtualAssistant';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
 import PricingPage from './pages/PricingPage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
-import HireVirtualAssistant from './pages/HireVirtualAssistant';
+
+// Pages - Assessments
+import AssessmentsPage from './pages/AssessmentsPage';
+import TakeAssessment from './pages/TakeAssessment';
+import AssessmentResults from './pages/AssessmentResults';
 
 // Pages - Tester
 import TesterLoginPage from './pages/tester/TesterLoginPage';
@@ -127,6 +132,11 @@ function AppContent() {
           <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
           <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
           <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+          {/* Assessment Routes */}
+          <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+          <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+          <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
           {/* Tester Routes */}
           <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
