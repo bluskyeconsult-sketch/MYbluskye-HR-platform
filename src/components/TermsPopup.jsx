@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Shield, CheckCircle, X } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -10,7 +10,6 @@ export default function TermsPopup() {
   const [isOpen, setIsOpen] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
 
   useEffect(() => {
     checkUserAndTerms();
@@ -18,7 +17,6 @@ export default function TermsPopup() {
 
   async function checkUserAndTerms() {
     const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
 
     if (user) {
       const { data: profile } = await supabase
@@ -40,10 +38,13 @@ export default function TermsPopup() {
       return;
     }
 
-    await supabase
-      .from('profiles')
-      .update({ terms_accepted_at: new Date().toISOString() })
-      .eq('id', user.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase
+        .from('profiles')
+        .update({ terms_accepted_at: new Date().toISOString() })
+        .eq('id', user.id);
+    }
 
     setIsOpen(false);
   }
@@ -79,7 +80,7 @@ export default function TermsPopup() {
 
           <div>
             <p className="font-semibold text-white">1. Acceptance of Terms</p>
-            <p className="text-slate-400">By accessing or using ODUSBABA, you agree to these Terms of Service.</p>
+            <p className="text-slate-400">By accessing or using this platform, you agree to these Terms of Service.</p>
           </div>
 
           <div>
