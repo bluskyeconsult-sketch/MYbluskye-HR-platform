@@ -2,8 +2,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
-import UsageMeter from './pages/admin/UsageMeter';
-<Route path="/admin/usage" element={<AnimatedPage><UsageMeter /></AnimatedPage>} />
+
 // Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -13,8 +12,6 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 
-// Inside AppContent, add before closing </BrowserRouter>
-<TermsPopup />
 // Pages - Public
 import HomePage from './pages/HomePage';
 import AdminLogin from './pages/AdminLogin';
@@ -93,7 +90,7 @@ function NotFoundPage() {
         <h1 className="text-6xl font-bold text-white mb-4">404</h1>
         <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
         <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
-        <a href="/" className="inline-block px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors">
+        <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
           Go Home
         </a>
       </div>
@@ -187,6 +184,9 @@ function AppContent() {
       
       {/* Brainstorm Partner - Super Admin only */}
       <BrainstormPartner />
+      
+      {/* Terms Pop-up - Legal compliance */}
+      <TermsPopup />
     </>
   );
 }
