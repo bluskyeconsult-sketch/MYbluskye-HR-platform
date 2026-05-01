@@ -156,6 +156,15 @@ export async function getUserCredits(userId) {
     return data?.balance || 0;
 }
 
+// Purchase credits (integrates with Stripe)
+export async function purchaseCredits(userId, amount, packageType) {
+    const creditMap = { basic: 5, standard: 10, premium: 25, business: 50 };
+    const credits = creditMap[packageType] || 5;
+    
+    const result = await supabase.rpc('add_va_credits', { p_user_id: userId, p_amount: credits });
+    return { success: true, newBalance: result, credits };
+}
+
 // Admin: Get all tasks for review
 export async function getAdminReviewTasks() {
     const { data, error } = await supabase
