@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 
@@ -14,7 +14,28 @@ export default function SignUpPage() {
   const [companyName, setCompanyName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [testingMode, setTestingMode] = useState({ 
+    enabled: false, 
+    default_tester_days: 30, 
+    default_tester_uses: 10 
+  });
   const navigate = useNavigate();
+
+  // Load testing mode settings
+  useEffect(() => {
+    async function loadTestingMode() {
+      const { data } = await supabase
+        .from('system_config')
+        .select('config_value')
+        .eq('config_key', 'testing_mode')
+        .single();
+      
+      if (data?.config_value) {
+        setTestingMode(data.config_value);
+      }
+    }
+    loadTestingMode();
+  }, []);
 
   const tiers = [
     { 
@@ -70,16 +91,27 @@ export default function SignUpPage() {
     setError('');
 
     const selected = tiers.find(t => t.id === selectedTier);
-    
+    let userType = selected.userType;
+    let tier = selectedTier;
+    let redirectPath = selected.redirect;
+
+    // TESTING MODE OVERRIDE: All new users become testers
+    if (testingMode.enabled) {
+      userType = 'tester';
+      tier = 'free';
+      redirectPath = '/tester-dashboard';
+    }
+
     const { error, data } = await supabase.auth.signUp({
       email,
       password,
       options: { 
         data: { 
           full_name: fullName, 
-          user_type: selected.userType,
-          tier: selectedTier,
-          company_name: companyName
+          user_type: userType,
+          tier: tier,
+          company_name: companyName,
+          is_tester: testingMode.enabled
         } 
       }
     });
@@ -88,18 +120,32 @@ export default function SignUpPage() {
       setError(error.message);
       setLoading(false);
     } else if (data.user) {
-      // Create company profile for employers
-      if (selectedTier === 'employer' || selectedTier === 'business') {
+      // Create company profile for employers (only if not in testing mode)
+      if (!testingMode.enabled && (selectedTier === 'employer' || selectedTier === 'business')) {
         await supabase.from('company_profiles').insert({
           user_id: data.user.id,
           company_name: companyName || 'My Company'
         });
       }
-      
-      if (selected.requiresPayment) {
-        // Redirect to Stripe checkout
+
+      // TESTING MODE: Create tester allocation
+      if (testingMode.enabled) {
+        const testerExpiry = new Date();
+        testerExpiry.setDate(testerExpiry.getDate() + testingMode.default_tester_days);
+        
+        await supabase.from('tester_allocations').insert({
+          user_id: data.user.id,
+          allocated_uses: testingMode.default_tester_uses,
+          used_uses: 0,
+          remaining_uses: testingMode.default_tester_uses,
+          expires_at: testerExpiry.toISOString(),
+          status: 'active'
+        });
+        
+        alert(`Welcome to the testing phase! Your tester account has been created with ${testingMode.default_tester_uses} uses for ${testingMode.default_tester_days} days.`);
+        navigate('/tester-login');
+      } else if (selected.requiresPayment) {
         alert(`Please complete payment for ${selected.name} plan (${selected.price})`);
-        // In production: window.location.href = '/checkout?tier=' + selectedTier;
         navigate('/pricing');
       } else {
         alert('Account created! Please check your email for confirmation.');
@@ -113,6 +159,15 @@ export default function SignUpPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 w-full max-w-2xl">
         <h1 className="text-2xl font-bold text-white mb-2">Create Account</h1>
+        
+        {testingMode.enabled && (
+          <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mb-4">
+            <p className="text-purple-400 text-sm flex items-center gap-2">
+              🧪 <strong>Testing Mode Active:</strong> You will be registered as a tester with {testingMode.default_tester_uses} free uses for {testingMode.default_tester_days} days.
+            </p>
+          </div>
+        )}
+        
         <p className="text-slate-400 mb-6">Choose the plan that works for you</p>
         
         {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg mb-4 text-sm">{error}</div>}
@@ -135,47 +190,49 @@ export default function SignUpPage() {
             <p className="text-xs text-slate-500 mt-1">Minimum 8 characters</p>
           </div>
           
-          {(selectedTier === 'employer' || selectedTier === 'business') && (
+          {!testingMode.enabled && (selectedTier === 'employer' || selectedTier === 'business') && (
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">Company Name</label>
               <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500" placeholder="Your company name" />
             </div>
           )}
           
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-3">Select your plan</label>
-            <div className="space-y-3">
-              {tiers.map(tier => (
-                <label key={tier.id} className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${
-                  selectedTier === tier.id 
-                    ? 'border-primary-500 bg-primary-500/10' 
-                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
-                }`}>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="radio"
-                      name="tier"
-                      value={tier.id}
-                      checked={selectedTier === tier.id}
-                      onChange={() => setSelectedTier(tier.id)}
-                      className="w-4 h-4 text-primary-500"
-                    />
-                    <div>
-                      <div className="font-semibold text-white">{tier.name}</div>
-                      <div className="text-sm text-slate-400">{tier.description}</div>
+          {!testingMode.enabled && (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-3">Select your plan</label>
+              <div className="space-y-3">
+                {tiers.map(tier => (
+                  <label key={tier.id} className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${
+                    selectedTier === tier.id 
+                      ? 'border-primary-500 bg-primary-500/10' 
+                      : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
+                  }`}>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="radio"
+                        name="tier"
+                        value={tier.id}
+                        checked={selectedTier === tier.id}
+                        onChange={() => setSelectedTier(tier.id)}
+                        className="w-4 h-4 text-primary-500"
+                      />
+                      <div>
+                        <div className="font-semibold text-white">{tier.name}</div>
+                        <div className="text-sm text-slate-400">{tier.description}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-primary-400">{tier.price}</div>
-                    {tier.id === 'business' && <div className="text-xs text-slate-500">5 team accounts</div>}
-                  </div>
-                </label>
-              ))}
+                    <div className="text-right">
+                      <div className="font-bold text-primary-400">{tier.price}</div>
+                      {tier.id === 'business' && <div className="text-xs text-slate-500">5 team accounts</div>}
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           
           <button type="submit" disabled={loading} className="w-full py-3 bg-primary-500 text-white font-semibold rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50">
-            {loading ? 'Creating account...' : 'Sign Up'}
+            {loading ? 'Creating account...' : (testingMode.enabled ? 'Start Testing' : 'Sign Up')}
           </button>
         </form>
         
