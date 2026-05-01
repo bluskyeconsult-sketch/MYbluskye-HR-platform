@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import HeroSection from '../components/HeroSection';
-import ScrollingBanner from '../components/ScrollingBanner';
 import FeaturedResources from '../components/FeaturedResources';
 import CTASection from '../components/CTASection';
 import AnimatedBackground from '../components/AnimatedBackground';
@@ -21,18 +20,10 @@ export default function HomePage() {
     <main className="min-h-screen bg-background relative">
       <AnimatedBackground />
       <div className="relative z-10">
-        {/* SCROLLING BANNER - MOVED TO TOP */}
-        <ScrollingBanner />
-        
-        {/* ROTATING PROMO BANNER - NOW BELOW SCROLLING BANNER */}
         <RotatingPromoBanner />
-        
         <HeroSection />
-        <h1 className="text-5xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent">
-  BluSkye Integrated Consult
-</h1>
-<p className="text-lg text-slate-400 mt-2">powered by <span className="text-emerald-400 font-semibold">ODUSBABA</span> intelligence</p>
-        {/* AI Governed Workforce Platform Banner */}
+        
+        {/* AI Governed Workforce Platform Banner - Centered */}
         <section className="py-12 px-6 bg-gradient-to-r from-slate-900/80 to-slate-950/80 backdrop-blur-sm border-y border-slate-800">
           <div className="max-w-4xl mx-auto text-center">
             <motion.div
@@ -42,8 +33,8 @@ export default function HomePage() {
               viewport={{ once: true }}
               className="flex items-center justify-center gap-2 mb-4"
             >
-              <Brain className="w-8 h-8 text-emerald-400" />
-              <span className="text-emerald-400 font-semibold tracking-wide">AI GOVERNED WORKFORCE PLATFORM</span>
+              <Brain className="w-8 h-8 text-primary-400" />
+              <span className="text-primary-400 font-semibold tracking-wide">AI GOVERNED WORKFORCE PLATFORM</span>
             </motion.div>
             <motion.p
               initial={{ opacity: 0, y: 20 }}
@@ -57,7 +48,7 @@ export default function HomePage() {
           </div>
         </section>
         
-        {/* Features Section */}
+        {/* Features Section - Centered Grid */}
         <section className="py-20 px-6">
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-12">
@@ -81,7 +72,7 @@ export default function HomePage() {
               </motion.p>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
               {features.map((feature, index) => (
                 <motion.div
                   key={index}
@@ -89,10 +80,10 @@ export default function HomePage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
                   viewport={{ once: true }}
-                  className="group bg-slate-900/30 border border-slate-800 rounded-xl p-6 hover:border-emerald-500/30 hover:bg-slate-900/50 transition-all duration-300 hover:-translate-y-1"
+                  className="group bg-slate-900/30 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 hover:bg-slate-900/50 transition-all duration-300 hover:-translate-y-1 text-center"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <feature.icon className="w-6 h-6 text-emerald-400" />
+                  <div className="w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform">
+                    <feature.icon className="w-6 h-6 text-primary-400" />
                   </div>
                   <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
                   <p className="text-slate-400 text-sm">{feature.description}</p>
