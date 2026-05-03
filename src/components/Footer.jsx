@@ -1,8 +1,8 @@
 // src/components/Footer.jsx
-// COMPLETE - Footer with all links working
+// COMPLETE - Footer with all links working, NO PHONE NUMBER
 
 import { Link } from 'react-router-dom';
-import { Facebook, Twitter, Linkedin, Mail, Phone, MapPin, Github } from 'lucide-react';
+import { Facebook, Twitter, Linkedin, Mail, MapPin, Github } from 'lucide-react';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -103,7 +103,7 @@ export default function Footer() {
           ))}
         </div>
         
-        {/* Contact Info Bar */}
+        {/* Contact Info Bar - NO PHONE NUMBER */}
         <div className="border-t border-slate-800 pt-6 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-500">
             <div className="flex items-center gap-4">
@@ -111,14 +111,11 @@ export default function Footer() {
                 <Mail className="w-4 h-4" />
                 support@bluskyeconsult.com
               </span>
-              <span className="flex items-center gap-1">
-                <Phone className="w-4 h-4" />
-                +1 (555) 123-4567
-              </span>
+              {/* PHONE NUMBER REMOVED - DELETED THE LINE BELOW */}
             </div>
             <div className="flex items-center gap-1">
               <MapPin className="w-4 h-4" />
-              London, UK | Lagos, Nigeria | Toronto, Canada
+              Oxford, UK | Lagos, Nigeria | Toronto, Canada
             </div>
           </div>
         </div>
