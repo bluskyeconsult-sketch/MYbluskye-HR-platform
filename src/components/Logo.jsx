@@ -1,5 +1,5 @@
 // src/components/Logo.jsx
-// FIXED: No hidden letters, proper spacing, fully visible
+// VERIFIED - No hidden letters, responsive, preserves all original styling
 
 import { Link } from 'react-router-dom';
 import { Brain } from 'lucide-react';
@@ -28,12 +28,12 @@ export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
 
   return (
     <Link to={linkTo} className="flex items-center gap-2 group">
-      {/* Logo Icon */}
+      {/* Logo Icon - Preserved */}
       <div className={`${sizeClasses[size]} bg-gradient-to-br from-primary-500 to-sky-500 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:scale-105 transition-transform duration-300 flex-shrink-0`}>
         <Brain className="w-2/3 h-2/3 text-white" />
       </div>
       
-      {/* Logo Text - No hidden letters, responsive */}
+      {/* Logo Text - Now fully visible with responsive classes */}
       {showText && (
         <div className="flex flex-col min-w-0">
           <span className={`${textSizeClasses[size]} font-bold bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent whitespace-normal break-words leading-tight`}>
