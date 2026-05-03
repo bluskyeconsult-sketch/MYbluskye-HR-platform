@@ -1,60 +1,22 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 // Send email via Vercel API endpoint
 export async function sendEmail(to, subject, htmlContent, emailType = 'notification') {
     try {
-        // Log as pending first
-        const { data: log, error: logError } = await supabase
-            .from('email_logs')
-            .insert({
-                recipient: to,
-                subject: subject,
-                email_type: emailType,
-                status: 'pending'
-            })
-            .select()
-            .single();
-
-        if (logError) {
-            console.warn('Could not log email to database:', logError);
-        }
-
         // Call Vercel API endpoint
         const response = await fetch('/api/send-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to, subject, html: htmlContent, emailType, logId: log?.id })
+            body: JSON.stringify({ to, subject, html: htmlContent, emailType })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Email API returned ${response.status}`);
+            throw new Error(data.error || `Email API returned ${response.status}`);
         }
 
-        // Update log as sent
-        if (log?.id) {
-            await supabase
-                .from('email_logs')
-                .update({ status: 'sent', sent_at: new Date().toISOString() })
-                .eq('id', log.id);
-        }
-
-        return { success: true, logId: log?.id };
+        return { success: true, messageId: data.messageId };
     } catch (error) {
         console.error('Email send error:', error);
-        
-        // Update log as failed
-        if (log?.id) {
-            await supabase
-                .from('email_logs')
-                .update({ status: 'failed', error_message: error.message })
-                .eq('id', log.id);
-        }
-        
         return { success: false, error: error.message };
     }
 }
