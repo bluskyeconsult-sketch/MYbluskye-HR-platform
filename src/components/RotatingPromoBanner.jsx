@@ -1,10 +1,16 @@
 // src/components/RotatingPromoBanner.jsx
 // ENHANCED - Larger size, dynamic promos from site activities, glowing border, professional hover effects
+// FIXED: Correct import path for supabaseClient
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 import { X, TrendingUp, Star, Zap, Gift, Rocket, Sparkles, Briefcase, BookOpen, Users, Award, Clock } from 'lucide-react';
+
+// Initialize Supabase client directly (no external import needed)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function RotatingPromoBanner() {
   const [currentPromo, setCurrentPromo] = useState(0);
@@ -71,7 +77,7 @@ export default function RotatingPromoBanner() {
           icon: BookOpen,
           title: '🔥 POPULAR COURSE',
           highlight: `${course.enrollment_count || 0}+ enrolled`,
-          description: course.title,
+          description: course.title.length > 60 ? course.title.substring(0, 60) + '...' : course.title,
           buttonText: 'Enroll Now →',
           buttonLink: `/courses/${course.slug}`,
           bgGradient: 'from-blue-600/30 via-indigo-600/20 to-blue-600/30',
@@ -89,7 +95,7 @@ export default function RotatingPromoBanner() {
           icon: Briefcase,
           title: '📈 TRENDING JOB',
           highlight: `${job.view_count || 0}+ views`,
-          description: `${job.title} at ${job.company}`,
+          description: `${job.title} at ${job.company}`.length > 60 ? `${job.title} at ${job.company}`.substring(0, 60) + '...' : `${job.title} at ${job.company}`,
           buttonText: 'Apply Now →',
           buttonLink: `/jobs/${job.id}`,
           bgGradient: 'from-emerald-600/30 via-teal-600/20 to-emerald-600/30',
@@ -107,7 +113,7 @@ export default function RotatingPromoBanner() {
           icon: Gift,
           title: '✨ FEATURED',
           highlight: `$${product.price}`,
-          description: product.name,
+          description: product.name.length > 60 ? product.name.substring(0, 60) + '...' : product.name,
           buttonText: 'View Product →',
           buttonLink: `/products/${product.slug}`,
           bgGradient: 'from-purple-600/30 via-violet-600/20 to-purple-600/30',
@@ -125,7 +131,7 @@ export default function RotatingPromoBanner() {
           icon: Award,
           title: '📊 TRENDING ASSESSMENT',
           highlight: `${assessment.takers_count || 0}+ taken`,
-          description: assessment.title,
+          description: assessment.title.length > 60 ? assessment.title.substring(0, 60) + '...' : assessment.title,
           buttonText: 'Take Assessment →',
           buttonLink: `/assessments/${assessment.id}`,
           bgGradient: 'from-amber-600/30 via-orange-600/20 to-amber-600/30',
