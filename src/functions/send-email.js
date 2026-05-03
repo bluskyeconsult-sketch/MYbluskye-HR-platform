@@ -19,33 +19,54 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    // Configure transporter using environment variables
+    // Get SMTP configuration from environment variables
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = parseInt(process.env.SMTP_PORT || '465');
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPassword = process.env.SMTP_PASSWORD;
+    const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+    const smtpFromName = process.env.SMTP_FROM_NAME || 'ODUSBABA';
+
+    // Validate SMTP configuration
+    if (!smtpHost || !smtpUser || !smtpPassword) {
+        console.error('SMTP configuration missing');
+        return res.status(500).json({ error: 'SMTP not configured' });
+    }
+
+    // Configure transporter
     const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '465'),
-        secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
         auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASSWORD,
+            user: smtpUser,
+            pass: smtpPassword,
         },
     });
 
     try {
-        // Verify connection configuration
+        // Verify connection
         await transporter.verify();
-        
+        console.log('SMTP connection verified');
+
         // Send email
         const info = await transporter.sendMail({
-            from: `"${process.env.SMTP_FROM_NAME || 'ODUSBABA'}" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+            from: `"${smtpFromName}" <${smtpFrom}>`,
             to,
             subject,
             html,
         });
 
         console.log('Email sent:', info.messageId);
-        return res.status(200).json({ success: true, messageId: info.messageId });
+        
+        return res.status(200).json({ 
+            success: true, 
+            messageId: info.messageId
+        });
     } catch (error) {
         console.error('Email send error:', error);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ 
+            error: error.message
+        });
     }
 }
