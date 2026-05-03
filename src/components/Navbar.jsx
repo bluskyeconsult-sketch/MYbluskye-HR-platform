@@ -1,5 +1,6 @@
 // src/components/Navbar.jsx
 // COMPLETE TWO-ROW NAVIGATION WITH CONSOLIDATED AUTH BUTTONS
+// FIXED: Removed extra parenthesis causing build failure
 
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -405,126 +406,6 @@ export default function Navbar() {
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        )}
-      </div>
-    </nav>
-  );
-}              <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-700">
-                <Link to="/admin/dashboard" className="px-3 py-2 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 transition-all duration-200">
-                  Admin
-                </Link>
-                <Link to="/admin/articles" className="px-3 py-2 rounded-lg text-sm font-medium border border-primary-500/50 text-primary-400 hover:text-white hover:bg-primary-500/20 transition-all duration-200">
-                  Articles
-                </Link>
-              </div>
-            )}
-
-            {/* Resources Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setResourcesOpen(!resourcesOpen)}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-slate-600 transition-all duration-200"
-              >
-                Resources <ChevronDown className={`w-4 h-4 transition-transform ${resourcesOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {resourcesOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
-                  {resourcesLinks.map((link) => (
-                    <Link
-                      key={link.name}
-                      to={link.path}
-                      onClick={() => setResourcesOpen(false)}
-                      className="block px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white border-b border-slate-700 last:border-b-0"
-                    >
-                      {link.name}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Auth Buttons - SINGLE source of truth */}
-          <div className="hidden md:block">
-            <UnifiedAuthButtons user={user} onLogout={handleLogout} />
-          </div>
-
-          {/* Mobile menu button */}
-          <button 
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)} 
-            className="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700"
-            aria-label="Menu"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-
-        {/* Mobile Navigation - Clean, no duplicate auth */}
-        {mobileMenuOpen && (
-          <div className="md:hidden py-4 border-t border-slate-800">
-            <div className="flex flex-col space-y-2">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.name}
-                  to={link.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`px-3 py-2 rounded-lg text-sm font-bold ${
-                    link.highlight 
-                      ? 'bg-primary-500 text-white text-center' 
-                      : 'text-slate-200 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  {link.name}
-                </Link>
-              ))}
-              
-              {user && userLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:text-white hover:bg-slate-800">
-                  {link.name}
-                </Link>
-              ))}
-              
-              {isEmployer && employerLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:text-white hover:bg-slate-800">
-                  {link.name}
-                </Link>
-              ))}
-              
-              {testerVisibility.show_login_button && !user && (
-                <Link to="/tester-login" onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium border border-purple-500/50 text-purple-400 hover:bg-purple-500/10 text-center">
-                  Tester Login
-                </Link>
-              )}
-              {testerVisibility.show_register_button && !user && (
-                <Link to="/tester-register" onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium border border-purple-500/50 text-purple-400 hover:bg-purple-500/10 text-center">
-                  Become a Tester
-                </Link>
-              )}
-              
-              {isAdmin && (
-                <>
-                  <Link to="/admin/dashboard" onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:text-white hover:bg-slate-800">
-                    Admin Dashboard
-                  </Link>
-                  <Link to="/admin/articles" onClick={() => setMobileMenuOpen(false)} className="px-3 py-2 rounded-lg text-sm font-medium border border-primary-500/50 text-primary-400 hover:bg-primary-500/20 text-center">
-                    Manage Articles
-                  </Link>
-                </>
-              )}
-              
-              <div className="px-3 py-2 text-sm font-bold text-slate-400 border-b border-slate-700">Resources</div>
-              {resourcesLinks.map((link) => (
-                <Link key={link.name} to={link.path} onClick={() => setMobileMenuOpen(false)} className="pl-6 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800">
-                  {link.name}
-                </Link>
-              ))}
-              
-              {/* SINGLE Auth buttons on mobile - no duplicate */}
-              <div className="pt-4 mt-2 border-t border-slate-800">
-                <UnifiedAuthButtons user={user} onLogout={handleLogout} />
-              </div>
             </div>
           </div>
         )}
