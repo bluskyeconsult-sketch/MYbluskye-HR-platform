@@ -1,4 +1,8 @@
+// src/components/HeroSection.jsx
+// COMPLETE - All buttons linked correctly
+
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { useInView } from 'react-intersection-observer';
 import CountUp from 'react-countup';
 
@@ -39,20 +43,30 @@ export default function HeroSection() {
             "An Experience of Value and solution to possible HR realities."
           </p>
 
+          {/* CTA Buttons - ALL LINKS CORRECT */}
           <div className="flex flex-wrap gap-3 sm:gap-4 justify-center mt-6">
-            <a href="/jobs" className="btn-primary text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-3">
+            <Link 
+              to="/jobs" 
+              className="bg-primary-500 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold hover:bg-primary-600 transition-all duration-200 shadow-lg shadow-primary-500/20 text-sm sm:text-base"
+            >
               Browse Jobs
-            </a>
-            <a href="/workforce" className="btn-secondary text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-3">
+            </Link>
+            <Link 
+              to="/workforce" 
+              className="bg-slate-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold hover:bg-slate-600 transition-all duration-200 text-sm sm:text-base"
+            >
               Workforce Market
-            </a>
-            <a href="/contact" className="btn-outline text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-3">
+            </Link>
+            <Link 
+              to="/contact" 
+              className="border border-primary-500 text-primary-500 px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold hover:bg-primary-500/10 transition-all duration-200 text-sm sm:text-base"
+            >
               Contact ODUSBABA
-            </a>
+            </Link>
           </div>
         </motion.div>
 
-        {/* Stats Cards - Centered on mobile */}
+        {/* Stats Cards */}
         <div ref={ref} className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-12 sm:mt-16 max-w-3xl mx-auto">
           {[
             { value: 98, suffix: '%', label: 'CONFIDENCE', desc: 'Task Execution Success Rate' },
