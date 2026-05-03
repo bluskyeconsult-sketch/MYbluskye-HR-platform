@@ -6,7 +6,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { to, subject, html } = req.body;
+    const { to, subject, html, logId } = req.body;
 
     // Validate required fields
     if (!to || !subject || !html) {
@@ -27,10 +27,13 @@ export default async function handler(req, res) {
     const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
     const smtpFromName = process.env.SMTP_FROM_NAME || 'ODUSBABA';
 
-    // Validate SMTP configuration
+    // Validate SMTP configuration with helpful error message
     if (!smtpHost || !smtpUser || !smtpPassword) {
         console.error('SMTP configuration missing');
-        return res.status(500).json({ error: 'SMTP not configured' });
+        return res.status(500).json({ 
+            error: 'SMTP not configured. Please add environment variables in Vercel.',
+            logId: logId
+        });
     }
 
     // Configure transporter
@@ -61,12 +64,14 @@ export default async function handler(req, res) {
         
         return res.status(200).json({ 
             success: true, 
-            messageId: info.messageId
+            messageId: info.messageId,
+            logId: logId
         });
     } catch (error) {
         console.error('Email send error:', error);
         return res.status(500).json({ 
-            error: error.message
+            error: error.message,
+            logId: logId
         });
     }
 }
