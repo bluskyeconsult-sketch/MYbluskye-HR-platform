@@ -1,67 +1,134 @@
+// src/components/Footer.jsx
+// COMPLETE - Footer with all links working
+
+import { Link } from 'react-router-dom';
+import { Facebook, Twitter, Linkedin, Mail, Phone, MapPin, Github } from 'lucide-react';
+
 export default function Footer() {
+  const currentYear = new Date().getFullYear();
+
+  const footerSections = [
+    {
+      title: "Platform",
+      links: [
+        { name: "Jobs", path: "/jobs" },
+        { name: "Workforce Marketplace", path: "/workforce" },
+        { name: "Courses", path: "/courses" },
+        { name: "Assessments", path: "/assessments" },
+        { name: "Hire Virtual Assistant", path: "/hire-va" },
+        { name: "Newsletter", path: "/newsletter" },
+      ]
+    },
+    {
+      title: "Company",
+      links: [
+        { name: "About Us", path: "/about" },
+        { name: "Contact", path: "/contact" },
+        { name: "Pricing", path: "/pricing" },
+        { name: "Affiliate Program", path: "/affiliate" },
+        { name: "Blog", path: "/blog" },
+        { name: "Articles", path: "/articles" },
+      ]
+    },
+    {
+      title: "Resources",
+      links: [
+        { name: "FAQ", path: "/faq" },
+        { name: "Safety Tips", path: "/safety-tips" },
+        { name: "Report Fraud", path: "/report-fraud" },
+        { name: "Support", path: "/contact" },
+        { name: "Status", path: "/status" },
+      ]
+    },
+    {
+      title: "Legal",
+      links: [
+        { name: "Terms of Service", path: "/legal/terms" },
+        { name: "Privacy Policy", path: "/legal/privacy" },
+        { name: "Cookie Policy", path: "/legal/cookies" },
+        { name: "Disclaimer", path: "/legal/disclaimer" },
+        { name: "Acceptable Use", path: "/legal/acceptable-use" },
+        { name: "Fraud Prevention", path: "/legal/fraud-prevention" },
+      ]
+    }
+  ];
+
   return (
-    <footer className="bg-slate-950 border-t border-slate-800 py-8 mt-auto">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
-          {/* Brand Column with Logo */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              {/* Logo Image */}
-              <img 
-                src="/images/BluSkye.png" 
-                alt="BluSkye Integrated Consult" 
-                className="w-10 h-10 md:w-12 md:h-12 object-contain"
-              />
-              <div>
-                <span className="font-bold text-white">BluSkye Integrated Consult</span>
-                <p className="text-xs text-slate-400">powered by <span className="text-emerald-400">ODUSBABA</span> intelligence</p>
-              </div>
+    <footer className="bg-slate-950 border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
+        
+        {/* Main Footer Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 mb-8">
+          {/* Brand Column */}
+          <div className="lg:col-span-1">
+            <Link to="/">
+              <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent mb-2">
+                BluSkye Consult
+              </h2>
+              <p className="text-xs text-primary-400 mb-3">powered by ODUSBABA intelligence</p>
+            </Link>
+            <p className="text-slate-400 text-sm mb-4">
+              The Governed Workforce Platform. Verified skills. Trusted hiring.
+            </p>
+            <div className="flex gap-3">
+              <a href="https://twitter.com/bluskyeconsult" target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition">
+                <Twitter className="w-4 h-4" />
+              </a>
+              <a href="https://linkedin.com/company/bluskyeconsult" target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition">
+                <Linkedin className="w-4 h-4" />
+              </a>
+              <a href="https://facebook.com/bluskyeconsult" target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition">
+                <Facebook className="w-4 h-4" />
+              </a>
+              <a href="https://github.com/bluskyeconsult" target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition">
+                <Github className="w-4 h-4" />
+              </a>
             </div>
-            <p className="text-sm text-slate-400 mt-2">Creating Value for Partnership</p>
           </div>
-
-          {/* Quick Links */}
-          <div>
-            <h3 className="font-bold text-white mb-3">Quick Links</h3>
-            <ul className="space-y-2 text-sm">
-              <li><a href="/jobs" className="text-slate-400 hover:text-white transition-colors">Jobs</a></li>
-              <li><a href="/workforce" className="text-slate-400 hover:text-white transition-colors">Workforce</a></li>
-              <li><a href="/courses" className="text-slate-400 hover:text-white transition-colors">Courses</a></li>
-              <li><a href="/books" className="text-slate-400 hover:text-white transition-colors">Books</a></li>
-              <li><a href="/assessments" className="text-slate-400 hover:text-white transition-colors">Assessments</a></li>
-              <li><a href="/hire-va" className="text-slate-400 hover:text-white transition-colors">Hire VA</a></li>
-            </ul>
-          </div>
-
-          {/* Resources */}
-          <div>
-            <h3 className="font-bold text-white mb-3">Resources</h3>
-            <ul className="space-y-2 text-sm">
-              <li><a href="/about" className="text-slate-400 hover:text-white transition-colors">About</a></li>
-              <li><a href="/contact" className="text-slate-400 hover:text-white transition-colors">Contact</a></li>
-              <li><a href="/pricing" className="text-slate-400 hover:text-white transition-colors">Pricing</a></li>
-              <li><a href="/affiliate" className="text-slate-400 hover:text-white transition-colors">Affiliate Program</a></li>
-              <li><a href="/newsletter" className="text-slate-400 hover:text-white transition-colors">Newsletter</a></li>
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h3 className="font-bold text-white mb-3">Legal</h3>
-            <ul className="space-y-2 text-sm">
-              <li><a href="/legal/terms" className="text-slate-400 hover:text-white transition-colors">Terms of Service</a></li>
-              <li><a href="/legal/privacy" className="text-slate-400 hover:text-white transition-colors">Privacy Policy</a></li>
-              <li><a href="/legal/cookies" className="text-slate-400 hover:text-white transition-colors">Cookie Policy</a></li>
-              <li><a href="/legal/disclaimer" className="text-slate-400 hover:text-white transition-colors">AI Disclaimer</a></li>
-              <li><a href="/legal/acceptable-use" className="text-slate-400 hover:text-white transition-colors">Acceptable Use</a></li>
-            </ul>
+          
+          {/* Footer Link Sections */}
+          {footerSections.map((section) => (
+            <div key={section.title}>
+              <h3 className="text-white font-semibold mb-3">{section.title}</h3>
+              <ul className="space-y-2">
+                {section.links.map((link) => (
+                  <li key={link.name}>
+                    <Link to={link.path} className="text-slate-400 text-sm hover:text-primary-400 transition">
+                      {link.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        
+        {/* Contact Info Bar */}
+        <div className="border-t border-slate-800 pt-6 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-500">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1">
+                <Mail className="w-4 h-4" />
+                support@bluskyeconsult.com
+              </span>
+              <span className="flex items-center gap-1">
+                <Phone className="w-4 h-4" />
+                +1 (555) 123-4567
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <MapPin className="w-4 h-4" />
+              London, UK | Lagos, Nigeria | Toronto, Canada
+            </div>
           </div>
         </div>
-
+        
         {/* Copyright */}
-        <div className="border-t border-slate-800 pt-6 text-center text-sm text-slate-500">
-          <p>© 2026 BluSkye Integrated Consult. All rights reserved. Powered by ODUSBABA Intelligence.</p>
+        <div className="border-t border-slate-800 pt-6 text-center text-xs text-slate-500">
+          <p>&copy; {currentYear} BluSkye Integrated Consult. All rights reserved.</p>
+          <p className="mt-1">Creating Value for Partnership</p>
         </div>
+        
       </div>
     </footer>
   );
