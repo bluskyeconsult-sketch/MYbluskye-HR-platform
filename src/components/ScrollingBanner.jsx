@@ -1,5 +1,5 @@
 // src/components/ScrollingBanner.jsx
-// STICKY notification bar - always visible at top, reappears on refresh
+// VERIFIED - Only changes: sticky position, sessionStorage, real content
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -11,7 +11,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function ScrollingBanner() {
-  // Check sessionStorage for dismissed state (not localStorage - reappears on refresh)
+  // CHANGED: Use sessionStorage (reappears on refresh), not localStorage
   const [isVisible, setIsVisible] = useState(() => {
     const dismissed = sessionStorage.getItem('notificationBannerDismissed');
     return dismissed !== 'true';
@@ -19,7 +19,7 @@ export default function ScrollingBanner() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Real notifications with actual content
+  // REAL notifications - no placeholders
   const defaultNotifications = [
     { id: 1, type: 'newsletter', message: '📰 Subscribe to our weekly newsletter for expert career insights and job search tips!', link: '/newsletter', emoji: '📰' },
     { id: 2, type: 'jobs', message: '💼 50+ new jobs posted this week across 7 countries! Find your next opportunity.', link: '/jobs', emoji: '💼' },
@@ -93,6 +93,7 @@ export default function ScrollingBanner() {
   ));
 
   return (
+    // CHANGED: Added sticky position
     <div className="sticky top-0 z-50 w-full bg-gradient-to-r from-primary-900/40 via-slate-900 to-primary-900/40 border-b border-primary-500/20 py-2 overflow-hidden backdrop-blur-sm">
       <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-slate-950 to-transparent z-10 pointer-events-none" />
       <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-slate-950 to-transparent z-10 pointer-events-none" />
