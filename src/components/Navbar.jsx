@@ -1,10 +1,11 @@
 // src/components/Navbar.jsx
-// COMPLETE - All links verified and working
+// COMPLETE - All links verified and working WITH LOGO COMPONENT
 
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { Menu, X, ChevronDown, Briefcase, Users, BookOpen, FileText, Mail, Zap, HelpCircle, ShoppingBag, Star, Shield } from 'lucide-react';
+import Logo from './Logo';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -158,16 +159,9 @@ export default function Navbar() {
         {/* ============================================ */}
         <div className="py-3 sm:py-4 flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-800/50">
           
-          {/* Logo Section */}
+          {/* Logo Section - USING LOGO COMPONENT */}
           <div className="text-center sm:text-left mb-3 sm:mb-0">
-            <Link to="/" onClick={() => setMobileMenuOpen(false)}>
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent">
-                BluSkye Integrated Consult
-              </h1>
-              <p className="text-xs sm:text-sm text-primary-400 mt-0.5">
-                powered by <span className="font-semibold">ODUSBABA</span> intelligence
-              </p>
-            </Link>
+            <Logo size="md" showText={true} linkTo="/" />
           </div>
           
           {/* Auth Buttons */}
