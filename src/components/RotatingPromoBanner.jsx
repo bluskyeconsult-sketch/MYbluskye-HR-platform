@@ -1,10 +1,16 @@
 // src/components/RotatingPromoBanner.jsx
 // ENHANCED - Larger size, dynamic promos from site activities, glowing border
+// FIXED: Corrected supabase import path
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 import { X, TrendingUp, Star, Zap, Gift, Rocket, Sparkles, Briefcase, BookOpen, Users, Award, Clock } from 'lucide-react';
+
+// Use environment variables directly
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export default function RotatingPromoBanner() {
   const [currentPromo, setCurrentPromo] = useState(0);
@@ -30,116 +36,122 @@ export default function RotatingPromoBanner() {
     setLoading(true);
     
     try {
-      // 1. Fetch popular courses (high enrollment)
-      const { data: popularCourses } = await supabase
-        .from('courses')
-        .select('id, title, slug, enrollment_count, difficulty')
-        .eq('is_published', true)
-        .order('enrollment_count', { ascending: false })
-        .limit(2);
-
-      // 2. Fetch trending jobs (high search/view count)
-      const { data: trendingJobs } = await supabase
-        .from('jobs')
-        .select('id, title, company, salary_min, view_count')
-        .eq('status', 'active')
-        .order('view_count', { ascending: false })
-        .limit(2);
-
-      // 3. Fetch featured products
-      const { data: featuredProducts } = await supabase
-        .from('products')
-        .select('id, name, slug, price, is_featured')
-        .eq('is_featured', true)
-        .limit(2);
-
-      // 4. Fetch popular assessments
-      const { data: popularAssessments } = await supabase
-        .from('assessments')
-        .select('id, title, slug, takers_count')
-        .order('takers_count', { ascending: false })
-        .limit(1);
-
-      // Build dynamic promos array
       const dynamicPromos = [];
 
-      // Add popular courses
-      popularCourses?.forEach(course => {
-        dynamicPromos.push({
-          id: `course-${course.id}`,
-          type: 'course',
-          icon: BookOpen,
-          title: '🔥 POPULAR COURSE',
-          highlight: `${course.enrollment_count}+ enrolled`,
-          description: course.title,
-          buttonText: 'Enroll Now →',
-          buttonLink: `/courses/${course.slug}`,
-          bgGradient: 'from-blue-600/30 via-indigo-600/20 to-blue-600/30',
-          borderColor: 'border-blue-500/40',
-          textColor: 'text-blue-400',
-          iconColor: 'bg-blue-500/20'
-        });
-      });
+      // Try to fetch from Supabase if available
+      if (supabase) {
+        try {
+          // 1. Fetch popular courses (high enrollment)
+          const { data: popularCourses } = await supabase
+            .from('courses')
+            .select('id, title, slug, enrollment_count, difficulty')
+            .eq('is_published', true)
+            .order('enrollment_count', { ascending: false })
+            .limit(2);
 
-      // Add trending jobs
-      trendingJobs?.forEach(job => {
-        dynamicPromos.push({
-          id: `job-${job.id}`,
-          type: 'job',
-          icon: Briefcase,
-          title: '📈 TRENDING JOB',
-          highlight: `${job.view_count || 0}+ views`,
-          description: `${job.title} at ${job.company}`,
-          buttonText: 'Apply Now →',
-          buttonLink: `/jobs/${job.id}`,
-          bgGradient: 'from-emerald-600/30 via-teal-600/20 to-emerald-600/30',
-          borderColor: 'border-emerald-500/40',
-          textColor: 'text-emerald-400',
-          iconColor: 'bg-emerald-500/20'
-        });
-      });
+          // 2. Fetch trending jobs (high view count)
+          const { data: trendingJobs } = await supabase
+            .from('jobs')
+            .select('id, title, company, salary_min, view_count')
+            .eq('status', 'active')
+            .order('view_count', { ascending: false })
+            .limit(2);
 
-      // Add featured products
-      featuredProducts?.forEach(product => {
-        dynamicPromos.push({
-          id: `product-${product.id}`,
-          type: 'product',
-          icon: Gift,
-          title: '✨ FEATURED',
-          highlight: `$${product.price}`,
-          description: product.name,
-          buttonText: 'View Product →',
-          buttonLink: `/products/${product.slug}`,
-          bgGradient: 'from-purple-600/30 via-violet-600/20 to-purple-600/30',
-          borderColor: 'border-purple-500/40',
-          textColor: 'text-purple-400',
-          iconColor: 'bg-purple-500/20'
-        });
-      });
+          // 3. Fetch featured products
+          const { data: featuredProducts } = await supabase
+            .from('products')
+            .select('id, name, slug, price, is_featured')
+            .eq('is_featured', true)
+            .limit(2);
 
-      // Add popular assessments
-      popularAssessments?.forEach(assessment => {
-        dynamicPromos.push({
-          id: `assessment-${assessment.id}`,
-          type: 'assessment',
-          icon: Award,
-          title: '📊 TRENDING ASSESSMENT',
-          highlight: `${assessment.takers_count}+ taken`,
-          description: assessment.title,
-          buttonText: 'Take Assessment →',
-          buttonLink: `/assessments/${assessment.id}`,
-          bgGradient: 'from-amber-600/30 via-orange-600/20 to-amber-600/30',
-          borderColor: 'border-amber-500/40',
-          textColor: 'text-amber-400',
-          iconColor: 'bg-amber-500/20'
-        });
-      });
+          // 4. Fetch popular assessments
+          const { data: popularAssessments } = await supabase
+            .from('assessments')
+            .select('id, title, slug, takers_count')
+            .order('takers_count', { ascending: false })
+            .limit(1);
+
+          // Add popular courses
+          popularCourses?.forEach(course => {
+            dynamicPromos.push({
+              id: `course-${course.id}`,
+              type: 'course',
+              icon: BookOpen,
+              title: '🔥 POPULAR COURSE',
+              highlight: `${course.enrollment_count || 0}+ enrolled`,
+              description: course.title,
+              buttonText: 'Enroll Now →',
+              buttonLink: `/courses/${course.slug}`,
+              bgGradient: 'from-blue-600/30 via-indigo-600/20 to-blue-600/30',
+              borderColor: 'border-blue-500/40',
+              textColor: 'text-blue-400',
+              iconColor: 'bg-blue-500/20'
+            });
+          });
+
+          // Add trending jobs
+          trendingJobs?.forEach(job => {
+            dynamicPromos.push({
+              id: `job-${job.id}`,
+              type: 'job',
+              icon: Briefcase,
+              title: '📈 TRENDING JOB',
+              highlight: `${job.view_count || 0}+ views`,
+              description: `${job.title} at ${job.company}`,
+              buttonText: 'Apply Now →',
+              buttonLink: `/jobs/${job.id}`,
+              bgGradient: 'from-emerald-600/30 via-teal-600/20 to-emerald-600/30',
+              borderColor: 'border-emerald-500/40',
+              textColor: 'text-emerald-400',
+              iconColor: 'bg-emerald-500/20'
+            });
+          });
+
+          // Add featured products
+          featuredProducts?.forEach(product => {
+            dynamicPromos.push({
+              id: `product-${product.id}`,
+              type: 'product',
+              icon: Gift,
+              title: '✨ FEATURED',
+              highlight: `$${product.price || 0}`,
+              description: product.name,
+              buttonText: 'View Product →',
+              buttonLink: `/products/${product.slug}`,
+              bgGradient: 'from-purple-600/30 via-violet-600/20 to-purple-600/30',
+              borderColor: 'border-purple-500/40',
+              textColor: 'text-purple-400',
+              iconColor: 'bg-purple-500/20'
+            });
+          });
+
+          // Add popular assessments
+          popularAssessments?.forEach(assessment => {
+            dynamicPromos.push({
+              id: `assessment-${assessment.id}`,
+              type: 'assessment',
+              icon: Award,
+              title: '📊 TRENDING ASSESSMENT',
+              highlight: `${assessment.takers_count || 0}+ taken`,
+              description: assessment.title,
+              buttonText: 'Take Assessment →',
+              buttonLink: `/assessments/${assessment.id}`,
+              bgGradient: 'from-amber-600/30 via-orange-600/20 to-amber-600/30',
+              borderColor: 'border-amber-500/40',
+              textColor: 'text-amber-400',
+              iconColor: 'bg-amber-500/20'
+            });
+          });
+        } catch (dbError) {
+          console.warn('Database fetch failed, using fallback promos:', dbError);
+        }
+      }
 
       // If no dynamic promos, use fallback promos
       if (dynamicPromos.length === 0) {
         setPromos(getFallbackPromos());
       } else {
-        setPromos(dynamicPromos);
+        setPromos(dynamicPromos.slice(0, 5)); // Limit to 5 promos
       }
     } catch (error) {
       console.error('Error fetching promos:', error);
