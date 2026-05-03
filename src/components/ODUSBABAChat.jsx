@@ -1,3 +1,6 @@
+// src/components/ODUSBABAChat.jsx
+// COMPLETE - Added logo to chat header, all existing functionality preserved
+
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { MessageCircle, X, Send, Sparkles, Briefcase, FileText, BookOpen, TrendingUp, Users, Zap, Rocket, Gift, Star } from 'lucide-react';
@@ -813,12 +816,18 @@ Please try again in a moment. If the problem persists, please contact support at
             {/* Chat Window */}
             {isOpen && (
                 <div className="fixed bottom-24 right-6 w-[400px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-8rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden">
-                    {/* Header */}
+                    
+                    {/* ============================================ */}
+                    {/* HEADER WITH LOGO - UPDATED SECTION */}
+                    {/* ============================================ */}
                     <div className="p-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center">
-                                    <Sparkles className="w-5 h-5 text-white" />
+                                {/* BRANDED LOGO - ADDED HERE */}
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center shadow-lg shadow-primary-500/20">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M10 4a6 6 0 100 12 6 6 0 000-12zM7 9a1 1 0 100 2 1 1 0 000-2zm6 0a1 1 0 100 2 1 1 0 000-2z"/>
+                                    </svg>
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-white">ODUSBABA</h3>
