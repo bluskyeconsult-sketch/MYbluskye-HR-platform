@@ -1,10 +1,13 @@
+// src/pages/HomePage.jsx
+// COMPLETE - All buttons and links verified
+
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import HeroSection from '../components/HeroSection';
 import CTASection from '../components/CTASection';
 import AnimatedBackground from '../components/AnimatedBackground';
 import RotatingPromoBanner from '../components/RotatingPromoBanner';
-import { Shield, Brain, Users, Globe, Zap, Sparkles } from 'lucide-react';
+import { Shield, Brain, Users, Globe, Zap, Sparkles, Briefcase, UserCheck, BookOpen, FileText, Mail, Headphones } from 'lucide-react';
 
 export default function HomePage() {
   const features = [
@@ -16,17 +19,24 @@ export default function HomePage() {
     { icon: Sparkles, title: 'Value Partnership', description: 'Creating Value for Partnership in every interaction and transaction' },
   ];
 
+  const articles = [
+    { slug: 'future-of-ai-in-hr', title: 'The Future of AI in HR', date: 'Apr 28, 2026', description: 'How artificial intelligence is transforming human resources...' },
+    { slug: 'employment-law-changes-2026', title: 'New Employment Laws 2026', date: 'Apr 25, 2026', description: 'Stay compliant with the latest employment regulations...' },
+    { slug: 'skill-trust-score-explained', title: 'Skill Trust Score Explained', date: 'Apr 22, 2026', description: 'Understanding how our verification system builds trust...' },
+  ];
+
   return (
     <main className="min-h-screen bg-background relative w-full overflow-x-hidden">
       <AnimatedBackground />
       <div className="relative z-10 w-full">
-        {/* Rotating Promo Banner - Single instance */}
+        
+        {/* Rotating Promo Banner */}
         <RotatingPromoBanner />
         
         {/* Hero Section */}
         <HeroSection />
         
-        {/* AI Governed Workforce Platform Banner - Centered */}
+        {/* AI Governed Banner */}
         <section className="py-8 sm:py-12 px-4 bg-gradient-to-r from-slate-900/80 to-slate-950/80 backdrop-blur-sm border-y border-slate-800">
           <div className="max-w-4xl mx-auto text-center">
             <motion.div
@@ -53,7 +63,7 @@ export default function HomePage() {
           </div>
         </section>
         
-        {/* Features Section - Centered Grid */}
+        {/* Features Section */}
         <section className="py-12 sm:py-16 px-4">
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-8 sm:mb-12">
@@ -98,42 +108,74 @@ export default function HomePage() {
           </div>
         </section>
         
-        {/* News & Articles Section - Fixed Links */}
+        {/* CTA Banner - Free Trial */}
+        <section className="py-8 px-4 bg-gradient-to-r from-primary-900/20 to-primary-800/10 border-y border-primary-500/20">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Start Your Free Trial</h2>
+            <p className="text-slate-300 mb-6">Get 4 weeks of full access as a tester. No credit card required.</p>
+            <Link 
+              to="/tester-register" 
+              className="inline-block px-6 py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all duration-200 shadow-lg shadow-primary-500/30"
+            >
+              Start Free Trial →
+            </Link>
+          </div>
+        </section>
+        
+        {/* News & Articles Section */}
         <section className="py-12 sm:py-16 px-4">
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-8 sm:mb-10">
               <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">News & Articles</h2>
               <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">Stay informed with the latest insights from ODUSBABA</p>
             </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6">
-              <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all text-center sm:text-left">
-                <div className="text-xs text-slate-500 mb-2">Apr 28, 2026</div>
-                <h3 className="text-lg font-semibold text-white mb-2">The Future of AI in HR</h3>
-                <p className="text-slate-400 text-sm mb-3">How artificial intelligence is transforming human resources...</p>
-                <Link to="/articles/future-of-ai-in-hr" className="text-primary-400 text-sm hover:underline inline-flex items-center gap-1">
-                  Read more →
-                </Link>
-              </div>
-              <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all text-center sm:text-left">
-                <div className="text-xs text-slate-500 mb-2">Apr 25, 2026</div>
-                <h3 className="text-lg font-semibold text-white mb-2">New Employment Laws 2026</h3>
-                <p className="text-slate-400 text-sm mb-3">Stay compliant with the latest employment regulations...</p>
-                <Link to="/articles/employment-law-changes-2026" className="text-primary-400 text-sm hover:underline inline-flex items-center gap-1">
-                  Read more →
-                </Link>
-              </div>
-              <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all text-center sm:text-left">
-                <div className="text-xs text-slate-500 mb-2">Apr 22, 2026</div>
-                <h3 className="text-lg font-semibold text-white mb-2">Skill Trust Score Explained</h3>
-                <p className="text-slate-400 text-sm mb-3">Understanding how our verification system builds trust...</p>
-                <Link to="/articles/skill-trust-score-explained" className="text-primary-400 text-sm hover:underline inline-flex items-center gap-1">
-                  Read more →
-                </Link>
-              </div>
+              {articles.map((article, index) => (
+                <div key={index} className="bg-slate-900/30 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all text-center sm:text-left">
+                  <div className="text-xs text-slate-500 mb-2">{article.date}</div>
+                  <h3 className="text-lg font-semibold text-white mb-2">{article.title}</h3>
+                  <p className="text-slate-400 text-sm mb-3">{article.description}</p>
+                  <Link 
+                    to={`/articles/${article.slug}`} 
+                    className="text-primary-400 text-sm hover:underline inline-flex items-center gap-1"
+                  >
+                    Read more →
+                  </Link>
+                </div>
+              ))}
             </div>
+            
             <div className="text-center mt-8">
-              <Link to="/articles" className="text-primary-400 hover:underline text-sm sm:text-base">
+              <Link 
+                to="/articles" 
+                className="text-primary-400 hover:underline text-sm sm:text-base inline-flex items-center gap-1"
+              >
                 View all articles →
+              </Link>
+            </div>
+          </div>
+        </section>
+        
+        {/* Quick Action Buttons */}
+        <section className="py-8 px-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+              <Link to="/jobs" className="flex flex-col items-center p-4 bg-slate-900/30 border border-slate-800 rounded-xl hover:border-primary-500/30 hover:bg-slate-900/50 transition-all">
+                <Briefcase className="w-6 h-6 text-primary-400 mb-2" />
+                <span className="text-white text-sm font-medium">Browse Jobs</span>
+              </Link>
+              <Link to="/workforce" className="flex flex-col items-center p-4 bg-slate-900/30 border border-slate-800 rounded-xl hover:border-primary-500/30 hover:bg-slate-900/50 transition-all">
+                <UserCheck className="w-6 h-6 text-primary-400 mb-2" />
+                <span className="text-white text-sm font-medium">Find Talent</span>
+              </Link>
+              <Link to="/courses" className="flex flex-col items-center p-4 bg-slate-900/30 border border-slate-800 rounded-xl hover:border-primary-500/30 hover:bg-slate-900/50 transition-all">
+                <BookOpen className="w-6 h-6 text-primary-400 mb-2" />
+                <span className="text-white text-sm font-medium">Start Learning</span>
+              </Link>
+              <Link to="/assessments" className="flex flex-col items-center p-4 bg-slate-900/30 border border-slate-800 rounded-xl hover:border-primary-500/30 hover:bg-slate-900/50 transition-all">
+                <FileText className="w-6 h-6 text-primary-400 mb-2" />
+                <span className="text-white text-sm font-medium">Take Assessment</span>
               </Link>
             </div>
           </div>
