@@ -1,10 +1,16 @@
 // src/components/ScrollingBanner.jsx
 // RESTORED - Scrolling notification bar for announcements
+// FIXED: Corrected import path for supabase
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 import { Megaphone, X } from 'lucide-react';
+
+// Use environment variables directly instead of importing from a file that may not exist
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function ScrollingBanner() {
   const [isVisible, setIsVisible] = useState(true);
@@ -32,7 +38,7 @@ export default function ScrollingBanner() {
 
   async function fetchNotifications() {
     try {
-      // Try to fetch from database
+      // Try to fetch from database - using 'broadcasts' table
       const { data, error } = await supabase
         .from('broadcasts')
         .select('*')
@@ -40,7 +46,12 @@ export default function ScrollingBanner() {
         .order('priority', { ascending: true })
         .limit(10);
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Using default notifications:', error.message);
+        setNotifications(defaultNotifications);
+        setLoading(false);
+        return;
+      }
 
       if (data && data.length > 0) {
         const formatted = data.map(item => ({
@@ -55,7 +66,7 @@ export default function ScrollingBanner() {
         setNotifications(defaultNotifications);
       }
     } catch (error) {
-      console.warn('Using default notifications:', error);
+      console.warn('Error fetching notifications, using defaults:', error);
       setNotifications(defaultNotifications);
     } finally {
       setLoading(false);
@@ -64,6 +75,7 @@ export default function ScrollingBanner() {
 
   if (!isVisible) return null;
   if (loading) return <div className="h-8 bg-slate-900/50"></div>;
+  if (notifications.length === 0) return null;
 
   // Create marquee content
   const marqueeContent = [...notifications, ...notifications].map((note, idx) => (
