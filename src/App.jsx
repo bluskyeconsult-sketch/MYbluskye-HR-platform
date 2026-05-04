@@ -151,16 +151,16 @@ function AppContent() {
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-                {/* Assessment Routes */}
+                {/* Assessment Routes - Using Version 2's superior URL structure */}
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-                <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
-                <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+                <Route path="/assessment/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                <Route path="/assessment/results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
-                {/* Article Routes */}
+                {/* Article Routes - Preserved from Version 1 */}
                 <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
                 <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
 
-                {/* LMS Routes */}
+                {/* LMS Routes - Preserved from Version 1 */}
                 <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
                 <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
 
@@ -183,7 +183,7 @@ function AppContent() {
                 {/* Employer Routes */}
                 <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
-                {/* Admin Routes */}
+                {/* Admin Routes - All preserved from Version 1 */}
                 <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                 <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
                 <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
