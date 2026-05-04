@@ -77,6 +77,11 @@ import CookiesPage from './pages/legal/CookiesPage';
 import DisclaimerPage from './pages/legal/DisclaimerPage';
 import AcceptableUsePage from './pages/legal/AcceptableUsePage';
 
+// NEW PAGES TO ADD
+import FAQPage from './pages/FAQPage';
+import FraudPreventionPage from './pages/FraudPreventionPage';
+import MoreProductsPage from './pages/MoreProductsPage';
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -109,11 +114,6 @@ function NotFoundPage() {
       </div>
     </div>
   );
-}
-
-// Redirect component for backward compatibility
-function RedirectToAssessment({ id }) {
-  return <Navigate to={`/assessment/${id}`} replace />;
 }
 
 function AppContent() {
@@ -155,6 +155,11 @@ function AppContent() {
                 <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+                {/* NEW PUBLIC ROUTES */}
+                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
+                <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
 
                 {/* Assessment Routes - NEW URL STRUCTURE */}
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
