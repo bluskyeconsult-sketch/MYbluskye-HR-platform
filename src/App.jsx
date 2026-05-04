@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -111,6 +111,11 @@ function NotFoundPage() {
   );
 }
 
+// Redirect component for backward compatibility
+function RedirectToAssessment({ id }) {
+  return <Navigate to={`/assessment/${id}`} replace />;
+}
+
 function AppContent() {
   const [user, setUser] = useState(null);
   const location = useLocation();
@@ -151,16 +156,26 @@ function AppContent() {
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-                {/* Assessment Routes - Using Version 2's superior URL structure */}
+                {/* Assessment Routes - NEW URL STRUCTURE */}
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                 <Route path="/assessment/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
                 <Route path="/assessment/results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+                
+                {/* BACKWARD COMPATIBILITY: Redirect old assessment routes to new ones */}
+                <Route 
+                  path="/assessments/:id" 
+                  element={<Navigate to="/assessment/:id" replace />} 
+                />
+                <Route 
+                  path="/assessment-results/:id" 
+                  element={<Navigate to="/assessment/results/:id" replace />} 
+                />
 
-                {/* Article Routes - Preserved from Version 1 */}
+                {/* Article Routes */}
                 <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
                 <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
 
-                {/* LMS Routes - Preserved from Version 1 */}
+                {/* LMS Routes */}
                 <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
                 <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
 
@@ -183,7 +198,7 @@ function AppContent() {
                 {/* Employer Routes */}
                 <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
-                {/* Admin Routes - All preserved from Version 1 */}
+                {/* Admin Routes */}
                 <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                 <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
                 <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
