@@ -291,3 +291,8 @@ a.border-primary-500:hover {
   border-color: rgba(14, 165, 233, 0.5);
   box-shadow: 0 0 15px rgba(14, 165, 233, 0.15);
 }
+/* Add these 3 lines to the VERY BOTTOM of your index.css */
+
+/* Make ODUSBABA bold and "Creating Value for Partnership" stand out */
+.odusbaba-highlight { font-weight: 800; color: #0ea5e9; }
+.value-partnership { font-weight: 700; color: #10b981; font-style: italic; }
