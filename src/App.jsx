@@ -33,6 +33,13 @@ import AssessmentsPage from './pages/AssessmentsPage';
 import TakeAssessment from './pages/TakeAssessment';
 import AssessmentResults from './pages/AssessmentResults';
 
+// Add imports
+import LearnerDashboard from './pages/LearnerDashboard';
+import AICourseBuilder from './pages/admin/AICourseBuilder';
+
+// Add routes
+<Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
+<Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
 // Pages - Articles & Blog
 import ArticlesPage from './pages/ArticlesPage';
 import ArticleDetail from './pages/ArticleDetail';
