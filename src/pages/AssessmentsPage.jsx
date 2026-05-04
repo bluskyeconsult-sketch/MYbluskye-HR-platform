@@ -118,8 +118,9 @@ export default function AssessmentsPage() {
                   <span>{assessment.question_count} questions</span>
                 </div>
                 
+                {/* UPDATED LINK - Changed from /assessments/${assessment.id} to /assessment/${assessment.id} */}
                 <a
-                  href={`/assessments/${assessment.id}`}
+                  href={`/assessment/${assessment.id}`}
                   className="w-full py-2.5 bg-emerald-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-500 transition-colors group-hover:shadow-lg group-hover:shadow-emerald-600/20"
                 >
                   {userResults[assessment.id] ? 'Retake Assessment' : 'Start Assessment'}
