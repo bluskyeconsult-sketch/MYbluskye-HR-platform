@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Plus, Edit, Trash2, FileText, Search, RefreshCw, 
@@ -26,8 +26,6 @@ function useDebounce(value, delay) {
 }
 
 export default function AdminArticles() {
-  const navigate = useNavigate();
-  
   // State Management
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,12 +42,12 @@ export default function AdminArticles() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [processingIds, setProcessingIds] = useState(new Set());
 
-  // Refs for cleanup
+  // Refs for request cancellation
   const abortControllerRef = useRef(null);
   const isMountedRef = useRef(true);
 
   const itemsPerPage = 15;
-  const categories = ['article', 'news', 'blog', 'update', 'case-study', 'tutorial'];
+  const defaultCategories = ['article', 'news', 'blog', 'update', 'case-study', 'tutorial'];
 
   // Debounced search
   const debouncedSearch = useDebounce(searchTerm, 300);
@@ -71,22 +69,19 @@ export default function AdminArticles() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { 
-        toast.error('Please login to continue');
-        navigate('/admin-login');
+        window.location.href = '/admin-login'; 
         return; 
       }
       
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('user_type')
         .eq('id', session.user.id)
         .single();
       
-      if (profileError) throw profileError;
-      
       if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
         toast.error('Access denied. Admin privileges required.');
-        navigate('/dashboard');
+        window.location.href = '/dashboard';
         return;
       }
       
@@ -97,8 +92,7 @@ export default function AdminArticles() {
       }
     } catch (err) {
       console.error('Auth error:', err);
-      toast.error('Authentication failed');
-      navigate('/admin-login');
+      window.location.href = '/admin-login';
     }
   }
 
@@ -157,8 +151,7 @@ export default function AdminArticles() {
       
       // Apply pagination
       const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
-      query = query.range(from, to);
+      query = query.range(from, from + itemsPerPage - 1);
       
       const { data, error, count } = await query.abortSignal(abortControllerRef.current.signal);
       
@@ -266,7 +259,7 @@ export default function AdminArticles() {
   // Optimistic update for status toggle
   async function toggleStatus(id, currentStatus) {
     const newStatus = currentStatus === 'published' ? 'draft' : 'published';
-    const toastId = toast.loading(`Updating status...`);
+    const toastId = toast.loading(`${currentStatus === 'published' ? 'Unpublishing' : 'Publishing'} article...`);
     
     // Optimistic update
     const previousArticles = [...articles];
@@ -280,7 +273,8 @@ export default function AdminArticles() {
         .update({ 
           status: newStatus,
           updated_at: new Date().toISOString(),
-          updated_by: user?.id
+          updated_by: user?.id,
+          published_at: newStatus === 'published' ? new Date().toISOString() : null
         })
         .eq('id', id);
       
@@ -310,15 +304,30 @@ export default function AdminArticles() {
     setSelectedArticles(newSet); 
   }
 
-  // Get unique categories for filter
-  const uniqueCategories = useMemo(() => {
-    const cats = new Set(articles.map(a => a.category).filter(Boolean));
-    return ['all', ...Array.from(cats)];
-  }, [articles]);
+  function getStatusBadge(status) {
+    if (status === 'published') {
+      return (
+        <button 
+          onClick={() => toggleStatus(articleId, status)} 
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all cursor-pointer"
+        >
+          <Globe className="w-3 h-3" /> Published
+        </button>
+      );
+    }
+    return (
+      <button 
+        onClick={() => toggleStatus(articleId, status)} 
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-all cursor-pointer"
+      >
+        <EyeOff className="w-3 h-3" /> Draft
+      </button>
+    );
+  }
 
   const exportToJSON = () => {
-    const exportData = articles.map(({ id, title, status, category, view_count, created_at }) => ({
-      id, title, status, category, view_count, created_at
+    const exportData = articles.map(({ id, title, category, status, view_count, likes_count, created_at }) => ({
+      id, title, category, status, view_count, likes_count, created_at
     }));
     const dataStr = JSON.stringify(exportData, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
@@ -330,12 +339,11 @@ export default function AdminArticles() {
     toast.success('Articles exported successfully');
   };
 
-  const getStatusBadge = (status) => {
-    if (status === 'published') {
-      return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Published</span>;
-    }
-    return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400"><Clock className="w-3 h-3" /> Draft</span>;
-  };
+  // Get unique categories from articles
+  const uniqueCategories = useMemo(() => {
+    const categoriesSet = new Set(articles.map(a => a.category).filter(Boolean));
+    return ['all', ...Array.from(categoriesSet)];
+  }, [articles]);
 
   // ============== RENDER ==============
   if (!isAuthorized) {
@@ -368,22 +376,21 @@ export default function AdminArticles() {
         confirmVariant="danger"
       />
 
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <FileText className="w-6 h-6 text-primary-400" />
+              <FileText className="w-6 h-6 text-primary-400" /> 
               Article Management
             </h1>
-            <p className="text-slate-400 text-sm mt-1">Create, edit, and manage your content</p>
+            <p className="text-slate-400 text-sm">Create, edit, and manage your content library</p>
           </div>
           <Link
             to="/admin/articles/new"
-            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-all flex items-center gap-2 shadow-lg"
+            className="px-4 py-2 bg-primary-500 text-white rounded-lg flex items-center gap-2 hover:bg-primary-600 transition-all shadow-lg"
           >
-            <Plus className="w-4 h-4" />
-            New Article
+            <Plus className="w-4 h-4" /> New Article
           </Link>
         </div>
 
@@ -413,37 +420,37 @@ export default function AdminArticles() {
                 <p className="text-slate-400 text-sm">Drafts</p>
                 <p className="text-2xl font-bold text-amber-400">{stats.draft}</p>
               </div>
-              <EyeOff className="w-8 h-8 text-amber-400/50" />
+              <FileText className="w-8 h-8 text-amber-400/50" />
             </div>
           </div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Total Views</p>
-                <p className="text-2xl font-bold text-purple-400">{stats.views.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-blue-400">{stats.views.toLocaleString()}</p>
               </div>
-              <EyeIcon className="w-8 h-8 text-purple-400/50" />
+              <EyeIcon className="w-8 h-8 text-blue-400/50" />
             </div>
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search & Filters */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-wrap gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by title, content, or excerpt..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+              <input 
+                type="text" 
+                placeholder="Search by title, content, or excerpt..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
                 className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
               />
             </div>
             
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+            <select 
+              value={selectedCategory} 
+              onChange={(e) => setSelectedCategory(e.target.value)} 
               className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               {uniqueCategories.map(cat => (
@@ -453,9 +460,9 @@ export default function AdminArticles() {
               ))}
             </select>
             
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+            <select 
+              value={selectedStatus} 
+              onChange={(e) => setSelectedStatus(e.target.value)} 
               className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Status</option>
@@ -463,9 +470,9 @@ export default function AdminArticles() {
               <option value="draft">Draft</option>
             </select>
             
-            <button
-              onClick={() => loadArticles()}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all flex items-center gap-2"
+            <button 
+              onClick={() => loadArticles()} 
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-all flex items-center gap-2"
               disabled={loading}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -481,29 +488,26 @@ export default function AdminArticles() {
               <CheckCircle className="w-5 h-5 text-primary-400" />
               <span className="text-white font-medium">{selectedArticles.size} article(s) selected</span>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={bulkDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete Selected
-              </button>
-            </div>
+            <button 
+              onClick={bulkDelete} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Selected
+            </button>
           </div>
         )}
 
         {/* Articles Table */}
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
           </div>
         ) : error ? (
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <p className="text-red-400 mb-4">{error}</p>
-            <button
-              onClick={loadArticles}
+            <button 
+              onClick={loadArticles} 
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all"
             >
               Try Again
@@ -515,7 +519,7 @@ export default function AdminArticles() {
             <h3 className="text-xl font-semibold text-white mb-2">No Articles Found</h3>
             <p className="text-slate-400 mb-4">
               {searchTerm || selectedCategory !== 'all' || selectedStatus !== 'all'
-                ? 'Try adjusting your search or filters'
+                ? 'No articles match your search criteria'
                 : 'Get started by creating your first article'}
             </p>
             {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
@@ -523,17 +527,16 @@ export default function AdminArticles() {
                 to="/admin/articles/new"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all"
               >
-                <Plus className="w-4 h-4" />
-                Create First Article
+                <Plus className="w-4 h-4" /> Create First Article
               </Link>
             )}
           </div>
         ) : (
           <>
-            {/* Select All and Export Row */}
+            {/* Select All & Export */}
             <div className="flex items-center justify-between gap-2 mb-3">
-              <button
-                onClick={toggleSelectAll}
+              <button 
+                onClick={toggleSelectAll} 
                 className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
               >
                 {selectedArticles.size === articles.length ? (
@@ -544,8 +547,8 @@ export default function AdminArticles() {
                 <span className="text-sm">Select All ({articles.length})</span>
               </button>
               
-              <button
-                onClick={exportToJSON}
+              <button 
+                onClick={exportToJSON} 
                 className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm"
               >
                 <Download className="w-4 h-4" />
@@ -564,14 +567,13 @@ export default function AdminArticles() {
                       <th className="px-4 py-3 text-left text-white text-sm">Category</th>
                       <th className="px-4 py-3 text-left text-white text-sm">Status</th>
                       <th className="px-4 py-3 text-left text-white text-sm">Views</th>
-                      <th className="px-4 py-3 text-left text-white text-sm">Likes</th>
-                      <th className="px-4 py-3 text-left text-white text-sm">Comments</th>
+                      <th className="px-4 py-3 text-left text-white text-sm">Engagement</th>
                       <th className="px-4 py-3 text-left text-white text-sm">Date</th>
                       <th className="px-4 py-3 text-left text-white text-sm">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {articles.map((article) => (
+                    {articles.map(article => (
                       <tr 
                         key={article.id} 
                         className={`border-t border-slate-800 hover:bg-slate-800/30 transition-colors ${
@@ -594,74 +596,81 @@ export default function AdminArticles() {
                             </p>
                             {article.excerpt && (
                               <p className="text-slate-500 text-xs line-clamp-1 max-w-xs mt-1">
-                                {article.excerpt}
+                                {article.excerpt.substring(0, 60)}...
                               </p>
                             )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full text-xs">
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full">
                             <Tag className="w-3 h-3" />
                             {article.category || 'article'}
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => toggleStatus(article.id, article.status)}
-                            className="hover:opacity-80 transition-opacity"
-                          >
-                            {getStatusBadge(article.status)}
-                          </button>
+                          {article.status === 'published' ? (
+                            <button 
+                              onClick={() => toggleStatus(article.id, article.status)} 
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all cursor-pointer"
+                            >
+                              <Globe className="w-3 h-3" /> Published
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => toggleStatus(article.id, article.status)} 
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-all cursor-pointer"
+                            >
+                              <EyeOff className="w-3 h-3" /> Draft
+                            </button>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-slate-300 text-sm">
-                          <div className="flex items-center gap-1">
-                            <EyeIcon className="w-3 h-3" />
-                            {article.view_count || 0}
-                          </div>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-300 text-sm flex items-center gap-1">
+                            <EyeIcon className="w-3 h-3" /> 
+                            {article.view_count?.toLocaleString() || 0}
+                          </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-300 text-sm">
-                          <div className="flex items-center gap-1">
-                            <ThumbsUp className="w-3 h-3" />
-                            {article.likes_count || 0}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-300 text-sm">
-                          <div className="flex items-center gap-1">
-                            <MessageCircle className="w-3 h-3" />
-                            {article.comments_count || 0}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-300 text-sm whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {new Date(article.created_at).toLocaleDateString()}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 text-slate-300 text-sm">
+                            <span className="flex items-center gap-1">
+                              <ThumbsUp className="w-3 h-3 text-rose-400" /> 
+                              {article.likes_count || 0}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <MessageCircle className="w-3 h-3 text-blue-400" /> 
+                              {article.comments_count || 0}
+                            </span>
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex gap-1.5">
-                            {article.slug && (
-                              <Link
-                                to={`/articles/${article.slug}`}
-                                target="_blank"
-                                className="p-1.5 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors group"
-                                title="View"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
-                              </Link>
-                            )}
+                          <span className="text-slate-400 text-sm whitespace-nowrap flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(article.created_at).toLocaleDateString()}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
                             <Link
-                              to={`/admin/articles/${article.id}`}
-                              className="p-1.5 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors group"
+                              to={`/articles/${article.slug}`}
+                              target="_blank"
+                              className="p-1.5 bg-slate-800 rounded hover:bg-slate-700 transition-all"
+                              title="View"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-300" />
+                            </Link>
+                            <Link
+                              to={`/admin/articles/${article.id}/edit`}
+                              className="p-1.5 bg-slate-800 rounded hover:bg-slate-700 transition-all"
                               title="Edit"
                             >
-                              <Edit className="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
+                              <Edit className="w-3.5 h-3.5 text-slate-300" />
                             </Link>
                             <button
                               onClick={() => deleteArticle(article.id)}
-                              className="p-1.5 bg-slate-800 rounded-lg hover:bg-red-500/20 transition-colors group"
+                              className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20 transition-all"
                               title="Delete"
                             >
-                              <Trash2 className="w-3.5 h-3.5 text-red-400 group-hover:text-red-300" />
+                              <Trash2 className="w-3.5 h-3.5 text-red-400" />
                             </button>
                           </div>
                         </td>
@@ -674,22 +683,22 @@ export default function AdminArticles() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6">
-                <p className="text-sm text-slate-400">
+              <div className="flex flex-wrap justify-between items-center gap-4 mt-6">
+                <span className="text-sm text-slate-400">
                   Page {currentPage} of {totalPages} ({articles.length} shown)
-                </p>
+                </span>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                    disabled={currentPage === 1} 
                     className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Previous
                   </button>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={currentPage === totalPages} 
                     className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     Next
