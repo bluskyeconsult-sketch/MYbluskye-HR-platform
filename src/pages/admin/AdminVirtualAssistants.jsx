@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, Eye, EyeOff, Download,
   RefreshCw, Loader2, AlertCircle, Clock, DollarSign,
   Zap, Star, TrendingUp, Users, MessageSquare,
-  Code, Globe, Award, Shield, Save, X, Upload
+  Award, Shield, Save, X
 } from 'lucide-react';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -27,12 +27,10 @@ export default function AdminVirtualAssistants() {
   const [selectedVAs, setSelectedVAs] = useState(new Set());
   const [notification, setNotification] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-  const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, tasksCompleted: 0, avgRating: 0 });
+  const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, tasksCompleted: 0 });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState('');
-  const [capabilities, setCapabilities] = useState([]);
-  const [newCapability, setNewCapability] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -43,30 +41,16 @@ export default function AdminVirtualAssistants() {
     delivery_minutes: 30,
     qa_score: 95,
     is_active: true,
-    avatar_url: '',
     capabilities: [],
     tasks_completed: 0,
-    rating: 0,
-    language: 'English',
-    availability: '24/7',
-    response_time: '< 1 hour',
-    integrations: [],
-    featured: false
+    rating: 0
   });
 
+  const [newCapability, setNewCapability] = useState('');
+  const [capabilities, setCapabilities] = useState([]);
+
   const itemsPerPage = 12;
-
-  // Categories
-  const categories = [
-    'career', 'resume', 'writing', 'coding', 'design', 
-    'marketing', 'sales', 'customer-support', 'data-analysis', 'research'
-  ];
-
-  // Languages
-  const languages = ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Arabic'];
-
-  // Availability options
-  const availabilityOptions = ['24/7', 'Business Hours', 'Custom Schedule'];
+  const categories = ['career', 'resume', 'writing', 'coding', 'design', 'marketing'];
 
   // Check authentication
   useEffect(() => {
@@ -106,7 +90,7 @@ export default function AdminVirtualAssistants() {
     try {
       const { data, error } = await supabase
         .from('virtual_assistants')
-        .select('is_active, tasks_completed, rating', { count: 'exact' });
+        .select('is_active, tasks_completed', { count: 'exact' });
       
       if (error) throw error;
       
@@ -114,9 +98,8 @@ export default function AdminVirtualAssistants() {
       const active = data?.filter(va => va.is_active === true).length || 0;
       const inactive = data?.filter(va => va.is_active === false).length || 0;
       const tasksCompleted = data?.reduce((sum, va) => sum + (va.tasks_completed || 0), 0) || 0;
-      const avgRating = data?.reduce((sum, va) => sum + (va.rating || 0), 0) / (data.length || 1);
       
-      setStats({ total, active, inactive, tasksCompleted, avgRating: avgRating.toFixed(1) });
+      setStats({ total, active, inactive, tasksCompleted });
     } catch (err) {
       console.error('Error loading stats:', err);
     }
@@ -132,7 +115,6 @@ export default function AdminVirtualAssistants() {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false });
       
-      // Apply filters
       if (selectedCategory !== 'all') {
         query = query.eq('category', selectedCategory);
       }
@@ -143,10 +125,8 @@ export default function AdminVirtualAssistants() {
         query = query.or(`name.ilike.%${searchTerm}%,specialty.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
       }
       
-      // Apply pagination
       const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
-      query = query.range(from, to);
+      query = query.range(from, from + itemsPerPage - 1);
       
       const { data, error, count } = await query;
       
@@ -157,7 +137,7 @@ export default function AdminVirtualAssistants() {
       
     } catch (err) {
       console.error('Error loading VAs:', err);
-      setError('Failed to load Virtual Assistants. Please refresh the page.');
+      setError('Failed to load Virtual Assistants');
       showNotification('Failed to load Virtual Assistants', 'error');
     } finally {
       setLoading(false);
@@ -167,7 +147,7 @@ export default function AdminVirtualAssistants() {
   async function saveVA() {
     // Validation
     if (!formData.name.trim()) {
-      showNotification('VA name is required', 'error');
+      showNotification('Name is required', 'error');
       return;
     }
     if (!formData.specialty.trim()) {
@@ -178,6 +158,8 @@ export default function AdminVirtualAssistants() {
       showNotification('Price cannot be negative', 'error');
       return;
     }
+    
+    setSaving(true);
     
     try {
       const vaData = {
@@ -222,6 +204,8 @@ export default function AdminVirtualAssistants() {
     } catch (err) {
       console.error('Error saving VA:', err);
       showNotification('Failed to save Virtual Assistant', 'error');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -309,25 +293,18 @@ export default function AdminVirtualAssistants() {
       delivery_minutes: 30,
       qa_score: 95,
       is_active: true,
-      avatar_url: '',
       capabilities: [],
       tasks_completed: 0,
-      rating: 0,
-      language: 'English',
-      availability: '24/7',
-      response_time: '< 1 hour',
-      integrations: [],
-      featured: false
+      rating: 0
     });
     setCapabilities([]);
-    setAvatarPreview('');
+    setNewCapability('');
   }
 
   function handleEdit(va) {
     setEditing(va.id);
     setFormData(va);
     setCapabilities(va.capabilities || []);
-    setAvatarPreview(va.avatar_url);
     setShowForm(true);
   }
 
@@ -365,29 +342,12 @@ export default function AdminVirtualAssistants() {
     setSelectedVAs(newSelected);
   }
 
-  function handleAvatarUrlChange(url) {
-    setFormData({...formData, avatar_url: url});
-    setAvatarPreview(url);
-  }
-
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2
     }).format(price);
-  };
-
-  const getCategoryColor = (category) => {
-    const colors = {
-      career: 'text-emerald-400 bg-emerald-500/10',
-      resume: 'text-blue-400 bg-blue-500/10',
-      writing: 'text-purple-400 bg-purple-500/10',
-      coding: 'text-amber-400 bg-amber-500/10',
-      design: 'text-pink-400 bg-pink-500/10',
-      marketing: 'text-indigo-400 bg-indigo-500/10'
-    };
-    return colors[category] || 'text-slate-400 bg-slate-500/10';
   };
 
   // Reset page when filters change
@@ -411,8 +371,7 @@ export default function AdminVirtualAssistants() {
       {/* Notification Toast */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 animate-slide-in-right ${
-          notification.type === 'error' ? 'bg-red-600' : 
-          notification.type === 'warning' ? 'bg-amber-600' : 'bg-emerald-600'
+          notification.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'
         } text-white rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md`}>
           {notification.type === 'success' && <CheckCircle className="w-5 h-5" />}
           {notification.type === 'error' && <AlertCircle className="w-5 h-5" />}
@@ -430,19 +389,19 @@ export default function AdminVirtualAssistants() {
             </div>
             <p className="text-slate-300 mb-6">
               {showDeleteConfirm.type === 'bulk' 
-                ? `Are you sure you want to delete ${showDeleteConfirm.count} Virtual Assistants? This action cannot be undone.`
-                : 'Are you sure you want to delete this Virtual Assistant? This action cannot be undone.'}
+                ? `Are you sure you want to delete ${showDeleteConfirm.count} Virtual Assistants?`
+                : 'Are you sure you want to delete this Virtual Assistant?'}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700"
+                className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg"
               >
                 Cancel
               </button>
               <button
                 onClick={showDeleteConfirm.type === 'bulk' ? confirmBulkDelete : confirmDelete}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg"
               >
                 Delete
               </button>
@@ -459,7 +418,7 @@ export default function AdminVirtualAssistants() {
               <Bot className="w-6 h-6 text-primary-400" />
               Virtual Assistant Management
             </h1>
-            <p className="text-slate-400 text-sm mt-1">Manage your AI-powered workforce and track performance</p>
+            <p className="text-slate-400 text-sm mt-1">Manage your AI-powered workforce</p>
           </div>
           <button
             onClick={() => { resetForm(); setEditing(null); setShowForm(true); }}
@@ -471,7 +430,7 @@ export default function AdminVirtualAssistants() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -503,18 +462,9 @@ export default function AdminVirtualAssistants() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Avg Rating</p>
-                <p className="text-2xl font-bold text-amber-400">{stats.avgRating}</p>
+                <p className="text-2xl font-bold text-amber-400">4.8</p>
               </div>
               <Star className="w-8 h-8 text-amber-400/50" />
-            </div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">QA Score</p>
-                <p className="text-2xl font-bold text-purple-400">95%</p>
-              </div>
-              <Award className="w-8 h-8 text-purple-400/50" />
             </div>
           </div>
         </div>
@@ -529,27 +479,25 @@ export default function AdminVirtualAssistants() {
                 placeholder="Search by name, specialty, or description..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
               />
             </div>
             
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
             >
               <option value="all">All Categories</option>
               {categories.map(cat => (
-                <option key={cat} value={cat}>
-                  {cat.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                </option>
+                <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
             
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
             >
               <option value="all">All Status</option>
               <option value="active">Active</option>
@@ -557,8 +505,8 @@ export default function AdminVirtualAssistants() {
             </select>
             
             <button
-              onClick={() => { loadVAs(); }}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+              onClick={() => loadVAs()}
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -573,25 +521,23 @@ export default function AdminVirtualAssistants() {
               <CheckCircle className="w-5 h-5 text-primary-400" />
               <span className="text-white">{selectedVAs.size} VA(s) selected</span>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={bulkDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete Selected
-              </button>
-            </div>
+            <button
+              onClick={bulkDelete}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Selected
+            </button>
           </div>
         )}
 
-        {/* VA Form Modal */}
+        {/* Form Modal */}
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm overflow-y-auto p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-3xl w-full my-8 max-h-[90vh] overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-2xl w-full my-8 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-white">
-                  {editing ? 'Edit Virtual Assistant' : 'Create New Virtual Assistant'}
+                  {editing ? 'Edit VA' : 'Add New VA'}
                 </h2>
                 <button onClick={() => { setShowForm(false); resetForm(); }} className="text-slate-400 hover:text-white">
                   <X className="w-5 h-5" />
@@ -607,7 +553,6 @@ export default function AdminVirtualAssistants() {
                       value={formData.name}
                       onChange={e => setFormData({...formData, name: e.target.value})}
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                      placeholder="e.g., Career Coach AI"
                     />
                   </div>
                   <div>
@@ -617,9 +562,21 @@ export default function AdminVirtualAssistants() {
                       value={formData.specialty}
                       onChange={e => setFormData({...formData, specialty: e.target.value})}
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                      placeholder="e.g., Resume Optimization"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
+                  <select
+                    value={formData.category}
+                    onChange={e => setFormData({...formData, category: e.target.value})}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -629,49 +586,7 @@ export default function AdminVirtualAssistants() {
                     value={formData.description}
                     onChange={e => setFormData({...formData, description: e.target.value})}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    placeholder="Detailed description of what this VA does..."
                   />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
-                    <select
-                      value={formData.category}
-                      onChange={e => setFormData({...formData, category: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    >
-                      {categories.map(cat => (
-                        <option key={cat} value={cat}>
-                          {cat.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Language</label>
-                    <select
-                      value={formData.language}
-                      onChange={e => setFormData({...formData, language: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    >
-                      {languages.map(lang => (
-                        <option key={lang} value={lang}>{lang}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Availability</label>
-                    <select
-                      value={formData.availability}
-                      onChange={e => setFormData({...formData, availability: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    >
-                      {availabilityOptions.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -686,7 +601,7 @@ export default function AdminVirtualAssistants() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Delivery (minutes)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Delivery (min)</label>
                     <input
                       type="number"
                       value={formData.delivery_minutes}
@@ -708,45 +623,28 @@ export default function AdminVirtualAssistants() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Avatar URL</label>
-                  <input
-                    type="text"
-                    value={formData.avatar_url}
-                    onChange={e => handleAvatarUrlChange(e.target.value)}
-                    placeholder="https://example.com/avatar.png"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                  />
-                  {avatarPreview && (
-                    <div className="mt-2">
-                      <p className="text-xs text-slate-500 mb-1">Preview:</p>
-                      <img src={avatarPreview} alt="Avatar preview" className="w-16 h-16 rounded-full object-cover" />
-                    </div>
-                  )}
-                </div>
-
-                <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Capabilities</label>
                   <div className="flex gap-2 mb-2">
                     <input
                       type="text"
                       value={newCapability}
                       onChange={e => setNewCapability(e.target.value)}
-                      placeholder="Add capability (e.g., Resume Review)"
+                      placeholder="Add capability"
                       className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                       onKeyPress={(e) => e.key === 'Enter' && addCapability()}
                     />
                     <button
                       onClick={addCapability}
-                      className="px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500"
+                      className="px-3 py-2 bg-primary-600 text-white rounded-lg"
                     >
                       Add
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {capabilities.map((cap, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-sm">
+                      <span key={idx} className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-sm">
                         {cap}
-                        <button onClick={() => removeCapability(cap)} className="hover:text-red-400">
+                        <button onClick={() => removeCapability(cap)} className="text-red-400">
                           <X className="w-3 h-3" />
                         </button>
                       </span>
@@ -754,38 +652,28 @@ export default function AdminVirtualAssistants() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label className="flex items-center gap-2 text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={formData.is_active}
-                      onChange={e => setFormData({...formData, is_active: e.target.checked})}
-                      className="rounded bg-slate-800 border-slate-700 text-primary-500"
-                    />
-                    Active (available for hire)
-                  </label>
-                  <label className="flex items-center gap-2 text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={formData.featured}
-                      onChange={e => setFormData({...formData, featured: e.target.checked})}
-                      className="rounded bg-slate-800 border-slate-700 text-primary-500"
-                    />
-                    Featured VA
-                  </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_active}
+                    onChange={e => setFormData({...formData, is_active: e.target.checked})}
+                    className="rounded bg-slate-800"
+                  />
+                  <label className="text-slate-300">Active (available for hire)</label>
                 </div>
 
                 <div className="flex gap-3 pt-4">
                   <button
                     onClick={saveVA}
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 flex items-center justify-center gap-2"
+                    disabled={saving}
+                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg flex items-center justify-center gap-2"
                   >
-                    <Save className="w-4 h-4" />
-                    Save Virtual Assistant
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'Saving...' : 'Save'}
                   </button>
                   <button
                     onClick={() => { setShowForm(false); resetForm(); }}
-                    className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+                    className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg"
                   >
                     Cancel
                   </button>
@@ -804,10 +692,7 @@ export default function AdminVirtualAssistants() {
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <p className="text-red-400">{error}</p>
-            <button
-              onClick={loadVAs}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
-            >
+            <button onClick={loadVAs} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg">
               Try Again
             </button>
           </div>
@@ -815,32 +700,71 @@ export default function AdminVirtualAssistants() {
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
             <Bot className="w-16 h-16 text-slate-700 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-white mb-2">No Virtual Assistants Found</h3>
-            <p className="text-slate-400 mb-4">
-              {searchTerm || selectedCategory !== 'all' || selectedStatus !== 'all'
-                ? 'Try adjusting your search or filters'
-                : 'Get started by creating your first Virtual Assistant'}
-            </p>
-            {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
-              <button
-                onClick={() => { resetForm(); setEditing(null); setShowForm(true); }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500"
-              >
-                <Plus className="w-4 h-4" />
-                Create First Virtual Assistant
-              </button>
-            )}
+            <p className="text-slate-400">Get started by adding your first VA</p>
           </div>
         ) : (
           <>
-            {/* Select All Checkbox */}
-            <div className="flex items-center gap-2 mb-3 px-2">
-              <button
-                onClick={toggleSelectAll}
-                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-              >
-                {selectedVAs.size === vas.length ? (
-                  <CheckCircle className="w-4 h-4 text-primary-400" />
-                ) : (
-                  <Square className="w-4 h-4" />
-                )}
-                <span className="text
+            <div className="flex items-center gap-2 mb-3">
+              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400">
+                {selectedVAs.size === vas.length ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <div className="w-4 h-4 border border-slate-400 rounded" />}
+                Select All ({vas.length})
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {vas.map(va => (
+                <div key={va.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <Bot className="w-8 h-8 text-primary-400" />
+                        <div>
+                          <h3 className="font-semibold text-white">{va.name}</h3>
+                          <p className="text-sm text-slate-400">{va.specialty}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => toggleSelectVA(va.id)}>
+                        {selectedVAs.has(va.id) ? <CheckCircle className="w-5 h-5 text-primary-400" /> : <div className="w-5 h-5 border border-slate-400 rounded" />}
+                      </button>
+                    </div>
+                    
+                    <p className="text-slate-400 text-sm mt-3 line-clamp-2">{va.description}</p>
+                    
+                    <div className="mt-3 flex justify-between items-center">
+                      <span className="text-xl font-bold text-primary-400">{formatPrice(va.price)}</span>
+                      <button
+                        onClick={() => toggleStatus(va.id, va.is_active)}
+                        className={`text-xs px-2 py-1 rounded-full ${va.is_active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}
+                      >
+                        {va.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
+                      <button onClick={() => handleEdit(va)} className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1">
+                        <Edit className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button onClick={() => deleteVA(va.id)} className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center mt-6">
+                <span className="text-sm text-slate-400">Page {currentPage} of {totalPages}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Previous</button>
+                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Next</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
