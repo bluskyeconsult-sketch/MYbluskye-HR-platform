@@ -14,7 +14,7 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 import ScrollingBanner from './components/ScrollingBanner';
-import RotatingPromoBanner from './components/RotatingPromoBanner';
+// REMOVED: RotatingPromoBanner - only in HomePage now
 
 // ============================================
 // PUBLIC PAGES
@@ -140,12 +140,10 @@ function AppContent() {
   const location = useLocation();
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
     });
@@ -157,7 +155,7 @@ function AppContent() {
     <>
       <Navbar />
       <ScrollingBanner />
-      <RotatingPromoBanner />
+      {/* REMOVED: RotatingPromoBanner - now only in HomePage */}
       <main className="min-h-screen bg-background">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto">
