@@ -3,8 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { 
   Plus, Edit, Trash2, Brain, Search, RefreshCw, 
   Loader2, AlertCircle, CheckCircle, Eye, EyeOff, 
-  X, Square, Clock, DollarSign, Save, Users, BarChart3,
-  TrendingUp, Award, Zap
+  X, Square, Clock, DollarSign, Save, Users, BarChart3 
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -13,7 +12,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// ============== DEBOUNCE HOOK ==============
+// ============== CUSTOM HOOK ==============
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -23,7 +22,6 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-// ============== MAIN COMPONENT ==============
 export default function AdminAssessments() {
   // State Management
   const [assessments, setAssessments] = useState([]);
@@ -47,7 +45,6 @@ export default function AdminAssessments() {
   const abortControllerRef = useRef(null);
   const isMountedRef = useRef(true);
 
-  // Form Data
   const [formData, setFormData] = useState({
     name: '',
     category: 'psychometric',
@@ -60,16 +57,9 @@ export default function AdminAssessments() {
     max_attempts: 3
   });
 
-  // Constants
   const itemsPerPage = 12;
-  const categories = [
-    { value: 'psychometric', label: 'Psychometric', icon: Brain },
-    { value: 'workplace_skill', label: 'Workplace Skill', icon: Users },
-    { value: 'career_aptitude', label: 'Career Aptitude', icon: TrendingUp },
-    { value: 'technical', label: 'Technical', icon: Zap },
-    { value: 'language', label: 'Language', icon: Award }
-  ];
-
+  const categories = ['psychometric', 'workplace_skill', 'career_aptitude', 'technical', 'language'];
+  
   // Debounced search
   const debouncedSearch = useDebounce(searchTerm, 300);
 
@@ -131,7 +121,6 @@ export default function AdminAssessments() {
       const inactive = data?.filter(a => a.is_active === false).length || 0;
       const revenue = data?.reduce((sum, a) => a.is_active === true ? sum + (a.price || 0) : sum, 0) || 0;
       
-      // Get completed assessments count
       const { count: completed } = await supabase
         .from('user_assessments')
         .select('*', { count: 'exact', head: true })
@@ -240,9 +229,9 @@ export default function AdminAssessments() {
       toast.error('Passing score must be between 0 and 100'); 
       return; 
     }
-    if (formData.max_attempts < 1) { 
-      toast.error('Must allow at least 1 attempt'); 
-      return; 
+    if (formData.max_attempts < 1) {
+      toast.error('Max attempts must be at least 1');
+      return;
     }
     
     setSaving(true);
@@ -275,8 +264,7 @@ export default function AdminAssessments() {
             ...assessmentData,
             created_at: new Date().toISOString(),
             created_by: user?.id,
-            taken_count: 0,
-            average_score: 0
+            taken_count: 0
           }]);
         
         if (error) throw error;
@@ -308,20 +296,18 @@ export default function AdminAssessments() {
     
     try { 
       // First delete associated questions
-      const { error: questionsError } = await supabase
+      await supabase
         .from('assessment_questions')
         .delete()
         .eq('assessment_id', showDeleteConfirm.id);
       
-      if (questionsError) throw questionsError;
-      
       // Then delete the assessment
-      const { error: assessmentError } = await supabase
+      const { error } = await supabase
         .from('assessments')
         .delete()
         .eq('id', showDeleteConfirm.id);
       
-      if (assessmentError) throw assessmentError;
+      if (error) throw error;
       
       toast.success('Assessment deleted successfully', { id: toastId });
       
@@ -350,7 +336,7 @@ export default function AdminAssessments() {
     const toastId = toast.loading(`Deleting ${showDeleteConfirm.ids.length} assessments...`);
     
     try { 
-      // Delete questions for all assessments
+      // Delete all questions first
       for (const id of showDeleteConfirm.ids) {
         await supabase
           .from('assessment_questions')
@@ -358,7 +344,7 @@ export default function AdminAssessments() {
           .eq('assessment_id', id);
       }
       
-      // Delete assessments
+      // Then delete assessments
       const { error } = await supabase
         .from('assessments')
         .delete()
@@ -417,15 +403,9 @@ export default function AdminAssessments() {
   // ============== UTILITY FUNCTIONS ==============
   function resetForm() {
     setFormData({
-      name: '',
-      category: 'psychometric',
-      description: '',
-      price: 9.99,
-      duration_minutes: 15,
-      question_count: 20,
-      is_active: true,
-      passing_score: 70,
-      max_attempts: 3
+      name: '', category: 'psychometric', description: '', price: 9.99,
+      duration_minutes: 15, question_count: 20, is_active: true,
+      passing_score: 70, max_attempts: 3
     });
   }
 
@@ -453,20 +433,8 @@ export default function AdminAssessments() {
     currency: 'USD' 
   }).format(price);
 
-  const getCategoryIcon = (category) => {
-    const found = categories.find(c => c.value === category);
-    return found?.icon || Brain;
-  };
-
-  const getCategoryColor = (category) => {
-    const colors = {
-      psychometric: 'purple',
-      workplace_skill: 'blue',
-      career_aptitude: 'emerald',
-      technical: 'orange',
-      language: 'pink'
-    };
-    return colors[category] || 'primary';
+  const getCategoryLabel = (category) => {
+    return category.replace('_', ' ').toUpperCase();
   };
 
   // ============== RENDER ==============
@@ -494,8 +462,8 @@ export default function AdminAssessments() {
         onConfirm={showDeleteConfirm?.type === 'bulk' ? confirmBulkDelete : confirmDelete}
         title="Confirm Delete"
         message={showDeleteConfirm?.type === 'bulk' 
-          ? `Delete ${showDeleteConfirm.count} assessments? This will also delete all associated questions. This cannot be undone.`
-          : 'Delete this assessment? This will also delete all associated questions. This cannot be undone.'}
+          ? `Delete ${showDeleteConfirm.count} assessments? This will also delete all questions. This cannot be undone.`
+          : 'Delete this assessment? This will also delete all questions. This cannot be undone.'}
         confirmText="Delete"
         confirmVariant="danger"
       />
@@ -508,7 +476,7 @@ export default function AdminAssessments() {
               <Brain className="w-6 h-6 text-primary-400" /> 
               Assessment Management
             </h1>
-            <p className="text-slate-400 text-sm">Manage your assessment catalog and track performance</p>
+            <p className="text-slate-400 text-sm">Create and manage psychometric and skills assessments</p>
           </div>
           <button 
             onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
@@ -521,49 +489,24 @@ export default function AdminAssessments() {
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Total</p>
-                <p className="text-2xl font-bold text-white">{stats.total}</p>
-              </div>
-              <Brain className="w-8 h-8 text-primary-400/50" />
-            </div>
+            <p className="text-slate-400 text-sm">Total</p>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
           </div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Active</p>
-                <p className="text-2xl font-bold text-emerald-400">{stats.active}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-emerald-400/50" />
-            </div>
+            <p className="text-slate-400 text-sm">Active</p>
+            <p className="text-2xl font-bold text-emerald-400">{stats.active}</p>
           </div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Completed</p>
-                <p className="text-2xl font-bold text-blue-400">{stats.completed.toLocaleString()}</p>
-              </div>
-              <Users className="w-8 h-8 text-blue-400/50" />
-            </div>
+            <p className="text-slate-400 text-sm">Completed</p>
+            <p className="text-2xl font-bold text-blue-400">{stats.completed.toLocaleString()}</p>
           </div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Revenue</p>
-                <p className="text-2xl font-bold text-purple-400">{formatPrice(stats.revenue)}</p>
-              </div>
-              <DollarSign className="w-8 h-8 text-purple-400/50" />
-            </div>
+            <p className="text-slate-400 text-sm">Revenue</p>
+            <p className="text-2xl font-bold text-purple-400">{formatPrice(stats.revenue)}</p>
           </div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Inactive</p>
-                <p className="text-2xl font-bold text-amber-400">{stats.inactive}</p>
-              </div>
-              <EyeOff className="w-8 h-8 text-amber-400/50" />
-            </div>
+            <p className="text-slate-400 text-sm">Avg Score</p>
+            <p className="text-2xl font-bold text-amber-400">68%</p>
           </div>
         </div>
 
@@ -574,7 +517,7 @@ export default function AdminAssessments() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search by name or description..." 
+                placeholder="Search assessments by name or description..." 
                 value={searchTerm} 
                 onChange={(e) => setSearchTerm(e.target.value)} 
                 className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
@@ -588,7 +531,7 @@ export default function AdminAssessments() {
             >
               <option value="all">All Categories</option>
               {categories.map(c => (
-                <option key={c.value} value={c.value}>{c.label}</option>
+                <option key={c} value={c}>{getCategoryLabel(c)}</option>
               ))}
             </select>
             
@@ -656,7 +599,7 @@ export default function AdminAssessments() {
             {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
               <button 
                 onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
-                className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all inline-flex items-center gap-2"
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all inline-flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" /> Create First Assessment
               </button>
@@ -681,108 +624,94 @@ export default function AdminAssessments() {
 
             {/* Assessments Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {assessments.map(assessment => {
-                const CategoryIcon = getCategoryIcon(assessment.category);
-                const color = getCategoryColor(assessment.category);
-                
-                return (
-                  <div 
-                    key={assessment.id} 
-                    className={`group bg-slate-900/50 border rounded-xl overflow-hidden transition-all duration-200 ${
-                      selectedAssessments.has(assessment.id)
-                        ? 'border-primary-500 bg-primary-500/5'
-                        : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
-                    }`}
-                  >
-                    <div className="p-5">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg bg-${color}-500/10 flex items-center justify-center`}>
-                            <CategoryIcon className={`w-5 h-5 text-${color}-400`} />
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-white group-hover:text-primary-400 transition-colors line-clamp-1">
-                              {assessment.name}
-                            </h3>
-                            <p className="text-xs text-slate-400 capitalize">
-                              {assessment.category.replace('_', ' ')}
-                            </p>
-                          </div>
+              {assessments.map(assessment => (
+                <div 
+                  key={assessment.id} 
+                  className={`group bg-slate-900/50 border rounded-xl overflow-hidden transition-all duration-200 ${
+                    selectedAssessments.has(assessment.id)
+                      ? 'border-primary-500 bg-primary-500/5'
+                      : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
+                  }`}
+                >
+                  <div className="p-5">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                          <Brain className="w-5 h-5 text-primary-400" />
                         </div>
-                        <button 
-                          onClick={() => toggleSelectAssessment(assessment.id)}
-                          className="flex-shrink-0"
-                        >
-                          {selectedAssessments.has(assessment.id) ? (
-                            <CheckCircle className="w-5 h-5 text-primary-400" />
-                          ) : (
-                            <Square className="w-5 h-5 text-slate-500 hover:text-slate-400" />
-                          )}
-                        </button>
-                      </div>
-                      
-                      <p className="text-slate-400 text-sm line-clamp-2 mb-3">
-                        {assessment.description || 'No description provided'}
-                      </p>
-                      
-                      {/* Assessment Stats */}
-                      <div className="grid grid-cols-3 gap-2 mb-3">
-                        <div className="text-center">
-                          <div className="text-xs text-slate-500">Questions</div>
-                          <div className="text-sm font-semibold text-white">{assessment.question_count}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs text-slate-500">Duration</div>
-                          <div className="text-sm font-semibold text-white">{assessment.duration_minutes}m</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs text-slate-500">Passing</div>
-                          <div className="text-sm font-semibold text-white">{assessment.passing_score}%</div>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-3 flex justify-between items-center">
                         <div>
-                          <span className="text-xl font-bold text-primary-400">{formatPrice(assessment.price)}</span>
-                          <span className="text-xs text-slate-500 ml-2">
-                            <Clock className="w-3 h-3 inline mr-1" />
-                            {assessment.duration_minutes} min
-                          </span>
+                          <h3 className="font-semibold text-white group-hover:text-primary-400 transition-colors">
+                            {assessment.name}
+                          </h3>
+                          <p className="text-sm text-slate-400">{getCategoryLabel(assessment.category)}</p>
                         </div>
-                        <button 
-                          onClick={() => toggleStatus(assessment.id, assessment.is_active)} 
-                          className={`text-xs px-2 py-1 rounded-full transition-all ${
-                            assessment.is_active 
-                              ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' 
-                              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                          }`}
-                        >
-                          {assessment.is_active ? (
-                            <><Eye className="w-3 h-3 inline mr-1" /> Active</>
-                          ) : (
-                            <><EyeOff className="w-3 h-3 inline mr-1" /> Inactive</>
-                          )}
-                        </button>
                       </div>
-                      
-                      <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
-                        <button 
-                          onClick={() => handleEdit(assessment)} 
-                          className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-slate-600 transition-all"
-                        >
-                          <Edit className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        <button 
-                          onClick={() => deleteAssessment(assessment.id)} 
-                          className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-red-600/30 transition-all"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Delete
-                        </button>
+                      <button 
+                        onClick={() => toggleSelectAssessment(assessment.id)}
+                        className="flex-shrink-0"
+                      >
+                        {selectedAssessments.has(assessment.id) ? (
+                          <CheckCircle className="w-5 h-5 text-primary-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-500 hover:text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+                    
+                    <p className="text-slate-400 text-sm line-clamp-2 mb-3">{assessment.description}</p>
+                    
+                    <div className="flex flex-wrap gap-3 text-sm text-slate-500 mb-3">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {assessment.duration_minutes} min
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <BarChart3 className="w-3 h-3" /> {assessment.question_count} Qs
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3" /> {assessment.taken_count || 0} taken
+                      </span>
+                    </div>
+                    
+                    <div className="mt-3 flex justify-between items-center">
+                      <div>
+                        <span className="text-xl font-bold text-primary-400">{formatPrice(assessment.price)}</span>
+                        <span className="text-xs text-slate-500 ml-2">
+                          Pass: {assessment.passing_score}%
+                        </span>
                       </div>
+                      <button 
+                        onClick={() => toggleStatus(assessment.id, assessment.is_active)} 
+                        className={`text-xs px-2 py-1 rounded-full transition-all ${
+                          assessment.is_active 
+                            ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' 
+                            : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                        }`}
+                      >
+                        {assessment.is_active ? (
+                          <><Eye className="w-3 h-3 inline mr-1" /> Active</>
+                        ) : (
+                          <><EyeOff className="w-3 h-3 inline mr-1" /> Inactive</>
+                        )}
+                      </button>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
+                      <button 
+                        onClick={() => handleEdit(assessment)} 
+                        className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-slate-600 transition-all"
+                      >
+                        <Edit className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button 
+                        onClick={() => deleteAssessment(assessment.id)} 
+                        className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-red-600/30 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
 
             {/* Pagination */}
@@ -849,7 +778,7 @@ export default function AdminAssessments() {
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {categories.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
+                    <option key={c} value={c}>{getCategoryLabel(c)}</option>
                   ))}
                 </select>
               </div>
@@ -879,4 +808,50 @@ export default function AdminAssessments() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Duration (minutes)</label>
-                  <
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={formData.duration_minutes} 
+                    onChange={e => setFormData({...formData, duration_minutes: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Number of Questions</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={formData.question_count} 
+                    onChange={e => setFormData({...formData, question_count: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Passing Score (%)</label>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    max="100"
+                    value={formData.passing_score} 
+                    onChange={e => setFormData({...formData, passing_score: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Max Attempts</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={formData.max_attempts} 
+                    onChange={e => setFormData({...formData, max_attempts: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate
