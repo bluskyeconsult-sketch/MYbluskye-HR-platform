@@ -1,111 +1,221 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
-  RefreshCw, CheckCircle, XCircle, Eye, Filter, 
-  Search, AlertTriangle, Clock, ChevronDown, ChevronUp,
-  Trash2, Download, Upload, ExternalLink, FileText,
-  Loader2, Bell, Shield, CheckSquare, Square, SortAsc,
-  SortDesc, Calendar, Building, MapPin, Briefcase
+  Plus, Edit, Trash2, Briefcase, Search, RefreshCw, 
+  Loader2, AlertCircle, CheckCircle, XCircle, 
+  ChevronDown, ChevronUp, Globe, Clock,
+  DollarSign, MapPin, Building, Eye, ExternalLink,
+  ThumbsUp, ThumbsDown, Download, Save, X,
+  Filter, Shield, Bell, AlertTriangle, Calendar
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// ============== CUSTOM HOOKS ==============
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export default function AdminExternalJobs() {
-  // State
-  const [pendingJobs, setPendingJobs] = useState([]);
+  // State Management
+  const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [fetching, setFetching] = useState(false);
-  const [processingIds, setProcessingIds] = useState(new Set());
+  const [error, setError] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSource, setSelectedSource] = useState('all');
-  const [sortBy, setSortBy] = useState('date_desc');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [selectedJobs, setSelectedJobs] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [expandedJob, setExpandedJob] = useState(null);
-  const [notification, setNotification] = useState(null);
-  const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
-  const [showConfirmDialog, setShowConfirmDialog] = useState(null);
+  const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [processingIds, setProcessingIds] = useState(new Set());
 
-  // Check authentication and authorization
+  // Refs for cleanup
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const [formData, setFormData] = useState({
+    title: '',
+    company: '',
+    location: '',
+    source_name: '',
+    description: '',
+    salary: '',
+    job_type: 'fulltime',
+    external_id: '',
+    status: 'pending_approval'
+  });
+
+  const itemsPerPage = 15;
+  const jobTypes = ['fulltime', 'parttime', 'contract', 'remote', 'internship'];
+
+  // Debounced search
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  // Cleanup on unmount
   useEffect(() => {
-    checkAuth();
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
+  // ============== AUTHENTICATION ==============
+  useEffect(() => { checkAuth(); }, []);
+
   async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { 
+        window.location.href = '/admin-login'; 
+        return; 
+      }
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        toast.error('Access denied. Admin privileges required.');
+        window.location.href = '/dashboard';
+        return;
+      }
+      
+      if (isMountedRef.current) {
+        setUser(session.user);
+        setIsAuthorized(true);
+        await Promise.all([loadJobs(), loadStats()]);
+      }
+    } catch (err) {
+      console.error('Auth error:', err);
       window.location.href = '/admin-login';
-      return;
     }
-    
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('user_type')
-      .eq('id', session.user.id)
-      .single();
-    
-    if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
-      window.location.href = '/dashboard';
-      return;
-    }
-    
-    setUser(session.user);
-    setIsAuthorized(true);
-    loadPendingJobs();
-    loadStats();
   }
 
+  // ============== DATA LOADING ==============
   async function loadStats() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('external_jobs')
-        .select('status, count')
-        .in('status', ['pending_approval', 'approved', 'rejected']);
+        .select('status');
       
-      const statsMap = { pending: 0, approved: 0, rejected: 0 };
-      data?.forEach(item => {
-        if (item.status === 'pending_approval') statsMap.pending++;
-        else if (item.status === 'approved') statsMap.approved++;
-        else if (item.status === 'rejected') statsMap.rejected++;
-      });
-      setStats(statsMap);
-    } catch (err) {
-      console.error('Error loading stats:', err);
-    }
-  }
-
-  async function loadPendingJobs() {
-    try {
-      setLoading(true);
-      let query = supabase
-        .from('external_jobs')
-        .select('*')
-        .eq('status', 'pending_approval')
-        .order('created_at', { ascending: false });
-      
-      const { data, error } = await query;
       if (error) throw error;
-      setPendingJobs(data || []);
-    } catch (err) {
-      console.error('Error loading jobs:', err);
-      showNotification('Failed to load jobs', 'error');
-    } finally {
-      setLoading(false);
+      
+      const total = data?.length || 0;
+      const pending = data?.filter(j => j.status === 'pending_approval').length || 0;
+      const approved = data?.filter(j => j.status === 'approved').length || 0;
+      const rejected = data?.filter(j => j.status === 'rejected').length || 0;
+      
+      if (isMountedRef.current) {
+        setStats({ pending, approved, rejected, total });
+      }
+    } catch (err) { 
+      console.error('Stats error:', err);
     }
   }
 
-  async function fetchExternalJobs() {
-    setFetching(true);
-    showNotification('Fetching external jobs...', 'info');
+  async function loadJobs() {
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
     
     try {
-      // Try to fetch from real API first
+      if (isMountedRef.current) {
+        setLoading(true);
+        setError(null);
+      }
+      
+      let query = supabase
+        .from('external_jobs')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false });
+      
+      // Apply filters
+      if (selectedSource !== 'all') {
+        query = query.eq('source_name', selectedSource);
+      }
+      if (selectedStatus !== 'all') {
+        query = query.eq('status', selectedStatus);
+      }
+      if (debouncedSearch) {
+        const sanitizedSearch = debouncedSearch.replace(/[%_]/g, '\\$&');
+        query = query.or(`title.ilike.%${sanitizedSearch}%,company.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
+      }
+      
+      // Apply pagination
+      const from = (currentPage - 1) * itemsPerPage;
+      query = query.range(from, from + itemsPerPage - 1);
+      
+      const { data, error, count } = await query.abortSignal(abortControllerRef.current.signal);
+      
+      if (error) throw error;
+      
+      if (isMountedRef.current) {
+        setJobs(data || []);
+        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log('Request cancelled');
+        return;
+      }
+      console.error('Load error:', err);
+      if (isMountedRef.current) {
+        setError('Failed to load external jobs');
+        toast.error('Failed to load external jobs');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedSource, selectedStatus]);
+
+  // Load jobs when dependencies change
+  useEffect(() => {
+    if (isAuthorized) {
+      loadJobs();
+    }
+  }, [isAuthorized, currentPage, debouncedSearch, selectedSource, selectedStatus]);
+
+  // ============== EXTERNAL JOBS FETCHING ==============
+  async function fetchExternalJobs() {
+    setFetching(true);
+    const toastId = toast.loading('Fetching external jobs...');
+    
+    try {
+      // First, try to fetch from real API endpoint
       let externalJobs = [];
       
-      // Attempt to fetch from real job APIs (example)
       try {
         const response = await fetch('/api/external-jobs/fetch', {
           method: 'POST',
@@ -118,16 +228,17 @@ export default function AdminExternalJobs() {
           externalJobs = result.jobs;
         }
       } catch (apiErr) {
-        console.log('Using mock data for development');
+        console.log('API not available, using mock data');
       }
       
-      // Fallback to mock data for development
+      // Fallback to mock data for development/demo
       if (externalJobs.length === 0) {
         externalJobs = [
-          { title: 'Senior Software Engineer', company: 'Tech Corp', location: 'London, UK', source: 'UK Jobs API', salary: '£80,000 - £100,000', description: 'Looking for an experienced software engineer...' },
-          { title: 'HR Business Partner', company: 'Global Inc', location: 'Manchester, UK', source: 'LinkedIn', salary: '£55,000 - £70,000', description: 'Join our growing HR team...' },
-          { title: 'DevOps Engineer', company: 'Cloud Systems', location: 'Remote (UK)', source: 'Indeed', salary: '£75,000 - £90,000', description: 'Kubernetes, AWS, CI/CD experience required...' },
-          { title: 'Product Manager', company: 'Innovate Ltd', location: 'Birmingham, UK', source: 'TotalJobs', salary: '£65,000 - £85,000', description: 'Lead product development for our SaaS platform...' },
+          { title: 'Senior Software Engineer', company: 'Tech Corp', location: 'London, UK', source_name: 'UK Jobs API', salary: '£80,000 - £100,000', description: 'Looking for an experienced software engineer with 5+ years of experience in React, Node.js, and cloud technologies.', job_type: 'fulltime' },
+          { title: 'HR Business Partner', company: 'Global Inc', location: 'Manchester, UK', source_name: 'LinkedIn', salary: '£55,000 - £70,000', description: 'Join our growing HR team to support business operations and employee relations.', job_type: 'fulltime' },
+          { title: 'DevOps Engineer', company: 'Cloud Systems', location: 'Remote (UK)', source_name: 'Indeed', salary: '£75,000 - £90,000', description: 'Kubernetes, AWS, CI/CD experience required. Join our cloud infrastructure team.', job_type: 'remote' },
+          { title: 'Product Manager', company: 'Innovate Ltd', location: 'Birmingham, UK', source_name: 'TotalJobs', salary: '£65,000 - £85,000', description: 'Lead product development for our SaaS platform. Experience with agile methodologies required.', job_type: 'fulltime' },
+          { title: 'Data Scientist', company: 'AI Solutions', location: 'Edinburgh, UK', source_name: 'Glassdoor', salary: '£70,000 - £95,000', description: 'Machine learning, Python, SQL. Work on cutting-edge AI projects.', job_type: 'fulltime' },
         ];
       }
       
@@ -144,7 +255,7 @@ export default function AdminExternalJobs() {
       let duplicateCount = 0;
       
       for (const job of externalJobs) {
-        const jobKey = `${job.title}|${job.company}|${job.source}`;
+        const jobKey = `${job.title}|${job.company}|${job.source_name}`;
         if (existingKeys.has(jobKey)) {
           duplicateCount++;
           continue;
@@ -154,9 +265,10 @@ export default function AdminExternalJobs() {
           title: job.title,
           company: job.company,
           location: job.location || 'Remote',
-          source_name: job.source,
+          source_name: job.source_name,
           salary: job.salary,
           description: job.description || 'External job listing',
+          job_type: job.job_type || 'fulltime',
           status: 'pending_approval',
           fetched_by: user?.id,
           fetched_at: new Date().toISOString()
@@ -165,20 +277,86 @@ export default function AdminExternalJobs() {
         if (!error) newCount++;
       }
       
-      showNotification(`Added ${newCount} new jobs (${duplicateCount} duplicates skipped)`, 'success');
-      await loadPendingJobs();
-      await loadStats();
+      toast.success(`Added ${newCount} new jobs (${duplicateCount} duplicates skipped)`, { id: toastId });
+      await Promise.all([loadJobs(), loadStats()]);
       
     } catch (err) {
       console.error('Error fetching jobs:', err);
-      showNotification('Failed to fetch external jobs', 'error');
+      toast.error('Failed to fetch external jobs', { id: toastId });
     } finally {
       setFetching(false);
     }
   }
 
+  // ============== CRUD OPERATIONS ==============
+  async function saveJob() {
+    // Validation
+    if (!formData.title.trim()) { 
+      toast.error('Job title is required'); 
+      return; 
+    }
+    if (!formData.company.trim()) { 
+      toast.error('Company name is required'); 
+      return; 
+    }
+    
+    setSaving(true);
+    const toastId = toast.loading(editing ? 'Updating job...' : 'Creating job...');
+    
+    try {
+      const jobData = {
+        ...formData,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.id
+      };
+      
+      if (editing) {
+        const { error } = await supabase
+          .from('external_jobs')
+          .update(jobData)
+          .eq('id', editing);
+        
+        if (error) throw error;
+        toast.success('Job updated successfully', { id: toastId });
+      } else {
+        const { error } = await supabase
+          .from('external_jobs')
+          .insert([{
+            ...jobData,
+            created_at: new Date().toISOString(),
+            fetched_by: user?.id,
+            fetched_at: new Date().toISOString()
+          }]);
+        
+        if (error) throw error;
+        toast.success('Job created successfully', { id: toastId });
+      }
+      
+      if (isMountedRef.current) {
+        setShowForm(false);
+        setEditing(null);
+        resetForm();
+        await Promise.all([loadJobs(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Save error:', err);
+      toast.error('Failed to save job', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
+    }
+  }
+
   async function approveJob(jobId) {
     setProcessingIds(prev => new Set(prev).add(jobId));
+    const toastId = toast.loading('Approving job...');
+    
+    // Optimistic update
+    const previousJobs = [...jobs];
+    setJobs(jobs.map(job => 
+      job.id === jobId ? { ...job, status: 'approved' } : job
+    ));
     
     try {
       const { data: job, error: fetchError } = await supabase
@@ -198,7 +376,8 @@ export default function AdminExternalJobs() {
           location: job.location,
           description: job.description || 'External job listing',
           salary: job.salary,
-          source_type: 'authoritative',
+          job_type: job.job_type,
+          source_type: 'external',
           source_name: job.source_name,
           compliance_status: 'approved',
           is_active: true,
@@ -221,13 +400,14 @@ export default function AdminExternalJobs() {
       
       if (updateError) throw updateError;
       
-      showNotification(`Job "${job.title}" approved successfully`, 'success');
-      await loadPendingJobs();
+      toast.success(`Job "${job.title}" approved`, { id: toastId });
       await loadStats();
       
     } catch (err) {
+      // Rollback on error
+      setJobs(previousJobs);
       console.error('Error approving job:', err);
-      showNotification('Failed to approve job', 'error');
+      toast.error('Failed to approve job', { id: toastId });
     } finally {
       setProcessingIds(prev => {
         const newSet = new Set(prev);
@@ -239,6 +419,13 @@ export default function AdminExternalJobs() {
 
   async function rejectJob(jobId) {
     setProcessingIds(prev => new Set(prev).add(jobId));
+    const toastId = toast.loading('Rejecting job...');
+    
+    // Optimistic update
+    const previousJobs = [...jobs];
+    setJobs(jobs.map(job => 
+      job.id === jobId ? { ...job, status: 'rejected' } : job
+    ));
     
     try {
       const { error } = await supabase
@@ -252,13 +439,14 @@ export default function AdminExternalJobs() {
       
       if (error) throw error;
       
-      showNotification('Job rejected', 'success');
-      await loadPendingJobs();
+      toast.success('Job rejected', { id: toastId });
       await loadStats();
       
     } catch (err) {
+      // Rollback on error
+      setJobs(previousJobs);
       console.error('Error rejecting job:', err);
-      showNotification('Failed to reject job', 'error');
+      toast.error('Failed to reject job', { id: toastId });
     } finally {
       setProcessingIds(prev => {
         const newSet = new Set(prev);
@@ -268,248 +456,237 @@ export default function AdminExternalJobs() {
     }
   }
 
+  async function deleteJob(id) { 
+    setShowDeleteConfirm({ id, type: 'delete' }); 
+  }
+  
+  async function confirmDelete() {
+    const toastId = toast.loading('Deleting job...');
+    
+    try { 
+      const { error } = await supabase
+        .from('external_jobs')
+        .delete()
+        .eq('id', showDeleteConfirm.id);
+      
+      if (error) throw error;
+      
+      toast.success('Job deleted successfully', { id: toastId });
+      
+      if (isMountedRef.current) {
+        await Promise.all([loadJobs(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Delete error:', err);
+      toast.error('Failed to delete job', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
+    }
+  }
+
   async function bulkApprove() {
-    const jobsToApprove = pendingJobs.filter(job => selectedJobs.has(job.id));
-    setShowConfirmDialog({
-      action: 'bulk-approve',
-      count: jobsToApprove.length,
-      message: `Are you sure you want to approve ${jobsToApprove.length} jobs?`
-    });
+    setShowDeleteConfirm({ ids: Array.from(selectedJobs), type: 'approve', count: selectedJobs.size });
   }
 
   async function bulkReject() {
-    const jobsToReject = pendingJobs.filter(job => selectedJobs.has(job.id));
-    setShowConfirmDialog({
-      action: 'bulk-reject',
-      count: jobsToReject.length,
-      message: `Are you sure you want to reject ${jobsToReject.length} jobs?`
+    setShowDeleteConfirm({ ids: Array.from(selectedJobs), type: 'reject', count: selectedJobs.size });
+  }
+
+  async function confirmBulkAction() {
+    const newStatus = showDeleteConfirm.type === 'approve' ? 'approved' : 'rejected';
+    const toastId = toast.loading(`Processing ${showDeleteConfirm.count} jobs...`);
+    
+    // Optimistic update
+    const previousJobs = [...jobs];
+    setJobs(jobs.map(job => 
+      showDeleteConfirm.ids.includes(job.id) ? { ...job, status: newStatus } : job
+    ));
+    
+    try {
+      const { error } = await supabase
+        .from('external_jobs')
+        .update({ 
+          status: newStatus, 
+          reviewed_by: user?.id, 
+          reviewed_at: new Date().toISOString() 
+        })
+        .in('id', showDeleteConfirm.ids);
+      
+      if (error) throw error;
+      
+      toast.success(`${showDeleteConfirm.count} jobs ${newStatus}`, { id: toastId });
+      setSelectedJobs(new Set());
+      await loadStats();
+      
+    } catch (err) {
+      // Rollback on error
+      setJobs(previousJobs);
+      console.error('Bulk action error:', err);
+      toast.error('Failed to update jobs', { id: toastId });
+    } finally {
+      setShowDeleteConfirm(null);
+    }
+  }
+
+  // ============== UTILITY FUNCTIONS ==============
+  function resetForm() {
+    setFormData({
+      title: '', company: '', location: '', source_name: '', description: '', salary: '',
+      job_type: 'fulltime', external_id: '', status: 'pending_approval'
     });
   }
 
-  async function executeBulkAction() {
-    const jobs = pendingJobs.filter(job => selectedJobs.has(job.id));
-    setProcessingIds(new Set(jobs.map(j => j.id)));
-    
-    try {
-      if (showConfirmDialog.action === 'bulk-approve') {
-        for (const job of jobs) {
-          await approveJob(job.id);
-        }
-      } else if (showConfirmDialog.action === 'bulk-reject') {
-        for (const job of jobs) {
-          await rejectJob(job.id);
-        }
-      }
-      
-      setSelectedJobs(new Set());
-      showNotification(`Successfully processed ${jobs.length} jobs`, 'success');
-    } catch (err) {
-      showNotification('Error processing bulk action', 'error');
-    } finally {
-      setProcessingIds(new Set());
-      setShowConfirmDialog(null);
-      await loadPendingJobs();
-      await loadStats();
+  function handleEdit(job) {
+    setEditing(job.id);
+    setFormData(job);
+    setShowForm(true);
+  }
+
+  function toggleSelectAll() { 
+    setSelectedJobs(selectedJobs.size === jobs.length 
+      ? new Set() 
+      : new Set(jobs.map(j => j.id))
+    ); 
+  }
+  
+  function toggleSelectJob(id) { 
+    const newSet = new Set(selectedJobs); 
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id); 
+    setSelectedJobs(newSet); 
+  }
+
+  function getStatusBadge(status) {
+    switch(status) {
+      case 'approved': 
+        return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Approved</span>;
+      case 'rejected': 
+        return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-500/20 text-red-400"><XCircle className="w-3 h-3" /> Rejected</span>;
+      default: 
+        return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400"><Clock className="w-3 h-3" /> Pending</span>;
     }
   }
 
-  function showNotification(message, type = 'success') {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
-  }
-
-  function toggleSelectAll() {
-    if (selectedJobs.size === filteredJobs.length) {
-      setSelectedJobs(new Set());
-    } else {
-      setSelectedJobs(new Set(filteredJobs.map(job => job.id)));
-    }
-  }
-
-  function toggleSelectJob(jobId) {
-    const newSelected = new Set(selectedJobs);
-    if (newSelected.has(jobId)) {
-      newSelected.delete(jobId);
-    } else {
-      newSelected.add(jobId);
-    }
-    setSelectedJobs(newSelected);
-  }
-
-  // Filter and sort jobs
-  const filteredJobs = useMemo(() => {
-    let filtered = [...pendingJobs];
-    
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(job =>
-        job.title.toLowerCase().includes(term) ||
-        job.company.toLowerCase().includes(term) ||
-        (job.location && job.location.toLowerCase().includes(term)) ||
-        (job.description && job.description.toLowerCase().includes(term))
-      );
-    }
-    
-    if (selectedSource !== 'all') {
-      filtered = filtered.filter(job => job.source_name === selectedSource);
-    }
-    
-    switch (sortBy) {
-      case 'date_asc':
-        filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        break;
-      case 'date_desc':
-        filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        break;
-      case 'title_asc':
-        filtered.sort((a, b) => a.title.localeCompare(b.title));
-        break;
-      case 'title_desc':
-        filtered.sort((a, b) => b.title.localeCompare(a.title));
-        break;
-      case 'company_asc':
-        filtered.sort((a, b) => a.company.localeCompare(b.company));
-        break;
-      default:
-        break;
-    }
-    
-    return filtered;
-  }, [pendingJobs, searchTerm, selectedSource, sortBy]);
-
+  // Get unique sources for filter
   const uniqueSources = useMemo(() => {
-    const sources = new Set(pendingJobs.map(job => job.source_name).filter(Boolean));
+    const sources = new Set(jobs.map(j => j.source_name).filter(Boolean));
     return ['all', ...Array.from(sources)];
-  }, [pendingJobs]);
+  }, [jobs]);
 
+  const exportToJSON = () => {
+    const dataStr = JSON.stringify(jobs, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `external-jobs-${new Date().toISOString().split('T')[0]}.json`;
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    toast.success('Jobs exported to JSON');
+  };
+
+  // ============== RENDER ==============
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 animate-slide-in-right ${
-          notification.type === 'error' ? 'bg-red-600' : 
-          notification.type === 'warning' ? 'bg-amber-600' : 
-          notification.type === 'info' ? 'bg-blue-600' : 'bg-emerald-600'
-        } text-white rounded-lg shadow-lg p-4 flex items-center gap-3`}>
-          {notification.type === 'success' && <CheckCircle className="w-5 h-5" />}
-          {notification.type === 'error' && <AlertCircle className="w-5 h-5" />}
-          {notification.type === 'info' && <Bell className="w-5 h-5" />}
-          <p>{notification.message}</p>
-        </div>
-      )}
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { background: '#1e293b', color: '#fff' },
+          duration: 3000
+        }} 
+      />
+      
+      <ConfirmModal
+        isOpen={!!showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(null)}
+        onConfirm={showDeleteConfirm?.type === 'delete' ? confirmDelete : confirmBulkAction}
+        title={
+          showDeleteConfirm?.type === 'approve' ? 'Confirm Approve' : 
+          showDeleteConfirm?.type === 'reject' ? 'Confirm Reject' : 
+          'Confirm Delete'
+        }
+        message={
+          showDeleteConfirm?.type === 'approve' ? `Approve ${showDeleteConfirm.count} jobs? They will be added to the main jobs board.` :
+          showDeleteConfirm?.type === 'reject' ? `Reject ${showDeleteConfirm.count} jobs? This action can be reversed.` :
+          'Delete this job? This action cannot be undone.'
+        }
+        confirmText={showDeleteConfirm?.type === 'approve' ? 'Approve' : showDeleteConfirm?.type === 'reject' ? 'Reject' : 'Delete'}
+        confirmVariant={showDeleteConfirm?.type === 'approve' ? 'success' : 'danger'}
+      />
 
-      {/* Confirmation Dialog */}
-      {showConfirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-400" />
-              <h3 className="text-xl font-bold text-white">Confirm Action</h3>
-            </div>
-            <p className="text-slate-300 mb-6">{showConfirmDialog.message}</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirmDialog(null)}
-                className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeBulkAction}
-                className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500"
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Briefcase className="w-6 h-6 text-primary-400" />
-              External Job Moderation
+              <Briefcase className="w-6 h-6 text-primary-400" /> 
+              External Jobs Moderation
             </h1>
-            <p className="text-slate-400 text-sm mt-1">Review and approve external job listings</p>
+            <p className="text-slate-400 text-sm">Review, approve, and manage external job listings</p>
           </div>
-          <button
-            onClick={fetchExternalJobs}
-            disabled={fetching}
-            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            {fetching ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Fetching...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                Fetch External Jobs
-              </>
-            )}
-          </button>
+          <div className="flex gap-3">
+            <button 
+              onClick={fetchExternalJobs} 
+              disabled={fetching} 
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-all flex items-center gap-2 disabled:opacity-50"
+            >
+              {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+              {fetching ? 'Fetching...' : 'Fetch External Jobs'}
+            </button>
+            <button 
+              onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
+              className="px-4 py-2 bg-primary-500 text-white rounded-lg flex items-center gap-2 hover:bg-primary-600 transition-all shadow-lg"
+            >
+              <Plus className="w-4 h-4" /> Add Job
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Pending Review</p>
-                <p className="text-2xl font-bold text-amber-400">{stats.pending}</p>
-              </div>
-              <Clock className="w-8 h-8 text-amber-400/50" />
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Total Jobs</p>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Approved</p>
-                <p className="text-2xl font-bold text-emerald-400">{stats.approved}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-emerald-400/50" />
-            </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Pending Review</p>
+            <p className="text-2xl font-bold text-amber-400">{stats.pending}</p>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Rejected</p>
-                <p className="text-2xl font-bold text-red-400">{stats.rejected}</p>
-              </div>
-              <XCircle className="w-8 h-8 text-red-400/50" />
-            </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Approved</p>
+            <p className="text-2xl font-bold text-emerald-400">{stats.approved}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Rejected</p>
+            <p className="text-2xl font-bold text-red-400">{stats.rejected}</p>
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search & Filters */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-wrap gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by title, company, location..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              <input 
+                type="text" 
+                placeholder="Search by title, company, or description..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
               />
             </div>
             
-            <select
-              value={selectedSource}
-              onChange={(e) => setSelectedSource(e.target.value)}
+            <select 
+              value={selectedSource} 
+              onChange={(e) => setSelectedSource(e.target.value)} 
               className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               {uniqueSources.map(source => (
@@ -519,216 +696,169 @@ export default function AdminExternalJobs() {
               ))}
             </select>
             
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+            <select 
+              value={selectedStatus} 
+              onChange={(e) => setSelectedStatus(e.target.value)} 
               className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
-              <option value="date_desc">Newest First</option>
-              <option value="date_asc">Oldest First</option>
-              <option value="title_asc">Title A-Z</option>
-              <option value="title_desc">Title Z-A</option>
-              <option value="company_asc">Company A-Z</option>
+              <option value="all">All Status</option>
+              <option value="pending_approval">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </select>
+            
+            <button 
+              onClick={() => loadJobs()} 
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-all flex items-center gap-2"
+              disabled={loading}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
           </div>
         </div>
 
-        {/* Bulk Actions */}
+        {/* Bulk Actions Bar */}
         {selectedJobs.size > 0 && (
-          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex flex-wrap justify-between items-center gap-4 animate-in slide-in-from-top-2">
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary-400" />
-              <span className="text-white">{selectedJobs.size} job(s) selected</span>
+              <span className="text-white font-medium">{selectedJobs.size} job(s) selected</span>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={bulkApprove}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 flex items-center gap-2"
+              <button 
+                onClick={bulkApprove} 
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-all flex items-center gap-2"
               >
-                <CheckCircle className="w-4 h-4" />
-                Approve All
+                <ThumbsUp className="w-4 h-4" /> Approve Selected
               </button>
-              <button
-                onClick={bulkReject}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 flex items-center gap-2"
+              <button 
+                onClick={bulkReject} 
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
               >
-                <XCircle className="w-4 h-4" />
-                Reject All
+                <ThumbsDown className="w-4 h-4" /> Reject Selected
               </button>
             </div>
           </div>
         )}
 
-        {/* Jobs List */}
+        {/* Jobs Table */}
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
           </div>
-        ) : filteredJobs.length === 0 ? (
+        ) : error ? (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <p className="text-red-400 mb-4">{error}</p>
+            <button 
+              onClick={loadJobs} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : jobs.length === 0 ? (
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
-            <FileText className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
-            <p className="text-slate-400">
-              {searchTerm || selectedSource !== 'all' 
-                ? 'Try adjusting your search or filters'
-                : 'All caught up! Click "Fetch External Jobs" to import new listings'}
+            <Briefcase className="w-16 h-16 text-slate-700 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">No External Jobs</h3>
+            <p className="text-slate-400 mb-4">
+              {searchTerm || selectedSource !== 'all' || selectedStatus !== 'all'
+                ? 'No jobs match your search criteria'
+                : 'Click "Fetch External Jobs" to import listings from external sources'}
             </p>
+            {!searchTerm && selectedSource === 'all' && selectedStatus === 'all' && (
+              <button 
+                onClick={fetchExternalJobs} 
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all inline-flex items-center gap-2"
+              >
+                <Globe className="w-4 h-4" /> Fetch External Jobs
+              </button>
+            )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <>
             {/* Select All Checkbox */}
-            <div className="flex items-center gap-2 px-2">
-              <button
-                onClick={toggleSelectAll}
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <button 
+                onClick={toggleSelectAll} 
                 className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
               >
-                {selectedJobs.size === filteredJobs.length ? (
-                  <CheckSquare className="w-4 h-4 text-primary-400" />
+                {selectedJobs.size === jobs.length ? (
+                  <CheckCircle className="w-4 h-4 text-primary-400" />
                 ) : (
                   <Square className="w-4 h-4" />
                 )}
-                <span className="text-sm">Select All ({filteredJobs.length})</span>
+                <span className="text-sm">Select All ({jobs.length})</span>
+              </button>
+              
+              <button 
+                onClick={exportToJSON} 
+                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                Export JSON
               </button>
             </div>
-
-            {filteredJobs.map(job => (
-              <div
-                key={job.id}
-                className={`bg-slate-900/50 border rounded-xl transition-all ${
-                  selectedJobs.has(job.id)
-                    ? 'border-primary-500 bg-primary-500/5'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="p-5">
-                  <div className="flex items-start gap-3">
-                    {/* Selection Checkbox */}
-                    <button
-                      onClick={() => toggleSelectJob(job.id)}
-                      className="mt-1"
-                    >
-                      {selectedJobs.has(job.id) ? (
-                        <CheckSquare className="w-5 h-5 text-primary-400" />
-                      ) : (
-                        <Square className="w-5 h-5 text-slate-500" />
-                      )}
-                    </button>
-
-                    {/* Job Content */}
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                        <h2 className="text-xl font-semibold text-white">{job.title}</h2>
-                        <span className="text-xs px-2 py-1 bg-amber-500/20 text-amber-400 rounded-full">
-                          Pending Review
-                        </span>
-                      </div>
-                      
-                      <p className="text-slate-400 flex items-center gap-2 mb-2">
-                        <Building className="w-3 h-3" />
-                        {job.company}
-                        {job.location && (
-                          <>
-                            <span className="text-slate-600">•</span>
-                            <MapPin className="w-3 h-3" />
-                            {job.location}
-                          </>
-                        )}
-                      </p>
-                      
-                      {job.salary && (
-                        <p className="text-sm text-emerald-400 mb-2">{job.salary}</p>
-                      )}
-                      
-                      <p className="text-slate-400 text-sm mb-2">
-                        Source: {job.source_name}
-                      </p>
-                      
-                      <p className="text-xs text-slate-500 mb-3">
-                        Fetched: {new Date(job.created_at).toLocaleString()}
-                      </p>
-                      
-                      {/* Expand/Collapse Description */}
-                      {job.description && (
-                        <div className="mt-3">
-                          <button
-                            onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
-                            className="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-1"
-                          >
-                            {expandedJob === job.id ? (
-                              <>Show Less <ChevronUp className="w-3 h-3" /></>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-800/50 rounded-t-xl">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-white text-sm w-10"></th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Title / Company</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Location</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Source</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Status</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Fetched</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map(job => (
+                    <React.Fragment key={job.id}>
+                      <tr className={`border-t border-slate-800 hover:bg-slate-800/30 transition-colors ${selectedJobs.has(job.id) ? 'bg-primary-500/5' : ''}`}>
+                        <td className="px-4 py-3">
+                          <button onClick={() => toggleSelectJob(job.id)}>
+                            {selectedJobs.has(job.id) ? (
+                              <CheckCircle className="w-4 h-4 text-primary-400" />
                             ) : (
-                              <>Show Description <ChevronDown className="w-3 h-3" /></>
+                              <Square className="w-4 h-4 text-slate-500 hover:text-slate-400" />
                             )}
                           </button>
-                          {expandedJob === job.id && (
-                            <div className="mt-2 p-3 bg-slate-800/50 rounded-lg">
-                              <p className="text-slate-300 text-sm whitespace-pre-wrap">
-                                {job.description}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="text-white font-medium">{job.title}</p>
+                            <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
+                              <Building className="w-3 h-3" /> {job.company}
+                            </p>
+                            {job.salary && (
+                              <p className="text-emerald-400 text-xs mt-1 flex items-center gap-1">
+                                <DollarSign className="w-3 h-3" /> {job.salary}
                               </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {/* Action Buttons */}
-                      <div className="flex gap-3 mt-4">
-                        <button
-                          onClick={() => approveJob(job.id)}
-                          disabled={processingIds.has(job.id)}
-                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2 disabled:opacity-50"
-                        >
-                          {processingIds.has(job.id) ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <CheckCircle className="w-4 h-4" />
-                          )}
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectJob(job.id)}
-                          disabled={processingIds.has(job.id)}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <XCircle className="w-4 h-4" />
-                          Reject
-                        </button>
-                        <button
-                          onClick={() => window.open(`/jobs/${job.id}`, '_blank')}
-                          className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                          Preview
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Export Section */}
-        {pendingJobs.length > 0 && (
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={() => {
-                const dataStr = JSON.stringify(pendingJobs, null, 2);
-                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                const exportFileDefaultName = `external-jobs-${new Date().toISOString()}.json`;
-                const linkElement = document.createElement('a');
-                linkElement.setAttribute('href', dataUri);
-                linkElement.setAttribute('download', exportFileDefaultName);
-                linkElement.click();
-              }}
-              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export to JSON
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300 text-sm">
+                          <MapPin className="w-3 h-3 inline mr-1" /> 
+                          {job.location || 'Remote'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-sm">
+                          <span className="px-2 py-1 bg-slate-800 rounded-full text-xs">
+                            {job.source_name}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
+                        <td className="px-4 py-3 text-slate-400 text-sm whitespace-nowrap">
+                          <Calendar className="w-3 h-3 inline mr-1" />
+                          {new Date(job.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => approveJob(job.id)} 
+                              disabled={job.status === 'approved' || processingIds.has(job.id)} 
+                              className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                              title="Approve"
+                           
