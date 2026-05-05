@@ -1,809 +1,856 @@
-// AdminCourses.jsx
-import { useState, useCallback, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useDebounce } from 'use-debounce';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import toast from 'react-hot-toast';
-import * as Sentry from '@sentry/react';
 import { 
   Plus, Edit, Trash2, GraduationCap, Search, RefreshCw, 
   Loader2, AlertCircle, CheckCircle, Eye, EyeOff, 
-  X, Square, Globe, Clock, DollarSign, Save, Filter,
-  TrendingUp, Users, Star, Award, BookOpen
+  X, Square, Globe, Clock, DollarSign, Save 
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
-import { useAuth } from '../../hooks/useAuth';
-import { ErrorBoundary } from '../../components/ErrorBoundary';
-import { PerformanceMonitor } from '../../components/PerformanceMonitor';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Constants
-const ITEMS_PER_PAGE = 12;
-const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
-const STALE_TIME = 1 * 60 * 1000; // 1 minute
-const RETRY_CONFIG = { retries: 3, retryDelay: attempt => Math.min(1000 * 2 ** attempt, 10000) };
+// ============== CUSTOM HOOKS ==============
 
-// Types
-const LEVELS = ['beginner', 'intermediate', 'advanced', 'expert'];
-const CATEGORIES = ['business', 'technology', 'hr-management', 'leadership', 'career-development', 'communication'];
-const LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Chinese'];
+// Debounce hook - prevents excessive API calls
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
-// API Service Layer
-const courseService = {
-  async getCourses({ page, search, level, status, signal }) {
-    const from = (page - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
-    
-    let query = supabase
-      .from('courses')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
-    
-    if (level !== 'all') query = query.eq('level', level);
-    if (status !== 'all') query = query.eq('status', status);
-    if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,instructor.ilike.%${search}%`);
-    }
-    
-    const { data, error, count } = await query.range(from, to).abortSignal(signal);
-    if (error) throw error;
-    
-    return { courses: data || [], total: count || 0, totalPages: Math.ceil((count || 0) / ITEMS_PER_PAGE) };
-  },
-  
-  async getStats(signal) {
-    const { data, error } = await supabase
-      .from('courses')
-      .select('status, price, students_enrolled')
-      .abortSignal(signal);
-    
-    if (error) throw error;
-    
-    const total = data?.length || 0;
-    const published = data?.filter(c => c.status === 'published').length || 0;
-    const draft = data?.filter(c => c.status === 'draft').length || 0;
-    const students = data?.reduce((sum, c) => sum + (c.students_enrolled || 0), 0) || 0;
-    const revenue = data?.reduce((sum, c) => 
-      c.status === 'published' ? sum + ((c.price || 0) * (c.students_enrolled || 0)) : sum, 0
-    ) || 0;
-    
-    return { total, published, draft, students, revenue };
-  },
-  
-  async saveCourse(course, userId) {
-    const courseData = {
-      ...course,
-      price: parseFloat(course.price),
-      duration_minutes: parseInt(course.duration_minutes),
-      updated_at: new Date().toISOString(),
-      updated_by: userId
+// ============== MAIN COMPONENT ==============
+
+export default function AdminCourses() {
+  // State
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedLevel, setSelectedLevel] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [selectedCourses, setSelectedCourses] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [stats, setStats] = useState({ total: 0, published: 0, draft: 0, revenue: 0 });
+  const [user, setUser] = useState(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [thumbnailPreview, setThumbnailPreview] = useState('');
+
+  const [formData, setFormData] = useState({
+    title: '', description: '', level: 'beginner', duration_minutes: 60, 
+    price: 0, thumbnail_url: '', status: 'draft'
+  });
+
+  // Refs for request cancellation
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const itemsPerPage = 20;
+  const levels = ['beginner', 'intermediate', 'advanced', 'expert'];
+
+  // Debounced search
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
-    
-    if (course.id) {
-      const { error } = await supabase.from('courses').update(courseData).eq('id', course.id);
-      if (error) throw error;
-      return { ...courseData, id: course.id };
-    } else {
-      const { data, error } = await supabase.from('courses').insert({
-        ...courseData,
-        created_at: new Date().toISOString(),
-        created_by: userId,
-        students_enrolled: 0,
-        rating: 0
-      }).select().single();
+  }, []);
+
+  // ============== AUTHENTICATION ==============
+
+  async function checkAuth() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { 
+        window.location.href = '/admin-login'; 
+        return; 
+      }
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        toast.error('Access denied. Admin privileges required.');
+        window.location.href = '/dashboard';
+        return;
+      }
+      
+      if (isMountedRef.current) {
+        setUser(session.user);
+        setIsAuthorized(true);
+        await Promise.all([loadCourses(), loadStats()]);
+      }
+    } catch (err) {
+      console.error('Auth error:', err);
+      window.location.href = '/admin-login';
+    }
+  }
+
+  useEffect(() => { 
+    checkAuth(); 
+  }, []);
+
+  // ============== DATA LOADING ==============
+
+  async function loadStats() {
+    try {
+      const { data, error } = await supabase
+        .from('courses')
+        .select('status, price');
       
       if (error) throw error;
-      return data;
+      
+      const total = data?.length || 0;
+      const published = data?.filter(c => c.status === 'published').length || 0;
+      const draft = data?.filter(c => c.status === 'draft').length || 0;
+      const revenue = data?.reduce((sum, c) => 
+        c.status === 'published' ? sum + (c.price || 0) : sum, 0
+      ) || 0;
+      
+      if (isMountedRef.current) {
+        setStats({ total, published, draft, revenue });
+      }
+    } catch (err) { 
+      console.error('Stats error:', err);
     }
-  },
-  
-  async deleteCourse(id) {
-    const { error } = await supabase.from('courses').delete().eq('id', id);
-    if (error) throw error;
-    return id;
-  },
-  
-  async bulkDeleteCourses(ids) {
-    const { error } = await supabase.from('courses').delete().in('id', ids);
-    if (error) throw error;
-    return ids;
-  },
-  
-  async toggleCourseStatus(id, currentStatus) {
-    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
-    const { error } = await supabase
-      .from('courses')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    
-    if (error) throw error;
-    return { id, newStatus };
   }
-};
 
-// Custom Hooks
-function useCourses(filters) {
-  const [searchTerm] = useDebounce(filters.search, 300);
-  
-  return useQuery({
-    queryKey: ['courses', filters.page, searchTerm, filters.level, filters.status],
-    queryFn: ({ signal }) => courseService.getCourses({ 
-      ...filters, 
-      search: searchTerm,
-      signal 
-    }),
-    staleTime: STALE_TIME,
-    cacheTime: CACHE_TIME,
-    retry: RETRY_CONFIG.retries,
-    retryDelay: RETRY_CONFIG.retryDelay,
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'fetchCourses' },
-        extra: { filters }
-      });
-      toast.error('Failed to load courses. Please refresh the page.');
+  async function loadCourses() {
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
-  });
-}
+    
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      if (isMountedRef.current) {
+        setLoading(true);
+        setError(null);
+      }
+      
+      let query = supabase
+        .from('courses')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false });
+      
+      // Apply filters
+      if (selectedLevel !== 'all') {
+        query = query.eq('level', selectedLevel);
+      }
+      if (selectedStatus !== 'all') {
+        query = query.eq('status', selectedStatus);
+      }
+      if (debouncedSearch) {
+        // Sanitize search input to prevent injection
+        const sanitizedSearch = debouncedSearch.replace(/[%_]/g, '\\$&');
+        query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
+      }
+      
+      // Apply pagination
+      const from = (currentPage - 1) * itemsPerPage;
+      query = query.range(from, from + itemsPerPage - 1);
+      
+      const { data, error, count } = await query.abortSignal(abortControllerRef.current.signal);
+      
+      if (error) throw error;
+      
+      if (isMountedRef.current) {
+        setCourses(data || []);
+        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log('Request cancelled');
+        return;
+      }
+      console.error('Load error:', err);
+      if (isMountedRef.current) {
+        setError('Failed to load courses');
+        toast.error('Failed to load courses');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }
 
-function useCourseStats() {
-  return useQuery({
-    queryKey: ['course-stats'],
-    queryFn: ({ signal }) => courseService.getStats(signal),
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    cacheTime: 10 * 60 * 1000, // 10 minutes
-    refetchOnWindowFocus: false,
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'fetchStats' }
-      });
-    }
-  });
-}
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedLevel, selectedStatus]);
 
-function useCourseMutations() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  
-  const saveMutation = useMutation({
-    mutationFn: (course) => courseService.saveCourse(course, user?.id),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] });
-      queryClient.invalidateQueries({ queryKey: ['course-stats'] });
-      toast.success(data.id ? 'Course updated successfully' : 'Course created successfully');
-    },
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'saveCourse' }
-      });
-      toast.error('Failed to save course. Please try again.');
+  // Load courses when dependencies change
+  useEffect(() => {
+    if (isAuthorized) {
+      loadCourses();
     }
-  });
-  
-  const deleteMutation = useMutation({
-    mutationFn: courseService.deleteCourse,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] });
-      queryClient.invalidateQueries({ queryKey: ['course-stats'] });
-      toast.success('Course deleted successfully');
-    },
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'deleteCourse' }
-      });
-      toast.error('Failed to delete course');
-    }
-  });
-  
-  const bulkDeleteMutation = useMutation({
-    mutationFn: courseService.bulkDeleteCourses,
-    onSuccess: (ids) => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] });
-      queryClient.invalidateQueries({ queryKey: ['course-stats'] });
-      toast.success(`Deleted ${ids.length} courses`);
-    },
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'bulkDelete' }
-      });
-      toast.error('Failed to delete courses');
-    }
-  });
-  
-  const toggleStatusMutation = useMutation({
-    mutationFn: ({ id, status }) => courseService.toggleCourseStatus(id, status),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] });
-      queryClient.invalidateQueries({ queryKey: ['course-stats'] });
-      toast.success(`Course ${data.newStatus === 'published' ? 'published' : 'unpublished'}`);
-    },
-    onError: (error) => {
-      Sentry.captureException(error, {
-        tags: { component: 'AdminCourses', action: 'toggleStatus' }
-      });
-      toast.error('Failed to update course status');
-    }
-  });
-  
-  return { saveMutation, deleteMutation, bulkDeleteMutation, toggleStatusMutation };
-}
+  }, [isAuthorized, currentPage, debouncedSearch, selectedLevel, selectedStatus]);
 
-// Components
-const StatCard = ({ title, value, icon: Icon, color, trend }) => (
-  <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-all">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-slate-400 text-sm font-medium">{title}</p>
-        <p className="text-2xl font-bold text-white mt-1">{value}</p>
-        {trend !== undefined && (
-          <div className={`flex items-center gap-1 mt-2 text-xs ${trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            <TrendingUp className="w-3 h-3" />
-            <span>{Math.abs(trend)}% from last month</span>
-          </div>
-        )}
-      </div>
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-${color}-500/10`}>
-        <Icon className={`w-6 h-6 text-${color}-400`} />
-      </div>
-    </div>
-  </div>
-);
+  // ============== CRUD OPERATIONS ==============
 
-const CourseCard = ({ course, isSelected, onToggleSelect, onEdit, onDelete, onToggleStatus }) => {
+  async function saveCourse() {
+    // Validation
+    if (!formData.title.trim()) { 
+      toast.error('Title is required'); 
+      return; 
+    }
+    if (formData.price < 0) { 
+      toast.error('Price cannot be negative'); 
+      return; 
+    }
+    if (formData.duration_minutes <= 0) {
+      toast.error('Duration must be positive');
+      return;
+    }
+    
+    setSaving(true);
+    const toastId = toast.loading(editing ? 'Updating course...' : 'Creating course...');
+    
+    try {
+      const courseData = { 
+        ...formData, 
+        price: parseFloat(formData.price), 
+        duration_minutes: parseInt(formData.duration_minutes),
+        updated_at: new Date().toISOString()
+      };
+      
+      if (editing) {
+        const { error } = await supabase
+          .from('courses')
+          .update(courseData)
+          .eq('id', editing);
+        
+        if (error) throw error;
+        toast.success('Course updated successfully', { id: toastId });
+      } else {
+        const { error } = await supabase
+          .from('courses')
+          .insert([{
+            ...courseData,
+            created_at: new Date().toISOString(),
+            students_enrolled: 0,
+            rating: 0
+          }]);
+        
+        if (error) throw error;
+        toast.success('Course created successfully', { id: toastId });
+      }
+      
+      if (isMountedRef.current) {
+        setShowForm(false);
+        setEditing(null);
+        resetForm();
+        await Promise.all([loadCourses(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Save error:', err);
+      toast.error('Failed to save course', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
+    }
+  }
+
+  async function deleteCourse(id) { 
+    setShowDeleteConfirm({ id, type: 'single' }); 
+  }
+  
+  async function confirmDelete() {
+    const toastId = toast.loading('Deleting course...');
+    
+    try { 
+      const { error } = await supabase
+        .from('courses')
+        .delete()
+        .eq('id', showDeleteConfirm.id);
+      
+      if (error) throw error;
+      
+      toast.success('Course deleted successfully', { id: toastId });
+      
+      if (isMountedRef.current) {
+        await Promise.all([loadCourses(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Delete error:', err);
+      toast.error('Failed to delete course', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
+    }
+  }
+
+  async function bulkDelete() { 
+    setShowDeleteConfirm({ 
+      ids: Array.from(selectedCourses), 
+      type: 'bulk', 
+      count: selectedCourses.size 
+    }); 
+  }
+
+  async function confirmBulkDelete() {
+    const toastId = toast.loading(`Deleting ${showDeleteConfirm.ids.length} courses...`);
+    
+    try { 
+      const { error } = await supabase
+        .from('courses')
+        .delete()
+        .in('id', showDeleteConfirm.ids);
+      
+      if (error) throw error;
+      
+      toast.success(`Deleted ${showDeleteConfirm.ids.length} courses`, { id: toastId });
+      
+      if (isMountedRef.current) {
+        setSelectedCourses(new Set());
+        await Promise.all([loadCourses(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Bulk delete error:', err);
+      toast.error('Failed to delete courses', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
+    }
+  }
+
+  // Optimistic update for status toggle
+  async function toggleStatus(id, currentStatus) {
+    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    const toastId = toast.loading(`Updating status...`);
+    
+    // Optimistic update - update UI immediately
+    const previousCourses = [...courses];
+    setCourses(courses.map(course => 
+      course.id === id ? { ...course, status: newStatus } : course
+    ));
+    
+    try { 
+      const { error } = await supabase
+        .from('courses')
+        .update({ 
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      toast.success(`Course ${newStatus === 'published' ? 'published' : 'unpublished'}`, { id: toastId });
+      await loadStats(); // Update stats in background
+    } catch (err) { 
+      // Rollback on error
+      setCourses(previousCourses);
+      console.error('Status update error:', err);
+      toast.error('Failed to update status', { id: toastId });
+    }
+  }
+
+  // ============== UTILITY FUNCTIONS ==============
+
+  function resetForm() { 
+    setFormData({ 
+      title: '', description: '', level: 'beginner', 
+      duration_minutes: 60, price: 0, thumbnail_url: '', status: 'draft' 
+    }); 
+    setThumbnailPreview(''); 
+  }
+  
+  function handleEdit(course) { 
+    setEditing(course.id); 
+    setFormData(course); 
+    setThumbnailPreview(course.thumbnail_url); 
+    setShowForm(true); 
+  }
+  
+  function toggleSelectAll() { 
+    setSelectedCourses(selectedCourses.size === courses.length 
+      ? new Set() 
+      : new Set(courses.map(c => c.id))
+    ); 
+  }
+  
+  function toggleSelectCourse(id) { 
+    const newSet = new Set(selectedCourses); 
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id); 
+    setSelectedCourses(newSet); 
+  }
+
   const formatPrice = (price) => new Intl.NumberFormat('en-US', { 
     style: 'currency', 
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    currency: 'USD' 
   }).format(price);
-  
-  const getLevelColor = (level) => {
-    const colors = {
-      beginner: 'emerald', intermediate: 'blue', advanced: 'amber', expert: 'purple'
-    };
-    return colors[level] || 'slate';
-  };
-  
-  return (
-    <div className={`bg-slate-900/50 border rounded-xl overflow-hidden transition-all ${
-      isSelected ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-slate-800 hover:border-slate-700'
-    }`}>
-      {/* Thumbnail */}
-      <div className="relative h-48 bg-slate-800">
-        {course.thumbnail_url ? (
-          <img src={course.thumbnail_url} alt={course.title} className="w-full h-full object-cover" />
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <GraduationCap className="w-12 h-12 text-slate-600" />
-          </div>
-        )}
-        {course.featured && (
-          <div className="absolute top-2 right-2 bg-amber-500 text-white text-xs px-2 py-1 rounded-full">
-            Featured
-          </div>
-        )}
-        <button
-          onClick={() => onToggleSelect(course.id)}
-          className="absolute top-2 left-2 bg-black/50 rounded-lg p-1 hover:bg-black/70 transition-colors"
-        >
-          {isSelected ? (
-            <CheckCircle className="w-5 h-5 text-primary-400" />
-          ) : (
-            <Square className="w-5 h-5 text-white" />
-          )}
-        </button>
-      </div>
-      
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex-1">
-            <h3 className="font-semibold text-white line-clamp-1">{course.title}</h3>
-            <p className="text-sm text-slate-400">by {course.instructor || 'Unknown'}</p>
-          </div>
-          <span className={`text-xs px-2 py-1 rounded-full bg-${getLevelColor(course.level)}-500/10 text-${getLevelColor(course.level)}-400`}>
-            {course.level}
-          </span>
-        </div>
-        
-        <p className="text-slate-400 text-sm line-clamp-2 mb-3">{course.description}</p>
-        
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <Clock className="w-4 h-4" />
-            <span>{Math.floor(course.duration_minutes / 60)}h {course.duration_minutes % 60}m</span>
-            <Users className="w-4 h-4 ml-2" />
-            <span>{course.students_enrolled || 0}</span>
-          </div>
-          <span className="text-xl font-bold text-primary-400">{formatPrice(course.price)}</span>
-        </div>
-        
-        <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-          <button
-            onClick={() => onToggleStatus(course.id, course.status)}
-            className={`text-xs px-2 py-1 rounded-full ${
-              course.status === 'published' 
-                ? 'bg-emerald-500/20 text-emerald-400' 
-                : 'bg-amber-500/20 text-amber-400'
-            }`}
-          >
-            {course.status === 'published' ? <Eye className="w-3 h-3 inline mr-1" /> : <EyeOff className="w-3 h-3 inline mr-1" />}
-            {course.status}
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={() => onEdit(course)}
-              className="p-1.5 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
-            >
-              <Edit className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => onDelete(course.id)}
-              className="p-1.5 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-// Main Component
-export default function AdminCourses() {
-  const [filters, setFilters] = useState({
-    page: 1,
-    search: '',
-    level: 'all',
-    status: 'all'
-  });
-  const [selectedCourses, setSelectedCourses] = useState(new Set());
-  const [showForm, setShowForm] = useState(false);
-  const [editingCourse, setEditingCourse] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  
-  const { user, isAuthorized, isLoading: authLoading } = useAuth();
-  const { data: coursesData, isLoading: coursesLoading, error: coursesError, refetch } = useCourses(filters);
-  const { data: stats, isLoading: statsLoading } = useCourseStats();
-  const { saveMutation, deleteMutation, bulkDeleteMutation, toggleStatusMutation } = useCourseMutations();
-  
-  const courses = coursesData?.courses || [];
-  const totalPages = coursesData?.totalPages || 1;
-  
-  // Handlers
-  const handleFilterChange = useCallback((key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value, page: key === 'page' ? value : 1 }));
-  }, []);
-  
-  const handleSelectAll = useCallback(() => {
-    if (selectedCourses.size === courses.length) {
-      setSelectedCourses(new Set());
-    } else {
-      setSelectedCourses(new Set(courses.map(c => c.id)));
+  const getLevelColor = (level) => {
+    switch(level) {
+      case 'beginner': return 'text-emerald-400 bg-emerald-500/10';
+      case 'intermediate': return 'text-blue-400 bg-blue-500/10';
+      case 'advanced': return 'text-amber-400 bg-amber-500/10';
+      case 'expert': return 'text-purple-400 bg-purple-500/10';
+      default: return 'text-slate-400 bg-slate-500/10';
     }
-  }, [selectedCourses, courses]);
-  
-  const handleSelectCourse = useCallback((id) => {
-    setSelectedCourses(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
-    });
-  }, []);
-  
-  const handleEdit = useCallback((course) => {
-    setEditingCourse(course);
-    setShowForm(true);
-  }, []);
-  
-  const handleDelete = useCallback((id) => {
-    setDeleteTarget({ type: 'single', id });
-  }, []);
-  
-  const handleBulkDelete = useCallback(() => {
-    setDeleteTarget({ type: 'bulk', ids: Array.from(selectedCourses), count: selectedCourses.size });
-  }, [selectedCourses]);
-  
-  const confirmDelete = useCallback(async () => {
-    if (deleteTarget.type === 'single') {
-      await deleteMutation.mutateAsync(deleteTarget.id);
-    } else {
-      await bulkDeleteMutation.mutateAsync(deleteTarget.ids);
-      setSelectedCourses(new Set());
-    }
-    setDeleteTarget(null);
-  }, [deleteTarget, deleteMutation, bulkDeleteMutation]);
-  
-  const handleSaveCourse = useCallback(async (courseData) => {
-    await saveMutation.mutateAsync(courseData);
-    setShowForm(false);
-    setEditingCourse(null);
-  }, [saveMutation]);
-  
-  const handleToggleStatus = useCallback((id, status) => {
-    toggleStatusMutation.mutate({ id, status });
-  }, [toggleStatusMutation]);
-  
-  // Auth check
-  if (authLoading) {
+  };
+
+  // ============== RENDER ==============
+
+  if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
       </div>
     );
   }
-  
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">Access Denied</h2>
-          <p className="text-slate-400">You don't have permission to access this page.</p>
-        </div>
-      </div>
-    );
-  }
-  
+
   return (
-    <ErrorBoundary>
-      <PerformanceMonitor componentName="AdminCourses">
-        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-          <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-              <div>
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <GraduationCap className="w-6 h-6 text-primary-400" />
-                  Course Management
-                </h1>
-                <p className="text-slate-400 text-sm mt-1">Manage your learning catalog and track performance</p>
-              </div>
-              <button
-                onClick={() => { setEditingCourse(null); setShowForm(true); }}
-                className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2 shadow-lg"
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { background: '#1e293b', color: '#fff' },
+          duration: 3000
+        }} 
+      />
+      
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(null)}
+        onConfirm={showDeleteConfirm?.type === 'bulk' ? confirmBulkDelete : confirmDelete}
+        title="Confirm Delete"
+        message={showDeleteConfirm?.type === 'bulk' 
+          ? `Are you sure you want to delete ${showDeleteConfirm.count} courses? This action cannot be undone.`
+          : 'Are you sure you want to delete this course? This action cannot be undone.'}
+        confirmText="Delete"
+        confirmVariant="danger"
+      />
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              <GraduationCap className="w-6 h-6 text-primary-400" /> 
+              Course Management
+            </h1>
+            <p className="text-slate-400 text-sm">Manage your learning catalog</p>
+          </div>
+          <button 
+            onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
+            className="px-4 py-2 bg-primary-500 text-white rounded-lg flex items-center gap-2 hover:bg-primary-600 transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
+            <Plus className="w-4 h-4" /> Add Course
+          </button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Total Courses</p>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Published</p>
+            <p className="text-2xl font-bold text-emerald-400">{stats.published}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Drafts</p>
+            <p className="text-2xl font-bold text-amber-400">{stats.draft}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <p className="text-slate-400 text-sm">Total Value</p>
+            <p className="text-2xl font-bold text-purple-400">{formatPrice(stats.revenue)}</p>
+          </div>
+        </div>
+
+        {/* Search & Filters */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Search by title or description..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
+              />
+            </div>
+            
+            <select 
+              value={selectedLevel} 
+              onChange={(e) => setSelectedLevel(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="all">All Levels</option>
+              {levels.map(l => (
+                <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+              ))}
+            </select>
+            
+            <select 
+              value={selectedStatus} 
+              onChange={(e) => setSelectedStatus(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="all">All Status</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+            
+            <button 
+              onClick={() => loadCourses()} 
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-all flex items-center gap-2"
+              disabled={loading}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Bulk Actions */}
+        {selectedCourses.size > 0 && (
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex justify-between items-center animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-primary-400" />
+              <span className="text-white font-medium">{selectedCourses.size} course(s) selected</span>
+            </div>
+            <button 
+              onClick={bulkDelete} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Selected
+            </button>
+          </div>
+        )}
+
+        {/* Courses Grid */}
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+          </div>
+        ) : error ? (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <p className="text-red-400 mb-4">{error}</p>
+            <button 
+              onClick={loadCourses} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : courses.length === 0 ? (
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
+            <GraduationCap className="w-16 h-16 text-slate-700 mx-auto mb-4" />
+            <p className="text-slate-400 mb-4">
+              {searchTerm || selectedLevel !== 'all' || selectedStatus !== 'all'
+                ? 'No courses match your search criteria'
+                : 'No courses found. Click "Add Course" to get started.'}
+            </p>
+            {!searchTerm && selectedLevel === 'all' && selectedStatus === 'all' && (
+              <button 
+                onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all inline-flex items-center gap-2"
               >
-                <Plus className="w-4 h-4" />
-                Add Course
+                <Plus className="w-4 h-4" /> Create First Course
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Select All Checkbox */}
+            <div className="flex items-center gap-2 mb-3">
+              <button 
+                onClick={toggleSelectAll} 
+                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+              >
+                {selectedCourses.size === courses.length ? (
+                  <CheckCircle className="w-4 h-4 text-primary-400" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                <span className="text-sm">Select All ({courses.length})</span>
+              </button>
+            </div>
+
+            {/* Courses Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.map(course => (
+                <div 
+                  key={course.id} 
+                  className={`group bg-slate-900/50 border rounded-xl overflow-hidden transition-all duration-200 ${
+                    selectedCourses.has(course.id)
+                      ? 'border-primary-500 bg-primary-500/5'
+                      : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
+                  }`}
+                >
+                  {/* Thumbnail */}
+                  <div className="relative h-48 bg-slate-800 flex items-center justify-center overflow-hidden">
+                    {course.thumbnail_url ? (
+                      <img 
+                        src={course.thumbnail_url} 
+                        alt={course.title} 
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        onError={(e) => { e.target.src = '/placeholder-course.jpg'; }}
+                      />
+                    ) : (
+                      <GraduationCap className="w-12 h-12 text-slate-600" />
+                    )}
+                  </div>
+                  
+                  <div className="p-5">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-white line-clamp-1">{course.title}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-xs px-2 py-1 rounded-full ${getLevelColor(course.level)}`}>
+                            {course.level.charAt(0).toUpperCase() + course.level.slice(1)}
+                          </span>
+                          <span className="text-xs text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {course.duration_minutes} min
+                          </span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => toggleSelectCourse(course.id)}
+                        className="ml-2 flex-shrink-0"
+                      >
+                        {selectedCourses.has(course.id) ? (
+                          <CheckCircle className="w-5 h-5 text-primary-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-500 hover:text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+                    
+                    <p className="text-slate-400 text-sm mt-2 line-clamp-2">{course.description}</p>
+                    
+                    <div className="mt-3 flex justify-between items-center">
+                      <span className="text-xl font-bold text-primary-400">{formatPrice(course.price)}</span>
+                      <button 
+                        onClick={() => toggleStatus(course.id, course.status)} 
+                        className={`text-xs px-2 py-1 rounded-full transition-all ${
+                          course.status === 'published' 
+                            ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' 
+                            : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                        }`}
+                      >
+                        {course.status === 'published' ? (
+                          <><Eye className="w-3 h-3 inline mr-1" /> Published</>
+                        ) : (
+                          <><EyeOff className="w-3 h-3 inline mr-1" /> Draft</>
+                        )}
+                      </button>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
+                      <button 
+                        onClick={() => handleEdit(course)} 
+                        className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-slate-600 transition-all"
+                      >
+                        <Edit className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button 
+                        onClick={() => deleteCourse(course.id)} 
+                        className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-red-600/30 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center mt-8">
+                <span className="text-sm text-slate-400">
+                  Page {currentPage} of {totalPages} ({courses.length} shown)
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                    disabled={currentPage === 1} 
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={currentPage === totalPages} 
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-800 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-white">
+                {editing ? 'Edit Course' : 'Add New Course'}
+              </h2>
+              <button 
+                onClick={() => setShowForm(false)} 
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
             
-            {/* Stats Grid */}
-            {!statsLoading && stats && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                <StatCard title="Total Courses" value={stats.total} icon={BookOpen} color="primary" trend={12} />
-                <StatCard title="Published" value={stats.published} icon={Globe} color="emerald" trend={8} />
-                <StatCard title="Total Students" value={stats.students.toLocaleString()} icon={Users} color="blue" trend={23} />
-                <StatCard title="Revenue" value={`$${stats.revenue.toLocaleString()}`} icon={DollarSign} color="purple" trend={15} />
-                <StatCard title="Avg Rating" value="4.8" icon={Star} color="amber" trend={5} />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Title *</label>
+                <input 
+                  type="text" 
+                  placeholder="Course title" 
+                  value={formData.title} 
+                  onChange={e => setFormData({...formData, title: e.target.value})} 
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
               </div>
-            )}
-            
-            {/* Filters */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6 backdrop-blur-sm">
-              <div className="flex flex-col lg:flex-row gap-4">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search by title, instructor, or description..."
-                    value={filters.search}
-                    onChange={(e) => handleFilterChange('search', e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
+                <textarea 
+                  placeholder="Course description" 
+                  rows={4} 
+                  value={formData.description} 
+                  onChange={e => setFormData({...formData, description: e.target.value})} 
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Level</label>
+                  <select 
+                    value={formData.level} 
+                    onChange={e => setFormData({...formData, level: e.target.value})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    {levels.map(l => (
+                      <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Duration (minutes)</label>
+                  <input 
+                    type="number" 
+                    placeholder="Duration" 
+                    value={formData.duration_minutes} 
+                    onChange={e => setFormData({...formData, duration_minutes: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Price ($)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    placeholder="Price" 
+                    value={formData.price} 
+                    onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
                 
-                <select
-                  value={filters.level}
-                  onChange={(e) => handleFilterChange('level', e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="all">All Levels</option>
-                  {LEVELS.map(level => (
-                    <option key={level} value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>
-                  ))}
-                </select>
-                
-                <select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="all">All Status</option>
-                  <option value="published">Published</option>
-                  <option value="draft">Draft</option>
-                </select>
-                
-                <button
-                  onClick={() => refetch()}
-                  className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Refresh
-                </button>
-              </div>
-            </div>
-            
-            {/* Bulk Actions */}
-            {selectedCourses.size > 0 && (
-              <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex items-center justify-between animate-in slide-in-from-top-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-primary-400" />
-                  <span className="text-white font-medium">{selectedCourses.size} course(s) selected</span>
-                </div>
-                <button
-                  onClick={handleBulkDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 flex items-center gap-2 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Selected
-                </button>
-              </div>
-            )}
-            
-            {/* Courses Grid */}
-            {coursesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
-              </div>
-            ) : coursesError ? (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
-                <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                <p className="text-red-400 mb-4">Failed to load courses. Please try again.</p>
-                <button onClick={() => refetch()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500">
-                  Retry
-                </button>
-              </div>
-            ) : courses.length === 0 ? (
-              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
-                <GraduationCap className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">No Courses Found</h3>
-                <p className="text-slate-400 mb-4">
-                  {filters.search || filters.level !== 'all' || filters.status !== 'all'
-                    ? 'Try adjusting your search or filters'
-                    : 'Get started by creating your first course'}
-                </p>
-                {(!filters.search && filters.level === 'all' && filters.status === 'all') && (
-                  <button
-                    onClick={() => { setEditingCourse(null); setShowForm(true); }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500"
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Status</label>
+                  <select 
+                    value={formData.status} 
+                    onChange={e => setFormData({...formData, status: e.target.value})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
-                    <Plus className="w-4 h-4" />
-                    Create First Course
-                  </button>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-3 px-2">
-                  <button
-                    onClick={handleSelectAll}
-                    className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-                  >
-                    {selectedCourses.size === courses.length ? (
-                      <CheckCircle className="w-4 h-4 text-primary-400" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                    <span className="text-sm">Select All ({courses.length})</span>
-                  </button>
-                  <p className="text-sm text-slate-400">
-                    Showing {courses.length} of {coursesData?.total} courses
-                  </p>
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                  </select>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {courses.map(course => (
-                    <CourseCard
-                      key={course.id}
-                      course={course}
-                      isSelected={selectedCourses.has(course.id)}
-                      onToggleSelect={handleSelectCourse}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
-                      onToggleStatus={handleToggleStatus}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Thumbnail URL</label>
+                <input 
+                  type="text" 
+                  placeholder="https://example.com/thumbnail.jpg" 
+                  value={formData.thumbnail_url} 
+                  onChange={e => { 
+                    setFormData({...formData, thumbnail_url: e.target.value}); 
+                    setThumbnailPreview(e.target.value); 
+                  }} 
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                {thumbnailPreview && (
+                  <div className="mt-2">
+                    <p className="text-xs text-slate-500 mb-1">Preview:</p>
+                    <img 
+                      src={thumbnailPreview} 
+                      alt="Preview" 
+                      className="w-32 h-24 object-cover rounded-lg border border-slate-700"
+                      onError={(e) => { e.target.style.display = 'none'; }}
                     />
-                  ))}
-                </div>
-                
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex justify-between items-center mt-6 pt-4 border-t border-slate-800">
-                    <button
-                      onClick={() => handleFilterChange('page', filters.page - 1)}
-                      disabled={filters.page === 1}
-                      className="px-4 py-2 bg-slate-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
-                    >
-                      Previous
-                    </button>
-                    <div className="flex gap-2">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum;
-                        if (totalPages <= 5) pageNum = i + 1;
-                        else if (filters.page <= 3) pageNum = i + 1;
-                        else if (filters.page >= totalPages - 2) pageNum = totalPages - 4 + i;
-                        else pageNum = filters.page - 2 + i;
-                        
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => handleFilterChange('page', pageNum)}
-                            className={`px-3 py-2 rounded-lg transition-colors ${
-                              filters.page === pageNum
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                            }`}
-                          >
-                            {pageNum}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button
-                      onClick={() => handleFilterChange('page', filters.page + 1)}
-                      disabled={filters.page === totalPages}
-                      className="px-4 py-2 bg-slate-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
-                    >
-                      Next
-                    </button>
                   </div>
                 )}
-              </>
-            )}
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={saveCourse} 
+                  disabled={saving} 
+                  className="flex-1 py-2 bg-primary-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-primary-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {saving ? 'Saving...' : 'Save Course'}
+                </button>
+                <button 
+                  onClick={() => setShowForm(false)} 
+                  className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
-          
-          {/* Course Form Modal */}
-          <CourseFormModal
-            isOpen={showForm}
-            onClose={() => { setShowForm(false); setEditingCourse(null); }}
-            onSave={handleSaveCourse}
-            initialData={editingCourse}
-            isSaving={saveMutation.isLoading}
-          />
-          
-          {/* Delete Confirmation Modal */}
-          <ConfirmModal
-            isOpen={!!deleteTarget}
-            onClose={() => setDeleteTarget(null)}
-            onConfirm={confirmDelete}
-            title="Confirm Delete"
-            message={deleteTarget?.type === 'bulk' 
-              ? `Delete ${deleteTarget.count} courses? This action cannot be undone.`
-              : 'Delete this course? This action cannot be undone.'}
-            isDestructive={true}
-          />
         </div>
-      </PerformanceMonitor>
-    </ErrorBoundary>
+      )}
+    </div>
   );
 }
-
-// Course Form Modal Component
-const CourseFormModal = ({ isOpen, onClose, onSave, initialData, isSaving }) => {
-  const [formData, setFormData] = useState({
-    title: '', description: '', instructor: '', level: 'beginner',
-    duration_minutes: 60, price: 0, thumbnail_url: '', status: 'draft',
-    category: 'business', language: 'English', featured: false,
-    certificate_enabled: true, max_students: 0
-  });
-  const [thumbnailPreview, setThumbnailPreview] = useState('');
-  
-  useEffect(() => {
-    if (initialData) {
-      setFormData(initialData);
-      setThumbnailPreview(initialData.thumbnail_url);
-    } else {
-      resetForm();
-    }
-  }, [initialData]);
-  
-  const resetForm = () => {
-    setFormData({
-      title: '', description: '', instructor: '', level: 'beginner',
-      duration_minutes: 60, price: 0, thumbnail_url: '', status: 'draft',
-      category: 'business', language: 'English', featured: false,
-      certificate_enabled: true, max_students: 0
-    });
-    setThumbnailPreview('');
-  };
-  
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!formData.title.trim()) {
-      toast.error('Course title is required');
-      return;
-    }
-    if (!formData.instructor.trim()) {
-      toast.error('Instructor name is required');
-      return;
-    }
-    if (formData.price < 0) {
-      toast.error('Price cannot be negative');
-      return;
-    }
-    onSave(formData);
-  };
-  
-  if (!isOpen) return null;
-  
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm overflow-y-auto p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-3xl w-full my-8 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-white">
-            {initialData ? 'Edit Course' : 'Create New Course'}
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Course Title *</label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={e => setFormData({...formData, title: e.target.value})}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Instructor *</label>
-              <input
-                type="text"
-                value={formData.instructor}
-                onChange={e => setFormData({...formData, instructor: e.target.value})}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                required
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
-            <textarea
-              rows={4}
-              value={formData.description}
-              onChange={e => setFormData({...formData, description: e.target.value})}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Level</label>
-              <select
-                value={formData.level}
-                onChange={e => setFormData({...formData, level: e.target.value})}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                {LEVELS.map(level => (
-                  <option key={level} value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
-              <select
-                value={formData.category}
-                onChange={e => setFormData({...formData, category: e.target.value})}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                {CATEGORIES.map(cat => (
-                  <option key={cat} value={cat}>{cat.replace('-', ' ').toUpperCase()}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Language</label>
-              <select
-                value={formData.language}
-                onChange={e => setFormData({...formData, language: e.target.value})}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-
