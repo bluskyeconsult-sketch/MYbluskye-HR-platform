@@ -1,22 +1,34 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { 
-  Plus, Edit, Eye, Trash2, CheckCircle, XCircle, 
-  Search, Filter, Download, Upload, RefreshCw,
-  Calendar, Eye as EyeIcon, Heart, MessageCircle,
-  ChevronLeft, ChevronRight, Loader2, AlertCircle,
-  Globe, Lock, FileText, Image, Tag, Users
+  Plus, Edit, Trash2, FileText, Search, RefreshCw, 
+  Loader2, AlertCircle, CheckCircle, Eye, EyeOff, 
+  X, Square, Globe, Clock, Calendar, Tag, 
+  Eye as EyeIcon, ThumbsUp, MessageCircle, Save,
+  ChevronLeft, ChevronRight, Download, Filter
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// ============== CUSTOM HOOKS ==============
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export default function AdminArticles() {
   const navigate = useNavigate();
   
-  // State
+  // State Management
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,53 +38,76 @@ export default function AdminArticles() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedArticles, setSelectedArticles] = useState(new Set());
-  const [notification, setNotification] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [stats, setStats] = useState({ total: 0, published: 0, draft: 0, views: 0 });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  
-  const itemsPerPage = 10;
+  const [processingIds, setProcessingIds] = useState(new Set());
 
-  // Check authentication
+  // Refs for cleanup
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const itemsPerPage = 15;
+  const categories = ['article', 'news', 'blog', 'update', 'case-study', 'tutorial'];
+
+  // Debounced search
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  // Cleanup on unmount
   useEffect(() => {
-    checkAuth();
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
+
+  // ============== AUTHENTICATION ==============
+  useEffect(() => { checkAuth(); }, []);
 
   async function checkAuth() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      if (!session) { 
+        toast.error('Please login to continue');
         navigate('/admin-login');
-        return;
+        return; 
       }
       
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_type')
         .eq('id', session.user.id)
         .single();
       
+      if (profileError) throw profileError;
+      
       if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        toast.error('Access denied. Admin privileges required.');
         navigate('/dashboard');
         return;
       }
       
-      setUser(session.user);
-      setIsAuthorized(true);
-      loadArticles();
-      loadStats();
+      if (isMountedRef.current) {
+        setUser(session.user);
+        setIsAuthorized(true);
+        await Promise.all([loadArticles(), loadStats()]);
+      }
     } catch (err) {
       console.error('Auth error:', err);
+      toast.error('Authentication failed');
       navigate('/admin-login');
     }
   }
 
+  // ============== DATA LOADING ==============
   async function loadStats() {
     try {
       const { data, error } = await supabase
         .from('articles')
-        .select('status, view_count', { count: 'exact' });
+        .select('status, view_count');
       
       if (error) throw error;
       
@@ -81,16 +116,27 @@ export default function AdminArticles() {
       const draft = data?.filter(a => a.status === 'draft').length || 0;
       const views = data?.reduce((sum, a) => sum + (a.view_count || 0), 0) || 0;
       
-      setStats({ total, published, draft, views });
-    } catch (err) {
-      console.error('Error loading stats:', err);
+      if (isMountedRef.current) {
+        setStats({ total, published, draft, views });
+      }
+    } catch (err) { 
+      console.error('Stats error:', err);
     }
   }
 
   async function loadArticles() {
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
     try {
-      setLoading(true);
-      setError(null);
+      if (isMountedRef.current) {
+        setLoading(true);
+        setError(null);
+      }
       
       let query = supabase
         .from('articles')
@@ -104,8 +150,9 @@ export default function AdminArticles() {
       if (selectedStatus !== 'all') {
         query = query.eq('status', selectedStatus);
       }
-      if (searchTerm) {
-        query = query.or(`title.ilike.%${searchTerm}%,content.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
+      if (debouncedSearch) {
+        const sanitizedSearch = debouncedSearch.replace(/[%_]/g, '\\$&');
+        query = query.or(`title.ilike.%${sanitizedSearch}%,content.ilike.%${sanitizedSearch}%,excerpt.ilike.%${sanitizedSearch}%`);
       }
       
       // Apply pagination
@@ -113,28 +160,52 @@ export default function AdminArticles() {
       const to = from + itemsPerPage - 1;
       query = query.range(from, to);
       
-      const { data, error, count } = await query;
+      const { data, error, count } = await query.abortSignal(abortControllerRef.current.signal);
       
       if (error) throw error;
       
-      setArticles(data || []);
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-      
+      if (isMountedRef.current) {
+        setArticles(data || []);
+        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+      }
     } catch (err) {
-      console.error('Error loading articles:', err);
-      setError('Failed to load articles. Please refresh the page.');
-      showNotification('Failed to load articles', 'error');
+      if (err.name === 'AbortError') {
+        console.log('Request cancelled');
+        return;
+      }
+      console.error('Load error:', err);
+      if (isMountedRef.current) {
+        setError('Failed to load articles');
+        toast.error('Failed to load articles');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
-  async function deleteArticle(id) {
-    setShowDeleteConfirm({ id, type: 'single' });
-  }
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedCategory, selectedStatus]);
 
+  // Load articles when dependencies change
+  useEffect(() => {
+    if (isAuthorized) {
+      loadArticles();
+    }
+  }, [isAuthorized, currentPage, debouncedSearch, selectedCategory, selectedStatus]);
+
+  // ============== CRUD OPERATIONS ==============
+  async function deleteArticle(id) { 
+    setShowDeleteConfirm({ id, type: 'single' }); 
+  }
+  
   async function confirmDelete() {
-    try {
+    const toastId = toast.loading('Deleting article...');
+    
+    try { 
       const { error } = await supabase
         .from('articles')
         .delete()
@@ -142,24 +213,33 @@ export default function AdminArticles() {
       
       if (error) throw error;
       
-      showNotification('Article deleted successfully', 'success');
-      await loadArticles();
-      await loadStats();
+      toast.success('Article deleted successfully', { id: toastId });
       
-    } catch (err) {
-      console.error('Error deleting article:', err);
-      showNotification('Failed to delete article', 'error');
-    } finally {
-      setShowDeleteConfirm(null);
+      if (isMountedRef.current) {
+        await Promise.all([loadArticles(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Delete error:', err);
+      toast.error('Failed to delete article', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
     }
   }
 
   async function bulkDelete() {
-    setShowDeleteConfirm({ ids: Array.from(selectedArticles), type: 'bulk', count: selectedArticles.size });
+    setShowDeleteConfirm({ 
+      ids: Array.from(selectedArticles), 
+      type: 'bulk', 
+      count: selectedArticles.size 
+    });
   }
 
   async function confirmBulkDelete() {
-    try {
+    const toastId = toast.loading(`Deleting ${showDeleteConfirm.ids.length} articles...`);
+    
+    try { 
       const { error } = await supabase
         .from('articles')
         .delete()
@@ -167,23 +247,34 @@ export default function AdminArticles() {
       
       if (error) throw error;
       
-      showNotification(`Deleted ${showDeleteConfirm.ids.length} articles`, 'success');
-      setSelectedArticles(new Set());
-      await loadArticles();
-      await loadStats();
+      toast.success(`Deleted ${showDeleteConfirm.ids.length} articles`, { id: toastId });
       
-    } catch (err) {
-      console.error('Error deleting articles:', err);
-      showNotification('Failed to delete articles', 'error');
-    } finally {
-      setShowDeleteConfirm(null);
+      if (isMountedRef.current) {
+        setSelectedArticles(new Set());
+        await Promise.all([loadArticles(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Bulk delete error:', err);
+      toast.error('Failed to delete articles', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
     }
   }
 
+  // Optimistic update for status toggle
   async function toggleStatus(id, currentStatus) {
     const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    const toastId = toast.loading(`Updating status...`);
     
-    try {
+    // Optimistic update
+    const previousArticles = [...articles];
+    setArticles(articles.map(article => 
+      article.id === id ? { ...article, status: newStatus } : article
+    ));
+    
+    try { 
       const { error } = await supabase
         .from('articles')
         .update({ 
@@ -195,50 +286,58 @@ export default function AdminArticles() {
       
       if (error) throw error;
       
-      showNotification(`Article ${newStatus === 'published' ? 'published' : 'unpublished'}`, 'success');
-      await loadArticles();
-      await loadStats();
-      
-    } catch (err) {
-      console.error('Error toggling status:', err);
-      showNotification('Failed to update status', 'error');
+      toast.success(`Article ${newStatus === 'published' ? 'published' : 'unpublished'}`, { id: toastId });
+      await loadStats(); // Update stats in background
+    } catch (err) { 
+      // Rollback on error
+      setArticles(previousArticles);
+      console.error('Status update error:', err);
+      toast.error('Failed to update status', { id: toastId });
     }
   }
 
-  function showNotification(message, type = 'success') {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+  // ============== UTILITY FUNCTIONS ==============
+  function toggleSelectAll() { 
+    setSelectedArticles(selectedArticles.size === articles.length 
+      ? new Set() 
+      : new Set(articles.map(a => a.id))
+    ); 
+  }
+  
+  function toggleSelectArticle(id) { 
+    const newSet = new Set(selectedArticles); 
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id); 
+    setSelectedArticles(newSet); 
   }
 
-  function toggleSelectAll() {
-    if (selectedArticles.size === articles.length) {
-      setSelectedArticles(new Set());
-    } else {
-      setSelectedArticles(new Set(articles.map(a => a.id)));
-    }
-  }
-
-  function toggleSelectArticle(id) {
-    const newSelected = new Set(selectedArticles);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedArticles(newSelected);
-  }
-
-  const categories = useMemo(() => {
+  // Get unique categories for filter
+  const uniqueCategories = useMemo(() => {
     const cats = new Set(articles.map(a => a.category).filter(Boolean));
     return ['all', ...Array.from(cats)];
   }, [articles]);
 
-  // Reset page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-    loadArticles();
-  }, [searchTerm, selectedCategory, selectedStatus]);
+  const exportToJSON = () => {
+    const exportData = articles.map(({ id, title, status, category, view_count, created_at }) => ({
+      id, title, status, category, view_count, created_at
+    }));
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `articles-export-${new Date().toISOString().split('T')[0]}.json`;
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    toast.success('Articles exported successfully');
+  };
 
+  const getStatusBadge = (status) => {
+    if (status === 'published') {
+      return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Published</span>;
+    }
+    return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400"><Clock className="w-3 h-3" /> Draft</span>;
+  };
+
+  // ============== RENDER ==============
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -249,48 +348,25 @@ export default function AdminArticles() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 animate-slide-in-right ${
-          notification.type === 'error' ? 'bg-red-600' : 
-          notification.type === 'warning' ? 'bg-amber-600' : 'bg-emerald-600'
-        } text-white rounded-lg shadow-lg p-4 flex items-center gap-3`}>
-          {notification.type === 'success' && <CheckCircle className="w-5 h-5" />}
-          {notification.type === 'error' && <AlertCircle className="w-5 h-5" />}
-          <p>{notification.message}</p>
-        </div>
-      )}
-
-      {/* Delete Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertCircle className="w-6 h-6 text-red-400" />
-              <h3 className="text-xl font-bold text-white">Confirm Delete</h3>
-            </div>
-            <p className="text-slate-300 mb-6">
-              {showDeleteConfirm.type === 'bulk' 
-                ? `Are you sure you want to delete ${showDeleteConfirm.count} articles? This action cannot be undone.`
-                : 'Are you sure you want to delete this article? This action cannot be undone.'}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={showDeleteConfirm.type === 'bulk' ? confirmBulkDelete : confirmDelete}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { background: '#1e293b', color: '#fff' },
+          duration: 3000
+        }} 
+      />
+      
+      <ConfirmModal
+        isOpen={!!showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(null)}
+        onConfirm={showDeleteConfirm?.type === 'bulk' ? confirmBulkDelete : confirmDelete}
+        title="Confirm Delete"
+        message={showDeleteConfirm?.type === 'bulk' 
+          ? `Delete ${showDeleteConfirm.count} articles? This action cannot be undone.`
+          : 'Delete this article? This action cannot be undone.'}
+        confirmText="Delete"
+        confirmVariant="danger"
+      />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
@@ -304,7 +380,7 @@ export default function AdminArticles() {
           </div>
           <Link
             to="/admin/articles/new"
-            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-all flex items-center gap-2 shadow-lg"
           >
             <Plus className="w-4 h-4" />
             New Article
@@ -313,7 +389,7 @@ export default function AdminArticles() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Total Articles</p>
@@ -322,7 +398,7 @@ export default function AdminArticles() {
               <FileText className="w-8 h-8 text-primary-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Published</p>
@@ -331,16 +407,16 @@ export default function AdminArticles() {
               <Globe className="w-8 h-8 text-emerald-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Drafts</p>
                 <p className="text-2xl font-bold text-amber-400">{stats.draft}</p>
               </div>
-              <Lock className="w-8 h-8 text-amber-400/50" />
+              <EyeOff className="w-8 h-8 text-amber-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Total Views</p>
@@ -361,7 +437,7 @@ export default function AdminArticles() {
                 placeholder="Search by title, content, or excerpt..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
               />
             </div>
             
@@ -370,9 +446,9 @@ export default function AdminArticles() {
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
-              {categories.map(cat => (
+              {uniqueCategories.map(cat => (
                 <option key={cat} value={cat}>
-                  {cat === 'all' ? 'All Categories' : cat}
+                  {cat === 'all' ? 'All Categories' : cat.charAt(0).toUpperCase() + cat.slice(1)}
                 </option>
               ))}
             </select>
@@ -388,10 +464,11 @@ export default function AdminArticles() {
             </select>
             
             <button
-              onClick={loadArticles}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+              onClick={() => loadArticles()}
+              className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all flex items-center gap-2"
+              disabled={loading}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
@@ -399,15 +476,15 @@ export default function AdminArticles() {
 
         {/* Bulk Actions Bar */}
         {selectedArticles.size > 0 && (
-          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex flex-wrap justify-between items-center gap-4 animate-in slide-in-from-top-2">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-primary-400" />
-              <span className="text-white">{selectedArticles.size} article(s) selected</span>
+              <span className="text-white font-medium">{selectedArticles.size} article(s) selected</span>
             </div>
             <div className="flex gap-3">
               <button
                 onClick={bulkDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 flex items-center gap-2"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
                 Delete Selected
@@ -424,10 +501,10 @@ export default function AdminArticles() {
         ) : error ? (
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-            <p className="text-red-400">{error}</p>
+            <p className="text-red-400 mb-4">{error}</p>
             <button
               onClick={loadArticles}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all"
             >
               Try Again
             </button>
@@ -444,7 +521,7 @@ export default function AdminArticles() {
             {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
               <Link
                 to="/admin/articles/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all"
               >
                 <Plus className="w-4 h-4" />
                 Create First Article
@@ -453,18 +530,26 @@ export default function AdminArticles() {
           </div>
         ) : (
           <>
-            {/* Select All Checkbox */}
-            <div className="flex items-center gap-2 mb-3 px-2">
+            {/* Select All and Export Row */}
+            <div className="flex items-center justify-between gap-2 mb-3">
               <button
                 onClick={toggleSelectAll}
                 className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
               >
                 {selectedArticles.size === articles.length ? (
-                  <CheckSquare className="w-4 h-4 text-primary-400" />
+                  <CheckCircle className="w-4 h-4 text-primary-400" />
                 ) : (
                   <Square className="w-4 h-4" />
                 )}
                 <span className="text-sm">Select All ({articles.length})</span>
+              </button>
+              
+              <button
+                onClick={exportToJSON}
+                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                Export JSON
               </button>
             </div>
 
@@ -472,7 +557,7 @@ export default function AdminArticles() {
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-800">
+                  <thead className="bg-slate-800/50">
                     <tr>
                       <th className="px-4 py-3 text-left text-white text-sm w-10"></th>
                       <th className="px-4 py-3 text-left text-white text-sm">Title</th>
@@ -487,85 +572,96 @@ export default function AdminArticles() {
                   </thead>
                   <tbody>
                     {articles.map((article) => (
-                      <tr key={article.id} className="border-t border-slate-800 hover:bg-slate-800/30 transition-colors">
+                      <tr 
+                        key={article.id} 
+                        className={`border-t border-slate-800 hover:bg-slate-800/30 transition-colors ${
+                          selectedArticles.has(article.id) ? 'bg-primary-500/5' : ''
+                        }`}
+                      >
                         <td className="px-4 py-3">
                           <button onClick={() => toggleSelectArticle(article.id)}>
                             {selectedArticles.has(article.id) ? (
-                              <CheckSquare className="w-4 h-4 text-primary-400" />
+                              <CheckCircle className="w-4 h-4 text-primary-400" />
                             ) : (
-                              <Square className="w-4 h-4 text-slate-500" />
+                              <Square className="w-4 h-4 text-slate-500 hover:text-slate-400" />
                             )}
                           </button>
                         </td>
                         <td className="px-4 py-3">
                           <div>
-                            <p className="text-white font-medium truncate max-w-xs">
+                            <p className="text-white font-medium line-clamp-1 max-w-xs">
                               {article.title}
                             </p>
                             {article.excerpt && (
-                              <p className="text-slate-500 text-xs truncate max-w-xs mt-1">
-                                {article.excerpt.substring(0, 60)}...
+                              <p className="text-slate-500 text-xs line-clamp-1 max-w-xs mt-1">
+                                {article.excerpt}
                               </p>
                             )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-xs px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full text-xs">
+                            <Tag className="w-3 h-3" />
                             {article.category || 'article'}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <button
                             onClick={() => toggleStatus(article.id, article.status)}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
-                              article.status === 'published'
-                                ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                                : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
-                            }`}
+                            className="hover:opacity-80 transition-opacity"
                           >
-                            {article.status === 'published' ? (
-                              <CheckCircle className="w-3 h-3" />
-                            ) : (
-                              <XCircle className="w-3 h-3" />
-                            )}
-                            {article.status}
+                            {getStatusBadge(article.status)}
                           </button>
                         </td>
                         <td className="px-4 py-3 text-slate-300 text-sm">
-                          {article.view_count || 0}
+                          <div className="flex items-center gap-1">
+                            <EyeIcon className="w-3 h-3" />
+                            {article.view_count || 0}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-slate-300 text-sm">
-                          {article.likes_count || 0}
+                          <div className="flex items-center gap-1">
+                            <ThumbsUp className="w-3 h-3" />
+                            {article.likes_count || 0}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-slate-300 text-sm">
-                          {article.comments_count || 0}
+                          <div className="flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" />
+                            {article.comments_count || 0}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-slate-300 text-sm whitespace-nowrap">
-                          {new Date(article.created_at).toLocaleDateString()}
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(article.created_at).toLocaleDateString()}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex gap-1">
-                            <Link
-                              to={`/articles/${article.slug}`}
-                              target="_blank"
-                              className="p-1.5 bg-slate-800 rounded hover:bg-slate-700 transition-colors"
-                              title="View"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-slate-300" />
-                            </Link>
+                          <div className="flex gap-1.5">
+                            {article.slug && (
+                              <Link
+                                to={`/articles/${article.slug}`}
+                                target="_blank"
+                                className="p-1.5 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors group"
+                                title="View"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
+                              </Link>
+                            )}
                             <Link
                               to={`/admin/articles/${article.id}`}
-                              className="p-1.5 bg-slate-800 rounded hover:bg-slate-700 transition-colors"
+                              className="p-1.5 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors group"
                               title="Edit"
                             >
-                              <Edit className="w-3.5 h-3.5 text-slate-300" />
+                              <Edit className="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
                             </Link>
                             <button
                               onClick={() => deleteArticle(article.id)}
-                              className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20 transition-colors"
+                              className="p-1.5 bg-slate-800 rounded-lg hover:bg-red-500/20 transition-colors group"
                               title="Delete"
                             >
-                              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                              <Trash2 className="w-3.5 h-3.5 text-red-400 group-hover:text-red-300" />
                             </button>
                           </div>
                         </td>
@@ -580,13 +676,13 @@ export default function AdminArticles() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-6">
                 <p className="text-sm text-slate-400">
-                  Page {currentPage} of {totalPages}
+                  Page {currentPage} of {totalPages} ({articles.length} shown)
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Previous
@@ -594,7 +690,7 @@ export default function AdminArticles() {
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-1 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     Next
                     <ChevronRight className="w-4 h-4" />
@@ -603,27 +699,6 @@ export default function AdminArticles() {
               </div>
             )}
           </>
-        )}
-
-        {/* Export Section */}
-        {articles.length > 0 && (
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => {
-                const dataStr = JSON.stringify(articles, null, 2);
-                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                const exportFileDefaultName = `articles-export-${new Date().toISOString()}.json`;
-                const linkElement = document.createElement('a');
-                linkElement.setAttribute('href', dataUri);
-                linkElement.setAttribute('download', exportFileDefaultName);
-                linkElement.click();
-              }}
-              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export JSON
-            </button>
-          </div>
         )}
       </div>
     </div>
