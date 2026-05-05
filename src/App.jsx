@@ -68,7 +68,7 @@ const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 
-// Admin Pages (Lazy Loaded) - ONLY THOSE THAT EXIST
+// Admin Pages (Lazy Loaded) - ALL ADMIN PAGES
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const CountryManagement = lazy(() => import('./pages/admin/super/CountryManagement'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -77,6 +77,13 @@ const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
 const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
 const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
+
+// NEW ADDITIONAL ADMIN PAGES
+const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
+const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
+const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
+const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
+const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 
 // Legal Pages (Lazy Loaded)
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
@@ -120,7 +127,9 @@ function AnimatedPage({ children }) {
   );
 }
 
-// Protected Route Component
+// Protected Route Component with caching
+const routeCache = new Map();
+
 function ProtectedRoute({ children, allowedRoles = [] }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -133,6 +142,18 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
 
   async function checkAuth() {
     try {
+      // Check cache first
+      const cacheKey = 'auth_check';
+      const cached = routeCache.get(cacheKey);
+      const now = Date.now();
+      
+      if (cached && (now - cached.timestamp) < 60000) { // 1 minute cache
+        setUser(cached.user);
+        setProfile(cached.profile);
+        setLoading(false);
+        return;
+      }
+      
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user || null);
       
@@ -143,6 +164,13 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
           .eq('id', session.user.id)
           .single();
         setProfile(data);
+        
+        // Cache result
+        routeCache.set(cacheKey, {
+          user: session.user,
+          profile: data,
+          timestamp: now
+        });
       }
     } catch (err) {
       console.error('Auth check error:', err);
@@ -396,7 +424,7 @@ function AppContent() {
                   />
 
                   {/* ========================================== */}
-                  {/* ADMIN ROUTES - ONLY EXISTING FILES */}
+                  {/* ADMIN ROUTES - ALL ADMIN PAGES */}
                   {/* ========================================== */}
                   <Route 
                     path="/admin/dashboard" 
@@ -467,6 +495,50 @@ function AppContent() {
                     element={
                       <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
                         <AnimatedPage><TestingModeSettings /></AnimatedPage>
+                      </ProtectedRoute>
+                    } 
+                  />
+
+                  {/* ========================================== */}
+                  {/* NEW ADDITIONAL ADMIN MANAGEMENT ROUTES */}
+                  {/* ========================================== */}
+                  <Route 
+                    path="/admin/external-jobs" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                        <AnimatedPage><AdminExternalJobs /></AnimatedPage>
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/admin/books" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                        <AnimatedPage><AdminBooks /></AnimatedPage>
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/admin/courses" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                        <AnimatedPage><AdminCourses /></AnimatedPage>
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/admin/virtual-assistants" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                        <AnimatedPage><AdminVirtualAssistants /></AnimatedPage>
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/admin/assessments" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                        <AnimatedPage><AdminAssessments /></AnimatedPage>
                       </ProtectedRoute>
                     } 
                   />
