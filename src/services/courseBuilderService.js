@@ -1,371 +1,231 @@
-// src/services/courseBuilderService.js
-// AI Course Builder Service - For admin/trainer use
-
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// ============================================
-// AI Course Creation - Auto generate full course from topic
-// ============================================
+// Cache duration (5 minutes)
+const CACHE_DURATION = 5 * 60 * 1000;
+let coursesCache = { data: null, timestamp: null };
 
-export async function autoCreateCourse(topic, description, userId) {
-  try {
-    // Step 1: Create the course
+// Get all published courses with caching
+export async function getCourses(category = null, level = null) {
+    // Check cache
+    if (coursesCache.data && (Date.now() - coursesCache.timestamp) < CACHE_DURATION) {
+        return filterCourses(coursesCache.data, category, level);
+    }
+    
+    let query = supabase
+        .from('courses')
+        .select('*, profiles:instructor_id(full_name, email)')
+        .eq('published', true)
+        .order('created_at', { ascending: false });
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    // Update cache
+    coursesCache = { data, timestamp: Date.now() };
+    return filterCourses(data, category, level);
+}
+
+function filterCourses(courses, category, level) {
+    let filtered = [...courses];
+    if (category) filtered = filtered.filter(c => c.category === category);
+    if (level) filtered = filtered.filter(c => c.level === level);
+    return filtered;
+}
+
+// Get single course with modules
+export async function getCourse(courseId) {
     const { data: course, error: courseError } = await supabase
-      .from('courses')
-      .insert({
-        title: topic,
-        description: description || `Complete course on ${topic} powered by AI`,
-        short_description: description?.substring(0, 150) || `Learn ${topic} with ODUSBABA AI`,
-        is_published: false,
-        created_by: userId,
-        difficulty: 'beginner',
-        category: 'ai_generated',
-        what_you_learn: [`Understand ${topic} fundamentals`, `Apply ${topic} in real scenarios`, `Master ${topic} best practices`]
-      })
-      .select()
-      .single();
-
+        .from('courses')
+        .select('*, profiles:instructor_id(full_name, email)')
+        .eq('id', courseId)
+        .single();
+    
     if (courseError) throw courseError;
-
-    // Step 2: Generate modules (sections) using AI
-    const modules = await generateModulesWithAI(topic);
     
-    for (let i = 0; i < modules.length; i++) {
-      const module = modules[i];
-      
-      // Create module
-      const { data: section, error: sectionError } = await supabase
+    const { data: modules, error: modulesError } = await supabase
         .from('course_modules')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('order_index', { ascending: true });
+    
+    if (modulesError) throw modulesError;
+    
+    return { ...course, modules: modules || [] };
+}
+
+// Enroll in course
+export async function enrollInCourse(userId, courseId) {
+    // Check if already enrolled
+    const existing = await getUserEnrollment(userId, courseId);
+    if (existing) return existing;
+    
+    // Increment enrollment count
+    await supabase.rpc('increment_course_enrollment', { course_id: courseId });
+    
+    const { data, error } = await supabase
+        .from('course_enrollments')
+        .insert({ user_id: userId, course_id: courseId })
+        .select()
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
+
+// Get user's enrollment
+export async function getUserEnrollment(userId, courseId) {
+    const { data, error } = await supabase
+        .from('course_enrollments')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('course_id', courseId)
+        .maybeSingle();
+    
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+}
+
+// Get all user enrollments
+export async function getUserEnrollments(userId) {
+    const { data, error } = await supabase
+        .from('course_enrollments')
+        .select('*, courses:course_id(*)')
+        .eq('user_id', userId)
+        .order('started_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+}
+
+// Update module progress
+export async function updateModuleProgress(userId, courseId, moduleId, completed) {
+    const enrollment = await getUserEnrollment(userId, courseId);
+    if (!enrollment) throw new Error('Not enrolled');
+    
+    let completedModules = enrollment.completed_modules || [];
+    
+    if (completed && !completedModules.includes(moduleId)) {
+        completedModules.push(moduleId);
+    } else if (!completed && completedModules.includes(moduleId)) {
+        completedModules = completedModules.filter(id => id !== moduleId);
+    }
+    
+    // Get total modules count
+    const { data: modules } = await supabase
+        .from('course_modules')
+        .select('id')
+        .eq('course_id', courseId);
+    
+    const totalModules = modules?.length || 1;
+    const progressPercent = Math.round((completedModules.length / totalModules) * 100);
+    
+    const updateData = {
+        completed_modules: completedModules,
+        progress_percent: progressPercent,
+        last_accessed_module_id: moduleId
+    };
+    
+    if (progressPercent === 100 && enrollment.status !== 'completed') {
+        updateData.status = 'completed';
+        updateData.completed_at = new Date().toISOString();
+        await generateCertificate(enrollment.id, userId, courseId);
+    }
+    
+    const { error } = await supabase
+        .from('course_enrollments')
+        .update(updateData)
+        .eq('id', enrollment.id);
+    
+    if (error) throw error;
+    return { progressPercent, completed: progressPercent === 100 };
+}
+
+// Generate certificate
+export async function generateCertificate(enrollmentId, userId, courseId) {
+    const { data: course } = await supabase
+        .from('courses')
+        .select('title')
+        .eq('id', courseId)
+        .single();
+    
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', userId)
+        .single();
+    
+    const certificateNumber = `ODC-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    
+    const { data: certificate, error } = await supabase
+        .from('course_certificates')
         .insert({
-          course_id: course.id,
-          title: module.title,
-          description: module.description,
-          sort_order: i
+            enrollment_id: enrollmentId,
+            certificate_number: certificateNumber
         })
         .select()
         .single();
-      
-      if (sectionError) throw sectionError;
-      
-      // Generate lessons for each module
-      const lessons = await generateLessonsWithAI(topic, module.title);
-      
-      for (let j = 0; j < lessons.length; j++) {
-        const lesson = lessons[j];
-        
-        // Create lesson
-        const { data: lessonData, error: lessonError } = await supabase
-          .from('course_lessons')
-          .insert({
-            module_id: section.id,
-            title: lesson.title,
-            content: lesson.content,
-            content_html: lesson.content,
-            sort_order: j,
-            duration: lesson.estimatedDuration || 10
-          })
-          .select()
-          .single();
-        
-        if (lessonError) throw lessonError;
-        
-        // Generate audio for lesson if OpenAI is configured
-        if (process.env.OPENAI_API_KEY) {
-          try {
-            await generateCourseAudio(lessonData.id, lesson.content);
-          } catch (audioError) {
-            console.warn('Audio generation skipped:', audioError.message);
-          }
-        }
-      }
-    }
     
-    return { success: true, courseId: course.id };
+    if (error) throw error;
     
-  } catch (error) {
-    console.error('Auto course creation error:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// ============================================
-// Generate Modules from AI
-// ============================================
-
-async function generateModulesWithAI(topic) {
-  // If OpenAI is not configured, return default modules
-  if (!process.env.OPENAI_API_KEY) {
-    return [
-      { title: `Introduction to ${topic}`, description: `Learn the fundamentals of ${topic}` },
-      { title: `${topic} Best Practices`, description: `Master the key concepts and best practices` },
-      { title: `Advanced ${topic} Strategies`, description: `Take your skills to the next level` }
-    ];
-  }
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a course curriculum designer. Create a detailed course structure.' },
-          { role: 'user', content: `Create 4-6 modules for a course titled "${topic}". Return as JSON array with title and description for each module.` }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      })
-    });
+    // Generate verification URL
+    const verificationUrl = `${window.location.origin}/verify-certificate/${certificateNumber}`;
     
-    const data = await response.json();
-    const content = data.choices[0].message.content;
-    
-    // Extract JSON from response
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    
-    return [
-      { title: `Introduction to ${topic}`, description: `Learn the fundamentals of ${topic}` },
-      { title: `${topic} Best Practices`, description: `Master the key concepts and best practices` },
-      { title: `Advanced ${topic} Strategies`, description: `Take your skills to the next level` },
-      { title: `${topic} Case Studies`, description: `Real-world applications and examples` },
-      { title: `Final Assessment`, description: `Test your knowledge and earn certification` }
-    ];
-    
-  } catch (error) {
-    console.error('AI module generation error:', error);
-    return [
-      { title: `Introduction to ${topic}`, description: `Learn the fundamentals of ${topic}` },
-      { title: `${topic} Best Practices`, description: `Master the key concepts` },
-      { title: `${topic} Applications`, description: `Apply your knowledge in real scenarios` }
-    ];
-  }
-}
-
-// ============================================
-// Generate Lessons from AI
-// ============================================
-
-async function generateLessonsWithAI(topic, moduleTitle) {
-  if (!process.env.OPENAI_API_KEY) {
-    return [
-      { title: `Introduction to ${moduleTitle}`, content: `<p>Learn about ${moduleTitle} in this comprehensive lesson.</p>`, estimatedDuration: 10 },
-      { title: `Key Concepts of ${moduleTitle}`, content: `<p>Master the essential concepts and techniques.</p>`, estimatedDuration: 15 },
-      { title: `${moduleTitle} in Practice`, content: `<p>Apply what you've learned with practical examples.</p>`, estimatedDuration: 12 }
-    ];
-  }
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a course creator. Create engaging lesson content.' },
-          { role: 'user', content: `Create 3-4 lessons for a module titled "${moduleTitle}" in a course about "${topic}". Return as JSON array with title, content (HTML formatted), and estimatedDuration (minutes).` }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000
-      })
-    });
-    
-    const data = await response.json();
-    const content = data.choices[0].message.content;
-    
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    
-    return [
-      { title: `Understanding ${moduleTitle}`, content: `<p>This lesson introduces ${moduleTitle} and its importance.</p>`, estimatedDuration: 10 },
-      { title: `Mastering ${moduleTitle}`, content: `<p>Deep dive into ${moduleTitle} concepts and techniques.</p>`, estimatedDuration: 15 },
-      { title: `Applying ${moduleTitle}`, content: `<p>Practical applications and real-world scenarios.</p>`, estimatedDuration: 12 }
-    ];
-    
-  } catch (error) {
-    console.error('AI lesson generation error:', error);
-    return [
-      { title: `Introduction to ${moduleTitle}`, content: `<p>Learn about ${moduleTitle} in this lesson.</p>`, estimatedDuration: 10 },
-      { title: `${moduleTitle} Deep Dive`, content: `<p>Explore advanced concepts and techniques.</p>`, estimatedDuration: 15 },
-      { title: `${moduleTitle} Practice`, content: `<p>Apply your knowledge with practical exercises.</p>`, estimatedDuration: 12 }
-    ];
-  }
-}
-
-// ============================================
-// Generate Audio for Lesson using OpenAI TTS
-// ============================================
-
-export async function generateCourseAudio(lessonId, textContent) {
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn('OpenAI API key not configured. Audio generation skipped.');
-    return { success: false, error: 'OpenAI not configured' };
-  }
-  
-  try {
-    // Clean text (remove HTML tags for audio)
-    const cleanText = textContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    
-    // Limit text length (OpenAI TTS limit is 4096 characters)
-    const truncatedText = cleanText.substring(0, 4000);
-    
-    // Call OpenAI TTS API
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: truncatedText,
-        voice: 'nova',
-        speed: 1.0
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error('TTS generation failed');
-    }
-    
-    // Get audio as buffer
-    const audioBuffer = await response.arrayBuffer();
-    
-    // Upload to Supabase Storage
-    const fileName = `course_audio/${lessonId}_${Date.now()}.mp3`;
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('course_content')
-      .upload(fileName, audioBuffer, {
-        contentType: 'audio/mpeg',
-        cacheControl: '3600'
-      });
-    
-    if (uploadError) throw uploadError;
-    
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('course_content')
-      .getPublicUrl(fileName);
-    
-    // Update lesson with audio URL
     await supabase
-      .from('course_lessons')
-      .update({
-        audio_url: publicUrl,
-        audio_duration: Math.ceil(cleanText.split(/\s+/).length / 150 * 60) // estimate duration
-      })
-      .eq('id', lessonId);
+        .from('course_certificates')
+        .update({ verification_url: verificationUrl })
+        .eq('id', certificate.id);
     
-    return { success: true, audioUrl: publicUrl };
+    await supabase
+        .from('course_enrollments')
+        .update({ certificate_issued: true, certificate_url: verificationUrl })
+        .eq('id', enrollmentId);
     
-  } catch (error) {
-    console.error('Audio generation error:', error);
-    return { success: false, error: error.message };
-  }
+    return { certificate, verificationUrl };
 }
 
-// ============================================
-// Generate Quiz for Lesson
-// ============================================
+// Verify certificate
+export async function verifyCertificate(certificateNumber) {
+    const { data, error } = await supabase
+        .from('course_certificates')
+        .select('*, course_enrollments:enrollment_id(user_id, course_id), profiles:course_enrollments.user_id(full_name), courses:course_enrollments.course_id(title)')
+        .eq('certificate_number', certificateNumber)
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
 
-export async function generateQuizForLesson(lessonId, topic) {
-  if (!process.env.OPENAI_API_KEY) {
-    return { success: false, error: 'OpenAI not configured' };
-  }
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a quiz creator. Create multiple choice questions.' },
-          { role: 'user', content: `Create 5 multiple choice questions about "${topic}". Return as JSON array with question_text, options (array of 4), and correct_answer (0-indexed).` }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      })
-    });
-    
-    const data = await response.json();
-    const content = data.choices[0].message.content;
-    
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const questions = JSON.parse(jsonMatch[0]);
-      
-      // Create quiz record
-      const { data: quiz, error: quizError } = await supabase
-        .from('quizzes')
-        .insert({
-          lesson_id: lessonId,
-          title: `Quiz: ${topic}`,
-          passing_score: 70
-        })
+// Add course review
+export async function addCourseReview(courseId, userId, rating, review) {
+    const { data, error } = await supabase
+        .from('course_reviews')
+        .upsert({ course_id: courseId, user_id: userId, rating, review })
         .select()
         .single();
-      
-      if (quizError) throw quizError;
-      
-      // Save questions and answers
-      for (const q of questions) {
-        const { data: question, error: qError } = await supabase
-          .from('quiz_questions')
-          .insert({
-            quiz_id: quiz.id,
-            question_text: q.question_text,
-            question_type: 'multiple_choice',
-            points: 1
-          })
-          .select()
-          .single();
-        
-        if (qError) throw qError;
-        
-        // Save options
-        for (let i = 0; i < q.options.length; i++) {
-          await supabase
-            .from('quiz_options')
-            .insert({
-              question_id: question.id,
-              option_text: q.options[i],
-              is_correct: i === q.correct_answer,
-              sort_order: i
-            });
-        }
-      }
-      
-      // Update lesson to indicate it has a quiz
-      await supabase
-        .from('course_lessons')
-        .update({ has_quiz: true })
-        .eq('id', lessonId);
-      
-      return { success: true, quizId: quiz.id };
-    }
     
-    return { success: false, error: 'No questions generated' };
+    if (error) throw error;
     
-  } catch (error) {
-    console.error('Quiz generation error:', error);
-    return { success: false, error: error.message };
-  }
+    // Update course rating
+    const { data: reviews } = await supabase
+        .from('course_reviews')
+        .select('rating')
+        .eq('course_id', courseId);
+    
+    const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+    
+    await supabase
+        .from('courses')
+        .update({ rating: avgRating })
+        .eq('id', courseId);
+    
+    return data;
+}
+
+// Clear cache (for admin updates)
+export function clearCoursesCache() {
+    coursesCache = { data: null, timestamp: null };
 }
