@@ -1,19 +1,30 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
-  Plus, Edit, Trash2, Bot, Search, Filter,
-  CheckCircle, XCircle, Eye, EyeOff, Download,
-  RefreshCw, Loader2, AlertCircle, Clock, DollarSign,
-  Zap, Star, TrendingUp, Users, MessageSquare,
-  Award, Shield, Save, X
+  Plus, Edit, Trash2, Bot, Search, RefreshCw, 
+  Loader2, AlertCircle, CheckCircle, Eye, EyeOff, 
+  X, Square, Zap, Star, TrendingUp, Users, 
+  Clock, DollarSign, Save, Award, Shield, MessageSquare
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// ============== CUSTOM HOOK ==============
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export default function AdminVirtualAssistants() {
-  // State
+  // State Management
   const [vas, setVAs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,13 +36,19 @@ export default function AdminVirtualAssistants() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedVAs, setSelectedVAs] = useState(new Set());
-  const [notification, setNotification] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, tasksCompleted: 0 });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [capabilities, setCapabilities] = useState([]);
+  const [newCapability, setNewCapability] = useState('');
 
+  // Refs for request cancellation
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  // Form Data
   const [formData, setFormData] = useState({
     name: '',
     specialty: '',
@@ -40,29 +57,35 @@ export default function AdminVirtualAssistants() {
     price: 9.99,
     delivery_minutes: 30,
     qa_score: 95,
-    is_active: true,
-    capabilities: [],
-    tasks_completed: 0,
-    rating: 0
+    is_active: true
   });
 
-  const [newCapability, setNewCapability] = useState('');
-  const [capabilities, setCapabilities] = useState([]);
-
+  // Constants
   const itemsPerPage = 12;
-  const categories = ['career', 'resume', 'writing', 'coding', 'design', 'marketing'];
+  const categories = ['career', 'resume', 'writing', 'coding', 'design', 'marketing', 'sales', 'research'];
+  
+  // Debounced search
+  const debouncedSearch = useDebounce(searchTerm, 300);
 
-  // Check authentication
+  // Cleanup on unmount
   useEffect(() => {
-    checkAuth();
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
+
+  // ============== AUTHENTICATION ==============
+  useEffect(() => { checkAuth(); }, []);
 
   async function checkAuth() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        window.location.href = '/admin-login';
-        return;
+      if (!session) { 
+        window.location.href = '/admin-login'; 
+        return; 
       }
       
       const { data: profile } = await supabase
@@ -72,25 +95,28 @@ export default function AdminVirtualAssistants() {
         .single();
       
       if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        toast.error('Access denied. Admin privileges required.');
         window.location.href = '/dashboard';
         return;
       }
       
-      setUser(session.user);
-      setIsAuthorized(true);
-      loadVAs();
-      loadStats();
+      if (isMountedRef.current) {
+        setUser(session.user);
+        setIsAuthorized(true);
+        await Promise.all([loadVAs(), loadStats()]);
+      }
     } catch (err) {
       console.error('Auth error:', err);
       window.location.href = '/admin-login';
     }
   }
 
+  // ============== DATA LOADING ==============
   async function loadStats() {
     try {
       const { data, error } = await supabase
         .from('virtual_assistants')
-        .select('is_active, tasks_completed', { count: 'exact' });
+        .select('is_active, tasks_completed');
       
       if (error) throw error;
       
@@ -99,71 +125,116 @@ export default function AdminVirtualAssistants() {
       const inactive = data?.filter(va => va.is_active === false).length || 0;
       const tasksCompleted = data?.reduce((sum, va) => sum + (va.tasks_completed || 0), 0) || 0;
       
-      setStats({ total, active, inactive, tasksCompleted });
-    } catch (err) {
-      console.error('Error loading stats:', err);
+      if (isMountedRef.current) {
+        setStats({ total, active, inactive, tasksCompleted });
+      }
+    } catch (err) { 
+      console.error('Stats error:', err);
     }
   }
 
   async function loadVAs() {
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
     try {
-      setLoading(true);
-      setError(null);
+      if (isMountedRef.current) {
+        setLoading(true);
+        setError(null);
+      }
       
       let query = supabase
         .from('virtual_assistants')
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false });
       
+      // Apply filters
       if (selectedCategory !== 'all') {
         query = query.eq('category', selectedCategory);
       }
       if (selectedStatus !== 'all') {
         query = query.eq('is_active', selectedStatus === 'active');
       }
-      if (searchTerm) {
-        query = query.or(`name.ilike.%${searchTerm}%,specialty.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
+      if (debouncedSearch) {
+        const sanitizedSearch = debouncedSearch.replace(/[%_]/g, '\\$&');
+        query = query.or(`name.ilike.%${sanitizedSearch}%,specialty.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
       }
       
+      // Apply pagination
       const from = (currentPage - 1) * itemsPerPage;
       query = query.range(from, from + itemsPerPage - 1);
       
-      const { data, error, count } = await query;
+      const { data, error, count } = await query.abortSignal(abortControllerRef.current.signal);
       
       if (error) throw error;
       
-      setVAs(data || []);
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-      
+      if (isMountedRef.current) {
+        setVAs(data || []);
+        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+      }
     } catch (err) {
-      console.error('Error loading VAs:', err);
-      setError('Failed to load Virtual Assistants');
-      showNotification('Failed to load Virtual Assistants', 'error');
+      if (err.name === 'AbortError') {
+        console.log('Request cancelled');
+        return;
+      }
+      console.error('Load error:', err);
+      if (isMountedRef.current) {
+        setError('Failed to load Virtual Assistants');
+        toast.error('Failed to load Virtual Assistants');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedCategory, selectedStatus]);
+
+  // Load VAs when dependencies change
+  useEffect(() => {
+    if (isAuthorized) {
+      loadVAs();
+    }
+  }, [isAuthorized, currentPage, debouncedSearch, selectedCategory, selectedStatus]);
+
+  // ============== CRUD OPERATIONS ==============
   async function saveVA() {
     // Validation
-    if (!formData.name.trim()) {
-      showNotification('Name is required', 'error');
-      return;
+    if (!formData.name.trim()) { 
+      toast.error('Name is required'); 
+      return; 
     }
-    if (!formData.specialty.trim()) {
-      showNotification('Specialty is required', 'error');
-      return;
+    if (!formData.specialty.trim()) { 
+      toast.error('Specialty is required'); 
+      return; 
     }
-    if (formData.price < 0) {
-      showNotification('Price cannot be negative', 'error');
-      return;
+    if (formData.price < 0) { 
+      toast.error('Price cannot be negative'); 
+      return; 
+    }
+    if (formData.delivery_minutes < 1) { 
+      toast.error('Delivery time must be at least 1 minute'); 
+      return; 
+    }
+    if (formData.qa_score < 0 || formData.qa_score > 100) { 
+      toast.error('QA score must be between 0 and 100'); 
+      return; 
     }
     
     setSaving(true);
+    const toastId = toast.loading(editing ? 'Updating...' : 'Creating...');
     
     try {
-      const vaData = {
-        ...formData,
+      const vaData = { 
+        ...formData, 
         capabilities: capabilities,
         price: parseFloat(formData.price),
         delivery_minutes: parseInt(formData.delivery_minutes),
@@ -179,42 +250,46 @@ export default function AdminVirtualAssistants() {
           .eq('id', editing);
         
         if (error) throw error;
-        showNotification('Virtual Assistant updated successfully', 'success');
+        toast.success('Virtual Assistant updated successfully', { id: toastId });
       } else {
         const { error } = await supabase
           .from('virtual_assistants')
-          .insert({
+          .insert([{
             ...vaData,
             created_at: new Date().toISOString(),
             created_by: user?.id,
             tasks_completed: 0,
             rating: 0
-          });
+          }]);
         
         if (error) throw error;
-        showNotification('Virtual Assistant created successfully', 'success');
+        toast.success('Virtual Assistant created successfully', { id: toastId });
       }
       
-      setShowForm(false);
-      setEditing(null);
-      resetForm();
-      await loadVAs();
-      await loadStats();
-      
-    } catch (err) {
-      console.error('Error saving VA:', err);
-      showNotification('Failed to save Virtual Assistant', 'error');
-    } finally {
-      setSaving(false);
+      if (isMountedRef.current) {
+        setShowForm(false);
+        setEditing(null);
+        resetForm();
+        await Promise.all([loadVAs(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Save error:', err);
+      toast.error('Failed to save Virtual Assistant', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
     }
   }
 
-  async function deleteVA(id) {
-    setShowDeleteConfirm({ id, type: 'single' });
+  async function deleteVA(id) { 
+    setShowDeleteConfirm({ id, type: 'single' }); 
   }
-
+  
   async function confirmDelete() {
-    try {
+    const toastId = toast.loading('Deleting...');
+    
+    try { 
       const { error } = await supabase
         .from('virtual_assistants')
         .delete()
@@ -222,24 +297,33 @@ export default function AdminVirtualAssistants() {
       
       if (error) throw error;
       
-      showNotification('Virtual Assistant deleted successfully', 'success');
-      await loadVAs();
-      await loadStats();
+      toast.success('Virtual Assistant deleted successfully', { id: toastId });
       
-    } catch (err) {
-      console.error('Error deleting VA:', err);
-      showNotification('Failed to delete Virtual Assistant', 'error');
-    } finally {
-      setShowDeleteConfirm(null);
+      if (isMountedRef.current) {
+        await Promise.all([loadVAs(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Delete error:', err);
+      toast.error('Failed to delete Virtual Assistant', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
     }
   }
 
-  async function bulkDelete() {
-    setShowDeleteConfirm({ ids: Array.from(selectedVAs), type: 'bulk', count: selectedVAs.size });
+  async function bulkDelete() { 
+    setShowDeleteConfirm({ 
+      ids: Array.from(selectedVAs), 
+      type: 'bulk', 
+      count: selectedVAs.size 
+    }); 
   }
 
   async function confirmBulkDelete() {
-    try {
+    const toastId = toast.loading(`Deleting ${showDeleteConfirm.ids.length} VAs...`);
+    
+    try { 
       const { error } = await supabase
         .from('virtual_assistants')
         .delete()
@@ -247,21 +331,33 @@ export default function AdminVirtualAssistants() {
       
       if (error) throw error;
       
-      showNotification(`Deleted ${showDeleteConfirm.ids.length} Virtual Assistants`, 'success');
-      setSelectedVAs(new Set());
-      await loadVAs();
-      await loadStats();
+      toast.success(`Deleted ${showDeleteConfirm.ids.length} Virtual Assistants`, { id: toastId });
       
-    } catch (err) {
-      console.error('Error deleting VAs:', err);
-      showNotification('Failed to delete Virtual Assistants', 'error');
-    } finally {
-      setShowDeleteConfirm(null);
+      if (isMountedRef.current) {
+        setSelectedVAs(new Set());
+        await Promise.all([loadVAs(), loadStats()]);
+      }
+    } catch (err) { 
+      console.error('Bulk delete error:', err);
+      toast.error('Failed to delete Virtual Assistants', { id: toastId });
+    } finally { 
+      if (isMountedRef.current) {
+        setShowDeleteConfirm(null);
+      }
     }
   }
 
+  // Optimistic update for status toggle
   async function toggleStatus(id, currentStatus) {
-    try {
+    const toastId = toast.loading('Updating status...');
+    
+    // Optimistic update
+    const previousVAs = [...vas];
+    setVAs(vas.map(va => 
+      va.id === id ? { ...va, is_active: !currentStatus } : va
+    ));
+    
+    try { 
       const { error } = await supabase
         .from('virtual_assistants')
         .update({ 
@@ -273,29 +369,32 @@ export default function AdminVirtualAssistants() {
       
       if (error) throw error;
       
-      showNotification(`VA ${!currentStatus ? 'activated' : 'deactivated'}`, 'success');
-      await loadVAs();
-      await loadStats();
-      
-    } catch (err) {
-      console.error('Error toggling status:', err);
-      showNotification('Failed to update status', 'error');
+      toast.success(`VA ${!currentStatus ? 'activated' : 'deactivated'}`, { id: toastId });
+      await loadStats(); // Update stats in background
+    } catch (err) { 
+      // Rollback on error
+      setVAs(previousVAs);
+      console.error('Status update error:', err);
+      toast.error('Failed to update status', { id: toastId });
     }
+  }
+
+  // ============== UTILITY FUNCTIONS ==============
+  function addCapability() {
+    if (newCapability.trim() && !capabilities.includes(newCapability.trim())) {
+      setCapabilities([...capabilities, newCapability.trim()]);
+      setNewCapability('');
+    }
+  }
+
+  function removeCapability(capability) {
+    setCapabilities(capabilities.filter(c => c !== capability));
   }
 
   function resetForm() {
     setFormData({
-      name: '',
-      specialty: '',
-      category: 'career',
-      description: '',
-      price: 9.99,
-      delivery_minutes: 30,
-      qa_score: 95,
-      is_active: true,
-      capabilities: [],
-      tasks_completed: 0,
-      rating: 0
+      name: '', specialty: '', category: 'career', description: '',
+      price: 9.99, delivery_minutes: 30, qa_score: 95, is_active: true
     });
     setCapabilities([]);
     setNewCapability('');
@@ -308,56 +407,25 @@ export default function AdminVirtualAssistants() {
     setShowForm(true);
   }
 
-  function addCapability() {
-    if (newCapability.trim() && !capabilities.includes(newCapability.trim())) {
-      setCapabilities([...capabilities, newCapability.trim()]);
-      setNewCapability('');
-    }
+  function toggleSelectAll() { 
+    setSelectedVAs(selectedVAs.size === vas.length 
+      ? new Set() 
+      : new Set(vas.map(v => v.id))
+    ); 
+  }
+  
+  function toggleSelectVA(id) { 
+    const newSet = new Set(selectedVAs); 
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id); 
+    setSelectedVAs(newSet); 
   }
 
-  function removeCapability(capability) {
-    setCapabilities(capabilities.filter(c => c !== capability));
-  }
+  const formatPrice = (price) => new Intl.NumberFormat('en-US', { 
+    style: 'currency', 
+    currency: 'USD' 
+  }).format(price);
 
-  function showNotification(message, type = 'success') {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
-  }
-
-  function toggleSelectAll() {
-    if (selectedVAs.size === vas.length) {
-      setSelectedVAs(new Set());
-    } else {
-      setSelectedVAs(new Set(vas.map(va => va.id)));
-    }
-  }
-
-  function toggleSelectVA(id) {
-    const newSelected = new Set(selectedVAs);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedVAs(newSelected);
-  }
-
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2
-    }).format(price);
-  };
-
-  // Reset page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-    if (isAuthorized) {
-      loadVAs();
-    }
-  }, [searchTerm, selectedCategory, selectedStatus]);
-
+  // ============== RENDER ==============
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -368,70 +436,47 @@ export default function AdminVirtualAssistants() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 animate-slide-in-right ${
-          notification.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'
-        } text-white rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md`}>
-          {notification.type === 'success' && <CheckCircle className="w-5 h-5" />}
-          {notification.type === 'error' && <AlertCircle className="w-5 h-5" />}
-          <p>{notification.message}</p>
-        </div>
-      )}
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { background: '#1e293b', color: '#fff' },
+          duration: 3000
+        }} 
+      />
+      
+      <ConfirmModal
+        isOpen={!!showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(null)}
+        onConfirm={showDeleteConfirm?.type === 'bulk' ? confirmBulkDelete : confirmDelete}
+        title="Confirm Delete"
+        message={showDeleteConfirm?.type === 'bulk' 
+          ? `Delete ${showDeleteConfirm.count} Virtual Assistants? This cannot be undone.`
+          : 'Delete this Virtual Assistant? This cannot be undone.'}
+        confirmText="Delete"
+        confirmVariant="danger"
+      />
 
-      {/* Delete Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertCircle className="w-6 h-6 text-red-400" />
-              <h3 className="text-xl font-bold text-white">Confirm Delete</h3>
-            </div>
-            <p className="text-slate-300 mb-6">
-              {showDeleteConfirm.type === 'bulk' 
-                ? `Are you sure you want to delete ${showDeleteConfirm.count} Virtual Assistants?`
-                : 'Are you sure you want to delete this Virtual Assistant?'}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={showDeleteConfirm.type === 'bulk' ? confirmBulkDelete : confirmDelete}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Bot className="w-6 h-6 text-primary-400" />
+              <Bot className="w-6 h-6 text-primary-400" /> 
               Virtual Assistant Management
             </h1>
-            <p className="text-slate-400 text-sm mt-1">Manage your AI-powered workforce</p>
+            <p className="text-slate-400 text-sm">Manage your AI-powered workforce</p>
           </div>
-          <button
-            onClick={() => { resetForm(); setEditing(null); setShowForm(true); }}
-            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2"
+          <button 
+            onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
+            className="px-4 py-2 bg-primary-500 text-white rounded-lg flex items-center gap-2 hover:bg-primary-600 transition-all shadow-lg"
           >
-            <Plus className="w-4 h-4" />
-            Add Virtual Assistant
+            <Plus className="w-4 h-4" /> Add Virtual Assistant
           </button>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Total VAs</p>
@@ -440,7 +485,7 @@ export default function AdminVirtualAssistants() {
               <Bot className="w-8 h-8 text-primary-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Active</p>
@@ -449,7 +494,7 @@ export default function AdminVirtualAssistants() {
               <Zap className="w-8 h-8 text-emerald-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Tasks Completed</p>
@@ -458,7 +503,7 @@ export default function AdminVirtualAssistants() {
               <CheckCircle className="w-8 h-8 text-blue-400/50" />
             </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-sm">Avg Rating</p>
@@ -469,282 +514,207 @@ export default function AdminVirtualAssistants() {
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search & Filters */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-wrap gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by name, specialty, or description..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+              <input 
+                type="text" 
+                placeholder="Search by name, specialty, or description..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
               />
             </div>
             
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+            <select 
+              value={selectedCategory} 
+              onChange={(e) => setSelectedCategory(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
+              {categories.map(c => (
+                <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
               ))}
             </select>
             
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+            <select 
+              value={selectedStatus} 
+              onChange={(e) => setSelectedStatus(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Status</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
             
-            <button
-              onClick={() => loadVAs()}
-              className="px-4 py-2 bg-slate-700 text-white rounded-lg flex items-center gap-2"
+            <button 
+              onClick={() => loadVAs()} 
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-all flex items-center gap-2"
+              disabled={loading}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
         </div>
 
-        {/* Bulk Actions Bar */}
+        {/* Bulk Actions */}
         {selectedVAs.size > 0 && (
-          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex justify-between items-center animate-in slide-in-from-top-2">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-primary-400" />
-              <span className="text-white">{selectedVAs.size} VA(s) selected</span>
+              <span className="text-white font-medium">{selectedVAs.size} VA(s) selected</span>
             </div>
-            <button
-              onClick={bulkDelete}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"
+            <button 
+              onClick={bulkDelete} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2"
             >
-              <Trash2 className="w-4 h-4" />
-              Delete Selected
+              <Trash2 className="w-4 h-4" /> Delete Selected
             </button>
-          </div>
-        )}
-
-        {/* Form Modal */}
-        {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm overflow-y-auto p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-2xl w-full my-8 max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-white">
-                  {editing ? 'Edit VA' : 'Add New VA'}
-                </h2>
-                <button onClick={() => { setShowForm(false); resetForm(); }} className="text-slate-400 hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Name *</label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={e => setFormData({...formData, name: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Specialty *</label>
-                    <input
-                      type="text"
-                      value={formData.specialty}
-                      onChange={e => setFormData({...formData, specialty: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
-                  <select
-                    value={formData.category}
-                    onChange={e => setFormData({...formData, category: e.target.value})}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
-                  <textarea
-                    rows={3}
-                    value={formData.description}
-                    onChange={e => setFormData({...formData, description: e.target.value})}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Price ($)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formData.price}
-                      onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Delivery (min)</label>
-                    <input
-                      type="number"
-                      value={formData.delivery_minutes}
-                      onChange={e => setFormData({...formData, delivery_minutes: parseInt(e.target.value)})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">QA Score (%)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={formData.qa_score}
-                      onChange={e => setFormData({...formData, qa_score: parseInt(e.target.value)})}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Capabilities</label>
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      type="text"
-                      value={newCapability}
-                      onChange={e => setNewCapability(e.target.value)}
-                      placeholder="Add capability"
-                      className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                      onKeyPress={(e) => e.key === 'Enter' && addCapability()}
-                    />
-                    <button
-                      onClick={addCapability}
-                      className="px-3 py-2 bg-primary-600 text-white rounded-lg"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {capabilities.map((cap, idx) => (
-                      <span key={idx} className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-sm">
-                        {cap}
-                        <button onClick={() => removeCapability(cap)} className="text-red-400">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.is_active}
-                    onChange={e => setFormData({...formData, is_active: e.target.checked})}
-                    className="rounded bg-slate-800"
-                  />
-                  <label className="text-slate-300">Active (available for hire)</label>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={saveVA}
-                    disabled={saving}
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg flex items-center justify-center gap-2"
-                  >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => { setShowForm(false); resetForm(); }}
-                    className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
         {/* VAs Grid */}
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
           </div>
         ) : error ? (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
+          <div className="text-center py-12">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <p className="text-red-400">{error}</p>
-            <button onClick={loadVAs} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg">
+            <button 
+              onClick={loadVAs} 
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all"
+            >
               Try Again
             </button>
           </div>
         ) : vas.length === 0 ? (
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
+          <div className="text-center py-12">
             <Bot className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">No Virtual Assistants Found</h3>
-            <p className="text-slate-400">Get started by adding your first VA</p>
+            <p className="text-slate-400">
+              {searchTerm || selectedCategory !== 'all' || selectedStatus !== 'all'
+                ? 'No Virtual Assistants match your search criteria'
+                : 'No Virtual Assistants found. Click "Add Virtual Assistant" to get started.'}
+            </p>
+            {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
+              <button 
+                onClick={() => { resetForm(); setEditing(null); setShowForm(true); }} 
+                className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-all inline-flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Create First VA
+              </button>
+            )}
           </div>
         ) : (
           <>
+            {/* Select All Checkbox */}
             <div className="flex items-center gap-2 mb-3">
-              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400">
-                {selectedVAs.size === vas.length ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <div className="w-4 h-4 border border-slate-400 rounded" />}
-                Select All ({vas.length})
+              <button 
+                onClick={toggleSelectAll} 
+                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+              >
+                {selectedVAs.size === vas.length ? (
+                  <CheckCircle className="w-4 h-4 text-primary-400" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                <span className="text-sm">Select All ({vas.length})</span>
               </button>
             </div>
 
+            {/* VAs Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {vas.map(va => (
-                <div key={va.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                <div 
+                  key={va.id} 
+                  className={`group bg-slate-900/50 border rounded-xl overflow-hidden transition-all duration-200 ${
+                    selectedVAs.has(va.id)
+                      ? 'border-primary-500 bg-primary-500/5'
+                      : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
+                  }`}
+                >
                   <div className="p-5">
-                    <div className="flex items-start justify-between">
+                    <div className="flex justify-between items-start mb-3">
                       <div className="flex items-center gap-3">
-                        <Bot className="w-8 h-8 text-primary-400" />
+                        <div className="w-10 h-10 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                          <Bot className="w-5 h-5 text-primary-400" />
+                        </div>
                         <div>
-                          <h3 className="font-semibold text-white">{va.name}</h3>
+                          <h3 className="font-semibold text-white group-hover:text-primary-400 transition-colors">
+                            {va.name}
+                          </h3>
                           <p className="text-sm text-slate-400">{va.specialty}</p>
                         </div>
                       </div>
-                      <button onClick={() => toggleSelectVA(va.id)}>
-                        {selectedVAs.has(va.id) ? <CheckCircle className="w-5 h-5 text-primary-400" /> : <div className="w-5 h-5 border border-slate-400 rounded" />}
+                      <button 
+                        onClick={() => toggleSelectVA(va.id)}
+                        className="flex-shrink-0"
+                      >
+                        {selectedVAs.has(va.id) ? (
+                          <CheckCircle className="w-5 h-5 text-primary-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-500 hover:text-slate-400" />
+                        )}
                       </button>
                     </div>
                     
-                    <p className="text-slate-400 text-sm mt-3 line-clamp-2">{va.description}</p>
+                    <p className="text-slate-400 text-sm line-clamp-2 mb-3">{va.description}</p>
+                    
+                    {/* Capabilities Tags */}
+                    {va.capabilities && va.capabilities.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {va.capabilities.slice(0, 3).map((cap, idx) => (
+                          <span key={idx} className="text-xs px-2 py-0.5 bg-slate-800 text-slate-400 rounded-full">
+                            {cap}
+                          </span>
+                        ))}
+                        {va.capabilities.length > 3 && (
+                          <span className="text-xs px-2 py-0.5 bg-slate-800 text-slate-400 rounded-full">
+                            +{va.capabilities.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     
                     <div className="mt-3 flex justify-between items-center">
-                      <span className="text-xl font-bold text-primary-400">{formatPrice(va.price)}</span>
-                      <button
-                        onClick={() => toggleStatus(va.id, va.is_active)}
-                        className={`text-xs px-2 py-1 rounded-full ${va.is_active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}
+                      <div>
+                        <span className="text-xl font-bold text-primary-400">{formatPrice(va.price)}</span>
+                        <span className="text-xs text-slate-500 ml-2">
+                          <Clock className="w-3 h-3 inline mr-1" />
+                          {va.delivery_minutes} min
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => toggleStatus(va.id, va.is_active)} 
+                        className={`text-xs px-2 py-1 rounded-full transition-all ${
+                          va.is_active 
+                            ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' 
+                            : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                        }`}
                       >
-                        {va.is_active ? 'Active' : 'Inactive'}
+                        {va.is_active ? (
+                          <><Eye className="w-3 h-3 inline mr-1" /> Active</>
+                        ) : (
+                          <><EyeOff className="w-3 h-3 inline mr-1" /> Inactive</>
+                        )}
                       </button>
                     </div>
                     
                     <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
-                      <button onClick={() => handleEdit(va)} className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1">
+                      <button 
+                        onClick={() => handleEdit(va)} 
+                        className="flex-1 py-1.5 bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-slate-600 transition-all"
+                      >
                         <Edit className="w-3.5 h-3.5" /> Edit
                       </button>
-                      <button onClick={() => deleteVA(va.id)} className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1">
+                      <button 
+                        onClick={() => deleteVA(va.id)} 
+                        className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm flex items-center justify-center gap-1 hover:bg-red-600/30 transition-all"
+                      >
                         <Trash2 className="w-3.5 h-3.5" /> Delete
                       </button>
                     </div>
@@ -753,18 +723,143 @@ export default function AdminVirtualAssistants() {
               ))}
             </div>
 
+            {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex justify-between items-center mt-6">
-                <span className="text-sm text-slate-400">Page {currentPage} of {totalPages}</span>
+              <div className="flex justify-between items-center mt-8">
+                <span className="text-sm text-slate-400">
+                  Page {currentPage} of {totalPages} ({vas.length} shown)
+                </span>
                 <div className="flex gap-2">
-                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Previous</button>
-                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Next</button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                    disabled={currentPage === 1} 
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={currentPage === totalPages} 
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
                 </div>
               </div>
             )}
           </>
         )}
       </div>
-    </div>
-  );
-}
+
+      {/* Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-800 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-white">
+                {editing ? 'Edit Virtual Assistant' : 'Add New Virtual Assistant'}
+              </h2>
+              <button 
+                onClick={() => setShowForm(false)} 
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Name *</label>
+                  <input 
+                    type="text" 
+                    value={formData.name} 
+                    onChange={e => setFormData({...formData, name: e.target.value})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Specialty *</label>
+                  <input 
+                    type="text" 
+                    value={formData.specialty} 
+                    onChange={e => setFormData({...formData, specialty: e.target.value})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
+                <select 
+                  value={formData.category} 
+                  onChange={e => setFormData({...formData, category: e.target.value})} 
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  {categories.map(c => (
+                    <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
+                <textarea 
+                  rows={3} 
+                  value={formData.description} 
+                  onChange={e => setFormData({...formData, description: e.target.value})} 
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Describe what this VA can do..."
+                />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Price ($)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    min="0"
+                    value={formData.price} 
+                    onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Delivery (minutes)</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={formData.delivery_minutes} 
+                    onChange={e => setFormData({...formData, delivery_minutes: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">QA Score (0-100)</label>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    max="100"
+                    value={formData.qa_score} 
+                    onChange={e => setFormData({...formData, qa_score: parseInt(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Capabilities */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Capabilities</label>
+                <div className="flex gap-2 mb-2">
+                  <input 
+                    type="text" 
+                    value={newCapability} 
+                    onChange={e => setNewCapability(e.target.value)} 
+                    placeholder="e.g., Resume Review, Cover Letter, Interview Prep" 
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    onKeyPress={(e) => e.key === 'Enter' && addCapability()} 
+                  />
+                  <button 
+                    onClick={addCapability} 
+                    className="
