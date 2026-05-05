@@ -1,17 +1,11 @@
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 // ============================================
-// LAZY LOADING FOR PERFORMANCE
+// COMPONENTS
 // ============================================
-
-// Components (Eager loaded - needed immediately)
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import PremiumTermsPopup from './components/PremiumTermsPopup';
@@ -20,100 +14,93 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 import ScrollingBanner from './components/ScrollingBanner';
-
-// Public Pages (Lazy Loaded)
-const HomePage = lazy(() => import('./pages/HomePage'));
-const AdminLogin = lazy(() => import('./pages/AdminLogin'));
-const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
-const JobsPage = lazy(() => import('./pages/JobsPage'));
-const CoursesPage = lazy(() => import('./pages/CoursesPage'));
-const BooksPage = lazy(() => import('./pages/BooksPage'));
-const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
-const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
-const AboutPage = lazy(() => import('./pages/AboutPage'));
-const ContactPage = lazy(() => import('./pages/ContactPage'));
-const PricingPage = lazy(() => import('./pages/PricingPage'));
-const SignInPage = lazy(() => import('./pages/SignInPage'));
-const SignUpPage = lazy(() => import('./pages/SignUpPage'));
-
-// Assessment Pages (Lazy Loaded)
-const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
-const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
-const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
-
-// Article Pages (Lazy Loaded)
-const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
-const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
-
-// Tester Pages (Lazy Loaded)
-const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
-const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
-const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
-
-// User Pages (Lazy Loaded)
-const UserDashboard = lazy(() => import('./pages/UserDashboard'));
-const UserProfile = lazy(() => import('./pages/UserProfile'));
-const UserApplications = lazy(() => import('./pages/UserApplications'));
-const UserSkills = lazy(() => import('./pages/UserSkills'));
-const UserMessages = lazy(() => import('./pages/UserMessages'));
-const UserSettings = lazy(() => import('./pages/UserSettings'));
-const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
-const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
-const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
-
-// Employer Pages (Lazy Loaded)
-const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
-
-// LMS Pages (Lazy Loaded)
-const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
-const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
-
-// Admin Pages (Lazy Loaded) - ALL ADMIN PAGES
-const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
-const CountryManagement = lazy(() => import('./pages/admin/super/CountryManagement'));
-const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
-const AffiliateManagement = lazy(() => import('./pages/admin/AffiliateManagement'));
-const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
-const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
-const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
-const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
-
-// NEW ADDITIONAL ADMIN PAGES
-const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
-const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
-const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
-const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
-const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
-
-// Legal Pages (Lazy Loaded)
-const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
-const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
-const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
-const DisclaimerPage = lazy(() => import('./pages/legal/DisclaimerPage'));
-const AcceptableUsePage = lazy(() => import('./pages/legal/AcceptableUsePage'));
-
-// Additional Public Pages
-const FAQPage = lazy(() => import('./pages/FAQPage'));
-const FraudPreventionPage = lazy(() => import('./pages/FraudPreventionPage'));
-const MoreProductsPage = lazy(() => import('./pages/MoreProductsPage'));
+import RotatingPromoBanner from './components/RotatingPromoBanner';
 
 // ============================================
-// COMPONENTS
+// PUBLIC PAGES
 // ============================================
+import HomePage from './pages/HomePage';
+import AdminLogin from './pages/AdminLogin';
+import WorkforceMarketplace from './pages/WorkforceMarketplace';
+import JobsPage from './pages/JobsPage';
+import CoursesPage from './pages/CoursesPage';
+import BooksPage from './pages/BooksPage';
+import NewsletterPage from './pages/NewsletterPage';
+import HireVirtualAssistant from './pages/HireVirtualAssistant';
+import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+import PricingPage from './pages/PricingPage';
+import SignInPage from './pages/SignInPage';
+import SignUpPage from './pages/SignUpPage';
+import FAQPage from './pages/FAQPage';
+import FraudPreventionPage from './pages/FraudPreventionPage';
+import MoreProductsPage from './pages/MoreProductsPage';
+import AffiliateDashboard from './pages/AffiliateDashboard';
 
-// Loading Spinner Component
-function LoadingSpinner() {
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
-        <p className="text-slate-400">Loading...</p>
-      </div>
-    </div>
-  );
-}
+// ============================================
+// ASSESSMENT PAGES
+// ============================================
+import AssessmentsPage from './pages/AssessmentsPage';
+import TakeAssessment from './pages/TakeAssessment';
+import AssessmentResults from './pages/AssessmentResults';
 
-// Animation wrapper for page transitions
+// ============================================
+// TESTER PAGES
+// ============================================
+import TesterLoginPage from './pages/tester/TesterLoginPage';
+import TesterRegisterPage from './pages/tester/TesterRegisterPage';
+import TesterDashboard from './pages/tester/TesterDashboard';
+
+// ============================================
+// USER DASHBOARD PAGES
+// ============================================
+import UserDashboard from './pages/UserDashboard';
+import UserProfile from './pages/UserProfile';
+import UserApplications from './pages/UserApplications';
+import UserSkills from './pages/UserSkills';
+import UserMessages from './pages/UserMessages';
+import UserSettings from './pages/UserSettings';
+import SavedJobsPage from './pages/SavedJobsPage';
+import JobAlertsPage from './pages/JobAlertsPage';
+
+// ============================================
+// EMPLOYER PAGES
+// ============================================
+import CompanyProfile from './pages/CompanyProfile';
+
+// ============================================
+// ADMIN PAGES
+// ============================================
+import AdminDashboard from './pages/admin/AdminDashboard';
+import CountryManagement from './pages/admin/super/CountryManagement';
+import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
+import AffiliateManagement from './pages/admin/AffiliateManagement';
+import AdminExternalJobs from './pages/admin/AdminExternalJobs';
+import AdminArticles from './pages/admin/AdminArticles';
+import AdminBooks from './pages/admin/AdminBooks';
+import AdminCourses from './pages/admin/AdminCourses';
+import AdminVirtualAssistants from './pages/admin/AdminVirtualAssistants';
+import AdminAssessments from './pages/admin/AdminAssessments';
+
+// ============================================
+// LEGAL PAGES
+// ============================================
+import TermsPage from './pages/legal/TermsPage';
+import PrivacyPage from './pages/legal/PrivacyPage';
+import CookiesPage from './pages/legal/CookiesPage';
+import DisclaimerPage from './pages/legal/DisclaimerPage';
+import AcceptableUsePage from './pages/legal/AcceptableUsePage';
+
+// ============================================
+// SUPABASE CLIENT
+// ============================================
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// ============================================
+// ANIMATION WRAPPER
+// ============================================
 function AnimatedPage({ children }) {
   return (
     <motion.div
@@ -127,103 +114,19 @@ function AnimatedPage({ children }) {
   );
 }
 
-// Protected Route Component with caching
-const routeCache = new Map();
-
-function ProtectedRoute({ children, allowedRoles = [] }) {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const location = useLocation();
-
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  async function checkAuth() {
-    try {
-      // Check cache first
-      const cacheKey = 'auth_check';
-      const cached = routeCache.get(cacheKey);
-      const now = Date.now();
-      
-      if (cached && (now - cached.timestamp) < 60000) { // 1 minute cache
-        setUser(cached.user);
-        setProfile(cached.profile);
-        setLoading(false);
-        return;
-      }
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      
-      if (session?.user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('user_type, tier')
-          .eq('id', session.user.id)
-          .single();
-        setProfile(data);
-        
-        // Cache result
-        routeCache.set(cacheKey, {
-          user: session.user,
-          profile: data,
-          timestamp: now
-        });
-      }
-    } catch (err) {
-      console.error('Auth check error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  if (!user) {
-    return <Navigate to="/sign-in" state={{ from: location.pathname }} replace />;
-  }
-
-  if (allowedRoles.length > 0 && !allowedRoles.includes(profile?.user_type)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  return children;
-}
-
-// 404 Page Component
+// ============================================
+// 404 PAGE
+// ============================================
 function NotFoundPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="text-center">
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.3 }}
-        >
-          <h1 className="text-7xl md:text-8xl font-bold text-white mb-4">404</h1>
-          <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
-          <p className="text-slate-500 mb-8 max-w-md">
-            The page you're looking for doesn't exist or has been moved.
-          </p>
-          <div className="flex flex-wrap gap-3 justify-center">
-            <button
-              onClick={() => window.location.href = '/'}
-              className="px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
-            >
-              Go Home
-            </button>
-            <button
-              onClick={() => window.history.back()}
-              className="px-6 py-3 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
-            >
-              Go Back
-            </button>
-          </div>
-        </motion.div>
+        <h1 className="text-6xl font-bold text-white mb-4">404</h1>
+        <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
+        <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+        <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+          Go Home
+        </a>
       </div>
     </div>
   );
@@ -232,7 +135,6 @@ function NotFoundPage() {
 // ============================================
 // MAIN APP CONTENT
 // ============================================
-
 function AppContent() {
   const [user, setUser] = useState(null);
   const location = useLocation();
@@ -248,7 +150,6 @@ function AppContent() {
       setUser(session?.user || null);
     });
 
-    // Cleanup subscription
     return () => subscription.unsubscribe();
   }, []);
 
@@ -256,309 +157,76 @@ function AppContent() {
     <>
       <Navbar />
       <ScrollingBanner />
-      <main className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
+      <RotatingPromoBanner />
+      <main className="min-h-screen bg-background">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto">
             <AnimatePresence mode="wait">
-              <Suspense fallback={<LoadingSpinner />}>
-                <Routes location={location} key={location.pathname}>
-                  
-                  {/* ========================================== */}
-                  {/* PUBLIC ROUTES - No authentication required */}
-                  {/* ========================================== */}
-                  <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
-                  <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
-                  <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
-                  <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-                  <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
-                  <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
-                  <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
-                  <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
-                  <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
-                  <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
-                  <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
-                  <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-                  <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
-                  
-                  {/* New Public Routes */}
-                  <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                  <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
-                  <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
+              <Routes location={location} key={location.pathname}>
+                {/* ========== PUBLIC ROUTES ========== */}
+                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
+                <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
+                <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
+                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* ASSESSMENT ROUTES */}
-                  {/* ========================================== */}
-                  <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-                  <Route path="/assessment/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
-                  <Route path="/assessment/results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
-                  
-                  {/* Backward Compatibility Redirects */}
-                  <Route 
-                    path="/assessments/:id" 
-                    element={<Navigate to="/assessment/:id" replace />} 
-                  />
-                  <Route 
-                    path="/assessment-results/:id" 
-                    element={<Navigate to="/assessment/results/:id" replace />} 
-                  />
+                {/* ========== ASSESSMENT ROUTES ========== */}
+                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                <Route path="/assessment/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                <Route path="/assessment/results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* ARTICLE ROUTES */}
-                  {/* ========================================== */}
-                  <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
-                  <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
+                {/* ========== TESTER ROUTES ========== */}
+                <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
+                <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
+                <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* LMS ROUTES */}
-                  {/* ========================================== */}
-                  <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
-                  <Route 
-                    path="/admin/ai-course-builder" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AICourseBuilder /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                {/* ========== USER ROUTES ========== */}
+                <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
+                <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
+                <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
+                <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
+                <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
+                <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+                <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
+                <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* TESTER ROUTES */}
-                  {/* ========================================== */}
-                  <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
-                  <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
-                  <Route 
-                    path="/tester/dashboard" 
-                    element={
-                      <ProtectedRoute allowedRoles={['tester']}>
-                        <AnimatedPage><TesterDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                {/* ========== EMPLOYER ROUTES ========== */}
+                <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* USER ROUTES - Authenticated only */}
-                  {/* ========================================== */}
-                  <Route 
-                    path="/dashboard" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/profile" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserProfile /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/applications" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserApplications /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/skills" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserSkills /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/messages" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserMessages /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/settings" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserSettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/saved-jobs" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><SavedJobsPage /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/job-alerts" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><JobAlertsPage /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/affiliate" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><AffiliateDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                {/* ========== ADMIN ROUTES ========== */}
+                <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
+                <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
+                <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
+                <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
+                <Route path="/admin/external-jobs" element={<AnimatedPage><AdminExternalJobs /></AnimatedPage>} />
+                <Route path="/admin/articles" element={<AnimatedPage><AdminArticles /></AnimatedPage>} />
+                <Route path="/admin/books" element={<AnimatedPage><AdminBooks /></AnimatedPage>} />
+                <Route path="/admin/courses" element={<AnimatedPage><AdminCourses /></AnimatedPage>} />
+                <Route path="/admin/virtual-assistants" element={<AnimatedPage><AdminVirtualAssistants /></AnimatedPage>} />
+                <Route path="/admin/assessments" element={<AnimatedPage><AdminAssessments /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* EMPLOYER ROUTES */}
-                  {/* ========================================== */}
-                  <Route 
-                    path="/company-profile" 
-                    element={
-                      <ProtectedRoute allowedRoles={['employer', 'business']}>
-                        <AnimatedPage><CompanyProfile /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                {/* ========== LEGAL ROUTES ========== */}
+                <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+                <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+                <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+                <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+                <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
 
-                  {/* ========================================== */}
-                  {/* ADMIN ROUTES - ALL ADMIN PAGES */}
-                  {/* ========================================== */}
-                  <Route 
-                    path="/admin/dashboard" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/super/countries" 
-                    element={
-                      <ProtectedRoute allowedRoles={['super_admin']}>
-                        <AnimatedPage><CountryManagement /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/analytics" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AnalyticsDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/affiliates" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AffiliateManagement /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminArticles /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles/new" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><ArticleEditor /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles/:id" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><ArticleEditor /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/settings/tester-visibility" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><TesterVisibilitySettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/testing-mode" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><TestingModeSettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-
-                  {/* ========================================== */}
-                  {/* NEW ADDITIONAL ADMIN MANAGEMENT ROUTES */}
-                  {/* ========================================== */}
-                  <Route 
-                    path="/admin/external-jobs" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminExternalJobs /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/books" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminBooks /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/courses" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminCourses /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/virtual-assistants" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminVirtualAssistants /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/assessments" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminAssessments /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-
-                  {/* ========================================== */}
-                  {/* LEGAL ROUTES */}
-                  {/* ========================================== */}
-                  <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
-                  <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
-                  <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
-                  <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
-                  <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
-
-                  {/* ========================================== */}
-                  {/* 404 FALLBACK - MUST BE LAST */}
-                  {/* ========================================== */}
-                  <Route path="*" element={<NotFoundPage />} />
-                  
-                </Routes>
-              </Suspense>
+                {/* ========== 404 FALLBACK - MUST BE LAST ========== */}
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
             </AnimatePresence>
           </div>
         </div>
@@ -574,9 +242,8 @@ function AppContent() {
 }
 
 // ============================================
-// MAIN APP COMPONENT
+// APP EXPORT
 // ============================================
-
 function App() {
   return (
     <BrowserRouter>
