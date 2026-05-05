@@ -14,7 +14,7 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 import ScrollingBanner from './components/ScrollingBanner';
-// REMOVED: RotatingPromoBanner - only in HomePage now
+import FraudSafetyNotice from './components/FraudSafetyNotice';
 
 // ============================================
 // PUBLIC PAGES
@@ -36,6 +36,8 @@ import FAQPage from './pages/FAQPage';
 import FraudPreventionPage from './pages/FraudPreventionPage';
 import MoreProductsPage from './pages/MoreProductsPage';
 import AffiliateDashboard from './pages/AffiliateDashboard';
+import CourseDetailsPage from './pages/CourseDetailsPage';
+import EmployerVerification from './pages/EmployerVerification';
 
 // ============================================
 // ASSESSMENT PAGES
@@ -155,7 +157,7 @@ function AppContent() {
     <>
       <Navbar />
       <ScrollingBanner />
-      {/* REMOVED: RotatingPromoBanner - now only in HomePage */}
+      <FraudSafetyNotice />
       <main className="min-h-screen bg-background">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto">
@@ -179,6 +181,10 @@ function AppContent() {
                 <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+                {/* ========== COURSE ROUTES ========== */}
+                <Route path="/courses/:id" element={<AnimatedPage><CourseDetailsPage /></AnimatedPage>} />
+                <Route path="/employer-verification" element={<AnimatedPage><EmployerVerification /></AnimatedPage>} />
 
                 {/* ========== ASSESSMENT ROUTES ========== */}
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
