@@ -165,3 +165,15 @@ export async function addCourseReview(courseId, userId, rating, review) {
 export function clearCoursesCache() {
     coursesCache = { data: null, timestamp: null };
 }
+
+// Default export for backward compatibility with named imports
+export default {
+    getCourses,
+    getCourse,
+    enrollInCourse,
+    getUserEnrollment,
+    getUserEnrollments,
+    updateModuleProgress,
+    addCourseReview,
+    clearCoursesCache
+};
