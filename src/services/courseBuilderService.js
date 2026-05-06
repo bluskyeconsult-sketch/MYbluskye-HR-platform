@@ -5,8 +5,8 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Cache duration (5 minutes)
-const CACHE_DURATION = 5 * 60 * 1000;
 let coursesCache = { data: null, timestamp: null };
+const CACHE_DURATION = 5 * 60 * 1000;
 
 // Get all published courses with caching
 export async function getCourses(category = null, level = null) {
@@ -24,7 +24,6 @@ export async function getCourses(category = null, level = null) {
     const { data, error } = await query;
     if (error) throw error;
     
-    // Update cache
     coursesCache = { data, timestamp: Date.now() };
     return filterCourses(data, category, level);
 }
@@ -63,9 +62,6 @@ export async function enrollInCourse(userId, courseId) {
     const existing = await getUserEnrollment(userId, courseId);
     if (existing) return existing;
     
-    // Increment enrollment count
-    await supabase.rpc('increment_course_enrollment', { course_id: courseId });
-    
     const { data, error } = await supabase
         .from('course_enrollments')
         .insert({ user_id: userId, course_id: courseId })
@@ -73,6 +69,10 @@ export async function enrollInCourse(userId, courseId) {
         .single();
     
     if (error) throw error;
+    
+    // Increment enrollment count
+    await supabase.rpc('increment_course_enrollment', { course_id: courseId }).catch(() => {});
+    
     return data;
 }
 
@@ -171,7 +171,6 @@ export async function generateCertificate(enrollmentId, userId, courseId) {
     
     if (error) throw error;
     
-    // Generate verification URL
     const verificationUrl = `${window.location.origin}/verify-certificate/${certificateNumber}`;
     
     await supabase
@@ -215,12 +214,13 @@ export async function addCourseReview(courseId, userId, rating, review) {
         .select('rating')
         .eq('course_id', courseId);
     
-    const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-    
-    await supabase
-        .from('courses')
-        .update({ rating: avgRating })
-        .eq('id', courseId);
+    if (reviews && reviews.length > 0) {
+        const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+        await supabase
+            .from('courses')
+            .update({ rating: avgRating })
+            .eq('id', courseId);
+    }
     
     return data;
 }
@@ -228,4 +228,17 @@ export async function addCourseReview(courseId, userId, rating, review) {
 // Clear cache (for admin updates)
 export function clearCoursesCache() {
     coursesCache = { data: null, timestamp: null };
+}
+
+// Get course by slug (for SEO-friendly URLs)
+export async function getCourseBySlug(slug) {
+    const { data: course, error } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('slug', slug)
+        .eq('published', true)
+        .single();
+    
+    if (error) throw error;
+    return getCourse(course.id);
 }
