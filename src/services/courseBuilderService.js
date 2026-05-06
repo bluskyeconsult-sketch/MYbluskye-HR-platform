@@ -1,370 +1,104 @@
+// src/services/courseBuilderService.js
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Cache for courses (5 minutes)
-let coursesCache = { data: null, timestamp: null };
-const CACHE_DURATION = 5 * 60 * 1000;
-
-// ============================================
-// COURSE LISTING & DETAILS
-// ============================================
-
-export async function getCourses(category = null, level = null) {
-    // Check cache
-    if (coursesCache.data && (Date.now() - coursesCache.timestamp) < CACHE_DURATION) {
-        return filterCourses(coursesCache.data, category, level);
-    }
+/**
+ * Automatically creates a course structure using AI based on a topic.
+ * @param {string} topic - The main topic for the course.
+ * @returns {Promise<Object>} - The created course data.
+ */
+export async function autoCreateCourse(topic) {
+    console.log(`[courseBuilderService] autoCreateCourse called for topic: ${topic}`);
     
-    let query = supabase
-        .from('courses')
-        .select('*, profiles:instructor_id(full_name, email)')
-        .eq('published', true)
-        .order('created_at', { ascending: false });
+    // Simulate AI processing time
+    await new Promise(resolve => setTimeout(resolve, 1500));
     
-    const { data, error } = await query;
-    if (error) throw error;
+    // Generate a slug from the topic
+    const slug = topic
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
     
-    coursesCache = { data, timestamp: Date.now() };
-    return filterCourses(data, category, level);
+    // Example generated structure
+    const generatedCourse = {
+        title: `Introduction to ${topic}`,
+        slug: slug,
+        description: `A comprehensive course covering the fundamentals of ${topic}. This course was auto-generated to help you get started quickly.`,
+        level: 'beginner',
+        category: 'technology',
+        duration_minutes: 45,
+        price: 0,
+        published: false,
+        modules: [
+            { title: `What is ${topic}?`, description: `An overview of ${topic} and its importance.`, order_index: 0 },
+            { title: `Key Concepts in ${topic}`, description: `Deep dive into the main principles.`, order_index: 1 },
+            { title: `Practical Applications of ${topic}`, description: `Real-world examples and use cases.`, order_index: 2 },
+            { title: `Next Steps with ${topic}`, description: `How to continue learning and applying ${topic}.`, order_index: 3 }
+        ]
+    };
+    
+    return generatedCourse;
 }
 
-function filterCourses(courses, category, level) {
-    let filtered = [...courses];
-    if (category) filtered = filtered.filter(c => c.category === category);
-    if (level) filtered = filtered.filter(c => c.level === level);
-    return filtered;
+/**
+ * Generates audio narration for a course module.
+ * @param {string} moduleTitle - The title of the module.
+ * @param {string} moduleDescription - The description/content of the module.
+ * @returns {Promise<string | null>} - A URL to the generated audio file, or null.
+ */
+export async function generateCourseAudio(moduleTitle, moduleDescription) {
+    console.log(`[courseBuilderService] generateCourseAudio called for module: ${moduleTitle}`);
+    
+    // Simulate TTS processing time
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // For now, return null (no audio)
+    // In production, integrate with ElevenLabs, OpenAI TTS, or similar
+    return null;
 }
 
-export async function getCourse(courseId) {
+/**
+ * Saves an AI-generated course to the database
+ * @param {Object} courseData - The course data from autoCreateCourse
+ * @returns {Promise<Object>} - The saved course
+ */
+export async function saveGeneratedCourse(courseData) {
+    const { modules, ...courseInfo } = courseData;
+    
+    // Insert the course
     const { data: course, error: courseError } = await supabase
         .from('courses')
-        .select('*, profiles:instructor_id(full_name, email)')
-        .eq('id', courseId)
+        .insert({
+            title: courseInfo.title,
+            slug: courseInfo.slug,
+            description: courseInfo.description,
+            level: courseInfo.level,
+            category: courseInfo.category,
+            duration_minutes: courseInfo.duration_minutes,
+            price: courseInfo.price,
+            published: courseInfo.published || false
+        })
+        .select()
         .single();
     
     if (courseError) throw courseError;
     
-    const { data: modules, error: modulesError } = await supabase
-        .from('course_modules')
-        .select('*')
-        .eq('course_id', courseId)
-        .order('order_index', { ascending: true });
-    
-    if (modulesError) throw modulesError;
-    
-    return { ...course, modules: modules || [] };
-}
-
-export async function getCourseBySlug(slug) {
-    const { data: course, error } = await supabase
-        .from('courses')
-        .select('id')
-        .eq('slug', slug)
-        .eq('published', true)
-        .single();
-    
-    if (error) throw error;
-    return getCourse(course.id);
-}
-
-// ============================================
-// ENROLLMENT & PROGRESS
-// ============================================
-
-export async function enrollInCourse(userId, courseId) {
-    // Check if already enrolled
-    const existing = await getUserEnrollment(userId, courseId);
-    if (existing) return existing;
-    
-    const { data, error } = await supabase
-        .from('course_enrollments')
-        .insert({ user_id: userId, course_id: courseId })
-        .select()
-        .single();
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function getUserEnrollment(userId, courseId) {
-    const { data, error } = await supabase
-        .from('course_enrollments')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('course_id', courseId)
-        .maybeSingle();
-    
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-}
-
-export async function getUserEnrollments(userId) {
-    const { data, error } = await supabase
-        .from('course_enrollments')
-        .select('*, courses:course_id(*)')
-        .eq('user_id', userId)
-        .order('started_at', { ascending: false });
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function updateModuleProgress(userId, courseId, moduleId, completed) {
-    const enrollment = await getUserEnrollment(userId, courseId);
-    if (!enrollment) throw new Error('Not enrolled in this course');
-    
-    let completedModules = enrollment.completed_modules || [];
-    
-    if (completed && !completedModules.includes(moduleId)) {
-        completedModules.push(moduleId);
-    } else if (!completed && completedModules.includes(moduleId)) {
-        completedModules = completedModules.filter(id => id !== moduleId);
+    // Insert modules
+    if (modules && modules.length > 0) {
+        for (const module of modules) {
+            await supabase
+                .from('course_modules')
+                .insert({
+                    course_id: course.id,
+                    title: module.title,
+                    description: module.description,
+                    order_index: module.order_index
+                });
+        }
     }
     
-    // Get total modules count
-    const { data: modules } = await supabase
-        .from('course_modules')
-        .select('id')
-        .eq('course_id', courseId);
-    
-    const totalModules = modules?.length || 1;
-    const progressPercent = Math.round((completedModules.length / totalModules) * 100);
-    
-    const updateData = {
-        completed_modules: completedModules,
-        progress_percent: progressPercent,
-        last_accessed_module_id: moduleId
-    };
-    
-    // Check if course is completed
-    if (progressPercent === 100 && enrollment.status !== 'completed') {
-        updateData.status = 'completed';
-        updateData.completed_at = new Date().toISOString();
-        // Generate certificate
-        await generateCertificate(enrollment.id, userId, courseId);
-    }
-    
-    const { error } = await supabase
-        .from('course_enrollments')
-        .update(updateData)
-        .eq('id', enrollment.id);
-    
-    if (error) throw error;
-    return { progressPercent, completed: progressPercent === 100 };
-}
-
-// ============================================
-// CERTIFICATES
-// ============================================
-
-async function generateCertificate(enrollmentId, userId, courseId) {
-    const { data: course } = await supabase
-        .from('courses')
-        .select('title')
-        .eq('id', courseId)
-        .single();
-    
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', userId)
-        .single();
-    
-    const certificateNumber = `ODC-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-    
-    const { data: certificate, error } = await supabase
-        .from('course_certificates')
-        .insert({
-            enrollment_id: enrollmentId,
-            certificate_number: certificateNumber
-        })
-        .select()
-        .single();
-    
-    if (error) throw error;
-    
-    const verificationUrl = `${window.location.origin}/verify-certificate/${certificateNumber}`;
-    
-    await supabase
-        .from('course_certificates')
-        .update({ 
-            download_url: verificationUrl,
-            verification_url: verificationUrl 
-        })
-        .eq('id', certificate.id);
-    
-    await supabase
-        .from('course_enrollments')
-        .update({ 
-            certificate_issued: true, 
-            certificate_url: verificationUrl 
-        })
-        .eq('id', enrollmentId);
-    
-    return { certificate, verificationUrl };
-}
-
-export async function verifyCertificate(certificateNumber) {
-    const { data, error } = await supabase
-        .from('course_certificates')
-        .select('*, course_enrollments:enrollment_id(user_id, course_id), profiles:course_enrollments.user_id(full_name), courses:course_enrollments.course_id(title)')
-        .eq('certificate_number', certificateNumber)
-        .single();
-    
-    if (error) throw error;
-    return data;
-}
-
-// ============================================
-// REVIEWS
-// ============================================
-
-export async function addCourseReview(courseId, userId, rating, review) {
-    const { data, error } = await supabase
-        .from('course_reviews')
-        .upsert({ course_id: courseId, user_id: userId, rating, review })
-        .select()
-        .single();
-    
-    if (error) throw error;
-    
-    // Update course average rating
-    const { data: reviews } = await supabase
-        .from('course_reviews')
-        .select('rating')
-        .eq('course_id', courseId);
-    
-    if (reviews && reviews.length > 0) {
-        const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-        await supabase
-            .from('courses')
-            .update({ rating: avgRating })
-            .eq('id', courseId);
-    }
-    
-    return data;
-}
-
-export async function getCourseReviews(courseId, limit = 10) {
-    const { data, error } = await supabase
-        .from('course_reviews')
-        .select('*, profiles:user_id(full_name)')
-        .eq('course_id', courseId)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-    
-    if (error) throw error;
-    return data;
-}
-
-// ============================================
-// ADMIN FUNCTIONS
-// ============================================
-
-export async function adminGetAllCourses() {
-    const { data, error } = await supabase
-        .from('courses')
-        .select('*')
-        .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function adminCreateCourse(courseData) {
-    const { data, error } = await supabase
-        .from('courses')
-        .insert(courseData)
-        .select()
-        .single();
-    
-    if (error) throw error;
-    clearCoursesCache();
-    return data;
-}
-
-export async function adminUpdateCourse(courseId, courseData) {
-    const { data, error } = await supabase
-        .from('courses')
-        .update(courseData)
-        .eq('id', courseId)
-        .select()
-        .single();
-    
-    if (error) throw error;
-    clearCoursesCache();
-    return data;
-}
-
-export async function adminDeleteCourse(courseId) {
-    const { error } = await supabase
-        .from('courses')
-        .delete()
-        .eq('id', courseId);
-    
-    if (error) throw error;
-    clearCoursesCache();
-    return { success: true };
-}
-
-export async function adminGetCourseModules(courseId) {
-    const { data, error } = await supabase
-        .from('course_modules')
-        .select('*')
-        .eq('course_id', courseId)
-        .order('order_index', { ascending: true });
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function adminAddModule(moduleData) {
-    const { data, error } = await supabase
-        .from('course_modules')
-        .insert(moduleData)
-        .select()
-        .single();
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function adminUpdateModule(moduleId, moduleData) {
-    const { data, error } = await supabase
-        .from('course_modules')
-        .update(moduleData)
-        .eq('id', moduleId)
-        .select()
-        .single();
-    
-    if (error) throw error;
-    return data;
-}
-
-export async function adminDeleteModule(moduleId) {
-    const { error } = await supabase
-        .from('course_modules')
-        .delete()
-        .eq('id', moduleId);
-    
-    if (error) throw error;
-    return { success: true };
-}
-
-// ============================================
-// UTILITIES
-// ============================================
-
-export function clearCoursesCache() {
-    coursesCache = { data: null, timestamp: null };
-}
-
-export async function generateSlug(title) {
-    return title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
+    return course;
 }
