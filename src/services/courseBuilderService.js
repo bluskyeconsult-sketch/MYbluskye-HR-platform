@@ -4,12 +4,16 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Cache duration (5 minutes)
+// Cache for courses (5 minutes)
 let coursesCache = { data: null, timestamp: null };
 const CACHE_DURATION = 5 * 60 * 1000;
 
-// Get all published courses with caching
+// ============================================
+// COURSE LISTING & DETAILS
+// ============================================
+
 export async function getCourses(category = null, level = null) {
+    // Check cache
     if (coursesCache.data && (Date.now() - coursesCache.timestamp) < CACHE_DURATION) {
         return filterCourses(coursesCache.data, category, level);
     }
@@ -34,7 +38,6 @@ function filterCourses(courses, category, level) {
     return filtered;
 }
 
-// Get single course with modules
 export async function getCourse(courseId) {
     const { data: course, error: courseError } = await supabase
         .from('courses')
@@ -55,8 +58,24 @@ export async function getCourse(courseId) {
     return { ...course, modules: modules || [] };
 }
 
-// Enroll in course
+export async function getCourseBySlug(slug) {
+    const { data: course, error } = await supabase
+        .from('courses')
+        .select('id')
+        .eq('slug', slug)
+        .eq('published', true)
+        .single();
+    
+    if (error) throw error;
+    return getCourse(course.id);
+}
+
+// ============================================
+// ENROLLMENT & PROGRESS
+// ============================================
+
 export async function enrollInCourse(userId, courseId) {
+    // Check if already enrolled
     const existing = await getUserEnrollment(userId, courseId);
     if (existing) return existing;
     
@@ -70,7 +89,6 @@ export async function enrollInCourse(userId, courseId) {
     return data;
 }
 
-// Get user's enrollment
 export async function getUserEnrollment(userId, courseId) {
     const { data, error } = await supabase
         .from('course_enrollments')
@@ -83,7 +101,6 @@ export async function getUserEnrollment(userId, courseId) {
     return data;
 }
 
-// Get all user enrollments
 export async function getUserEnrollments(userId) {
     const { data, error } = await supabase
         .from('course_enrollments')
@@ -95,10 +112,9 @@ export async function getUserEnrollments(userId) {
     return data;
 }
 
-// Update module progress
 export async function updateModuleProgress(userId, courseId, moduleId, completed) {
     const enrollment = await getUserEnrollment(userId, courseId);
-    if (!enrollment) throw new Error('Not enrolled');
+    if (!enrollment) throw new Error('Not enrolled in this course');
     
     let completedModules = enrollment.completed_modules || [];
     
@@ -108,6 +124,7 @@ export async function updateModuleProgress(userId, courseId, moduleId, completed
         completedModules = completedModules.filter(id => id !== moduleId);
     }
     
+    // Get total modules count
     const { data: modules } = await supabase
         .from('course_modules')
         .select('id')
@@ -122,9 +139,11 @@ export async function updateModuleProgress(userId, courseId, moduleId, completed
         last_accessed_module_id: moduleId
     };
     
+    // Check if course is completed
     if (progressPercent === 100 && enrollment.status !== 'completed') {
         updateData.status = 'completed';
         updateData.completed_at = new Date().toISOString();
+        // Generate certificate
         await generateCertificate(enrollment.id, userId, courseId);
     }
     
@@ -137,12 +156,21 @@ export async function updateModuleProgress(userId, courseId, moduleId, completed
     return { progressPercent, completed: progressPercent === 100 };
 }
 
-// Generate certificate
-export async function generateCertificate(enrollmentId, userId, courseId) {
+// ============================================
+// CERTIFICATES
+// ============================================
+
+async function generateCertificate(enrollmentId, userId, courseId) {
     const { data: course } = await supabase
         .from('courses')
         .select('title')
         .eq('id', courseId)
+        .single();
+    
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', userId)
         .single();
     
     const certificateNumber = `ODC-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
@@ -162,18 +190,38 @@ export async function generateCertificate(enrollmentId, userId, courseId) {
     
     await supabase
         .from('course_certificates')
-        .update({ verification_url: verificationUrl })
+        .update({ 
+            download_url: verificationUrl,
+            verification_url: verificationUrl 
+        })
         .eq('id', certificate.id);
     
     await supabase
         .from('course_enrollments')
-        .update({ certificate_issued: true, certificate_url: verificationUrl })
+        .update({ 
+            certificate_issued: true, 
+            certificate_url: verificationUrl 
+        })
         .eq('id', enrollmentId);
     
     return { certificate, verificationUrl };
 }
 
-// Add course review
+export async function verifyCertificate(certificateNumber) {
+    const { data, error } = await supabase
+        .from('course_certificates')
+        .select('*, course_enrollments:enrollment_id(user_id, course_id), profiles:course_enrollments.user_id(full_name), courses:course_enrollments.course_id(title)')
+        .eq('certificate_number', certificateNumber)
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
+
+// ============================================
+// REVIEWS
+// ============================================
+
 export async function addCourseReview(courseId, userId, rating, review) {
     const { data, error } = await supabase
         .from('course_reviews')
@@ -183,6 +231,7 @@ export async function addCourseReview(courseId, userId, rating, review) {
     
     if (error) throw error;
     
+    // Update course average rating
     const { data: reviews } = await supabase
         .from('course_reviews')
         .select('rating')
@@ -199,7 +248,123 @@ export async function addCourseReview(courseId, userId, rating, review) {
     return data;
 }
 
-// Clear cache
+export async function getCourseReviews(courseId, limit = 10) {
+    const { data, error } = await supabase
+        .from('course_reviews')
+        .select('*, profiles:user_id(full_name)')
+        .eq('course_id', courseId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    
+    if (error) throw error;
+    return data;
+}
+
+// ============================================
+// ADMIN FUNCTIONS
+// ============================================
+
+export async function adminGetAllCourses() {
+    const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+}
+
+export async function adminCreateCourse(courseData) {
+    const { data, error } = await supabase
+        .from('courses')
+        .insert(courseData)
+        .select()
+        .single();
+    
+    if (error) throw error;
+    clearCoursesCache();
+    return data;
+}
+
+export async function adminUpdateCourse(courseId, courseData) {
+    const { data, error } = await supabase
+        .from('courses')
+        .update(courseData)
+        .eq('id', courseId)
+        .select()
+        .single();
+    
+    if (error) throw error;
+    clearCoursesCache();
+    return data;
+}
+
+export async function adminDeleteCourse(courseId) {
+    const { error } = await supabase
+        .from('courses')
+        .delete()
+        .eq('id', courseId);
+    
+    if (error) throw error;
+    clearCoursesCache();
+    return { success: true };
+}
+
+export async function adminGetCourseModules(courseId) {
+    const { data, error } = await supabase
+        .from('course_modules')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('order_index', { ascending: true });
+    
+    if (error) throw error;
+    return data;
+}
+
+export async function adminAddModule(moduleData) {
+    const { data, error } = await supabase
+        .from('course_modules')
+        .insert(moduleData)
+        .select()
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
+
+export async function adminUpdateModule(moduleId, moduleData) {
+    const { data, error } = await supabase
+        .from('course_modules')
+        .update(moduleData)
+        .eq('id', moduleId)
+        .select()
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
+
+export async function adminDeleteModule(moduleId) {
+    const { error } = await supabase
+        .from('course_modules')
+        .delete()
+        .eq('id', moduleId);
+    
+    if (error) throw error;
+    return { success: true };
+}
+
+// ============================================
+// UTILITIES
+// ============================================
+
 export function clearCoursesCache() {
     coursesCache = { data: null, timestamp: null };
+}
+
+export async function generateSlug(title) {
+    return title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
 }
