@@ -86,6 +86,12 @@ const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
 const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
 const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 
+// SUPER ADMIN PAGES
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
+const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
+const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'));
+const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
+
 // Legal Pages (Lazy Loaded)
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
@@ -143,12 +149,11 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
 
   async function checkAuth() {
     try {
-      // Check cache first
       const cacheKey = 'auth_check';
       const cached = routeCache.get(cacheKey);
       const now = Date.now();
       
-      if (cached && (now - cached.timestamp) < 60000) { // 1 minute cache
+      if (cached && (now - cached.timestamp) < 60000) {
         setUser(cached.user);
         setProfile(cached.profile);
         setLoading(false);
@@ -166,7 +171,6 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
           .single();
         setProfile(data);
         
-        // Cache result
         routeCache.set(cacheKey, {
           user: session.user,
           profile: data,
@@ -211,16 +215,10 @@ function NotFoundPage() {
             The page you're looking for doesn't exist or has been moved.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
-            <button
-              onClick={() => window.location.href = '/'}
-              className="px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
-            >
+            <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
               Go Home
             </button>
-            <button
-              onClick={() => window.history.back()}
-              className="px-6 py-3 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
-            >
+            <button onClick={() => window.history.back()} className="px-6 py-3 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
               Go Back
             </button>
           </div>
@@ -239,17 +237,14 @@ function AppContent() {
   const location = useLocation();
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
     });
 
-    // Cleanup subscription
     return () => subscription.unsubscribe();
   }, []);
 
@@ -265,7 +260,7 @@ function AppContent() {
                 <Routes location={location} key={location.pathname}>
                   
                   {/* ========================================== */}
-                  {/* PUBLIC ROUTES - No authentication required */}
+                  {/* PUBLIC ROUTES */}
                   {/* ========================================== */}
                   <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                   <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
@@ -280,11 +275,7 @@ function AppContent() {
                   <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                   <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                   <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
-                  
-                  {/* Admin Reset Password Route */}
                   <Route path="/admin-reset-password" element={<AnimatedPage><AdminResetPassword /></AnimatedPage>} />
-                  
-                  {/* New Public Routes */}
                   <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
                   <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
                   <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
@@ -295,16 +286,8 @@ function AppContent() {
                   <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                   <Route path="/assessment/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
                   <Route path="/assessment/results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
-                  
-                  {/* Backward Compatibility Redirects */}
-                  <Route 
-                    path="/assessments/:id" 
-                    element={<Navigate to="/assessment/:id" replace />} 
-                  />
-                  <Route 
-                    path="/assessment-results/:id" 
-                    element={<Navigate to="/assessment/results/:id" replace />} 
-                  />
+                  <Route path="/assessments/:id" element={<Navigate to="/assessment/:id" replace />} />
+                  <Route path="/assessment-results/:id" element={<Navigate to="/assessment/results/:id" replace />} />
 
                   {/* ========================================== */}
                   {/* ARTICLE ROUTES */}
@@ -316,236 +299,58 @@ function AppContent() {
                   {/* LMS ROUTES */}
                   {/* ========================================== */}
                   <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
-                  <Route 
-                    path="/admin/ai-course-builder" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AICourseBuilder /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/admin/ai-course-builder" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AICourseBuilder /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
                   {/* TESTER ROUTES */}
                   {/* ========================================== */}
                   <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
                   <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
-                  <Route 
-                    path="/tester/dashboard" 
-                    element={
-                      <ProtectedRoute allowedRoles={['tester']}>
-                        <AnimatedPage><TesterDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/tester/dashboard" element={<ProtectedRoute allowedRoles={['tester']}><AnimatedPage><TesterDashboard /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
-                  {/* USER ROUTES - Authenticated only */}
+                  {/* USER ROUTES */}
                   {/* ========================================== */}
-                  <Route 
-                    path="/dashboard" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/profile" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserProfile /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/applications" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserApplications /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/skills" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserSkills /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/messages" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserMessages /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/settings" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><UserSettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/saved-jobs" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><SavedJobsPage /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/job-alerts" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><JobAlertsPage /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/affiliate" 
-                    element={
-                      <ProtectedRoute>
-                        <AnimatedPage><AffiliateDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/dashboard" element={<ProtectedRoute><AnimatedPage><UserDashboard /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/profile" element={<ProtectedRoute><AnimatedPage><UserProfile /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/applications" element={<ProtectedRoute><AnimatedPage><UserApplications /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/skills" element={<ProtectedRoute><AnimatedPage><UserSkills /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/messages" element={<ProtectedRoute><AnimatedPage><UserMessages /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/settings" element={<ProtectedRoute><AnimatedPage><UserSettings /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/saved-jobs" element={<ProtectedRoute><AnimatedPage><SavedJobsPage /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
                   {/* EMPLOYER ROUTES */}
                   {/* ========================================== */}
-                  <Route 
-                    path="/company-profile" 
-                    element={
-                      <ProtectedRoute allowedRoles={['employer', 'business']}>
-                        <AnimatedPage><CompanyProfile /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/company-profile" element={<ProtectedRoute allowedRoles={['employer', 'business']}><AnimatedPage><CompanyProfile /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
                   {/* ADMIN ROUTES */}
                   {/* ========================================== */}
-                  <Route 
-                    path="/admin/dashboard" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/super/countries" 
-                    element={
-                      <ProtectedRoute allowedRoles={['super_admin']}>
-                        <AnimatedPage><CountryManagement /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/analytics" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AnalyticsDashboard /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/affiliates" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AffiliateManagement /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminArticles /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles/new" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><ArticleEditor /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/articles/:id" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><ArticleEditor /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/settings/tester-visibility" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><TesterVisibilitySettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/testing-mode" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><TestingModeSettings /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/super/countries" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><CountryManagement /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AnalyticsDashboard /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/affiliates" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AffiliateManagement /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/articles" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminArticles /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/articles/new" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><ArticleEditor /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/articles/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><ArticleEditor /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><TesterVisibilitySettings /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/testing-mode" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><TestingModeSettings /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/external-jobs" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminBooks /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
-                  {/* NEW: ADDITIONAL ADMIN MANAGEMENT ROUTES */}
+                  {/* SUPER ADMIN ROUTES */}
                   {/* ========================================== */}
-                  <Route 
-                    path="/admin/external-jobs" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminExternalJobs /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/books" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminBooks /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/courses" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminCourses /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/virtual-assistants" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminVirtualAssistants /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/admin/assessments" 
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                        <AnimatedPage><AdminAssessments /></AnimatedPage>
-                      </ProtectedRoute>
-                    } 
-                  />
+                  <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/jobs" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
+                  <Route path="/admin/audit" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminAudit /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
                   {/* LEGAL ROUTES */}
