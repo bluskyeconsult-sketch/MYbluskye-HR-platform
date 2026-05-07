@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
-  FileText, Search, Filter, RefreshCw, Loader2, AlertCircle,
+  FileText, Search, RefreshCw, Loader2, AlertCircle,
   Download, Calendar, User, Shield, Briefcase, Users,
-  CheckCircle, XCircle, Edit, Trash2, Eye
+  CheckCircle, XCircle, Edit, Trash2, Eye, Activity,
+  TrendingUp, Award, Clock, Filter
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -20,20 +21,23 @@ export default function AdminAudit() {
   const [dateRange, setDateRange] = useState('7');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [stats, setStats] = useState({ total: 0, approved: 0, denied: 0, avgRiskScore: 0 });
   const [user, setUser] = useState(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   const itemsPerPage = 30;
 
   const actionTypes = [
-    { value: 'all', label: 'All Actions', icon: Eye },
+    { value: 'all', label: 'All Actions', icon: Activity },
     { value: 'role_change', label: 'Role Changes', icon: Shield },
     { value: 'job_approved', label: 'Job Approvals', icon: CheckCircle },
     { value: 'job_rejected', label: 'Job Rejections', icon: XCircle },
     { value: 'job_delete', label: 'Job Deletions', icon: Trash2 },
     { value: 'block_user', label: 'User Blocks', icon: Users },
     { value: 'unblock_user', label: 'User Unblocks', icon: Users },
-    { value: 'delete_user', label: 'User Deletions', icon: Trash2 }
+    { value: 'delete_user', label: 'User Deletions', icon: Trash2 },
+    { value: 'ai_decision', label: 'AI Decisions', icon: Brain },
   ];
 
   useEffect(() => { checkAuth(); }, []);
@@ -41,6 +45,7 @@ export default function AdminAudit() {
   useEffect(() => {
     if (isSuperAdmin) {
       loadAuditLogs();
+      loadStats();
     }
   }, [searchTerm, selectedAction, dateRange, currentPage, isSuperAdmin]);
 
@@ -75,6 +80,24 @@ export default function AdminAudit() {
     return date.toISOString();
   }
 
+  async function loadStats() {
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('was_allowed, risk_score')
+        .gte('created_at', getDateRangeFilter());
+      
+      const total = data?.length || 0;
+      const approved = data?.filter(l => l.was_allowed === true).length || 0;
+      const denied = data?.filter(l => l.was_allowed === false).length || 0;
+      const avgRiskScore = data?.reduce((sum, l) => sum + (l.risk_score || 0), 0) / (total || 1);
+      
+      setStats({ total, approved, denied, avgRiskScore: Math.round(avgRiskScore) });
+    } catch (err) {
+      console.error('Stats error:', err);
+    }
+  }
+
   async function loadAuditLogs() {
     try {
       setLoading(true);
@@ -87,10 +110,14 @@ export default function AdminAudit() {
         .gte('created_at', getDateRangeFilter());
       
       if (selectedAction !== 'all') {
-        query = query.eq('action', selectedAction);
+        if (selectedAction === 'ai_decision') {
+          query = query.not('odusbaba_decision_id', 'is', null);
+        } else {
+          query = query.eq('action_type', selectedAction);
+        }
       }
       if (searchTerm) {
-        query = query.or(`action.ilike.%${searchTerm}%,details::text.ilike.%${searchTerm}%`);
+        query = query.or(`action_type.ilike.%${searchTerm}%,details::text.ilike.%${searchTerm}%,jurisdiction.ilike.%${searchTerm}%`);
       }
       
       const from = (currentPage - 1) * itemsPerPage;
@@ -104,17 +131,19 @@ export default function AdminAudit() {
         if (log.user_id) {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('email')
+            .select('email, full_name')
             .eq('id', log.user_id)
             .single();
-          return { ...log, user_email: profile?.email || 'Unknown' };
+          return { ...log, user_email: profile?.email || 'Unknown', user_name: profile?.full_name };
         }
-        return { ...log, user_email: 'System' };
+        return { ...log, user_email: 'System', user_name: 'System' };
       }));
       
       setLogs(enrichedLogs);
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+      setTotalCount(count || 0);
     } catch (err) {
+      console.error('Load logs error:', err);
       setError('Failed to load audit logs');
       toast.error('Failed to load audit logs');
     } finally {
@@ -130,12 +159,15 @@ export default function AdminAudit() {
         .select('*')
         .order('created_at', { ascending: false });
       
-      const headers = ['Timestamp', 'Action', 'User ID', 'Target ID', 'Details'];
+      const headers = ['Timestamp', 'Action', 'User ID', 'Jurisdiction', 'Risk Score', 'Was Allowed', 'Deny Reason', 'Details'];
       const rows = (data || []).map(log => [
         new Date(log.created_at).toLocaleString(),
-        log.action,
+        log.action_type || 'N/A',
         log.user_id || 'System',
-        log.target_id || 'N/A',
+        log.jurisdiction || 'N/A',
+        log.risk_score || 'N/A',
+        log.was_allowed ? 'Yes' : 'No',
+        log.deny_reason || 'N/A',
         typeof log.details === 'object' ? JSON.stringify(log.details) : (log.details || 'N/A')
       ]);
       
@@ -153,8 +185,8 @@ export default function AdminAudit() {
     }
   }
 
-  function getActionIcon(action) {
-    switch(action) {
+  function getActionIcon(actionType) {
+    switch(actionType) {
       case 'role_change': return <Shield className="w-4 h-4 text-purple-400" />;
       case 'job_approved': return <CheckCircle className="w-4 h-4 text-emerald-400" />;
       case 'job_rejected': return <XCircle className="w-4 h-4 text-red-400" />;
@@ -162,8 +194,19 @@ export default function AdminAudit() {
       case 'block_user': return <Users className="w-4 h-4 text-amber-400" />;
       case 'unblock_user': return <Users className="w-4 h-4 text-emerald-400" />;
       case 'delete_user': return <Trash2 className="w-4 h-4 text-red-400" />;
-      default: return <Eye className="w-4 h-4 text-slate-400" />;
+      default: 
+        if (actionType && actionType.includes('odusbaba')) {
+          return <Brain className="w-4 h-4 text-blue-400" />;
+        }
+        return <Eye className="w-4 h-4 text-slate-400" />;
     }
+  }
+
+  function getRiskBadge(riskScore) {
+    if (!riskScore) return null;
+    if (riskScore >= 80) return <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400">High Risk</span>;
+    if (riskScore >= 50) return <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Medium Risk</span>;
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Low Risk</span>;
   }
 
   if (!isSuperAdmin) {
@@ -181,11 +224,19 @@ export default function AdminAudit() {
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <FileText className="w-6 h-6 text-primary-400" /> Audit Logs
             </h1>
-            <p className="text-slate-400 text-sm">Complete system activity history</p>
+            <p className="text-slate-400 text-sm">Complete system activity and AI decision history</p>
           </div>
           <button onClick={exportLogs} className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2">
             <Download className="w-4 h-4" /> Export CSV
           </button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Activity className="w-4 h-4 text-blue-400" /><p className="text-slate-400 text-xs">Total Events</p></div><p className="text-2xl font-bold text-white">{stats.total.toLocaleString()}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><CheckCircle className="w-4 h-4 text-emerald-400" /><p className="text-slate-400 text-xs">Approved</p></div><p className="text-2xl font-bold text-white">{stats.approved.toLocaleString()}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><XCircle className="w-4 h-4 text-red-400" /><p className="text-slate-400 text-xs">Denied</p></div><p className="text-2xl font-bold text-white">{stats.denied.toLocaleString()}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><TrendingUp className="w-4 h-4 text-amber-400" /><p className="text-slate-400 text-xs">Avg Risk Score</p></div><p className="text-2xl font-bold text-white">{stats.avgRiskScore}</p></div>
         </div>
 
         {/* Filters */}
@@ -203,6 +254,7 @@ export default function AdminAudit() {
               <option value="7">Last 7 days</option>
               <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
             </select>
             <button onClick={loadAuditLogs} className="px-4 py-2 bg-slate-700 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
           </div>
@@ -220,27 +272,85 @@ export default function AdminAudit() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-800">
-                  <tr><th className="px-4 py-3 text-left text-white text-sm">Timestamp</th><th className="px-4 py-3 text-left text-white text-sm">Action</th><th className="px-4 py-3 text-left text-white text-sm">User</th><th className="px-4 py-3 text-left text-white text-sm">Target ID</th><th className="px-4 py-3 text-left text-white text-sm">Details</th></tr>
+                  <tr>
+                    <th className="px-4 py-3 text-left text-white text-sm">Timestamp</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Action</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">User</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Jurisdiction</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Risk</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Result</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Details</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {logs.map(log => (
-                    <tr key={log.id} className="border-t border-slate-800 hover:bg-slate-800/30">
-                      <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                      <td className="px-4 py-3"><span className="inline-flex items-center gap-1 text-sm">{getActionIcon(log.action)} {log.action.replace('_', ' ')}</span></td>
-                      <td className="px-4 py-3 text-sm text-slate-300">{log.user_email}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500 font-mono">{log.target_id?.slice(0, 8)}...</td>
-                      <td className="px-4 py-3 text-sm text-slate-400">{typeof log.details === 'object' ? JSON.stringify(log.details) : (log.details || '-')}</td>
+                    <tr key={log.id} className="border-t border-slate-800 hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-sm">
+                          {getActionIcon(log.action_type)} 
+                          {log.action_type || (log.odusbaba_decision_id ? 'AI Decision' : 'Unknown')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="text-sm text-white">{log.user_name || 'System'}</p>
+                          <p className="text-xs text-slate-500">{log.user_email}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-300">
+                        {log.jurisdiction || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {getRiskBadge(log.risk_score)}
+                        {log.risk_score && <span className="text-xs text-slate-500 ml-1">({log.risk_score})</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {log.was_allowed !== undefined ? (
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${log.was_allowed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                            {log.was_allowed ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                            {log.was_allowed ? 'Allowed' : 'Denied'}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-400 max-w-xs truncate">
+                        {log.deny_reason || (log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details).substring(0, 50) : String(log.details).substring(0, 50)) : '-')}
+                        {log.deny_reason && log.deny_reason.length > 50 ? '...' : ''}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            
+            {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex justify-between items-center mt-6">
-                <span className="text-sm text-slate-400">Page {currentPage} of {totalPages}</span>
+              <div className="flex flex-wrap justify-between items-center gap-4 mt-6">
+                <p className="text-sm text-slate-400">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} logs
+                </p>
                 <div className="flex gap-2">
-                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg">Prev</button>
-                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg">Next</button>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span className="px-3 py-1 text-slate-400">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
                 </div>
               </div>
             )}
