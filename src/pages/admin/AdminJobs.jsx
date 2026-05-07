@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
-  Briefcase, Search, Filter, RefreshCw, Loader2, AlertCircle, 
-  CheckCircle, XCircle, Eye, Edit, Trash2, Download,
+  Briefcase, Search, RefreshCw, Loader2, AlertCircle, 
+  CheckCircle, XCircle, Eye, Trash2, Download,
   ThumbsUp, ThumbsDown, Star, StarOff, MapPin, Building,
-  DollarSign, Calendar, ChevronLeft, ChevronRight, X, Square,
-  Globe, Clock, Users, ExternalLink
+  DollarSign, Calendar, X, Square,
+  Globe, Clock, Users, Filter
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -25,7 +25,6 @@ const SUPPORTED_COUNTRIES = [
 ];
 
 export default function AdminJobs() {
-  // State
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -69,16 +68,15 @@ export default function AdminJobs() {
         .eq('id', session.user.id)
         .single();
       
-      if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
-        toast.error('Access denied. Admin privileges required.');
-        window.location.href = '/dashboard';
+      if (profile?.user_type !== 'super_admin') {
+        toast.error('Access denied. Super Admin privileges required.');
+        window.location.href = '/admin/dashboard';
         return;
       }
       
       setIsSuperAdmin(true);
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Auth error:', err);
       window.location.href = '/admin-login';
     }
   }
@@ -133,7 +131,6 @@ export default function AdminJobs() {
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       setTotalCount(count || 0);
     } catch (err) {
-      console.error('Load jobs error:', err);
       setError('Failed to load jobs');
       toast.error('Failed to load jobs');
     } finally {
@@ -156,17 +153,9 @@ export default function AdminJobs() {
       
       if (error) throw error;
       
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action: `job_${newStatus}`,
-        target_id: jobId,
-        created_at: new Date().toISOString()
-      });
-      
       toast.success(`Job ${newStatus}`, { id: `job-${jobId}` });
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Status update error:', err);
       toast.error('Failed to update job status', { id: `job-${jobId}` });
     } finally {
       setProcessingId(null);
@@ -187,7 +176,6 @@ export default function AdminJobs() {
       toast.success(`Job ${!currentStatus ? 'featured' : 'unfeatured'}`, { id: `job-${jobId}` });
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Feature toggle error:', err);
       toast.error('Failed to update job', { id: `job-${jobId}` });
     } finally {
       setProcessingId(null);
@@ -204,18 +192,10 @@ export default function AdminJobs() {
       const { error } = await supabase.from('jobs').delete().eq('id', showDeleteConfirm.id);
       if (error) throw error;
       
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action: 'job_delete',
-        target_id: showDeleteConfirm.id,
-        created_at: new Date().toISOString()
-      });
-      
       toast.success('Job deleted', { id: 'delete-job' });
       await Promise.all([loadJobs(), loadStats()]);
       setSelectedJobs(new Set());
     } catch (err) {
-      console.error('Delete error:', err);
       toast.error('Failed to delete job', { id: 'delete-job' });
     } finally {
       setShowDeleteConfirm(null);
@@ -322,15 +302,6 @@ export default function AdminJobs() {
     }
   }
 
-  const statCards = [
-    { title: 'Total Jobs', value: stats.total, icon: Briefcase, color: 'primary' },
-    { title: 'Pending', value: stats.pending, icon: Clock, color: 'amber' },
-    { title: 'Approved', value: stats.approved, icon: CheckCircle, color: 'emerald' },
-    { title: 'Rejected', value: stats.rejected, icon: XCircle, color: 'red' },
-    { title: 'Featured', value: stats.featured, icon: Star, color: 'yellow' },
-    { title: 'Applications', value: stats.applications, icon: Users, color: 'blue' }
-  ];
-
   if (!isSuperAdmin) {
     return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
   }
@@ -356,7 +327,7 @@ export default function AdminJobs() {
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <Briefcase className="w-6 h-6 text-primary-400" /> Job Management
             </h1>
-            <p className="text-slate-400 text-sm">Manage all job postings</p>
+            <p className="text-slate-400 text-sm">Manage all job postings across all countries</p>
           </div>
           <button onClick={exportJobs} disabled={exporting} className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50">
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -364,38 +335,24 @@ export default function AdminJobs() {
           </button>
         </div>
 
-        {/* Stats */}
-        <div className="overflow-x-auto pb-4 mb-6">
-          <div className="flex gap-4 min-w-max">
-            {statCards.map((stat, idx) => (
-              <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 min-w-[140px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
-                  <p className="text-slate-400 text-xs">{stat.title}</p>
-                </div>
-                <p className="text-2xl font-bold text-white">{stat.value.toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Total Jobs</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Pending</p><p className="text-2xl font-bold text-amber-400">{stats.pending}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Approved</p><p className="text-2xl font-bold text-emerald-400">{stats.approved}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Rejected</p><p className="text-2xl font-bold text-red-400">{stats.rejected}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Featured</p><p className="text-2xl font-bold text-yellow-400">{stats.featured}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Applications</p><p className="text-2xl font-bold text-blue-400">{stats.applications}</p></div>
         </div>
 
         {/* Jobs by Country */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
           <h3 className="text-sm font-medium text-slate-400 mb-3">Jobs by Country</h3>
           <div className="flex flex-wrap gap-3">
+            <button onClick={() => setSelectedCountry('all')} className={`px-3 py-1.5 rounded-lg text-sm transition-all ${selectedCountry === 'all' ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>🌍 All ({stats.total})</button>
             {SUPPORTED_COUNTRIES.map(country => (
-              <button
-                key={country.code}
-                onClick={() => setSelectedCountry(selectedCountry === country.code ? 'all' : country.code)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition-all flex items-center gap-1 ${
-                  selectedCountry === country.code
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <span>{country.flag}</span>
-                {country.code}
-                <span className="ml-1 text-xs opacity-70">({stats.byCountry[country.code] || 0})</span>
+              <button key={country.code} onClick={() => setSelectedCountry(selectedCountry === country.code ? 'all' : country.code)} className={`px-3 py-1.5 rounded-lg text-sm transition-all flex items-center gap-1 ${selectedCountry === country.code ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                <span>{country.flag}</span> {country.code} ({stats.byCountry[country.code] || 0})
               </button>
             ))}
           </div>
@@ -406,13 +363,7 @@ export default function AdminJobs() {
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by title, company, or location..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-              />
+              <input type="text" placeholder="Search by title, company, or location..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
             </div>
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
               <option value="all">All Status</option>
@@ -454,16 +405,16 @@ export default function AdminJobs() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-800">
-                  <tr><th className="px-4 py-3 text-left w-10"></th><th className="px-4 py-3 text-left">Title / Company</th><th className="px-4 py-3 text-left">Location</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Featured</th><th className="px-4 py-3 text-left">Apps</th><th className="px-4 py-3 text-left">Date</th><th className="px-4 py-3 text-left">Actions</th></tr>
+                  <tr><th className="px-4 py-3 w-10"></th><th className="px-4 py-3 text-left">Title / Company</th><th className="px-4 py-3 text-left">Location</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Featured</th><th className="px-4 py-3 text-left">Apps</th><th className="px-4 py-3 text-left">Date</th><th className="px-4 py-3 text-left">Actions</th></tr>
                 </thead>
                 <tbody>
                   {jobs.map(job => (
                     <tr key={job.id} className="border-t border-slate-800 hover:bg-slate-800/30">
                       <td className="px-4 py-3"><button onClick={() => toggleSelectJob(job.id)}>{selectedJobs.has(job.id) ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}</button></td>
                       <td className="px-4 py-3"><div><p className="font-medium text-white">{job.title}</p><p className="text-sm text-slate-400 flex items-center gap-1"><Building className="w-3 h-3" /> {job.company}</p></div></td>
-                      <td className="px-4 py-3"><span className="flex items-center gap-1 text-sm"><MapPin className="w-3 h-3 text-slate-400" /> {job.location || 'Remote'} {getCountryFlag(job.country_code)}</span></td>
+                      <td className="px-4 py-3"><span className="flex items-center gap-1 text-sm"><MapPin className="w-3 h-3" /> {job.location || 'Remote'} {getCountryFlag(job.country_code)}</span></td>
                       <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
-                      <td className="px-4 py-3"><button onClick={() => toggleFeature(job.id, job.is_featured)} disabled={processingId === job.id} className={`p-1 rounded ${job.is_featured ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-yellow-400'}`}>{processingId === job.id ? <Loader2 className="w-4 h-4 animate-spin" /> : job.is_featured ? <Star className="w-4 h-4 fill-yellow-400" /> : <StarOff className="w-4 h-4" />}</button></td>
+                      <td className="px-4 py-3"><button onClick={() => toggleFeature(job.id, job.is_featured)} disabled={processingId === job.id} className={`p-1 rounded ${job.is_featured ? 'text-yellow-400' : 'text-slate-500 hover:text-yellow-400'}`}>{processingId === job.id ? <Loader2 className="w-4 h-4 animate-spin" /> : job.is_featured ? <Star className="w-4 h-4 fill-yellow-400" /> : <StarOff className="w-4 h-4" />}</button></td>
                       <td className="px-4 py-3 text-center text-white">{job.applications_count || 0}</td>
                       <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">{new Date(job.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3"><div className="flex gap-2">
@@ -499,15 +450,17 @@ export default function AdminJobs() {
               <button onClick={() => setShowJobDetails(null)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-4">
-              <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-4 text-sm flex-wrap">
                 <span className="flex items-center gap-1 text-slate-400"><Building className="w-4 h-4" /> {showJobDetails.company}</span>
                 <span className="flex items-center gap-1 text-slate-400"><MapPin className="w-4 h-4" /> {showJobDetails.location || 'Remote'} {getCountryFlag(showJobDetails.country_code)}</span>
                 {showJobDetails.salary && <span className="flex items-center gap-1 text-emerald-400"><DollarSign className="w-4 h-4" /> {showJobDetails.salary}</span>}
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-white mb-2">Description</h3>
-                <p className="text-slate-300 text-sm whitespace-pre-wrap">{showJobDetails.description || 'No description provided.'}</p>
-              </div>
+              {showJobDetails.description && (
+                <div className="bg-slate-800/50 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-white mb-2">Description</h3>
+                  <p className="text-slate-300 text-sm whitespace-pre-wrap">{showJobDetails.description}</p>
+                </div>
+              )}
               {showJobDetails.requirements && (
                 <div className="bg-slate-800/50 rounded-lg p-4">
                   <h3 className="text-sm font-semibold text-white mb-2">Requirements</h3>
