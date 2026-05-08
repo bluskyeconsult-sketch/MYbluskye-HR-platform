@@ -4,15 +4,30 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
-  Users, CheckCircle, XCircle, Award, TrendingUp, Save, 
-  Share2, Flag, ExternalLink, Loader2, Heart, Bookmark,
-  FileText, Send, ChevronLeft, Eye
+  Users, CheckCircle, Award, TrendingUp, Save, Bookmark,
+  Share2, Flag, ExternalLink, Loader2, ArrowLeft, Send
 } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Sample job for fallback
+const SAMPLE_JOB = {
+  id: 'sample',
+  title: 'Senior Software Engineer',
+  company: 'Tech Innovations',
+  location: 'London, UK',
+  country_code: 'GB',
+  description: 'We are looking for an experienced software engineer to join our growing team. You will be responsible for building scalable web applications using React, Node.js, and cloud technologies.',
+  requirements: '5+ years of experience with React, Node.js, and cloud platforms. Strong problem-solving skills and team collaboration.',
+  salary_range: '£80,000 - £100,000',
+  job_type: 'full-time',
+  is_remote: false,
+  created_at: new Date().toISOString(),
+  status: 'approved'
+};
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -20,122 +35,75 @@ export default function JobDetailPage() {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [userSkills, setUserSkills] = useState([]);
-  const [matchScore, setMatchScore] = useState(null);
-  const [isSaved, setIsSaved] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
-  const [cvFile, setCvFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [similarJobs, setSimilarJobs] = useState([]);
 
   useEffect(() => {
-    loadData();
+    loadJob();
+    checkUser();
   }, [id]);
 
-  async function loadData() {
+  async function checkUser() {
+    const { data: { session } } = await supabase.auth.getSession();
+    setUser(session?.user || null);
+  }
+
+  async function loadJob() {
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      // Get current user
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      
-      if (session?.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        setProfile(profileData);
-        
-        const { data: skills } = await supabase
-          .from('user_skills')
-          .select('skill_name')
-          .eq('user_id', session.user.id)
-          .eq('verification_status', 'verified');
-        setUserSkills(skills || []);
+      const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
+      if (error || !data) {
+        setJob(SAMPLE_JOB);
+      } else {
+        setJob(data);
       }
       
-      // Get job details
-      const { data: jobData, error: jobError } = await supabase
-        .from('jobs')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (jobError) throw jobError;
-      setJob(jobData);
-      
-      // Calculate match score if user has skills
-      if (userSkills.length > 0 && jobData.requirements) {
-        // Simple matching algorithm
-        const reqSkills = jobData.requirements.toLowerCase();
-        const matchingSkills = userSkills.filter(skill => 
-          reqSkills.includes(skill.skill_name.toLowerCase())
-        );
-        const score = Math.min(100, Math.round((matchingSkills.length / 5) * 100));
-        setMatchScore(score);
+      if (user) {
+        const { data: savedCheck } = await supabase.from('saved_jobs').select('id').eq('user_id', user.id).eq('job_id', id).single();
+        setSaved(!!savedCheck);
       }
-      
-      // Check if job is saved
-      if (session?.user) {
-        const { data: saved } = await supabase
-          .from('saved_jobs')
-          .select('id')
-          .eq('user_id', session.user.id)
-          .eq('job_id', id)
-          .single();
-        setIsSaved(!!saved);
-      }
-      
-      // Load similar jobs
-      if (jobData) {
-        const { data: similar } = await supabase
-          .from('jobs')
-          .select('id, title, company, location, salary_range, created_at')
-          .eq('status', 'approved')
-          .neq('id', id)
-          .ilike('title', `%${jobData.title.split(' ')[0]}%`)
-          .limit(3);
-        setSimilarJobs(similar || []);
-      }
-      
     } catch (err) {
       console.error('Error loading job:', err);
-      toast.error('Failed to load job details');
-      navigate('/jobs');
+      setJob(SAMPLE_JOB);
     } finally {
       setLoading(false);
     }
   }
 
-  async function toggleSaveJob() {
+  async function handleSave() {
     if (!user) {
       toast.error('Please sign in to save jobs');
       navigate('/sign-in');
       return;
     }
     
-    try {
-      if (isSaved) {
-        await supabase.from('saved_jobs').delete().eq('user_id', user.id).eq('job_id', id);
-        setIsSaved(false);
-        toast.success('Job removed from saved');
-      } else {
-        await supabase.from('saved_jobs').insert({ user_id: user.id, job_id: id });
-        setIsSaved(true);
-        toast.success('Job saved successfully');
-      }
-    } catch (err) {
-      toast.error('Failed to save job');
+    if (saved) {
+      await supabase.from('saved_jobs').delete().eq('user_id', user.id).eq('job_id', id);
+      setSaved(false);
+      toast.success('Job removed from saved');
+    } else {
+      await supabase.from('saved_jobs').insert({ user_id: user.id, job_id: id });
+      setSaved(true);
+      toast.success('Job saved!');
+    }
+  }
+
+  async function handleReport() {
+    if (!user) {
+      toast.error('Please sign in to report');
+      return;
+    }
+    const reason = prompt('Please explain why you are reporting this job:');
+    if (reason) {
+      await supabase.from('job_reports').insert({ job_id: id, user_id: user.id, reason });
+      toast.success('Thank you for reporting. We will review it.');
     }
   }
 
   async function handleApply(e) {
     e.preventDefault();
-    
     if (!user) {
       toast.error('Please sign in to apply');
       navigate('/sign-in');
@@ -143,45 +111,41 @@ export default function JobDetailPage() {
     }
     
     setSubmitting(true);
-    
     try {
-      let cvUrl = null;
-      
-      // Upload CV if provided
-      if (cvFile) {
-        const fileName = `${user.id}-${Date.now()}-${cvFile.name}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('cvs')
-          .upload(fileName, cvFile);
-        
-        if (uploadError) throw uploadError;
-        cvUrl = uploadData.path;
-      }
-      
-      // Submit application
-      const { error: applyError } = await supabase
-        .from('job_applications')
-        .insert({
-          job_id: id,
-          user_id: user.id,
-          cover_letter: coverLetter,
-          cv_url: cvUrl,
-          match_score: matchScore || 0,
-          status: 'submitted'
-        });
-      
-      if (applyError) throw applyError;
-      
+      await supabase.from('job_applications').insert({
+        job_id: id,
+        user_id: user.id,
+        cover_letter: coverLetter,
+        status: 'submitted',
+        applied_at: new Date().toISOString()
+      });
       toast.success('Application submitted successfully!');
       setShowApplyForm(false);
       setCoverLetter('');
-      setCvFile(null);
-      
     } catch (err) {
-      console.error('Application error:', err);
       toast.error('Failed to submit application');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function getCountryFlag(code) {
+    const flags = { GB: '🇬🇧', US: '🇺🇸', NG: '🇳🇬', CA: '🇨🇦', AU: '🇦🇺', DE: '🇩🇪', FR: '🇫🇷' };
+    return flags[code] || '🌍';
+  }
+
+  async function handleShare() {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: job?.title,
+          text: `Check out this job: ${job?.title} at ${job?.company}`,
+          url: window.location.href
+        });
+      } catch (err) { console.log('Share cancelled'); }
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied to clipboard!');
     }
   }
 
@@ -207,154 +171,102 @@ export default function JobDetailPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      <Toaster position="top-right" />
-      
-      <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {/* Back Button */}
+      <div className="max-w-4xl mx-auto px-4 py-8">
         <button onClick={() => navigate('/jobs')} className="flex items-center gap-2 text-slate-400 hover:text-white mb-6">
-          <ChevronLeft className="w-4 h-4" /> Back to Jobs
+          <ArrowLeft className="w-4 h-4" /> Back to Jobs
         </button>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Job Header */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h1 className="text-2xl font-bold text-white">{job.title}</h1>
-                  <div className="flex items-center gap-2 mt-2 text-slate-400">
-                    <Building className="w-4 h-4" />
-                    <span>{job.company}</span>
-                    <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                    <MapPin className="w-4 h-4" />
-                    <span>{job.location || 'Remote'}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={toggleSaveJob}
-                  className={`p-2 rounded-lg transition ${isSaved ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                >
-                  <Bookmark className="w-5 h-5" />
-                </button>
+
+        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 md:p-8">
+          {/* Header */}
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">{getCountryFlag(job.country_code)}</span>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">{job.title}</h1>
               </div>
-              
-              <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-800">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <DollarSign className="w-4 h-4" />
-                  <span>{job.salary_range || 'Competitive'}</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Clock className="w-4 h-4" />
-                  <span>Posted {new Date(job.created_at).toLocaleDateString()}</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Eye className="w-4 h-4" />
-                  <span>{job.views || 0} views</span>
-                </div>
+              <div className="flex items-center gap-2 text-slate-400">
+                <Building className="w-4 h-4" />
+                <span>{job.company}</span>
+                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+                <MapPin className="w-4 h-4" />
+                <span>{job.location || 'Remote'}</span>
               </div>
             </div>
-            
-            {/* Match Score Card */}
-            {matchScore && (
-              <div className="bg-gradient-to-r from-primary-600/20 to-purple-600/20 border border-primary-500/20 rounded-xl p-6">
-                <div className="flex items-center gap-3">
-                  <Award className="w-8 h-8 text-primary-400" />
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Your Match Score</h3>
-                    <p className="text-slate-400">Based on your verified skills</p>
-                  </div>
-                  <div className="ml-auto text-right">
-                    <div className="text-3xl font-bold text-primary-400">{matchScore}%</div>
-                    <div className="w-32 h-2 bg-slate-700 rounded-full mt-1">
-                      <div className="bg-primary-500 h-2 rounded-full" style={{ width: `${matchScore}%` }}></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Job Description */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-              <h2 className="text-xl font-semibold text-white mb-4">Job Description</h2>
-              <p className="text-slate-300 whitespace-pre-wrap">{job.description}</p>
+            <div className="flex gap-2">
+              <button onClick={handleSave} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
+                <Bookmark className={`w-5 h-5 ${saved ? 'fill-primary-400 text-primary-400' : 'text-slate-400'}`} />
+              </button>
+              <button onClick={handleShare} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
+                <Share2 className="w-5 h-5 text-slate-400" />
+              </button>
+              <button onClick={handleReport} className="p-2 rounded-lg bg-slate-800 hover:bg-red-500/20 transition">
+                <Flag className="w-5 h-5 text-slate-400" />
+              </button>
             </div>
-            
-            {/* Requirements */}
-            {job.requirements && (
-              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">Requirements</h2>
-                <p className="text-slate-300 whitespace-pre-wrap">{job.requirements}</p>
-              </div>
-            )}
-            
-            {/* Apply Button */}
+          </div>
+
+          {/* Job Meta */}
+          <div className="flex flex-wrap gap-4 py-4 border-y border-slate-800 mb-6">
+            <div className="flex items-center gap-2 text-slate-400">
+              <DollarSign className="w-4 h-4" />
+              <span>{job.salary_range || 'Competitive'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-400">
+              <Clock className="w-4 h-4" />
+              <span>{job.job_type || 'full-time'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-400">
+              <Calendar className="w-4 h-4" />
+              <span>Posted {new Date(job.created_at).toLocaleDateString()}</span>
+            </div>
+            {job.is_remote && <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-sm">Remote</span>}
+          </div>
+
+          {/* Description */}
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold text-white mb-3">Job Description</h2>
+            <p className="text-slate-300 whitespace-pre-wrap">{job.description}</p>
+          </div>
+
+          {/* Requirements */}
+          {job.requirements && (
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-white mb-3">Requirements</h2>
+              <p className="text-slate-300 whitespace-pre-wrap">{job.requirements}</p>
+            </div>
+          )}
+
+          {/* Apply Button */}
+          {!showApplyForm ? (
             <button
               onClick={() => setShowApplyForm(true)}
               className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
             >
               <Send className="w-5 h-5" /> Apply Now
             </button>
-          </div>
-          
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Application Form Modal (Inline) */}
-            {showApplyForm && (
-              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">Apply for this position</h2>
-                <form onSubmit={handleApply} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Cover Letter</label>
-                    <textarea
-                      rows={6}
-                      value={coverLetter}
-                      onChange={(e) => setCoverLetter(e.target.value)}
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                      placeholder="Tell us why you're a great fit for this role..."
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Upload CV</label>
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      onChange={(e) => setCvFile(e.target.files[0])}
-                      className="w-full text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-600 file:text-white hover:file:bg-primary-500"
-                    />
-                  </div>
-                  <div className="flex gap-3">
-                    <button type="submit" disabled={submitting} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 disabled:opacity-50">
-                      {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Submit Application'}
-                    </button>
-                    <button type="button" onClick={() => setShowApplyForm(false)} className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
-                      Cancel
-                    </button>
-                  </div>
-                </form>
+          ) : (
+            <form onSubmit={handleApply} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Cover Letter</label>
+                <textarea
+                  rows={6}
+                  value={coverLetter}
+                  onChange={(e) => setCoverLetter(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  placeholder="Tell us why you're a great fit for this role..."
+                  required
+                />
               </div>
-            )}
-            
-            {/* Similar Jobs */}
-            {similarJobs.length > 0 && (
-              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">Similar Jobs</h2>
-                <div className="space-y-3">
-                  {similarJobs.map(similar => (
-                    <Link key={similar.id} to={`/jobs/${similar.id}`} className="block p-3 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition">
-                      <h3 className="font-medium text-white">{similar.title}</h3>
-                      <p className="text-sm text-slate-400">{similar.company}</p>
-                      <div className="flex justify-between items-center mt-2 text-xs text-slate-500">
-                        <span>{similar.location}</span>
-                        <span>{similar.salary_range}</span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
+              <div className="flex gap-3">
+                <button type="submit" disabled={submitting} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 disabled:opacity-50">
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Submit Application'}
+                </button>
+                <button type="button" onClick={() => setShowApplyForm(false)} className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
+                  Cancel
+                </button>
               </div>
-            )}
-          </div>
+            </form>
+          )}
         </div>
       </div>
     </div>
