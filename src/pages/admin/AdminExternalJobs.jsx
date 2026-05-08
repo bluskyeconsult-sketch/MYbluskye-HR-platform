@@ -7,98 +7,51 @@ import {
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
+import { fetchGovernmentJobs, saveGovernmentJobsToSupabase } from '../../services/governmentJobService';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Public job APIs configuration
-const JOB_API_SOURCES = [
-  {
-    name: 'UK Jobs API',
-    country: 'GB',
-    url: 'https://www.reed.co.uk/api/1.0/search?keywords=jobs&location=london&resultsToTake=10',
-    apiKey: import.meta.env.VITE_REED_API_KEY,
-    transformer: (job) => ({
-      title: job.jobTitle,
-      company: job.employerName,
-      location: job.locationName,
-      description: job.jobDescription,
-      salary_range: job.minimumSalary ? `£${job.minimumSalary} - £${job.maximumSalary}` : null,
-      job_type: job.contractType?.toLowerCase() || 'full-time'
-    })
-  },
-  {
-    name: 'Adzuna API',
-    country: 'GB',
-    url: `https://api.adzuna.com/v1/api/jobs/gb/search/1?app_id=${import.meta.env.VITE_ADZUNA_APP_ID}&app_key=${import.meta.env.VITE_ADZUNA_API_KEY}&results_per_page=10`,
-    apiKeyRequired: true,
-    transformer: (job) => ({
-      title: job.title,
-      company: job.company?.display_name,
-      location: job.location?.display_name,
-      description: job.description,
-      salary_range: job.salary_min ? `£${job.salary_min} - £${job.salary_max}` : null,
-      job_type: job.contract_type || 'full-time'
-    })
-  },
-  {
-    name: 'Arbeitnow API',
-    country: 'DE',
-    url: 'https://www.arbeitnow.com/api/job-board-api',
-    transformer: (job) => ({
-      title: job.title,
-      company: job.company_name,
-      location: job.location,
-      description: job.description,
-      salary_range: job.salary || null,
-      job_type: job.job_type || 'full-time'
-    })
-  },
-  {
-    name: 'Remotive API',
-    country: 'US',
-    url: 'https://remotive.com/api/remote-jobs',
-    transformer: (job) => ({
-      title: job.title,
-      company: job.company_name,
-      location: 'Remote',
-      description: job.description,
-      salary_range: job.salary || null,
-      job_type: job.job_type || 'full-time'
-    })
-  }
+// Countries with flags
+const SUPPORTED_COUNTRIES = [
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', portal: 'FindAJob (DWP)' },
+  { code: 'US', name: 'United States', flag: '🇺🇸', portal: 'USAJobs.gov' },
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', portal: 'NiYA Jobs' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦', portal: 'GC Jobs' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺', portal: 'APS Jobs' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪', portal: 'Bundesagentur' },
+  { code: 'FR', name: 'France', flag: '🇫🇷', portal: 'France Travail' }
 ];
 
 export default function AdminExternalJobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSource, setSelectedSource] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedJobs, setSelectedJobs] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-  const [expandedJob, setExpandedJob] = useState(null);
-  const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
+  const [expandJobId, setExpandJobId] = useState(null);
+  const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0, total: 0, government: 0 });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [fetching, setFetching] = useState(false);
 
-  const [formData, setFormData] = useState({
-    title: '', company: '', location: '', source_name: '', source_country: 'GB', description: '', 
-    salary_range: '', job_type: 'full-time', external_apply_url: '', status: 'pending_approval'
-  });
-
   const itemsPerPage = 20;
-  const jobTypes = ['full-time', 'part-time', 'contract', 'freelance', 'internship', 'remote'];
 
   useEffect(() => { checkAuth(); }, []);
+
+  useEffect(() => {
+    if (isAuthorized) {
+      loadJobs();
+      loadStats();
+    }
+  }, [searchTerm, selectedSource, selectedCountry, selectedStatus, currentPage, isAuthorized]);
 
   async function checkAuth() {
     try {
@@ -119,19 +72,18 @@ export default function AdminExternalJobs() {
       }
       
       setIsAuthorized(true);
-      loadJobs();
-      loadStats();
     } catch (err) { window.location.href = '/admin-login'; }
   }
 
   async function loadStats() {
     try {
-      const { data } = await supabase.from('external_jobs').select('status');
+      const { data } = await supabase.from('external_jobs').select('status, metadata');
       const total = data?.length || 0;
       const pending = data?.filter(j => j.status === 'pending_approval').length || 0;
       const approved = data?.filter(j => j.status === 'approved').length || 0;
       const rejected = data?.filter(j => j.status === 'rejected').length || 0;
-      setStats({ pending, approved, rejected, total });
+      const government = data?.filter(j => j.metadata?.is_government === true).length || 0;
+      setStats({ pending, approved, rejected, total, government });
     } catch (err) { console.error(err); }
   }
 
@@ -142,6 +94,7 @@ export default function AdminExternalJobs() {
       
       let query = supabase.from('external_jobs').select('*', { count: 'exact' }).order('created_at', { ascending: false });
       if (selectedSource !== 'all') query = query.eq('source_name', selectedSource);
+      if (selectedCountry !== 'all') query = query.eq('source_country', selectedCountry);
       if (selectedStatus !== 'all') query = query.eq('status', selectedStatus);
       if (searchTerm) query = query.or(`title.ilike.%${searchTerm}%,company.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
       
@@ -161,97 +114,51 @@ export default function AdminExternalJobs() {
 
   async function fetchExternalJobs() {
     setFetching(true);
-    toast.loading('Fetching jobs from external APIs...', { id: 'fetch-jobs' });
+    toast.loading('Fetching jobs from government portals...', { id: 'fetch-jobs' });
     
     try {
-      let allJobs = [];
+      const governmentJobs = await fetchGovernmentJobs();
+      console.log(`Fetched ${governmentJobs.length} total government jobs`);
       
-      // Try to fetch from each API
-      for (const source of JOB_API_SOURCES) {
-        try {
-          // Skip if API key required but not available
-          if (source.apiKeyRequired && !source.apiKey) {
-            console.log(`Skipping ${source.name} - no API key`);
-            continue;
-          }
-          
-          const response = await fetch(source.url);
-          if (!response.ok) {
-            console.log(`Failed to fetch from ${source.name}: ${response.status}`);
-            continue;
-          }
-          
-          const data = await response.json();
-          let jobs = [];
-          
-          // Parse based on API response structure
-          if (source.name === 'Adzuna API' && data.results) {
-            jobs = data.results;
-          } else if (source.name === 'Arbeitnow API' && data.data) {
-            jobs = data.data;
-          } else if (source.name === 'Remotive API' && data.jobs) {
-            jobs = data.jobs;
-          } else if (source.name === 'UK Jobs API' && data.results) {
-            jobs = data.results;
-          }
-          
-          for (const job of jobs) {
-            try {
-              const transformed = source.transformer(job);
-              allJobs.push({
-                ...transformed,
-                source_name: source.name,
-                source_country: source.country,
-                status: 'pending_approval',
-                created_at: new Date().toISOString()
-              });
-            } catch (transformErr) {
-              console.error(`Error transforming job from ${source.name}:`, transformErr);
-            }
-          }
-        } catch (sourceErr) {
-          console.error(`Error fetching from ${source.name}:`, sourceErr);
-        }
-      }
-      
-      // If no real jobs fetched, use sample data for demonstration
-      if (allJobs.length === 0) {
-        console.log('No real jobs fetched, using sample data');
-        allJobs = getSampleExternalJobs();
-      }
-      
-      // Check for duplicates before inserting
       const { data: existingJobs } = await supabase
         .from('external_jobs')
-        .select('title, company, source_name');
+        .select('title, company, source_name, source_country');
       
       const existingKeys = new Set(
-        existingJobs?.map(job => `${job.title}|${job.company}|${job.source_name}`) || []
+        existingJobs?.map(job => `${job.title}|${job.company}|${job.source_country}`) || []
       );
       
       let newCount = 0;
-      for (const job of allJobs) {
-        const jobKey = `${job.title}|${job.company}|${job.source_name}`;
+      for (const job of governmentJobs) {
+        const jobKey = `${job.title}|${job.company}|${job.country}`;
         if (existingKeys.has(jobKey)) continue;
         
         const { error } = await supabase.from('external_jobs').insert({
           title: job.title,
           company: job.company,
-          location: job.location || 'Remote',
-          source_name: job.source_name,
-          source_country: job.source_country,
-          description: job.description || 'No description provided.',
+          location: job.location,
+          source_name: job.source_name || 'Government Portal',
+          source_country: job.country,
+          description: job.description,
           salary_range: job.salary_range,
           job_type: job.job_type || 'full-time',
           status: 'pending_approval',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          metadata: {
+            is_government: true,
+            department: job.department,
+            agency: job.agency,
+            grade_level: job.grade_level,
+            language: job.language,
+            application_url: job.source_url
+          }
         });
         
         if (!error) newCount++;
       }
       
       if (newCount > 0) {
-        toast.success(`Fetched ${newCount} new external jobs`, { id: 'fetch-jobs' });
+        toast.success(`Fetched ${newCount} new government jobs from ${governmentJobs.filter(j => j.is_government).length} countries`, { id: 'fetch-jobs' });
       } else {
         toast.info('No new jobs found. Check back later!', { id: 'fetch-jobs' });
       }
@@ -261,20 +168,10 @@ export default function AdminExternalJobs() {
       
     } catch (err) {
       console.error('Fetch error:', err);
-      toast.error('Failed to fetch external jobs. Please try again.', { id: 'fetch-jobs' });
+      toast.error('Failed to fetch jobs. Please try again.', { id: 'fetch-jobs' });
     } finally {
       setFetching(false);
     }
-  }
-
-  function getSampleExternalJobs() {
-    return [
-      { title: 'Senior Software Engineer', company: 'Tech Corp UK', location: 'London, UK', source_name: 'Sample API', source_country: 'GB', description: 'Looking for experienced software engineer with 5+ years experience.', salary_range: '£80,000 - £100,000', job_type: 'full-time' },
-      { title: 'Frontend Developer', company: 'Web Solutions', location: 'Manchester, UK', source_name: 'Sample API', source_country: 'GB', description: 'React, TypeScript, Next.js experience required.', salary_range: '£55,000 - £70,000', job_type: 'full-time' },
-      { title: 'Data Scientist', company: 'AI Innovations', location: 'Berlin, Germany', source_name: 'Sample API', source_country: 'DE', description: 'Machine Learning, Python, TensorFlow experience.', salary_range: '€70,000 - €90,000', job_type: 'full-time' },
-      { title: 'Product Manager', company: 'StartUp Labs', location: 'Paris, France', source_name: 'Sample API', source_country: 'FR', description: 'Lead product development for SaaS platform.', salary_range: '€65,000 - €85,000', job_type: 'full-time' },
-      { title: 'DevOps Engineer', company: 'Cloud Systems', location: 'Remote', source_name: 'Sample API', source_country: 'US', description: 'Kubernetes, AWS, CI/CD experience required.', salary_range: '$120,000 - $150,000', job_type: 'remote' }
-    ];
   }
 
   async function approveJob(id) {
@@ -307,6 +204,34 @@ export default function AdminExternalJobs() {
     finally { setShowDeleteConfirm(null); }
   }
 
+  async function bulkApprove() {
+    for (const id of selectedJobs) {
+      await approveJob(id);
+    }
+    setSelectedJobs(new Set());
+  }
+
+  async function bulkReject() {
+    for (const id of selectedJobs) {
+      await rejectJob(id);
+    }
+    setSelectedJobs(new Set());
+  }
+
+  function toggleSelectJob(id) {
+    const newSet = new Set(selectedJobs);
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+    setSelectedJobs(newSet);
+  }
+
+  function toggleSelectAll() {
+    if (selectedJobs.size === jobs.length) {
+      setSelectedJobs(new Set());
+    } else {
+      setSelectedJobs(new Set(jobs.map(j => j.id)));
+    }
+  }
+
   function getStatusBadge(status) {
     if (status === 'approved') return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Approved</span>;
     if (status === 'rejected') return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-500/20 text-red-400"><XCircle className="w-3 h-3" /> Rejected</span>;
@@ -314,13 +239,12 @@ export default function AdminExternalJobs() {
   }
 
   function getCountryFlag(countryCode) {
-    const flags = { GB: '🇬🇧', US: '🇺🇸', NG: '🇳🇬', CA: '🇨🇦', AU: '🇦🇺', DE: '🇩🇪', FR: '🇫🇷' };
-    return flags[countryCode] || '🌍';
+    const country = SUPPORTED_COUNTRIES.find(c => c.code === countryCode);
+    return country ? country.flag : '🌍';
   }
 
   const uniqueSources = [...new Set(jobs.map(j => j.source_name).filter(Boolean))];
-
-  useEffect(() => { setCurrentPage(1); if (isAuthorized) loadJobs(); }, [searchTerm, selectedSource, selectedStatus]);
+  const uniqueCountries = [...new Set(jobs.map(j => j.source_country).filter(Boolean))];
 
   if (!isAuthorized) {
     return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
@@ -339,33 +263,72 @@ export default function AdminExternalJobs() {
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <Globe className="w-6 h-6 text-primary-400" /> External Jobs Moderation
             </h1>
-            <p className="text-slate-400 text-sm">Fetch and moderate jobs from external APIs</p>
+            <p className="text-slate-400 text-sm">Fetch and moderate jobs from government portals across 7 countries</p>
           </div>
-          <div className="flex gap-3">
-            <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50">
-              {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              {fetching ? 'Fetching...' : 'Fetch Jobs from APIs'}
-            </button>
-          </div>
+          <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50">
+            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {fetching ? 'Fetching from Gov Portals...' : 'Fetch Government Jobs'}
+          </button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Total</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Pending</p><p className="text-2xl font-bold text-amber-400">{stats.pending}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Approved</p><p className="text-2xl font-bold text-emerald-400">{stats.approved}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Rejected</p><p className="text-2xl font-bold text-red-400">{stats.rejected}</p></div>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Total</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Government</p><p className="text-2xl font-bold text-blue-400">{stats.government}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Pending</p><p className="text-2xl font-bold text-amber-400">{stats.pending}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Approved</p><p className="text-2xl font-bold text-emerald-400">{stats.approved}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Rejected</p><p className="text-2xl font-bold text-red-400">{stats.rejected}</p></div>
+        </div>
+
+        {/* Country Sources Overview */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-3">Government Job Sources by Country</h3>
+          <div className="flex flex-wrap gap-3">
+            {SUPPORTED_COUNTRIES.map(country => (
+              <div key={country.code} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg">
+                <span className="text-lg">{country.flag}</span>
+                <span className="text-sm text-white">{country.code}</span>
+                <span className="text-xs text-slate-400">{country.portal}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Search & Filters */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" placeholder="Search by title or company..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" /></div>
-            <select value={selectedSource} onChange={(e) => setSelectedSource(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"><option value="all">All Sources</option>{uniqueSources.map(s => <option key={s} value={s}>{s}</option>)}</select>
-            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"><option value="all">All Status</option><option value="pending_approval">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input type="text" placeholder="Search by title, company, or description..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+            </div>
+            <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+              <option value="all">All Countries</option>
+              {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={selectedSource} onChange={(e) => setSelectedSource(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+              <option value="all">All Sources</option>
+              {uniqueSources.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+              <option value="all">All Status</option>
+              <option value="pending_approval">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
             <button onClick={loadJobs} className="px-4 py-2 bg-slate-700 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
           </div>
         </div>
+
+        {/* Bulk Actions */}
+        {selectedJobs.size > 0 && (
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex flex-wrap justify-between items-center gap-4">
+            <span className="text-white">{selectedJobs.size} job(s) selected</span>
+            <div className="flex gap-3">
+              <button onClick={bulkApprove} className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2"><ThumbsUp className="w-4 h-4" /> Approve Selected</button>
+              <button onClick={bulkReject} className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"><ThumbsDown className="w-4 h-4" /> Reject Selected</button>
+            </div>
+          </div>
+        )}
 
         {/* Jobs Table */}
         {loading ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>
@@ -374,30 +337,94 @@ export default function AdminExternalJobs() {
           <div className="text-center py-12">
             <Globe className="w-16 h-16 text-slate-700 mx-auto mb-4" />
             <p className="text-slate-400 mb-2">No external jobs found</p>
-            <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-primary-600 text-white rounded-lg">Fetch Jobs from APIs</button>
+            <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-primary-600 text-white rounded-lg">Fetch Jobs from Government Portals</button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-800">
-                <tr><th className="px-4 py-3 text-left text-white text-sm">Source</th><th className="px-4 py-3 text-left text-white text-sm">Title / Company</th><th className="px-4 py-3 text-left text-white text-sm">Location</th><th className="px-4 py-3 text-left text-white text-sm">Status</th><th className="px-4 py-3 text-left text-white text-sm">Actions</th></tr>
-              </thead>
-              <tbody>
-                {jobs.map(job => (
-                  <tr key={job.id} className="border-t border-slate-800 hover:bg-slate-800/30">
-                    <td className="px-4 py-3"><span className="flex items-center gap-1"><span>{getCountryFlag(job.source_country)}</span> <span className="text-sm text-slate-300">{job.source_name}</span></span></td>
-                    <td className="px-4 py-3"><div><p className="font-medium text-white">{job.title}</p><p className="text-sm text-slate-400">{job.company}</p></div></td>
-                    <td className="px-4 py-3 text-slate-300 text-sm"><MapPin className="w-3 h-3 inline mr-1" /> {job.location || 'Remote'}</td>
-                    <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
-                    <td className="px-4 py-3"><div className="flex gap-2"><button onClick={() => approveJob(job.id)} disabled={job.status === 'approved'} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button><button onClick={() => rejectJob(job.id)} disabled={job.status === 'rejected'} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button><button onClick={() => deleteJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button></div></td>
+          <>
+            <div className="flex items-center gap-2 mb-3">
+              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400">
+                {selectedJobs.size === jobs.length ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4" />}
+                Select All ({jobs.length})
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-800">
+                  <tr>
+                    <th className="px-4 py-3 w-10"></th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Country / Source</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Title / Company</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Location</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Status</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {totalPages > 1 && <div className="flex justify-between mt-6"><span>Page {currentPage} of {totalPages}</span><div className="flex gap-2"><button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg">Prev</button><button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg">Next</button></div></div>}
-          </div>
+                </thead>
+                <tbody>
+                  {jobs.map(job => (
+                    <React.Fragment key={job.id}>
+                      <tr className={`border-t border-slate-800 hover:bg-slate-800/30 ${selectedJobs.has(job.id) ? 'bg-primary-500/5' : ''}`}>
+                        <td className="px-4 py-3"><button onClick={() => toggleSelectJob(job.id)}>{selectedJobs.has(job.id) ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}</button></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{getCountryFlag(job.source_country)}</span>
+                            <div>
+                              <p className="text-sm text-white">{job.source_name}</p>
+                              <p className="text-xs text-slate-500">{job.source_country}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium text-white">{job.title}</p>
+                            <p className="text-sm text-slate-400">{job.company}</p>
+                            {job.metadata?.is_government && (
+                              <span className="inline-flex items-center gap-1 text-xs mt-1 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">🏛️ Government</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300 text-sm"><MapPin className="w-3 h-3 inline mr-1" /> {job.location || 'Remote'}</td>
+                        <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button onClick={() => approveJob(job.id)} disabled={job.status === 'approved'} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button>
+                            <button onClick={() => rejectJob(job.id)} disabled={job.status === 'rejected'} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button>
+                            <button onClick={() => setExpandJobId(expandJobId === job.id ? null : job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-slate-700">{expandJobId === job.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}</button>
+                            <button onClick={() => deleteJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandJobId === job.id && (
+                        <tr className="border-t border-slate-800 bg-slate-900/30">
+                          <td colSpan="6" className="px-6 py-4">
+                            <div className="space-y-2">
+                              <div><h4 className="text-sm font-semibold text-white mb-1">Description</h4><p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p></div>
+                              {job.salary_range && <div><h4 className="text-sm font-semibold text-white mb-1">Salary</h4><p className="text-slate-400 text-sm">{job.salary_range}</p></div>}
+                              {job.metadata?.application_url && <div><h4 className="text-sm font-semibold text-white mb-1">Application URL</h4><a href={job.metadata.application_url} target="_blank" rel="noopener noreferrer" className="text-primary-400 text-sm hover:underline">Apply on official website →</a></div>}
+                              <div className="flex gap-4 text-xs text-slate-500"><span>Fetched: {new Date(job.created_at).toLocaleString()}</span></div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center mt-6">
+                <span className="text-sm text-slate-400">Page {currentPage} of {totalPages}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Previous</button>
+                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg disabled:opacity-50">Next</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
+
+// Import React for Fragment
+import React from 'react';
