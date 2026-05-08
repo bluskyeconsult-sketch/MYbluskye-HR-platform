@@ -9,7 +9,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Components (Eager)
+// Components (Eager - loaded immediately)
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import CookieConsent from './components/CookieConsent';
@@ -17,13 +17,15 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import AnimatedBackground from './components/AnimatedBackground';
 import ScrollingBanner from './components/ScrollingBanner';
 import FraudAlertBanner from './components/FraudAlertBanner';
+import PromoBanner from './components/PromoBanner';
+import HeroSection from './components/HeroSection';
 
-// Lazy-loaded Pages - CORRECTED IMPORTS
+// Lazy-loaded Pages
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
-const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage')); // Fixed: added 's'
+const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
 const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
@@ -35,6 +37,8 @@ const FAQPage = lazy(() => import('./pages/FAQPage'));
 const FraudPreventionPage = lazy(() => import('./pages/FraudPreventionPage'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
+
+// User Pages
 const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const UserApplications = lazy(() => import('./pages/UserApplications'));
@@ -42,11 +46,15 @@ const UserSkills = lazy(() => import('./pages/UserSkills'));
 const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
+
+// Admin Pages - CORRECT PATHS
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
 const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
 const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
+
+// Legal Pages
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
 const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
@@ -80,7 +88,6 @@ function AnimatedPage({ children }) {
 function ProtectedRoute({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const location = useLocation();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -153,7 +160,7 @@ function AppContent() {
                 <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                {/* Admin Routes */}
+                {/* Admin Routes - CORRECT PATHS */}
                 <Route path="/admin/dashboard" element={<ProtectedRoute><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/courses" element={<ProtectedRoute><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/jobs" element={<ProtectedRoute><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
