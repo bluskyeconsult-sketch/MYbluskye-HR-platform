@@ -17,8 +17,7 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import AnimatedBackground from './components/AnimatedBackground';
 import ScrollingBanner from './components/ScrollingBanner';
 import FraudAlertBanner from './components/FraudAlertBanner';
-import PromoBanner from './components/PromoBanner';
-import HeroSection from './components/HeroSection';
+// Note: PromoBanner is only used in HomePage, not here
 
 // Lazy-loaded Pages
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -47,7 +46,7 @@ const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 
-// Admin Pages - CORRECT PATHS
+// Admin Pages
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
@@ -160,7 +159,7 @@ function AppContent() {
                 <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                {/* Admin Routes - CORRECT PATHS */}
+                {/* Admin Routes */}
                 <Route path="/admin/dashboard" element={<ProtectedRoute><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/courses" element={<ProtectedRoute><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/jobs" element={<ProtectedRoute><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
