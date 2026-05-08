@@ -4,8 +4,8 @@ import {
   Briefcase, Search, RefreshCw, Loader2, AlertCircle, 
   CheckCircle, XCircle, Eye, Trash2, Download,
   ThumbsUp, ThumbsDown, Star, StarOff, MapPin, Building,
-  DollarSign, X, Square, Globe, Clock, Users, Filter,
-  Plus, Edit
+  X, Square, Globe, Clock, Users, Plus, Edit, Save,
+  DollarSign, Calendar, Filter
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -15,13 +15,13 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const SUPPORTED_COUNTRIES = [
-  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', currency: '£' },
-  { code: 'US', name: 'United States', flag: '🇺🇸', currency: '$' },
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: '₦' },
-  { code: 'CA', name: 'Canada', flag: '🇨🇦', currency: 'C$' },
-  { code: 'AU', name: 'Australia', flag: '🇦🇺', currency: 'A$' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪', currency: '€' },
-  { code: 'FR', name: 'France', flag: '🇫🇷', currency: '€' }
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'US', name: 'United States', flag: '🇺🇸' },
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' }
 ];
 
 export default function AdminJobs() {
@@ -40,10 +40,10 @@ export default function AdminJobs() {
   const [editingJob, setEditingJob] = useState(null);
   const [jobFormData, setJobFormData] = useState({
     title: '', company: '', location: '', country_code: 'GB', description: '', 
-    salary: '', requirements: '', status: 'pending', is_featured: false
+    salary_range: '', requirements: '', status: 'active', is_featured: false
   });
   const [stats, setStats] = useState({ 
-    total: 0, pending: 0, approved: 0, rejected: 0, featured: 0,
+    total: 0, active: 0, filled: 0, expired: 0, featured: 0,
     applications: 0, byCountry: {}
   });
   const [user, setUser] = useState(null);
@@ -65,39 +65,25 @@ export default function AdminJobs() {
   async function checkAuth() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { 
-        window.location.href = '/admin-login'; 
-        return; 
-      }
+      if (!session) { window.location.href = '/admin-login'; return; }
       setUser(session.user);
       
       const { data: profile } = await supabase
         .from('profiles')
-        .select('user_type, email')
+        .select('user_type')
         .eq('id', session.user.id)
         .single();
       
-      console.log('Profile:', profile);
-      
-      if (profile?.user_type === 'super_admin') {
-        setIsSuperAdmin(true);
-        toast.success('Super Admin authenticated');
-      } else if (profile?.user_type === 'admin') {
-        setIsSuperAdmin(true);
-        toast.success('Admin authenticated');
-      } else {
+      if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
         toast.error('Access denied. Admin privileges required.');
         window.location.href = '/dashboard';
         return;
       }
       
+      setIsSuperAdmin(true);
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Auth error:', err);
-      toast.error('Authentication failed');
       window.location.href = '/admin-login';
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -106,9 +92,9 @@ export default function AdminJobs() {
       const { data } = await supabase.from('jobs').select('status, is_featured, country_code, applications_count');
       
       const total = data?.length || 0;
-      const pending = data?.filter(j => j.status === 'pending').length || 0;
-      const approved = data?.filter(j => j.status === 'approved').length || 0;
-      const rejected = data?.filter(j => j.status === 'rejected').length || 0;
+      const active = data?.filter(j => j.status === 'active').length || 0;
+      const filled = data?.filter(j => j.status === 'filled').length || 0;
+      const expired = data?.filter(j => j.status === 'expired').length || 0;
       const featured = data?.filter(j => j.is_featured === true).length || 0;
       const applications = data?.reduce((sum, j) => sum + (j.applications_count || 0), 0) || 0;
       
@@ -117,10 +103,8 @@ export default function AdminJobs() {
         byCountry[country.code] = data?.filter(j => j.country_code === country.code).length || 0;
       });
       
-      setStats({ total, pending, approved, rejected, featured, applications, byCountry });
-    } catch (err) { 
-      console.error('Stats error:', err); 
-    }
+      setStats({ total, active, filled, expired, featured, applications, byCountry });
+    } catch (err) { console.error('Stats error:', err); }
   }
 
   async function loadJobs() {
@@ -152,11 +136,8 @@ export default function AdminJobs() {
       setJobs(data || []);
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       setTotalCount(count || 0);
-      
-      console.log(`Loaded ${data?.length || 0} jobs`);
     } catch (err) {
-      console.error('Load jobs error:', err);
-      setError('Failed to load jobs: ' + err.message);
+      setError('Failed to load jobs');
       toast.error('Failed to load jobs');
     } finally {
       setLoading(false);
@@ -201,7 +182,6 @@ export default function AdminJobs() {
       resetJobForm();
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Save error:', err);
       toast.error('Failed to save job', { id: 'save-job' });
     } finally {
       setProcessingId(null);
@@ -223,21 +203,9 @@ export default function AdminJobs() {
       
       if (error) throw error;
       
-      // Log to audit
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action_type: `job_${newStatus}`,
-        target_id: jobId,
-        target_type: 'job',
-        jurisdiction: 'GB',
-        was_allowed: true,
-        created_at: new Date().toISOString()
-      });
-      
       toast.success(`Job ${newStatus}`, { id: `job-${jobId}` });
       await Promise.all([loadJobs(), loadStats()]);
     } catch (err) {
-      console.error('Status update error:', err);
       toast.error('Failed to update job status', { id: `job-${jobId}` });
     } finally {
       setProcessingId(null);
@@ -274,14 +242,6 @@ export default function AdminJobs() {
       const { error } = await supabase.from('jobs').delete().eq('id', showDeleteConfirm.id);
       if (error) throw error;
       
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action_type: 'job_delete',
-        target_id: showDeleteConfirm.id,
-        target_type: 'job',
-        created_at: new Date().toISOString()
-      });
-      
       toast.success('Job deleted', { id: 'delete-job' });
       await Promise.all([loadJobs(), loadStats()]);
       setSelectedJobs(new Set());
@@ -295,15 +255,15 @@ export default function AdminJobs() {
   async function bulkAction(action) {
     if (action === 'approve') {
       for (const id of selectedJobs) {
-        await updateJobStatus(id, 'approved');
+        await updateJobStatus(id, 'active');
       }
-      toast.success(`Approved ${selectedJobs.size} jobs`);
+      toast.success(`Activated ${selectedJobs.size} jobs`);
       setSelectedJobs(new Set());
     } else if (action === 'reject') {
       for (const id of selectedJobs) {
-        await updateJobStatus(id, 'rejected');
+        await updateJobStatus(id, 'expired');
       }
-      toast.success(`Rejected ${selectedJobs.size} jobs`);
+      toast.success(`Expired ${selectedJobs.size} jobs`);
       setSelectedJobs(new Set());
     } else if (action === 'delete') {
       setShowDeleteConfirm({ ids: Array.from(selectedJobs), type: 'bulk', count: selectedJobs.size });
@@ -332,7 +292,7 @@ export default function AdminJobs() {
     try {
       const { data } = await supabase
         .from('jobs')
-        .select('title, company, location, country_code, status, is_featured, created_at, applications_count, salary');
+        .select('title, company, location, country_code, status, is_featured, created_at, applications_count, salary_range');
       
       const headers = ['Title', 'Company', 'Location', 'Country', 'Status', 'Featured', 'Created At', 'Applications', 'Salary'];
       const rows = (data || []).map(j => [
@@ -344,7 +304,7 @@ export default function AdminJobs() {
         j.is_featured ? 'Yes' : 'No',
         new Date(j.created_at).toLocaleDateString(),
         j.applications_count || 0,
-        j.salary || 'N/A'
+        j.salary_range || 'N/A'
       ]);
       
       const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -366,7 +326,7 @@ export default function AdminJobs() {
   function resetJobForm() {
     setJobFormData({
       title: '', company: '', location: '', country_code: 'GB', description: '', 
-      salary: '', requirements: '', status: 'pending', is_featured: false
+      salary_range: '', requirements: '', status: 'active', is_featured: false
     });
   }
 
@@ -397,27 +357,19 @@ export default function AdminJobs() {
 
   function getStatusBadge(status) {
     switch(status) {
-      case 'approved':
-        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Approved</span>;
-      case 'rejected':
-        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400"><XCircle className="w-3 h-3" /> Rejected</span>;
+      case 'active':
+        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400"><CheckCircle className="w-3 h-3" /> Active</span>;
+      case 'filled':
+        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400"><CheckCircle className="w-3 h-3" /> Filled</span>;
+      case 'expired':
+        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400"><XCircle className="w-3 h-3" /> Expired</span>;
       default:
-        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400"><Clock className="w-3 h-3" /> Pending</span>;
+        return <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400"><Clock className="w-3 h-3" /> Draft</span>;
     }
   }
 
   if (!isSuperAdmin && !loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-red-400">Access Denied. Admin privileges required.</p>
-          <button onClick={() => window.location.href = '/admin-login'} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg">
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
   }
 
   return (
@@ -457,11 +409,11 @@ export default function AdminJobs() {
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Total Jobs</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Pending</p><p className="text-2xl font-bold text-amber-400">{stats.pending}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Approved</p><p className="text-2xl font-bold text-emerald-400">{stats.approved}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Rejected</p><p className="text-2xl font-bold text-red-400">{stats.rejected}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Active</p><p className="text-2xl font-bold text-emerald-400">{stats.active}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Filled</p><p className="text-2xl font-bold text-blue-400">{stats.filled}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Expired</p><p className="text-2xl font-bold text-red-400">{stats.expired}</p></div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Featured</p><p className="text-2xl font-bold text-yellow-400">{stats.featured}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Applications</p><p className="text-2xl font-bold text-blue-400">{stats.applications.toLocaleString()}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Applications</p><p className="text-2xl font-bold text-purple-400">{stats.applications.toLocaleString()}</p></div>
         </div>
 
         {/* Jobs by Country */}
@@ -486,9 +438,9 @@ export default function AdminJobs() {
             </div>
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
               <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
+              <option value="active">Active</option>
+              <option value="filled">Filled</option>
+              <option value="expired">Expired</option>
             </select>
             <button onClick={() => loadJobs()} className="px-4 py-2 bg-slate-700 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
           </div>
@@ -499,8 +451,8 @@ export default function AdminJobs() {
           <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex flex-wrap justify-between items-center gap-4">
             <span className="text-white">{selectedJobs.size} job(s) selected</span>
             <div className="flex gap-3">
-              <button onClick={() => bulkAction('approve')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2"><ThumbsUp className="w-4 h-4" /> Approve</button>
-              <button onClick={() => bulkAction('reject')} className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"><ThumbsDown className="w-4 h-4" /> Reject</button>
+              <button onClick={() => bulkAction('approve')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2"><ThumbsUp className="w-4 h-4" /> Activate</button>
+              <button onClick={() => bulkAction('reject')} className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"><ThumbsDown className="w-4 h-4" /> Expire</button>
               <button onClick={() => bulkAction('delete')} className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete</button>
             </div>
           </div>
@@ -523,7 +475,7 @@ export default function AdminJobs() {
         ) : (
           <>
             <div className="flex items-center gap-2 mb-3">
-              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400 hover:text-white">
+              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400">
                 {selectedJobs.size === jobs.length ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4" />}
                 Select All ({jobs.length})
               </button>
@@ -538,15 +490,15 @@ export default function AdminJobs() {
                     <tr key={job.id} className="border-t border-slate-800 hover:bg-slate-800/30">
                       <td className="px-4 py-3"><button onClick={() => toggleSelectJob(job.id)}>{selectedJobs.has(job.id) ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}</button></td>
                       <td className="px-4 py-3"><div><p className="font-medium text-white">{job.title}</p><p className="text-sm text-slate-400 flex items-center gap-1"><Building className="w-3 h-3" /> {job.company}</p></div></td>
-                      <td className="px-4 py-3"><span className="flex items-center gap-1 text-sm"><MapPin className="w-3 h-3 text-slate-400" /> {job.location || 'Remote'} {getCountryFlag(job.country_code)}</span></td>
+                      <td className="px-4 py-3"><span className="flex items-center gap-1 text-sm"><MapPin className="w-3 h-3" /> {job.location || 'Remote'} {getCountryFlag(job.country_code)}</span></td>
                       <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
                       <td className="px-4 py-3"><button onClick={() => toggleFeature(job.id, job.is_featured)} disabled={processingId === job.id} className={`p-1 rounded ${job.is_featured ? 'text-yellow-400' : 'text-slate-500 hover:text-yellow-400'}`}>{processingId === job.id ? <Loader2 className="w-4 h-4 animate-spin" /> : job.is_featured ? <Star className="w-4 h-4 fill-yellow-400" /> : <StarOff className="w-4 h-4" />}</button></td>
                       <td className="px-4 py-3 text-center text-white">{job.applications_count || 0}</td>
                       <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">{new Date(job.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3"><div className="flex gap-2">
                         <button onClick={() => handleEdit(job)} className="p-1.5 bg-slate-800 rounded hover:bg-primary-500/20"><Edit className="w-3.5 h-3.5 text-primary-400" /></button>
-                        {job.status !== 'approved' && <button onClick={() => updateJobStatus(job.id, 'approved')} disabled={processingId === job.id} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button>}
-                        {job.status !== 'rejected' && <button onClick={() => updateJobStatus(job.id, 'rejected')} disabled={processingId === job.id} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button>}
+                        {job.status !== 'active' && <button onClick={() => updateJobStatus(job.id, 'active')} disabled={processingId === job.id} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button>}
+                        {job.status !== 'expired' && <button onClick={() => updateJobStatus(job.id, 'expired')} disabled={processingId === job.id} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button>}
                         <button onClick={() => deleteJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
                       </div></td>
                     </tr>
@@ -589,11 +541,11 @@ export default function AdminJobs() {
               <textarea placeholder="Description" rows={4} value={jobFormData.description} onChange={e => setJobFormData({...jobFormData, description: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
               <textarea placeholder="Requirements" rows={3} value={jobFormData.requirements} onChange={e => setJobFormData({...jobFormData, requirements: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="text" placeholder="Salary" value={jobFormData.salary} onChange={e => setJobFormData({...jobFormData, salary: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                <input type="text" placeholder="Salary Range (e.g., $50,000 - $70,000)" value={jobFormData.salary_range} onChange={e => setJobFormData({...jobFormData, salary_range: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
                 <select value={jobFormData.status} onChange={e => setJobFormData({...jobFormData, status: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
+                  <option value="active">Active</option>
+                  <option value="filled">Filled</option>
+                  <option value="expired">Expired</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
