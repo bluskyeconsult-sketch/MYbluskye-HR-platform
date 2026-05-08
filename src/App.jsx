@@ -9,7 +9,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Components (Eager - always loaded)
+// Components (Eager)
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import CookieConsent from './components/CookieConsent';
@@ -18,13 +18,12 @@ import AnimatedBackground from './components/AnimatedBackground';
 import ScrollingBanner from './components/ScrollingBanner';
 import FraudAlertBanner from './components/FraudAlertBanner';
 
-// Lazy-loaded Pages
+// Lazy-loaded Pages - CORRECTED IMPORTS
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
-const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
-const CreateCoursePage = lazy(() => import('./pages/CreateCoursePage'));
+const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage')); // Fixed: added 's'
 const BooksPage = lazy(() => import('./pages/BooksPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
 const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
@@ -131,8 +130,7 @@ function AppContent() {
                 <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                 <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
                 <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-                <Route path="/courses/:id" element={<AnimatedPage><CourseDetailPage /></AnimatedPage>} />
-                <Route path="/create-course" element={<ProtectedRoute><AnimatedPage><CreateCoursePage /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/courses/:id" element={<AnimatedPage><CourseDetailsPage /></AnimatedPage>} />
                 <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                 <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
