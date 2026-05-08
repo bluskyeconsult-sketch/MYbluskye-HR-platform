@@ -337,4 +337,19 @@ export default function AdminExternalJobs() {
                         <td className="px-4 py-3"><div className="flex gap-2"><button onClick={() => approveJob(job.id)} disabled={job.status === 'approved'} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button><button onClick={() => rejectJob(job.id)} disabled={job.status === 'rejected'} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button><button onClick={() => setExpandJobId(expandJobId === job.id ? null : job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-slate-700">{expandJobId === job.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}</button><button onClick={() => deleteJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button></div></td>
                       </tr>
                       {expandJobId === job.id && (
-                        <tr className="border-t border-slate-800 bg-slate-900/30"><td colSpan="6
+                        <tr className="border-t border-slate-800 bg-slate-900/30"><td colSpan="6" className="px-6 py-4"><div className="space-y-2"><div><h4 className="text-sm font-semibold text-white mb-1">Description</h4><p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p></div>{job.salary_range && <div><h4 className="text-sm font-semibold text-white mb-1">Salary</h4><p className="text-slate-400 text-sm">{job.salary_range}</p></div>}<div className="flex gap-4 text-xs text-slate-500"><span>Fetched: {new Date(job.created_at).toLocaleString()}</span></div></div></td></tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && <div className="flex justify-between mt-6"><span>Page {currentPage} of {totalPages}</span><div className="flex gap-2"><button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg">Prev</button><button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg">Next</button></div></div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+import React from 'react';
