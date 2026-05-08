@@ -1,15 +1,15 @@
-// src/pages/CourseDetailPage.jsx
+// src/pages/CourseDetailsPage.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
-import { Clock, BookOpen, Users, Star, ArrowLeft, Play, CheckCircle, Lock } from 'lucide-react';
+import { Clock, BookOpen, Users, Star, ArrowLeft, Play, CheckCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export default function CourseDetailPage() {
+export default function CourseDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [course, setCourse] = useState(null);
@@ -44,7 +44,7 @@ export default function CourseDetailPage() {
           .select('id')
           .eq('course_id', id)
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
         setEnrolled(!!enrollment);
       }
     } catch (err) {
@@ -67,7 +67,8 @@ export default function CourseDetailPage() {
       const { error } = await supabase.from('course_enrollments').insert({
         course_id: id,
         user_id: user.id,
-        progress: 0
+        progress: 0,
+        started_at: new Date().toISOString()
       });
 
       if (error) throw error;
@@ -81,7 +82,7 @@ export default function CourseDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
       </div>
     );
   }
@@ -96,30 +97,19 @@ export default function CourseDetailPage() {
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
               <h1 className="text-3xl font-bold text-white mb-3">{course.title}</h1>
               <p className="text-slate-400">{course.description}</p>
               
               <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-800">
-                <span className="flex items-center gap-2 text-slate-400">
-                  <Clock className="w-4 h-4" />
-                  {course.duration_minutes} minutes
-                </span>
-                <span className="flex items-center gap-2 text-slate-400">
-                  <BookOpen className="w-4 h-4" />
-                  {course.level}
-                </span>
-                <span className="flex items-center gap-2 text-slate-400">
-                  <Star className="w-4 h-4" />
-                  {course.rating || 'New'}
-                </span>
+                <span className="flex items-center gap-2 text-slate-400"><Clock className="w-4 h-4" /> {course.duration_minutes} min</span>
+                <span className="flex items-center gap-2 text-slate-400"><BookOpen className="w-4 h-4" /> {course.level}</span>
+                <span className="flex items-center gap-2 text-slate-400"><Star className="w-4 h-4" /> {course.rating || 'New'}</span>
               </div>
             </div>
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
             <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 text-center sticky top-24">
               {course.thumbnail_url && (
@@ -128,9 +118,7 @@ export default function CourseDetailPage() {
               <div className="text-3xl font-bold text-primary-400 mb-4">${course.price}</div>
               
               {enrolled ? (
-                <Link to={`/my-learning/${course.id}`} className="w-full py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 transition flex items-center justify-center gap-2">
-                  <Play className="w-4 h-4" /> Continue Learning
-                </Link>
+                <div className="text-center text-emerald-400">✓ You are enrolled in this course</div>
               ) : (
                 <button onClick={handleEnroll} className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition">
                   Enroll Now
