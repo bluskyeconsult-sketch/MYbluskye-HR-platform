@@ -9,7 +9,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Components (Eager - loaded immediately)
+// Eager Components (loaded immediately)
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import CookieConsent from './components/CookieConsent';
@@ -17,12 +17,13 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import AnimatedBackground from './components/AnimatedBackground';
 import ScrollingBanner from './components/ScrollingBanner';
 import FraudAlertBanner from './components/FraudAlertBanner';
-// Note: PromoBanner is only used in HomePage, not here
+import PromoBanner from './components/PromoBanner';
 
-// Lazy-loaded Pages
+// Lazy-loaded Pages - Public
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
+const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
@@ -34,10 +35,11 @@ const ContactPage = lazy(() => import('./pages/ContactPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const FraudPreventionPage = lazy(() => import('./pages/FraudPreventionPage'));
+const MoreProductsPage = lazy(() => import('./pages/MoreProductsPage'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 
-// User Pages
+// Lazy-loaded Pages - User Dashboard
 const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const UserApplications = lazy(() => import('./pages/UserApplications'));
@@ -46,14 +48,19 @@ const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 
-// Admin Pages
+// Lazy-loaded Pages - Admin
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
+const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
+const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
-const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
+const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
+const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
+const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'));
 
-// Legal Pages
+// Lazy-loaded Pages - Legal
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
 const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
@@ -77,27 +84,50 @@ function AnimatedPage({ children }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
     >
       {children}
     </motion.div>
   );
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, allowedRoles = [] }) {
   const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user || null);
-      setLoading(false);
-    });
+    checkAuth();
   }, []);
+
+  async function checkAuth() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user || null);
+      
+      if (session?.user) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('user_type, tier')
+          .eq('id', session.user.id)
+          .single();
+        setProfile(data);
+      }
+    } catch (err) {
+      console.error('Auth error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   if (loading) return <LoadingSpinner />;
   if (!user) {
     window.location.href = '/sign-in';
+    return null;
+  }
+  if (allowedRoles.length > 0 && !allowedRoles.includes(profile?.user_type)) {
+    window.location.href = '/dashboard';
     return null;
   }
   return children;
@@ -109,7 +139,8 @@ function NotFoundPage() {
       <div className="text-center">
         <h1 className="text-7xl font-bold text-white mb-4">404</h1>
         <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
-        <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-primary-500 text-white rounded-lg">
+        <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+        <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
           Go Home
         </button>
       </div>
@@ -126,15 +157,17 @@ function AppContent() {
       <Navbar />
       <FraudAlertBanner />
       <ScrollingBanner />
-      <main className="min-h-screen relative z-10 pt-16">
+      <PromoBanner />
+      <main className="min-h-screen relative z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <AnimatePresence mode="wait">
             <Suspense fallback={<LoadingSpinner />}>
               <Routes location={location} key={location.pathname}>
-                {/* Public Routes */}
+                {/* ========== PUBLIC ROUTES ========== */}
                 <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                 <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                 <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
+                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
                 <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
                 <Route path="/courses/:id" element={<AnimatedPage><CourseDetailsPage /></AnimatedPage>} />
                 <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
@@ -146,11 +179,12 @@ function AppContent() {
                 <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                 <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
                 <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
+                <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
                 <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-                {/* Protected User Routes */}
+                {/* ========== USER DASHBOARD ROUTES ========== */}
                 <Route path="/dashboard" element={<ProtectedRoute><AnimatedPage><UserDashboard /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><AnimatedPage><UserProfile /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/applications" element={<ProtectedRoute><AnimatedPage><UserApplications /></AnimatedPage></ProtectedRoute>} />
@@ -159,20 +193,25 @@ function AppContent() {
                 <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                {/* Admin Routes */}
-                <Route path="/admin/dashboard" element={<ProtectedRoute><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/courses" element={<ProtectedRoute><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/jobs" element={<ProtectedRoute><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/external-jobs" element={<ProtectedRoute><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
+                {/* ========== ADMIN ROUTES ========== */}
+                <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/articles" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminArticles /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminBooks /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/external-jobs" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
 
-                {/* Legal Routes */}
+                {/* ========== LEGAL ROUTES ========== */}
                 <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
                 <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
                 <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
                 <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
                 <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
 
-                {/* 404 */}
+                {/* 404 Fallback */}
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>
