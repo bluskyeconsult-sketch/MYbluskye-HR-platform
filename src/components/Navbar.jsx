@@ -1,3 +1,4 @@
+// src/components/Navbar.jsx
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -139,7 +140,7 @@ export default function Navbar() {
         {/* Row 1: Logo + Auth Buttons */}
         <div className="py-3 sm:py-4 flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-800/50">
           
-          {/* Logo Section */}
+          {/* Logo Section - Using Logo Component */}
           <div className="text-center sm:text-left mb-3 sm:mb-0">
             <Logo size="md" showText={true} linkTo="/" />
           </div>
