@@ -18,13 +18,21 @@ const CACHE_DURATION = 5 * 60 * 1000;
 export default async function handler(req, res) {
   // Handle preflight CORS
   if (req.method === 'OPTIONS') {
-    return res.status(200).setHeader('Access-Control-Allow-Origin', '*').end();
+    res.status(200).setHeader('Access-Control-Allow-Origin', '*').end();
+    return;
+  }
+  
+  // Only allow GET requests
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
   
   // Check cache
   if (cache.data && (Date.now() - cache.timestamp) < CACHE_DURATION) {
     console.log('📦 Returning cached government jobs');
-    return res.status(200).setHeader('Access-Control-Allow-Origin', '*').json(cache.data);
+    res.status(200).setHeader('Access-Control-Allow-Origin', '*').json(cache.data);
+    return;
   }
   
   const timeout = 8000; // 8 second timeout per request
@@ -41,17 +49,17 @@ export default async function handler(req, res) {
           const xml = response.data;
           const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
           return jobMatches.slice(0, 15).map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || '',
+            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || 'Government Position',
             company: 'UK Government',
             location: 'United Kingdom',
             country: 'GB',
-            description: item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.substring(0, 500) || '',
+            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '').substring(0, 500),
             salary_range: 'Competitive',
             source_name: 'FindAJob (DWP)',
             is_government: true
           }));
         } catch (err) {
-          console.log(`UK failed: ${err.message}`);
+          console.log(`⚠️ UK failed: ${err.message}`);
           return [];
         }
       }
@@ -66,17 +74,17 @@ export default async function handler(req, res) {
           const xml = response.data;
           const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
           return jobMatches.slice(0, 15).map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || '',
+            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || 'Federal Position',
             company: 'U.S. Federal Government',
             location: 'United States',
             country: 'US',
-            description: item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.substring(0, 500) || '',
+            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '').substring(0, 500),
             salary_range: 'Federal Pay Scale',
             source_name: 'USAJobs.gov',
             is_government: true
           }));
         } catch (err) {
-          console.log(`USA failed: ${err.message}`);
+          console.log(`⚠️ USA failed: ${err.message}`);
           return [];
         }
       }
@@ -97,14 +105,14 @@ export default async function handler(req, res) {
               company: job.departmentName?.en || 'Government of Canada',
               location: `${job.city?.en || 'Ottawa'}, Canada`,
               country: 'CA',
-              description: job.jobSummary?.en?.substring(0, 500) || '',
+              description: (job.jobSummary?.en || '').substring(0, 500),
               salary_range: job.salaryRange || 'Competitive',
               source_name: 'GC Jobs Canada',
               is_government: true
             }));
           }
         } catch (err) {
-          console.log(`Canada failed: ${err.message}`);
+          console.log(`⚠️ Canada failed: ${err.message}`);
         }
         return [];
       }
@@ -125,14 +133,14 @@ export default async function handler(req, res) {
               company: job.agencyName || 'Australian Public Service',
               location: `${job.location}, Australia`,
               country: 'AU',
-              description: job.jobDescription?.substring(0, 500) || '',
+              description: (job.jobDescription || '').substring(0, 500),
               salary_range: job.salaryRange || 'Competitive',
               source_name: 'APS Jobs',
               is_government: true
             }));
           }
         } catch (err) {
-          console.log(`Australia failed: ${err.message}`);
+          console.log(`⚠️ Australia failed: ${err.message}`);
         }
         return [];
       }
@@ -153,7 +161,7 @@ export default async function handler(req, res) {
               company: job.company || 'Bundesagentur',
               location: `${job.city || 'Germany'}, Germany`,
               country: 'DE',
-              description: job.description?.substring(0, 500) || '',
+              description: (job.description || '').substring(0, 500),
               salary_range: job.salary ? `${job.salary.from} - ${job.salary.to} €` : 'Competitive',
               source_name: 'Bundesagentur für Arbeit',
               is_government: true,
@@ -161,7 +169,7 @@ export default async function handler(req, res) {
             }));
           }
         } catch (err) {
-          console.log(`Germany failed: ${err.message}`);
+          console.log(`⚠️ Germany failed: ${err.message}`);
         }
         return [];
       }
@@ -182,7 +190,7 @@ export default async function handler(req, res) {
               company: job.entreprise?.nom || 'État français',
               location: `${job.lieuTravail?.libelle || 'Paris'}, France`,
               country: 'FR',
-              description: job.description?.substring(0, 500) || '',
+              description: (job.description || '').substring(0, 500),
               salary_range: job.salaire?.libelle || 'Compétitif',
               source_name: 'France Travail',
               is_government: true,
@@ -190,7 +198,7 @@ export default async function handler(req, res) {
             }));
           }
         } catch (err) {
-          console.log(`France failed: ${err.message}`);
+          console.log(`⚠️ France failed: ${err.message}`);
         }
         return [];
       }
@@ -208,14 +216,14 @@ export default async function handler(req, res) {
               company: job.employer || 'Federal Government of Nigeria',
               location: `${job.location || 'Abuja'}, Nigeria`,
               country: 'NG',
-              description: job.description?.substring(0, 500) || '',
+              description: (job.description || '').substring(0, 500),
               salary_range: job.salary || 'Competitive',
               source_name: 'NiYA Jobs',
               is_government: true
             }));
           }
         } catch (err) {
-          console.log(`Nigeria failed: ${err.message}`);
+          console.log(`⚠️ Nigeria failed: ${err.message}`);
         }
         return [];
       }
@@ -258,7 +266,7 @@ export default async function handler(req, res) {
   
   console.log(`🎯 Total jobs fetched: ${allJobs.length} from ${successCount}/${sources.length} sources`);
   
-  return res.status(200).setHeader('Access-Control-Allow-Origin', '*').json({
+  res.status(200).setHeader('Access-Control-Allow-Origin', '*').json({
     success: true,
     count: allJobs.length,
     sources: successCount,
