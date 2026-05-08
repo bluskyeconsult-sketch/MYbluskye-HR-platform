@@ -1,47 +1,49 @@
 // src/components/Logo.jsx
-// VERIFIED - No hidden letters, responsive, preserves all original styling
-
 import { Link } from 'react-router-dom';
-import { Brain } from 'lucide-react';
 
 export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
-  const sizeClasses = {
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16'
+  // Size mappings
+  const sizes = {
+    sm: { img: 'w-8 h-8', text: 'text-base', container: 'gap-1.5' },
+    md: { img: 'w-10 h-10', text: 'text-xl', container: 'gap-2' },
+    lg: { img: 'w-12 h-12', text: 'text-2xl', container: 'gap-3' }
   };
-
-  const textSizeClasses = {
-    sm: 'text-xs',
-    md: 'text-sm sm:text-base',
-    lg: 'text-base sm:text-lg',
-    xl: 'text-xl sm:text-2xl'
+  
+  const currentSize = sizes[size] || sizes.md;
+  
+  // Your actual logo path (already uploaded)
+  const logoSrc = '/images/BluSkye.png';
+  
+  // Handle image error - show fallback
+  const handleImageError = (e) => {
+    e.target.style.display = 'none';
+    const fallback = e.target.nextSibling;
+    if (fallback) fallback.style.display = 'flex';
   };
-
-  const subtextSizeClasses = {
-    sm: 'text-[8px]',
-    md: 'text-[9px] sm:text-[10px]',
-    lg: 'text-[10px] sm:text-xs',
-    xl: 'text-xs sm:text-sm'
-  };
-
+  
   return (
-    <Link to={linkTo} className="flex items-center gap-2 group">
-      {/* Logo Icon - Preserved */}
-      <div className={`${sizeClasses[size]} bg-gradient-to-br from-primary-500 to-sky-500 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:scale-105 transition-transform duration-300 flex-shrink-0`}>
-        <Brain className="w-2/3 h-2/3 text-white" />
+    <Link to={linkTo} className={`flex items-center ${currentSize.container} group`}>
+      <div className="relative">
+        <img 
+          src={logoSrc}
+          alt="BluSkye Consult"
+          className={`${currentSize.img} object-contain transition-transform duration-200 group-hover:scale-105`}
+          onError={handleImageError}
+        />
+        {/* Fallback text if image fails to load */}
+        <div 
+          className={`${currentSize.img} bg-gradient-to-br from-primary-500 to-purple-600 rounded-lg items-center justify-center text-white font-bold hidden`}
+          style={{ display: 'none' }}
+        >
+          BS
+        </div>
       </div>
-      
-      {/* Logo Text - Now fully visible with responsive classes */}
       {showText && (
-        <div className="flex flex-col min-w-0">
-          <span className={`${textSizeClasses[size]} font-bold bg-gradient-to-r from-white via-slate-200 to-slate-300 bg-clip-text text-transparent whitespace-normal break-words leading-tight`}>
-            BluSkye Integrated Consult
+        <div>
+          <span className={`${currentSize.text} font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent`}>
+            BluSkye Consult
           </span>
-          <span className={`${subtextSizeClasses[size]} text-primary-400 whitespace-normal break-words`}>
-            powered by <span className="font-extrabold text-primary-500">ODUSBABA</span> intelligence
-          </span>
+          <p className="text-[10px] text-primary-400 -mt-1 leading-tight">powered by ODUSBABA</p>
         </div>
       )}
     </Link>
