@@ -2,11 +2,11 @@
 import { Link } from 'react-router-dom';
 
 export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
-  // Size mappings
+  // Size mappings - DOUBLED for better visibility
   const sizes = {
-    sm: { img: 'w-8 h-8', text: 'text-base', container: 'gap-1.5' },
-    md: { img: 'w-10 h-10', text: 'text-xl', container: 'gap-2' },
-    lg: { img: 'w-12 h-12', text: 'text-2xl', container: 'gap-3' }
+    sm: { img: 'w-12 h-12', text: 'text-xl', container: 'gap-3' },      // Was w-8 h-8
+    md: { img: 'w-16 h-16', text: 'text-2xl', container: 'gap-3' },      // Was w-10 h-10
+    lg: { img: 'w-20 h-20', text: 'text-3xl', container: 'gap-4' }       // Was w-12 h-12
   };
   
   const currentSize = sizes[size] || sizes.md;
@@ -32,7 +32,7 @@ export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
         />
         {/* Fallback text if image fails to load */}
         <div 
-          className={`${currentSize.img} bg-gradient-to-br from-primary-500 to-purple-600 rounded-lg items-center justify-center text-white font-bold hidden`}
+          className={`${currentSize.img} bg-gradient-to-br from-primary-500 to-purple-600 rounded-xl items-center justify-center text-white font-bold hidden text-2xl`}
           style={{ display: 'none' }}
         >
           BS
@@ -43,7 +43,7 @@ export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
           <span className={`${currentSize.text} font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent`}>
             BluSkye Consult
           </span>
-          <p className="text-[10px] text-primary-400 -mt-1 leading-tight">powered by ODUSBABA</p>
+          <p className="text-xs text-primary-400 -mt-1 leading-tight">powered by ODUSBABA</p>
         </div>
       )}
     </Link>
