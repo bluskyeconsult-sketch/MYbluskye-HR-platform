@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
 import toast, { Toaster } from 'react-hot-toast';
 
+// Import Auth Context and AI Assist
+import { AuthProvider } from './context/AuthContext';
+import AIAssistButton from './components/AIAssistButton';
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -221,6 +225,7 @@ function AppContent() {
       <Footer />
       <CookieConsent />
       <ODUSBABAChat />
+      <AIAssistButton />
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
     </>
   );
@@ -229,7 +234,9 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
