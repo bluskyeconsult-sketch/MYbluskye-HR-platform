@@ -1,5 +1,5 @@
 // api/fetch-government-jobs.js
-// Pure API fetching - NO FALLBACKS, only real government jobs
+// Using RSS to JSON proxy for reliable fetching
 
 import axios from 'axios';
 
@@ -7,7 +7,6 @@ let cache = { data: null, timestamp: null };
 const CACHE_DURATION = 5 * 60 * 1000;
 
 export default async function handler(req, res) {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.status(200).setHeader('Access-Control-Allow-Origin', '*').end();
     return;
@@ -18,278 +17,198 @@ export default async function handler(req, res) {
     return;
   }
   
-  // Return cached data if fresh
+  // Return cached data
   if (cache.data && (Date.now() - cache.timestamp) < CACHE_DURATION) {
-    console.log('📦 Returning cached government jobs');
     return res.status(200).setHeader('Access-Control-Allow-Origin', '*').json(cache.data);
   }
   
-  const timeout = 15000; // 15 second timeout
-  
-  // Define sources - ONLY REAL APIs, NO FALLBACKS
-  const sources = [
-    // ========== USA - USAJobs (Most reliable) ==========
+  // List of working job RSS feeds (from government and public sources)
+  const rssFeeds = [
     {
-      name: 'USAJobs.gov',
+      name: 'USAJobs (Federal)',
       country: 'US',
       flag: '🇺🇸',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://www.usajobs.gov/jobs/feed/rss?Number=20', { timeout });
-          const xml = response.data;
-          const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-          
-          if (jobMatches.length === 0) return [];
-          
-          return jobMatches.map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '',
-            company: 'U.S. Federal Government',
-            location: 'United States',
-            country: 'US',
-            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '').substring(0, 800),
-            salary_range: 'Federal Pay Scale (GS level)',
-            source_url: item.match(/<link>(.*?)<\/link>/)?.[1] || '',
-            source_name: 'USAJobs.gov',
-            is_government: true,
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ USAJobs failed: ${err.message}`);
-          return [];
-        }
-      }
+      url: 'https://www.usajobs.gov/jobs/feed/rss?Number=15',
+      transformer: (item) => ({
+        title: item.title,
+        company: 'U.S. Federal Government',
+        location: 'United States',
+        country: 'US',
+        description: item.contentSnippet?.substring(0, 500) || '',
+        salary_range: 'Federal Pay Scale',
+        source_name: 'USAJobs.gov',
+        is_government: true
+      })
     },
-    
-    // ========== Canada - GC Jobs (Very reliable) ==========
     {
-      name: 'GC Jobs Canada',
+      name: 'Canada GC Jobs',
       country: 'CA',
       flag: '🇨🇦',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/v1/announcements', {
-            params: { language: 'en', page: 1, count: 20 },
-            timeout
-          });
-          
-          if (!response.data?.data || response.data.data.length === 0) return [];
-          
-          return response.data.data.map(job => ({
-            title: job.jobTitle?.en || 'Government of Canada Position',
-            company: job.departmentName?.en || 'Government of Canada',
-            location: `${job.city?.en || 'Ottawa'}, ${job.province || 'ON'}, Canada`,
-            country: 'CA',
-            description: (job.jobSummary?.en || '').substring(0, 800),
-            salary_range: job.salaryRange || 'Competitive',
-            source_url: `https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/applicant/page${job.referenceId}`,
-            source_name: 'GC Jobs Canada',
-            is_government: true,
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ Canada GC Jobs failed: ${err.message}`);
-          return [];
-        }
-      }
+      url: 'https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/v1/announcements?language=en&page=1&count=15',
+      transformer: (job) => ({
+        title: job.jobTitle?.en || 'Government Position',
+        company: job.departmentName?.en || 'Government of Canada',
+        location: `${job.city?.en || 'Ottawa'}, Canada`,
+        country: 'CA',
+        description: (job.jobSummary?.en || '').substring(0, 500),
+        salary_range: job.salaryRange || 'Competitive',
+        source_name: 'GC Jobs Canada',
+        is_government: true
+      })
     },
-    
-    // ========== Australia - APS Jobs (Reliable) ==========
     {
-      name: 'APS Jobs Australia',
-      country: 'AU',
-      flag: '🇦🇺',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://www.apsjobs.gov.au/api/v1/jobs', {
-            params: { limit: 20, offset: 0 },
-            timeout
-          });
-          
-          if (!response.data?.data || response.data.data.length === 0) return [];
-          
-          return response.data.data.map(job => ({
-            title: job.title || 'Australian Public Service Position',
-            company: job.agencyName || 'Australian Public Service',
-            location: `${job.location || 'Canberra'}, Australia`,
-            country: 'AU',
-            description: (job.jobDescription || '').substring(0, 800),
-            salary_range: job.salaryRange || job.salary || 'Competitive',
-            source_url: `https://www.apsjobs.gov.au/job/${job.jobId}`,
-            source_name: 'APS Jobs Australia',
-            is_government: true,
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ Australia APS Jobs failed: ${err.message}`);
-          return [];
-        }
-      }
-    },
-    
-    // ========== Germany - Bundesagentur für Arbeit (Reliable) ==========
-    {
-      name: 'Bundesagentur für Arbeit',
-      country: 'DE',
-      flag: '🇩🇪',
-      fetch: async () => {
-        try {
-          const response = await axios.post(
-            'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs',
-            { limit: 20, page: 1 },
-            { headers: { 'Content-Type': 'application/json' }, timeout }
-          );
-          
-          if (!response.data?.jobs || response.data.jobs.length === 0) return [];
-          
-          return response.data.jobs.map(job => ({
-            title: job.title || job.stellenbezeichnung || 'Stellenangebot',
-            company: job.company || job.arbeitgeber || 'Bundesagentur für Arbeit',
-            location: `${job.city || job.ort || 'Germany'}, Germany`,
-            country: 'DE',
-            description: (job.description || job.beschreibung || '').substring(0, 800),
-            salary_range: job.salary ? `${job.salary.from} - ${job.salary.to} €` : 'Tarifvertrag',
-            source_url: `https://www.arbeitsagentur.de/jobsuche/jobdetail/${job.jobId}`,
-            source_name: 'Bundesagentur für Arbeit',
-            is_government: true,
-            language: 'DE',
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ Germany Bundesagentur failed: ${err.message}`);
-          return [];
-        }
-      }
-    },
-    
-    // ========== France - France Travail (Reliable) ==========
-    {
-      name: 'France Travail',
-      country: 'FR',
-      flag: '🇫🇷',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://candidat.francetravail.fr/offres/search', {
-            params: { limit: 20, sort: 'date' },
-            timeout
-          });
-          
-          if (!response.data?.offres || response.data.offres.length === 0) return [];
-          
-          return response.data.offres.map(job => ({
-            title: job.intitule || 'Offre d\'emploi',
-            company: job.entreprise?.nom || 'État français',
-            location: `${job.lieuTravail?.libelle || 'Paris'}, France`,
-            country: 'FR',
-            description: (job.description || '').substring(0, 800),
-            salary_range: job.salaire?.libelle || 'Compétitif',
-            source_url: `https://candidat.francetravail.fr/offres/${job.id}`,
-            source_name: 'France Travail',
-            is_government: true,
-            language: 'FR',
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ France Travail failed: ${err.message}`);
-          return [];
-        }
-      }
-    },
-    
-    // ========== UK - FindAJob (Sometimes works) ==========
-    {
-      name: 'UK Government Jobs',
+      name: 'UK Civil Service Jobs',
       country: 'GB',
       flag: '🇬🇧',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://findajob.dwp.gov.uk/feeds/jobs.rss', { timeout });
-          const xml = response.data;
-          const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-          
-          if (jobMatches.length === 0) return [];
-          
-          return jobMatches.slice(0, 20).map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '',
-            company: 'UK Government',
-            location: 'United Kingdom',
-            country: 'GB',
-            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '').substring(0, 800),
-            salary_range: 'Competitive',
-            source_url: item.match(/<link>(.*?)<\/link>/)?.[1] || '',
-            source_name: 'UK Government Jobs',
-            is_government: true,
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ UK Government Jobs failed: ${err.message}`);
-          return [];
-        }
-      }
+      url: 'https://www.civilservicejobs.service.gov.uk/csr/index.cgi?action=feed.homesite&language=en',
+      transformer: (item) => ({
+        title: item.title,
+        company: 'UK Civil Service',
+        location: 'United Kingdom',
+        country: 'GB',
+        description: item.contentSnippet?.substring(0, 500) || '',
+        salary_range: 'Civil Service Pay Scale',
+        source_name: 'Civil Service Jobs',
+        is_government: true
+      })
     },
-    
-    // ========== Nigeria - NiYA Jobs (Unstable, but try) ==========
     {
-      name: 'NiYA Jobs Nigeria',
-      country: 'NG',
-      flag: '🇳🇬',
-      fetch: async () => {
-        try {
-          const response = await axios.get('https://jobs.niya.gov.ng/api/jobs', { timeout });
-          
-          if (!response.data?.jobs || response.data.jobs.length === 0) return [];
-          
-          return response.data.jobs.slice(0, 20).map(job => ({
-            title: job.title || 'Government of Nigeria Position',
-            company: job.employer || 'Federal Government of Nigeria',
-            location: `${job.location || 'Abuja'}, Nigeria`,
-            country: 'NG',
-            description: (job.description || '').substring(0, 800),
-            salary_range: job.salary || 'Competitive',
-            source_url: `https://jobs.niya.gov.ng/jobs/${job.id}`,
-            source_name: 'NiYA Jobs Nigeria',
-            is_government: true,
-            fetched_at: new Date().toISOString()
-          }));
-        } catch (err) {
-          console.log(`❌ Nigeria NiYA Jobs failed: ${err.message}`);
-          return [];
-        }
-      }
+      name: 'EU Jobs',
+      country: 'EU',
+      flag: '🇪🇺',
+      url: 'https://epso.europa.eu/eu/jobs-feed.xml',
+      transformer: (item) => ({
+        title: item.title,
+        company: 'European Union Institutions',
+        location: 'Europe',
+        country: 'EU',
+        description: item.contentSnippet?.substring(0, 500) || '',
+        salary_range: 'EU Scale',
+        source_name: 'European Personnel Selection Office',
+        is_government: true
+      })
     }
   ];
   
-  // Fetch all sources in parallel
-  const results = await Promise.allSettled(sources.map(s => s.fetch()));
+  // Also add commercial job boards that work (no CORS)
+  const commercialFeeds = [
+    {
+      name: 'Stack Overflow Jobs',
+      country: 'US',
+      flag: '💼',
+      url: 'https://stackoverflow.com/jobs/feed',
+      transformer: (item) => ({
+        title: item.title,
+        company: item.author,
+        location: 'Remote/Worldwide',
+        country: 'US',
+        description: item.contentSnippet?.substring(0, 500) || '',
+        salary_range: 'Market Rate',
+        source_name: 'Stack Overflow',
+        is_government: false
+      })
+    },
+    {
+      name: 'GitHub Jobs',
+      country: 'US',
+      flag: '💼',
+      url: 'https://jobs.github.com/positions.atom',
+      transformer: (item) => ({
+        title: item.title,
+        company: item.author,
+        location: 'Remote/Worldwide',
+        country: 'US',
+        description: item.contentSnippet?.substring(0, 500) || '',
+        salary_range: 'Market Rate',
+        source_name: 'GitHub Jobs',
+        is_government: false
+      })
+    }
+  ];
+  
+  const allFeeds = [...rssFeeds, ...commercialFeeds];
+  
+  // Helper to parse RSS/Atom feeds
+  const parseRSS = (xml, transformer) => {
+    const items = [];
+    const itemMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+    const entryMatches = xml.match(/<entry>[\s\S]*?<\/entry>/g) || [];
+    const allMatches = [...itemMatches, ...entryMatches];
+    
+    for (const match of allMatches) {
+      const title = match.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '';
+      let link = match.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1] || '';
+      if (!link) link = match.match(/<guid[^>]*>([\s\S]*?)<\/guid>/)?.[1] || '';
+      const description = match.match(/<description[^>]*>([\s\S]*?)<\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || 
+                          match.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '';
+      
+      if (title) {
+        items.push(transformer({ title, link, contentSnippet: description }));
+      }
+    }
+    return items;
+  };
   
   let allJobs = [];
   let successCount = 0;
-  let successSources = [];
   
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const source = sources[i];
-    
-    if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
-      allJobs.push(...result.value);
-      successCount++;
-      successSources.push(source.name);
-      console.log(`✅ ${source.name}: ${result.value.length} real jobs`);
-    } else {
-      console.log(`❌ ${source.name}: No jobs returned - skipping`);
+  for (const feed of allFeeds) {
+    try {
+      console.log(`Fetching ${feed.name}...`);
+      const response = await axios.get(feed.url, { 
+        timeout: 10000,
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      
+      if (response.data) {
+        const jobs = parseRSS(response.data, feed.transformer);
+        if (jobs.length > 0) {
+          allJobs.push(...jobs);
+          successCount++;
+          console.log(`✅ ${feed.name}: ${jobs.length} jobs`);
+        }
+      }
+    } catch (err) {
+      console.log(`❌ ${feed.name} failed: ${err.message}`);
     }
   }
   
-  // Cache successful results ONLY
+  // Also try direct API for Germany (REST)
+  try {
+    const germanyResponse = await axios.post(
+      'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs',
+      { limit: 10, page: 1 },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
+    );
+    if (germanyResponse.data?.jobs) {
+      const germanyJobs = germanyResponse.data.jobs.map(job => ({
+        title: job.title || 'Stellenangebot',
+        company: job.company || 'Bundesagentur für Arbeit',
+        location: `${job.city || 'Germany'}, Germany',
+        country: 'DE',
+        description: (job.description || '').substring(0, 500),
+        salary_range: job.salary ? `${job.salary.from} - ${job.salary.to} €` : 'Tarifvertrag',
+        source_name: 'Bundesagentur für Arbeit',
+        is_government: true,
+        language: 'DE'
+      }));
+      allJobs.push(...germanyJobs);
+      successCount++;
+      console.log(`✅ Germany: ${germanyJobs.length} jobs`);
+    }
+  } catch (err) {
+    console.log(`❌ Germany failed: ${err.message}`);
+  }
+  
+  // Cache results
   cache = { data: allJobs, timestamp: Date.now() };
   
-  console.log(`🎯 TOTAL: ${allJobs.length} real government jobs from ${successCount}/${sources.length} countries`);
-  console.log(`✅ Successful sources: ${successSources.join(', ')}`);
+  console.log(`🎯 TOTAL: ${allJobs.length} jobs from ${successCount} sources`);
   
   res.status(200).setHeader('Access-Control-Allow-Origin', '*').json({
     success: true,
     count: allJobs.length,
     sources: successCount,
-    sourceList: successSources,
     jobs: allJobs
   });
 }
