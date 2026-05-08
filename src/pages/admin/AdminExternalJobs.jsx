@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { 
   Briefcase, Search, RefreshCw, Loader2, AlertCircle, 
   CheckCircle, XCircle, ChevronDown, ChevronUp, 
-  Globe, Clock, MapPin, Building, ThumbsUp, ThumbsDown, X, Square, Trash2
+  Globe, Clock, MapPin, Building, ThumbsUp, ThumbsDown, 
+  X, Square, Trash2, Filter
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -44,7 +45,9 @@ export default function AdminExternalJobs() {
 
   const itemsPerPage = 20;
 
-  useEffect(() => { checkAuth(); }, []);
+  useEffect(() => { 
+    checkAuth(); 
+  }, []);
 
   useEffect(() => {
     if (isAuthorized) {
@@ -56,7 +59,10 @@ export default function AdminExternalJobs() {
   async function checkAuth() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { window.location.href = '/admin-login'; return; }
+      if (!session) { 
+        window.location.href = '/admin-login'; 
+        return; 
+      }
       setUser(session.user);
       
       const { data: profile } = await supabase
@@ -72,7 +78,10 @@ export default function AdminExternalJobs() {
       }
       
       setIsAuthorized(true);
-    } catch (err) { window.location.href = '/admin-login'; }
+    } catch (err) { 
+      console.error('Auth error:', err);
+      window.location.href = '/admin-login'; 
+    }
   }
 
   async function loadStats() {
@@ -83,7 +92,9 @@ export default function AdminExternalJobs() {
       const approved = data?.filter(j => j.status === 'approved').length || 0;
       const rejected = data?.filter(j => j.status === 'rejected').length || 0;
       setStats({ pending, approved, rejected, total });
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error('Stats error:', err); 
+    }
   }
 
   async function loadJobs() {
@@ -106,9 +117,12 @@ export default function AdminExternalJobs() {
       setJobs(data || []);
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
     } catch (err) {
+      console.error('Load error:', err);
       setError('Failed to load external jobs');
       toast.error('Failed to load external jobs');
-    } finally { setLoading(false); }
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   async function fetchExternalJobs() {
@@ -154,6 +168,7 @@ export default function AdminExternalJobs() {
       await loadJobs();
       await loadStats();
     } catch (err) {
+      console.error('Refresh error:', err);
       toast.error('Force refresh failed', { id: 'force-refresh' });
     } finally {
       setFetching(false);
@@ -162,23 +177,39 @@ export default function AdminExternalJobs() {
 
   async function approveJob(id) {
     try { 
-      await supabase.from('external_jobs').update({ status: 'approved', reviewed_by: user?.id, reviewed_at: new Date().toISOString() }).eq('id', id); 
+      await supabase.from('external_jobs').update({ 
+        status: 'approved', 
+        reviewed_by: user?.id, 
+        reviewed_at: new Date().toISOString() 
+      }).eq('id', id); 
       toast.success('Job approved');
       await loadJobs(); 
       await loadStats(); 
-    } catch (err) { toast.error('Failed to approve'); }
+    } catch (err) { 
+      console.error('Approve error:', err);
+      toast.error('Failed to approve'); 
+    }
   }
 
   async function rejectJob(id) {
     try { 
-      await supabase.from('external_jobs').update({ status: 'rejected', reviewed_by: user?.id, reviewed_at: new Date().toISOString() }).eq('id', id); 
+      await supabase.from('external_jobs').update({ 
+        status: 'rejected', 
+        reviewed_by: user?.id, 
+        reviewed_at: new Date().toISOString() 
+      }).eq('id', id); 
       toast.success('Job rejected'); 
       await loadJobs(); 
       await loadStats(); 
-    } catch (err) { toast.error('Failed to reject'); }
+    } catch (err) { 
+      console.error('Reject error:', err);
+      toast.error('Failed to reject'); 
+    }
   }
 
-  async function deleteJob(id) { setShowDeleteConfirm({ id }); }
+  async function deleteJob(id) { 
+    setShowDeleteConfirm({ id }); 
+  }
   
   async function confirmDelete() {
     try { 
@@ -186,13 +217,21 @@ export default function AdminExternalJobs() {
       toast.success('Job deleted'); 
       await loadJobs(); 
       await loadStats(); 
-    } catch (err) { toast.error('Failed to delete'); }
-    finally { setShowDeleteConfirm(null); }
+    } catch (err) { 
+      console.error('Delete error:', err);
+      toast.error('Failed to delete'); 
+    } finally { 
+      setShowDeleteConfirm(null); 
+    }
   }
 
   function toggleSelectJob(id) {
     const newSet = new Set(selectedJobs);
-    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
     setSelectedJobs(newSet);
   }
 
@@ -224,14 +263,24 @@ export default function AdminExternalJobs() {
   const uniqueCountries = [...new Set(jobs.map(j => j.source_country).filter(Boolean))];
 
   if (!isAuthorized) {
-    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
       
-      <ConfirmModal isOpen={!!showDeleteConfirm} onClose={() => setShowDeleteConfirm(null)} onConfirm={confirmDelete} title="Confirm Delete" message="Delete this job? Cannot be undone." />
+      <ConfirmModal 
+        isOpen={!!showDeleteConfirm} 
+        onClose={() => setShowDeleteConfirm(null)} 
+        onConfirm={confirmDelete} 
+        title="Confirm Delete" 
+        message="Delete this job? Cannot be undone." 
+      />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
@@ -243,11 +292,19 @@ export default function AdminExternalJobs() {
             <p className="text-slate-400 text-sm">Fetch and moderate jobs from government portals</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2">
+            <button 
+              onClick={fetchExternalJobs} 
+              disabled={fetching} 
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50"
+            >
               {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               Fetch Jobs
             </button>
-            <button onClick={forceRefreshJobs} disabled={fetching} className="px-4 py-2 bg-purple-600 text-white rounded-lg flex items-center gap-2">
+            <button 
+              onClick={forceRefreshJobs} 
+              disabled={fetching} 
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg flex items-center gap-2 hover:bg-purple-500 disabled:opacity-50"
+            >
               <RefreshCw className="w-4 h-4" /> Force Refresh
             </button>
           </div>
@@ -255,10 +312,22 @@ export default function AdminExternalJobs() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Total</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Pending</p><p className="text-2xl font-bold text-amber-400">{stats.pending}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Approved</p><p className="text-2xl font-bold text-emerald-400">{stats.approved}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-xs">Rejected</p><p className="text-2xl font-bold text-red-400">{stats.rejected}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-slate-400 text-xs">Total</p>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-slate-400 text-xs">Pending</p>
+            <p className="text-2xl font-bold text-amber-400">{stats.pending}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-slate-400 text-xs">Approved</p>
+            <p className="text-2xl font-bold text-emerald-400">{stats.approved}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-slate-400 text-xs">Rejected</p>
+            <p className="text-2xl font-bold text-red-400">{stats.rejected}</p>
+          </div>
         </div>
 
         {/* Country Sources */}
@@ -279,54 +348,110 @@ export default function AdminExternalJobs() {
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+              <input 
+                type="text" 
+                placeholder="Search by title, company, or description..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" 
+              />
             </div>
-            <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+            <select 
+              value={selectedCountry} 
+              onChange={(e) => setSelectedCountry(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+            >
               <option value="all">All Countries</option>
-              {uniqueCountries.map(c => <option key={c} value={c}>{getCountryFlag(c)} {c}</option>)}
+              {uniqueCountries.map(c => (
+                <option key={c} value={c}>{getCountryFlag(c)} {c}</option>
+              ))}
             </select>
-            <select value={selectedSource} onChange={(e) => setSelectedSource(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+            <select 
+              value={selectedSource} 
+              onChange={(e) => setSelectedSource(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+            >
               <option value="all">All Sources</option>
-              {uniqueSources.map(s => <option key={s} value={s}>{s}</option>)}
+              {uniqueSources.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
             </select>
-            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+            <select 
+              value={selectedStatus} 
+              onChange={(e) => setSelectedStatus(e.target.value)} 
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+            >
               <option value="all">All Status</option>
               <option value="pending_approval">Pending</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
             </select>
-            <button onClick={loadJobs} className="px-4 py-2 bg-slate-700 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
+            <button 
+              onClick={loadJobs} 
+              className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
         {/* Bulk Actions */}
         {selectedJobs.size > 0 && (
-          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex justify-between items-center">
-            <span className="text-white">{selectedJobs.size} selected</span>
+          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-6 flex justify-between items-center flex-wrap gap-3">
+            <span className="text-white">{selectedJobs.size} job(s) selected</span>
             <div className="flex gap-3">
-              <button onClick={() => { selectedJobs.forEach(id => approveJob(id)); setSelectedJobs(new Set()); }} className="px-4 py-2 bg-emerald-600 rounded-lg">Approve</button>
-              <button onClick={() => { selectedJobs.forEach(id => rejectJob(id)); setSelectedJobs(new Set()); }} className="px-4 py-2 bg-red-600 rounded-lg">Reject</button>
+              <button 
+                onClick={() => { 
+                  selectedJobs.forEach(id => approveJob(id)); 
+                  setSelectedJobs(new Set()); 
+                }} 
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500"
+              >
+                Approve All
+              </button>
+              <button 
+                onClick={() => { 
+                  selectedJobs.forEach(id => rejectJob(id)); 
+                  setSelectedJobs(new Set()); 
+                }} 
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
+              >
+                Reject All
+              </button>
             </div>
           </div>
         )}
 
         {/* Jobs Table */}
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+            <span className="ml-2 text-slate-400">Loading jobs...</span>
+          </div>
         ) : error ? (
-          <div className="text-center py-12 text-red-400">{error}<button onClick={loadJobs} className="ml-2 text-primary-400">Retry</button></div>
+          <div className="text-center py-12">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <p className="text-red-400">{error}</p>
+            <button onClick={loadJobs} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg">Try Again</button>
+          </div>
         ) : jobs.length === 0 ? (
           <div className="text-center py-12">
             <Globe className="w-16 h-16 text-slate-700 mx-auto mb-4" />
             <p className="text-slate-400">No external jobs found</p>
-            <button onClick={fetchExternalJobs} className="mt-4 px-4 py-2 bg-primary-600 rounded-lg">Fetch Jobs</button>
+            <button onClick={fetchExternalJobs} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg">
+              Fetch Jobs
+            </button>
           </div>
         ) : (
           <>
             <div className="flex items-center gap-2 mb-3">
-              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400">
-                {selectedJobs.size === jobs.length ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4" />}
-                Select All ({jobs.length})
+              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-slate-400 hover:text-white">
+                {selectedJobs.size === jobs.length ? (
+                  <CheckCircle className="w-4 h-4 text-primary-400" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                <span className="text-sm">Select All ({jobs.length})</span>
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -334,11 +459,11 @@ export default function AdminExternalJobs() {
                 <thead className="bg-slate-800">
                   <tr>
                     <th className="px-4 py-3 w-10"></th>
-                    <th className="px-4 py-3 text-left">Source</th>
-                    <th className="px-4 py-3 text-left">Title / Company</th>
-                    <th className="px-4 py-3 text-left">Location</th>
-                    <th className="px-4 py-3 text-left">Status</th>
-                    <th className="px-4 py-3 text-left">Actions</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Source</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Title / Company</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Location</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Status</th>
+                    <th className="px-4 py-3 text-left text-white text-sm">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -347,7 +472,11 @@ export default function AdminExternalJobs() {
                       <tr className="border-t border-slate-800 hover:bg-slate-800/30">
                         <td className="px-4 py-3">
                           <button onClick={() => toggleSelectJob(job.id)}>
-                            {selectedJobs.has(job.id) ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+                            {selectedJobs.has(job.id) ? (
+                              <CheckCircle className="w-4 h-4 text-primary-400" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-500" />
+                            )}
                           </button>
                         </td>
                         <td className="px-4 py-3">
@@ -368,12 +497,38 @@ export default function AdminExternalJobs() {
                         <td className="px-4 py-3">{getStatusBadge(job.status)}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
-                            <button onClick={() => approveJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20"><ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /></button>
-                            <button onClick={() => rejectJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><ThumbsDown className="w-3.5 h-3.5 text-red-400" /></button>
-                            <button onClick={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)} className="p-1.5 bg-slate-800 rounded">
-                              {expandedJobId === job.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            <button 
+                              onClick={() => approveJob(job.id)} 
+                              className="p-1.5 bg-slate-800 rounded hover:bg-emerald-500/20 transition-colors"
+                              title="Approve"
+                            >
+                              <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />
                             </button>
-                            <button onClick={() => deleteJob(job.id)} className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                            <button 
+                              onClick={() => rejectJob(job.id)} 
+                              className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20 transition-colors"
+                              title="Reject"
+                            >
+                              <ThumbsDown className="w-3.5 h-3.5 text-red-400" />
+                            </button>
+                            <button 
+                              onClick={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)} 
+                              className="p-1.5 bg-slate-800 rounded hover:bg-slate-700 transition-colors"
+                              title="Details"
+                            >
+                              {expandedJobId === job.id ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button 
+                              onClick={() => deleteJob(job.id)} 
+                              className="p-1.5 bg-slate-800 rounded hover:bg-red-500/20 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -391,7 +546,9 @@ export default function AdminExternalJobs() {
                                   <p className="text-slate-400 text-sm">{job.salary_range}</p>
                                 </div>
                               )}
-                              <div className="text-xs text-slate-500">Fetched: {new Date(job.created_at).toLocaleString()}</div>
+                              <div className="text-xs text-slate-500">
+                                Fetched: {new Date(job.created_at).toLocaleString()}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -403,10 +560,24 @@ export default function AdminExternalJobs() {
             </div>
             {totalPages > 1 && (
               <div className="flex justify-between items-center mt-6">
-                <span className="text-sm text-slate-400">Page {currentPage} of {totalPages}</span>
+                <span className="text-sm text-slate-400">
+                  Page {currentPage} of {totalPages}
+                </span>
                 <div className="flex gap-2">
-                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-700 rounded-lg">Prev</button>
-                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-700 rounded-lg">Next</button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                    disabled={currentPage === 1} 
+                    className="px-3 py-1 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={currentPage === totalPages} 
+                    className="px-3 py-1 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
                 </div>
               </div>
             )}
