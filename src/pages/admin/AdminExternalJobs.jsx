@@ -3,25 +3,26 @@ import { createClient } from '@supabase/supabase-js';
 import { 
   Plus, Edit, Trash2, Briefcase, Search, RefreshCw, Loader2, 
   AlertCircle, CheckCircle, XCircle, ChevronDown, ChevronUp, 
-  Globe, Clock, MapPin, Building, ThumbsUp, ThumbsDown, X, Square, Save
+  Globe, Clock, MapPin, Building, ThumbsUp, ThumbsDown, X, Square, Save,
+  Database, Eye, EyeOff
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
-import { fetchGovernmentJobs, saveGovernmentJobsToSupabase } from '../../services/governmentJobService';
+import { fetchGovernmentJobs, saveGovernmentJobsToSupabase, refreshGovernmentJobs, getCacheStatus } from '../../services/governmentJobService';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Countries with flags
+// Countries with flags and portal info
 const SUPPORTED_COUNTRIES = [
-  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', portal: 'FindAJob (DWP)' },
-  { code: 'US', name: 'United States', flag: '🇺🇸', portal: 'USAJobs.gov' },
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', portal: 'NiYA Jobs' },
-  { code: 'CA', name: 'Canada', flag: '🇨🇦', portal: 'GC Jobs' },
-  { code: 'AU', name: 'Australia', flag: '🇦🇺', portal: 'APS Jobs' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪', portal: 'Bundesagentur' },
-  { code: 'FR', name: 'France', flag: '🇫🇷', portal: 'France Travail' }
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', portal: 'FindAJob (DWP)', color: 'blue' },
+  { code: 'US', name: 'United States', flag: '🇺🇸', portal: 'USAJobs.gov', color: 'red' },
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', portal: 'NiYA Jobs', color: 'green' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦', portal: 'GC Jobs', color: 'red' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺', portal: 'APS Jobs', color: 'blue' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪', portal: 'Bundesagentur', color: 'yellow' },
+  { code: 'FR', name: 'France', flag: '🇫🇷', portal: 'France Travail', color: 'blue' }
 ];
 
 export default function AdminExternalJobs() {
@@ -41,6 +42,7 @@ export default function AdminExternalJobs() {
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [cacheInfo, setCacheInfo] = useState({ isCached: false, cacheAge: 'No cache', jobCount: 0 });
 
   const itemsPerPage = 20;
 
@@ -50,6 +52,7 @@ export default function AdminExternalJobs() {
     if (isAuthorized) {
       loadJobs();
       loadStats();
+      updateCacheInfo();
     }
   }, [searchTerm, selectedSource, selectedCountry, selectedStatus, currentPage, isAuthorized]);
 
@@ -73,6 +76,11 @@ export default function AdminExternalJobs() {
       
       setIsAuthorized(true);
     } catch (err) { window.location.href = '/admin-login'; }
+  }
+
+  async function updateCacheInfo() {
+    const info = getCacheStatus();
+    setCacheInfo(info);
   }
 
   async function loadStats() {
@@ -117,58 +125,50 @@ export default function AdminExternalJobs() {
     toast.loading('Fetching jobs from government portals...', { id: 'fetch-jobs' });
     
     try {
+      // Fetch via serverless proxy (bypasses CORS)
       const governmentJobs = await fetchGovernmentJobs();
-      console.log(`Fetched ${governmentJobs.length} total government jobs`);
       
-      const { data: existingJobs } = await supabase
-        .from('external_jobs')
-        .select('title, company, source_name, source_country');
-      
-      const existingKeys = new Set(
-        existingJobs?.map(job => `${job.title}|${job.company}|${job.source_country}`) || []
-      );
-      
-      let newCount = 0;
-      for (const job of governmentJobs) {
-        const jobKey = `${job.title}|${job.company}|${job.country}`;
-        if (existingKeys.has(jobKey)) continue;
-        
-        const { error } = await supabase.from('external_jobs').insert({
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          source_name: job.source_name || 'Government Portal',
-          source_country: job.country,
-          description: job.description,
-          salary_range: job.salary_range,
-          job_type: job.job_type || 'full-time',
-          status: 'pending_approval',
-          created_at: new Date().toISOString(),
-          metadata: {
-            is_government: true,
-            department: job.department,
-            agency: job.agency,
-            grade_level: job.grade_level,
-            language: job.language,
-            application_url: job.source_url
-          }
-        });
-        
-        if (!error) newCount++;
+      if (!governmentJobs || governmentJobs.length === 0) {
+        toast.error('No jobs found. Please try again later.', { id: 'fetch-jobs' });
+        setFetching(false);
+        return;
       }
       
+      // Save to database
+      const newCount = await saveGovernmentJobsToSupabase(governmentJobs, user?.id);
+      
       if (newCount > 0) {
-        toast.success(`Fetched ${newCount} new government jobs from ${governmentJobs.filter(j => j.is_government).length} countries`, { id: 'fetch-jobs' });
+        toast.success(`Fetched ${newCount} new government jobs!`, { id: 'fetch-jobs' });
       } else {
-        toast.info('No new jobs found. Check back later!', { id: 'fetch-jobs' });
+        toast.info('No new jobs found. All jobs are already in the system.', { id: 'fetch-jobs' });
       }
       
       await loadJobs();
       await loadStats();
+      await updateCacheInfo();
       
     } catch (err) {
       console.error('Fetch error:', err);
       toast.error('Failed to fetch jobs. Please try again.', { id: 'fetch-jobs' });
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function forceRefreshJobs() {
+    setFetching(true);
+    toast.loading('Force refreshing government jobs...', { id: 'force-refresh' });
+    
+    try {
+      const governmentJobs = await refreshGovernmentJobs();
+      const newCount = await saveGovernmentJobsToSupabase(governmentJobs, user?.id);
+      
+      toast.success(`Refreshed ${governmentJobs.length} jobs (${newCount} new)`, { id: 'force-refresh' });
+      await loadJobs();
+      await loadStats();
+      await updateCacheInfo();
+    } catch (err) {
+      toast.error('Force refresh failed', { id: 'force-refresh' });
     } finally {
       setFetching(false);
     }
@@ -243,6 +243,11 @@ export default function AdminExternalJobs() {
     return country ? country.flag : '🌍';
   }
 
+  function getCountryName(countryCode) {
+    const country = SUPPORTED_COUNTRIES.find(c => c.code === countryCode);
+    return country ? country.name : countryCode;
+  }
+
   const uniqueSources = [...new Set(jobs.map(j => j.source_name).filter(Boolean))];
   const uniqueCountries = [...new Set(jobs.map(j => j.source_country).filter(Boolean))];
 
@@ -265,10 +270,23 @@ export default function AdminExternalJobs() {
             </h1>
             <p className="text-slate-400 text-sm">Fetch and moderate jobs from government portals across 7 countries</p>
           </div>
-          <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50">
-            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {fetching ? 'Fetching from Gov Portals...' : 'Fetch Government Jobs'}
-          </button>
+          <div className="flex gap-3">
+            <button onClick={fetchExternalJobs} disabled={fetching} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50">
+              {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {fetching ? 'Fetching...' : 'Fetch Government Jobs'}
+            </button>
+            <button onClick={forceRefreshJobs} disabled={fetching} className="px-4 py-2 bg-purple-600 text-white rounded-lg flex items-center gap-2 hover:bg-purple-500 disabled:opacity-50">
+              <Database className="w-4 h-4" />
+              Force Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Cache Status Bar */}
+        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-2 mb-4 text-center">
+          <p className="text-xs text-slate-400">
+            💾 Cache: {cacheInfo.isCached ? `Active (${cacheInfo.cacheAge}) - ${cacheInfo.jobCount} jobs cached` : 'No cache - First fetch will take a moment'}
+          </p>
         </div>
 
         {/* Stats Cards */}
@@ -303,7 +321,7 @@ export default function AdminExternalJobs() {
             </div>
             <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
               <option value="all">All Countries</option>
-              {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
+              {uniqueCountries.map(c => <option key={c} value={c}>{getCountryFlag(c)} {getCountryName(c)}</option>)}
             </select>
             <select value={selectedSource} onChange={(e) => setSelectedSource(e.target.value)} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
               <option value="all">All Sources</option>
@@ -378,7 +396,7 @@ export default function AdminExternalJobs() {
                             <p className="font-medium text-white">{job.title}</p>
                             <p className="text-sm text-slate-400">{job.company}</p>
                             {job.metadata?.is_government && (
-                              <span className="inline-flex items-center gap-1 text-xs mt-1 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">🏛️ Government</span>
+                              <span className="inline-flex items-center gap-1 text-xs mt-1 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">🏛️ Government</span>
                             )}
                           </div>
                         </td>
@@ -396,11 +414,28 @@ export default function AdminExternalJobs() {
                       {expandJobId === job.id && (
                         <tr className="border-t border-slate-800 bg-slate-900/30">
                           <td colSpan="6" className="px-6 py-4">
-                            <div className="space-y-2">
-                              <div><h4 className="text-sm font-semibold text-white mb-1">Description</h4><p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p></div>
-                              {job.salary_range && <div><h4 className="text-sm font-semibold text-white mb-1">Salary</h4><p className="text-slate-400 text-sm">{job.salary_range}</p></div>}
-                              {job.metadata?.application_url && <div><h4 className="text-sm font-semibold text-white mb-1">Application URL</h4><a href={job.metadata.application_url} target="_blank" rel="noopener noreferrer" className="text-primary-400 text-sm hover:underline">Apply on official website →</a></div>}
-                              <div className="flex gap-4 text-xs text-slate-500"><span>Fetched: {new Date(job.created_at).toLocaleString()}</span></div>
+                            <div className="space-y-3">
+                              <div>
+                                <h4 className="text-sm font-semibold text-white mb-1">Description</h4>
+                                <p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p>
+                              </div>
+                              {job.salary_range && (
+                                <div>
+                                  <h4 className="text-sm font-semibold text-white mb-1">Salary</h4>
+                                  <p className="text-slate-400 text-sm">{job.salary_range}</p>
+                                </div>
+                              )}
+                              {job.metadata?.application_url && (
+                                <div>
+                                  <h4 className="text-sm font-semibold text-white mb-1">Application URL</h4>
+                                  <a href={job.metadata.application_url} target="_blank" rel="noopener noreferrer" className="text-primary-400 text-sm hover:underline">Apply on official website →</a>
+                                </div>
+                              )}
+                              <div className="flex gap-4 text-xs text-slate-500">
+                                <span>Fetched: {new Date(job.created_at).toLocaleString()}</span>
+                                {job.metadata?.grade_level && <span>Grade: {job.metadata.grade_level}</span>}
+                                {job.metadata?.language && <span>Language: {job.metadata.language}</span>}
+                              </div>
                             </div>
                           </td>
                         </tr>
