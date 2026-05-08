@@ -1,52 +1,32 @@
+// tailwind.config.js
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
-        // Primary brand color - Sky Blue (Trust/Authority)
         primary: {
-          DEFAULT: '#0B3C5D',
-          50: '#e8f0f5',
-          100: '#d1e1eb',
-          200: '#a3c3d7',
-          300: '#75a5c3',
-          400: '#4787af',
-          500: '#0B3C5D',
-          600: '#09304a',
-          700: '#072438',
-          800: '#041825',
-          900: '#020c12',
+          50: '#f0f9ff',
+          100: '#e0f2fe',
+          200: '#bae6fd',
+          300: '#7dd3fc',
+          400: '#38bdf8',
+          500: '#0ea5e9',
+          600: '#0284c7',
+          700: '#0369a1',
+          800: '#075985',
+          900: '#0c4a6e',
+          950: '#082f49',
         },
-        // Secondary - Slate (Professional neutral)
-        secondary: {
-          DEFAULT: '#1F2937',
-          light: '#374151',
-          dark: '#111827',
-        },
-        // Success/Accept - Emerald (ONLY for accept actions)
-        success: {
-          DEFAULT: '#10B981',
-          dark: '#059669',
-        },
-        // Warning - Amber
-        warning: {
-          DEFAULT: '#F59E0B',
-        },
-        // Danger/Reject - Red
-        danger: {
-          DEFAULT: '#EF4444',
-        },
-        // Background
-        background: '#020617',
       },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+      animation: {
+        'fade-in': 'fadeIn 0.5s ease-out',
+        'slide-up': 'slideUp 0.6s ease-out',
+        'pulse-glow': 'pulseGlow 2s infinite',
+        'float': 'float 8s ease-in-out infinite',
+        'blink': 'blink 0.8s step-end infinite',
       },
     },
   },
   plugins: [],
-}
+};
