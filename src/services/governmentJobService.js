@@ -7,18 +7,26 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================
+// PERFORMANCE CONFIGURATION
+// ============================================
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+const REQUEST_TIMEOUT = 10000; // 10 seconds timeout
+let jobsCache = { data: null, timestamp: null };
+let isFetching = false; // Prevent concurrent fetches
+
+// ============================================
 // FREE GOVERNMENT JOB SOURCES - NO API KEYS REQUIRED
 // ============================================
 
-// 1. UNITED KINGDOM - FindAJob (DWP) - Free, no key
+// 1. UNITED KINGDOM - FindAJob (DWP)
 const UK_GOV_JOBS = {
   name: 'UK Government - FindAJob',
   country: 'GB',
+  flag: '🇬🇧',
   async fetch() {
     try {
-      // DWP FindAJob RSS Feed - Public and free
       const response = await axios.get('https://findajob.dwp.gov.uk/feeds/jobs.rss', {
-        timeout: 10000,
+        timeout: REQUEST_TIMEOUT,
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobBot/1.0)' }
       });
       
@@ -30,17 +38,10 @@ const UK_GOV_JOBS = {
           const title = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || '';
           const link = item.match(/<link>(.*?)<\/link>/)?.[1] || '';
           const description = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '';
-          const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || '';
-          
-          // Extract location from description
           const locationMatch = description.match(/Location:?\s*([^<,\n]+)/i);
           const location = locationMatch ? locationMatch[1].trim() : 'United Kingdom';
-          
-          // Extract salary
           const salaryMatch = description.match(/Salary:?\s*([^<,\n]+)/i);
           const salary = salaryMatch ? salaryMatch[1].trim() : 'Competitive';
-          
-          // Extract company (often "Employer: ...")
           const companyMatch = description.match(/Employer:?\s*([^<,\n]+)/i);
           const company = companyMatch ? companyMatch[1].trim() : 'UK Government';
           
@@ -61,21 +62,21 @@ const UK_GOV_JOBS = {
         });
       }
     } catch (err) {
-      console.log('UK Gov fetch failed:', err.message);
+      console.log(`⚠️ UK Gov fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 2. UNITED STATES - USAJobs RSS Feed (No API key needed)
+// 2. UNITED STATES - USAJobs RSS Feed
 const USA_GOV_JOBS = {
   name: 'USAJobs.gov',
   country: 'US',
+  flag: '🇺🇸',
   async fetch() {
     try {
-      // Public RSS feed - no authentication required
       const response = await axios.get('https://www.usajobs.gov/jobs/feed/rss', {
-        timeout: 10000,
+        timeout: REQUEST_TIMEOUT,
         headers: { 'User-Agent': 'Mozilla/5.0' }
       });
       
@@ -87,16 +88,10 @@ const USA_GOV_JOBS = {
           const title = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || '';
           const link = item.match(/<link>(.*?)<\/link>/)?.[1] || '';
           const description = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '';
-          
-          // Extract location
           const locationMatch = description.match(/Location:?\s*([^<,\n]+)/i);
           const location = locationMatch ? locationMatch[1].trim() : 'United States';
-          
-          // Extract agency
           const agencyMatch = description.match(/Agency:?\s*([^<,\n]+)/i);
           const agency = agencyMatch ? agencyMatch[1].trim() : 'U.S. Federal Government';
-          
-          // Extract salary grade
           const gradeMatch = description.match(/Grade:?\s*([^<,\n]+)/i);
           const grade = gradeMatch ? gradeMatch[1].trim() : '';
           
@@ -118,22 +113,22 @@ const USA_GOV_JOBS = {
         });
       }
     } catch (err) {
-      console.log('USAJobs fetch failed:', err.message);
+      console.log(`⚠️ USAJobs fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 3. CANADA - GC Jobs Public API (No key required)
+// 3. CANADA - GC Jobs Public API
 const CANADA_GOV_JOBS = {
   name: 'Government of Canada Jobs',
   country: 'CA',
+  flag: '🇨🇦',
   async fetch() {
     try {
-      // Public JSON API - no authentication
       const response = await axios.get('https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/v1/announcements', {
         params: { language: 'en', page: 1, count: 20 },
-        timeout: 10000
+        timeout: REQUEST_TIMEOUT
       });
       
       if (response.data && response.data.data) {
@@ -153,22 +148,22 @@ const CANADA_GOV_JOBS = {
         }));
       }
     } catch (err) {
-      console.log('Canada GC Jobs fetch failed:', err.message);
+      console.log(`⚠️ Canada GC Jobs fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 4. AUSTRALIA - APS Jobs (Web scraping - public)
+// 4. AUSTRALIA - APS Jobs API
 const AUSTRALIA_GOV_JOBS = {
   name: 'Australian Public Service',
   country: 'AU',
+  flag: '🇦🇺',
   async fetch() {
     try {
-      // APS Jobs search results - public
       const response = await axios.get('https://www.apsjobs.gov.au/api/v1/jobs', {
         params: { limit: 20, offset: 0 },
-        timeout: 10000,
+        timeout: REQUEST_TIMEOUT,
         headers: { 'Accept': 'application/json' }
       });
       
@@ -189,24 +184,24 @@ const AUSTRALIA_GOV_JOBS = {
         }));
       }
     } catch (err) {
-      console.log('Australia APS Jobs fetch failed:', err.message);
+      console.log(`⚠️ Australia APS Jobs fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 5. GERMANY - Bundesagentur für Arbeit (Free API)
+// 5. GERMANY - Bundesagentur für Arbeit
 const GERMANY_GOV_JOBS = {
   name: 'Bundesagentur für Arbeit',
   country: 'DE',
+  flag: '🇩🇪',
   async fetch() {
     try {
-      // Public job search API - no key required
       const response = await axios.post('https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs', 
         { limit: 20, page: 1 },
         { 
           headers: { 'Content-Type': 'application/json' },
-          timeout: 10000
+          timeout: REQUEST_TIMEOUT
         }
       );
       
@@ -227,22 +222,22 @@ const GERMANY_GOV_JOBS = {
         }));
       }
     } catch (err) {
-      console.log('Germany Jobs fetch failed:', err.message);
+      console.log(`⚠️ Germany Jobs fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 6. FRANCE - France Travail (Limited public endpoint)
+// 6. FRANCE - France Travail
 const FRANCE_GOV_JOBS = {
   name: 'France Travail',
   country: 'FR',
+  flag: '🇫🇷',
   async fetch() {
     try {
-      // Public search endpoint - limited but free
       const response = await axios.get('https://candidat.francetravail.fr/offres/search', {
         params: { limit: 20, sort: 'date' },
-        timeout: 10000,
+        timeout: REQUEST_TIMEOUT,
         headers: { 'User-Agent': 'Mozilla/5.0' }
       });
       
@@ -263,21 +258,21 @@ const FRANCE_GOV_JOBS = {
         }));
       }
     } catch (err) {
-      console.log('France Travail fetch failed:', err.message);
+      console.log(`⚠️ France Travail fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
-// 7. NIGERIA - Web scraping from NiYA portal
+// 7. NIGERIA - NiYA Jobs Portal
 const NIGERIA_GOV_JOBS = {
   name: 'NiYA Jobs Portal',
   country: 'NG',
+  flag: '🇳🇬',
   async fetch() {
     try {
-      // Nigeria Youth Employment Portal - public
       const response = await axios.get('https://jobs.niya.gov.ng/api/jobs', {
-        timeout: 10000,
+        timeout: REQUEST_TIMEOUT,
         headers: { 'Accept': 'application/json' }
       });
       
@@ -298,112 +293,152 @@ const NIGERIA_GOV_JOBS = {
         }));
       }
     } catch (err) {
-      console.log('Nigeria NiYA fetch failed:', err.message);
+      console.log(`⚠️ Nigeria NiYA fetch failed: ${err.message}`);
     }
     return [];
   }
 };
 
 // ============================================
-// REALISTIC FALLBACK JOBS (When APIs unavailable)
-// These represent REAL TYPES of government jobs
+// FALLBACK JOBS (When APIs unavailable)
 // ============================================
 
 function getFallbackJobs() {
   return [
     // United Kingdom (GB)
-    { title: 'Civil Service Fast Stream Graduate', company: 'UK Civil Service', location: 'London, UK', country: 'GB', description: 'Accelerated leadership development program for graduates. Applications open twice yearly.', salary_range: '£28,000 - £35,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'Cabinet Office' },
-    { title: 'Policy Advisor - Trade', company: 'Department for Business and Trade', location: 'London, UK', country: 'GB', description: 'Develop international trade policy. Requires economics or law background.', salary_range: '£42,000 - £55,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'DBT' },
-    { title: 'NHS Nurse (Band 5)', company: 'NHS England', location: 'Manchester, UK', country: 'GB', description: 'Staff nurse position in acute care. NMC registration required.', salary_range: '£28,407 - £34,581', job_type: 'full-time', source_name: 'NHS Jobs', is_government: true, department: 'NHS' },
-    { title: 'Border Force Officer', company: 'Home Office', location: 'Dover, UK', country: 'GB', description: 'Enforce immigration and customs regulations.', salary_range: '£25,000 - £32,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'Home Office' },
-    { title: 'HMRC Compliance Officer', company: 'HM Revenue & Customs', location: 'Newcastle, UK', country: 'GB', description: 'Investigate tax compliance and fraud cases.', salary_range: '£30,000 - £42,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'HMRC' },
-    
+    { title: 'Civil Service Fast Stream Graduate', company: 'UK Civil Service', location: 'London, UK', country: 'GB', description: 'Accelerated leadership development program for graduates.', salary_range: '£28,000 - £35,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'Cabinet Office' },
+    { title: 'Policy Advisor - Trade', company: 'Department for Business and Trade', location: 'London, UK', country: 'GB', description: 'Develop international trade policy.', salary_range: '£42,000 - £55,000', job_type: 'full-time', source_name: 'Civil Service Jobs', is_government: true, department: 'DBT' },
     // United States (US)
-    { title: 'IT Specialist (GS-2210-12)', company: 'Department of Homeland Security', location: 'Arlington, VA', country: 'US', description: 'Manage federal IT systems. GS-12 level position.', salary_range: '$86,000 - $112,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, grade_level: 'GS-12', agency: 'DHS' },
-    { title: 'Foreign Service Officer', company: 'Department of State', location: 'Washington, DC', country: 'US', description: 'Diplomatic service position. Requires Foreign Service Exam.', salary_range: '$56,000 - $85,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, agency: 'State Department' },
-    { title: 'FBI Special Agent', company: 'Federal Bureau of Investigation', location: 'Quantico, VA', country: 'US', description: 'Investigate federal crimes. Must pass physical fitness test.', salary_range: '$65,000 - $95,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, agency: 'FBI' },
-    { title: 'CDC Public Health Analyst', company: 'Centers for Disease Control', location: 'Atlanta, GA', country: 'US', description: 'Analyze public health data and policy.', salary_range: '$75,000 - $105,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, agency: 'CDC' },
-    { title: 'NASA Aerospace Engineer', company: 'National Aeronautics and Space Administration', location: 'Houston, TX', country: 'US', description: 'Design and test aerospace systems.', salary_range: '$90,000 - $130,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, agency: 'NASA' },
-    
-    // Nigeria (NG)
-    { title: 'Federal Civil Service Graduate Trainee', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', country: 'NG', description: 'Entry-level position for graduates. Nationwide posting.', salary_range: '₦150,000 - ₦250,000', job_type: 'full-time', source_name: 'Federal Civil Service', is_government: true, department: 'FCSC' },
-    { title: 'N-Power Programme Officer', company: 'National Social Investment Office', location: 'State Capitals, Nigeria', country: 'NG', description: 'Coordinate N-Power youth empowerment programs.', salary_range: '₦30,000 monthly stipend', job_type: 'contract', source_name: 'N-Power', is_government: true, department: 'NSIO' },
-    { title: 'Nigeria Customs Officer', company: 'Nigeria Customs Service', location: 'Lagos, Nigeria', country: 'NG', description: 'Enforce customs regulations at ports.', salary_range: '₦120,000 - ₦200,000', job_type: 'full-time', source_name: 'Customs Service', is_government: true, department: 'NCS' },
-    
+    { title: 'IT Specialist (GS-2210-12)', company: 'Department of Homeland Security', location: 'Arlington, VA', country: 'US', description: 'Manage federal IT systems.', salary_range: '$86,000 - $112,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, grade_level: 'GS-12', agency: 'DHS' },
+    { title: 'Foreign Service Officer', company: 'Department of State', location: 'Washington, DC', country: 'US', description: 'Diplomatic service position.', salary_range: '$56,000 - $85,000', job_type: 'full-time', source_name: 'USAJobs', is_government: true, agency: 'State Department' },
     // Canada (CA)
     { title: 'EC-04 Policy Analyst', company: 'Privy Council Office', location: 'Ottawa, ON', country: 'CA', description: 'Analyze policy options for federal government.', salary_range: 'CAD 70,000 - CAD 85,000', job_type: 'full-time', source_name: 'GC Jobs', is_government: true, department: 'PCO' },
-    { title: 'IT-01 Technical Support', company: 'Shared Services Canada', location: 'Toronto, ON', country: 'CA', description: 'IT support for government systems.', salary_range: 'CAD 60,000 - CAD 75,000', job_type: 'full-time', source_name: 'GC Jobs', is_government: true, department: 'SSC' },
-    { title: 'Park Canada Ranger', company: 'Parks Canada', location: 'Banff, AB', country: 'CA', description: 'Protect and interpret national parks.', salary_range: 'CAD 55,000 - CAD 70,000', job_type: 'full-time', source_name: 'GC Jobs', is_government: true, department: 'Parks Canada' },
-    
     // Australia (AU)
-    { title: 'APS 4 Program Officer', company: 'Department of Home Affairs', location: 'Canberra, ACT', country: 'AU', description: 'Coordinate program delivery and stakeholder engagement.', salary_range: 'AUD 75,000 - AUD 85,000', job_type: 'full-time', source_name: 'APS Jobs', is_government: true, department: 'Home Affairs' },
-    { title: 'APS 6 Policy Officer', company: 'Department of Prime Minister and Cabinet', location: 'Canberra, ACT', country: 'AU', description: 'Develop and implement government policy.', salary_range: 'AUD 95,000 - AUD 110,000', job_type: 'full-time', source_name: 'APS Jobs', is_government: true, department: 'PM&C' },
-    
+    { title: 'APS 4 Program Officer', company: 'Department of Home Affairs', location: 'Canberra, ACT', country: 'AU', description: 'Coordinate program delivery.', salary_range: 'AUD 75,000 - AUD 85,000', job_type: 'full-time', source_name: 'APS Jobs', is_government: true, department: 'Home Affairs' },
     // Germany (DE)
-    { title: 'IT-Referent/in (m/w/d) Bundesverwaltung', company: 'Bundesministerium des Innern', location: 'Berlin, Germany', country: 'DE', description: 'Leitung von IT-Projekten im Bundesinnenministerium.', salary_range: '€65,000 - €85,000', job_type: 'full-time', source_name: 'Bund.de', is_government: true, language: 'DE', department: 'BMI' },
-    { title: 'Wirtschaftswissenschaftler/in', company: 'Bundesministerium für Wirtschaft', location: 'Berlin, Germany', country: 'DE', description: 'Analyse und Entwicklung wirtschaftspolitischer Maßnahmen.', salary_range: '€60,000 - €80,000', job_type: 'full-time', source_name: 'Bund.de', is_government: true, language: 'DE', department: 'BMWK' },
-    
+    { title: 'IT-Referent/in (m/w/d)', company: 'Bundesministerium des Innern', location: 'Berlin, Germany', country: 'DE', description: 'Leitung von IT-Projekten.', salary_range: '€65,000 - €85,000', job_type: 'full-time', source_name: 'Bund.de', is_government: true, language: 'DE', department: 'BMI' },
     // France (FR)
-    { title: 'Attaché d\'administration d\'État', company: 'Ministère de l\'Économie', location: 'Paris, France', country: 'FR', description: 'Gestion administrative pour l\'État français.', salary_range: '€45,000 - €60,000', job_type: 'full-time', source_name: 'France Travail', is_government: true, language: 'FR', department: 'Bercy' },
-    { title: 'Ingénieur des Ponts (IPEF)', company: 'Ministère de la Transition Écologique', location: 'Paris, France', country: 'FR', description: 'Ingénieur pour les projets d\'infrastructure publique.', salary_range: '€55,000 - €75,000', job_type: 'full-time', source_name: 'France Travail', is_government: true, language: 'FR', department: 'MTECT' }
+    { title: 'Attaché d\'administration', company: 'Ministère de l\'Économie', location: 'Paris, France', country: 'FR', description: 'Gestion administrative.', salary_range: '€45,000 - €60,000', job_type: 'full-time', source_name: 'France Travail', is_government: true, language: 'FR', department: 'Bercy' },
+    // Nigeria (NG)
+    { title: 'Federal Civil Service Graduate Trainee', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', country: 'NG', description: 'Entry-level position for graduates.', salary_range: '₦150,000 - ₦250,000', job_type: 'full-time', source_name: 'Federal Civil Service', is_government: true, department: 'FCSC' }
   ];
 }
 
 // ============================================
-// MASTER FETCH FUNCTION
+// PERFORMANCE-OPTIMIZED MASTER FETCH FUNCTION
 // ============================================
 
-export async function fetchGovernmentJobs() {
+/**
+ * Fetches government jobs from all 7 countries with performance optimizations:
+ * - 5-minute cache to prevent repeated slow loads
+ * - Parallel fetching with Promise.allSettled (non-blocking)
+ * - 10-second timeouts to prevent hanging
+ * - Prevents concurrent fetches
+ * 
+ * @param {boolean} forceRefresh - Force refresh cache (default: false)
+ * @returns {Promise<Array>} - Array of job objects
+ */
+export async function fetchGovernmentJobs(forceRefresh = false) {
+  // Check cache first
+  if (!forceRefresh && jobsCache.data && (Date.now() - jobsCache.timestamp) < CACHE_DURATION) {
+    console.log('📦 Returning cached government jobs (', jobsCache.data.length, 'jobs)');
+    return jobsCache.data;
+  }
+  
+  // Prevent concurrent fetches
+  if (isFetching) {
+    console.log('⏳ Fetch already in progress, waiting...');
+    // Wait for existing fetch to complete
+    await new Promise(resolve => {
+      const checkInterval = setInterval(() => {
+        if (!isFetching) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+    });
+    return jobsCache.data || [];
+  }
+  
+  isFetching = true;
+  console.log('🚀 Fetching fresh government jobs from all 7 countries...');
+  
   const sources = [
-    UK_GOV_JOBS,
-    USA_GOV_JOBS,
-    CANADA_GOV_JOBS,
-    AUSTRALIA_GOV_JOBS,
-    GERMANY_GOV_JOBS,
-    FRANCE_GOV_JOBS,
-    NIGERIA_GOV_JOBS
+    UK_GOV_JOBS, USA_GOV_JOBS, CANADA_GOV_JOBS, 
+    AUSTRALIA_GOV_JOBS, GERMANY_GOV_JOBS, FRANCE_GOV_JOBS, NIGERIA_GOV_JOBS
   ];
+  
+  // Fetch in parallel with timeouts
+  const fetchWithTimeout = (source) => {
+    return Promise.race([
+      source.fetch(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${source.name} timeout`)), REQUEST_TIMEOUT))
+    ]).catch(err => {
+      console.log(`⚠️ ${source.name} failed: ${err.message}`);
+      return []; // Return empty array on failure
+    });
+  };
+  
+  const results = await Promise.allSettled(sources.map(s => fetchWithTimeout(s)));
   
   let allJobs = [];
   let successCount = 0;
   
-  for (const source of sources) {
-    try {
-      console.log(`Fetching from ${source.name}...`);
-      const jobs = await source.fetch();
-      if (jobs && jobs.length > 0) {
-        console.log(`✅ ${source.name}: ${jobs.length} jobs found`);
-        allJobs.push(...jobs);
-        successCount++;
-      } else {
-        console.log(`⚠️ ${source.name}: No jobs found, using fallback`);
-        // Add fallback jobs for this country
-        const fallbackJobs = getFallbackJobs().filter(j => j.country === source.country);
-        allJobs.push(...fallbackJobs);
-      }
-    } catch (err) {
-      console.error(`❌ ${source.name} failed:`, err.message);
-      // Add fallback jobs for this country
-      const fallbackJobs = getFallbackJobs().filter(j => j.country === source.country);
-      allJobs.push(...fallbackJobs);
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const source = sources[i];
+    
+    if (result.status === 'fulfilled' && result.value.length > 0) {
+      allJobs.push(...result.value);
+      successCount++;
+      console.log(`✅ ${source.name}: ${result.value.length} jobs`);
+    } else {
+      // Use fallback for failed sources
+      const fallback = getFallbackJobs().filter(j => j.country === source.country);
+      allJobs.push(...fallback);
+      console.log(`📋 ${source.name}: Using ${fallback.length} fallback jobs`);
     }
   }
   
-  // Ensure all 7 countries have at least some jobs
-  const countries = ['GB', 'US', 'NG', 'CA', 'AU', 'DE', 'FR'];
-  for (const country of countries) {
-    const hasJobs = allJobs.some(j => j.country === country);
-    if (!hasJobs) {
-      const fallbackJobs = getFallbackJobs().filter(j => j.country === country);
-      allJobs.push(...fallbackJobs);
-      console.log(`📋 Added ${fallbackJobs.length} fallback jobs for ${country}`);
-    }
-  }
+  // Cache the results
+  jobsCache = { data: allJobs, timestamp: Date.now() };
+  isFetching = false;
   
-  console.log(`🎯 Total government jobs: ${allJobs.length}`);
+  console.log(`🎯 Total government jobs: ${allJobs.length} from ${successCount}/${sources.length} sources`);
   return allJobs;
 }
 
+/**
+ * Force refresh cache (ignores existing cache)
+ */
+export async function refreshGovernmentJobs() {
+  return fetchGovernmentJobs(true);
+}
+
+/**
+ * Clear the cache (forces next fetch to get fresh data)
+ */
+export function clearGovernmentJobsCache() {
+  jobsCache = { data: null, timestamp: null };
+  console.log('🗑️ Government jobs cache cleared');
+}
+
+/**
+ * Get cache status
+ */
+export function getCacheStatus() {
+  const isCached = jobsCache.data !== null;
+  const cacheAge = isCached ? Date.now() - jobsCache.timestamp : null;
+  return {
+    isCached,
+    cacheAge: cacheAge ? Math.round(cacheAge / 1000) + ' seconds' : 'No cache',
+    jobCount: jobsCache.data?.length || 0
+  };
+}
+
+/**
+ * Save government jobs to Supabase with deduplication
+ */
 export async function saveGovernmentJobsToSupabase(jobs, userId) {
   if (!jobs || jobs.length === 0) return 0;
   
@@ -453,3 +488,14 @@ export async function saveGovernmentJobsToSupabase(jobs, userId) {
   console.log(`✅ Saved ${newCount} new jobs (${govCount} government)`);
   return newCount;
 }
+
+// Export individual fetchers for testing
+export { 
+  UK_GOV_JOBS, 
+  USA_GOV_JOBS, 
+  CANADA_GOV_JOBS, 
+  AUSTRALIA_GOV_JOBS, 
+  GERMANY_GOV_JOBS, 
+  FRANCE_GOV_JOBS, 
+  NIGERIA_GOV_JOBS 
+};
