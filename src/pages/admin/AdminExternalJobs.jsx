@@ -530,7 +530,7 @@ export default function AdminExternalJobs() {
                               <Trash2 className="w-3.5 h-3.5 text-red-400" />
                             </button>
                           </div>
-                        </td>
+                        </tr>
                       </tr>
                       {expandedJobId === job.id && (
                         <tr className="border-t border-slate-800 bg-slate-900/30">
