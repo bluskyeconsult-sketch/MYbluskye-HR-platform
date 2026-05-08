@@ -1,12 +1,15 @@
 // src/pages/admin/AdminExternalJobs.jsx
-// ADMIN PAGE: Review and approve external jobs from government sources
+// COMPLETE ADMIN PAGE: Review and approve external jobs from government sources
+// Includes: individual approve/reject, batch approve, SQL sync, job type mapping
 
 import { useState, useEffect } from 'react';
 import { 
     getPendingExternalJobs, 
     approveExternalJob, 
     rejectExternalJob,
-    triggerJobFetch 
+    triggerJobFetch,
+    batchApproveExternalJobs,
+    loadJobsFromSQL
 } from '../../services/externalJobService';
 import { supabase } from '../../lib/supabase';
 import { 
@@ -21,7 +24,8 @@ import {
     Clock,
     MapPin,
     DollarSign,
-    Building2
+    Building2,
+    Database
 } from 'lucide-react';
 
 export default function AdminExternalJobs() {
@@ -33,6 +37,8 @@ export default function AdminExternalJobs() {
     const [rejectReason, setRejectReason] = useState('');
     const [showRejectModal, setShowRejectModal] = useState(false);
     const [rejectingId, setRejectingId] = useState(null);
+    const [batchProcessing, setBatchProcessing] = useState(false);
+    const [syncingSQL, setSyncingSQL] = useState(false);
     const [user, setUser] = useState(null);
 
     useEffect(() => {
@@ -92,6 +98,47 @@ export default function AdminExternalJobs() {
         }
     }
 
+    async function handleBatchApprove() {
+        if (jobs.length === 0) {
+            alert('No pending jobs to approve');
+            return;
+        }
+        
+        if (!window.confirm(`Approve ALL ${jobs.length} pending jobs? This cannot be undone.`)) {
+            return;
+        }
+        
+        setBatchProcessing(true);
+        try {
+            const result = await batchApproveExternalJobs();
+            alert(`✅ Batch approve complete!\nApproved: ${result.approved}\nFailed: ${result.failed}`);
+            await loadPendingJobs();
+        } catch (error) {
+            console.error('Batch approve error:', error);
+            alert('Error in batch approval: ' + error.message);
+        } finally {
+            setBatchProcessing(false);
+        }
+    }
+
+    async function handleSyncFromSQL() {
+        if (!window.confirm('Sync existing SQL jobs? This will mark any jobs already in your database as approved.')) {
+            return;
+        }
+        
+        setSyncingSQL(true);
+        try {
+            const result = await loadJobsFromSQL();
+            alert(`✅ Synced ${result.count} existing jobs from database`);
+            await loadPendingJobs();
+        } catch (error) {
+            console.error('Sync error:', error);
+            alert('Error syncing: ' + error.message);
+        } finally {
+            setSyncingSQL(false);
+        }
+    }
+
     async function handleReject(jobId) {
         if (!rejectReason.trim()) {
             alert('Please provide a reason for rejection');
@@ -135,14 +182,30 @@ export default function AdminExternalJobs() {
         return flags[countryCode] || '🌍';
     }
 
+    function getCountryName(countryCode) {
+        const names = {
+            GB: 'United Kingdom',
+            NG: 'Nigeria',
+            IE: 'Ireland',
+            CA: 'Canada',
+            US: 'United States',
+            DE: 'Germany',
+            AU: 'Australia'
+        };
+        return names[countryCode] || countryCode;
+    }
+
     function getJobTypeBadge(jobType) {
         const types = {
             full_time: { label: 'Full Time', color: 'bg-emerald-500/20 text-emerald-400' },
             part_time: { label: 'Part Time', color: 'bg-blue-500/20 text-blue-400' },
             remote: { label: 'Remote', color: 'bg-purple-500/20 text-purple-400' },
-            contract: { label: 'Contract', color: 'bg-amber-500/20 text-amber-400' }
+            contract: { label: 'Contract', color: 'bg-amber-500/20 text-amber-400' },
+            freelance: { label: 'Freelance', color: 'bg-pink-500/20 text-pink-400' },
+            hybrid: { label: 'Hybrid', color: 'bg-cyan-500/20 text-cyan-400' },
+            onsite: { label: 'On-site', color: 'bg-slate-500/20 text-slate-400' }
         };
-        const info = types[jobType] || { label: jobType, color: 'bg-slate-500/20 text-slate-400' };
+        const info = types[jobType] || { label: jobType || 'Unknown', color: 'bg-slate-500/20 text-slate-400' };
         return <span className={`text-xs px-2 py-0.5 rounded-full ${info.color}`}>{info.label}</span>;
     }
 
@@ -172,18 +235,37 @@ export default function AdminExternalJobs() {
                             Review and approve jobs from authoritative government sources across 7 countries
                         </p>
                     </div>
-                    <button
-                        onClick={handleFetchJobs}
-                        disabled={fetching}
-                        className="mt-4 sm:mt-0 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-                    >
-                        {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        {fetching ? 'Fetching...' : 'Fetch New Jobs'}
-                    </button>
+                    <div className="flex gap-2 mt-4 sm:mt-0">
+                        <button
+                            onClick={handleSyncFromSQL}
+                            disabled={syncingSQL}
+                            className="px-4 py-2 bg-primary-600/80 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Sync jobs already in database from SQL scripts"
+                        >
+                            {syncingSQL ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                            Sync SQL Jobs
+                        </button>
+                        <button
+                            onClick={handleBatchApprove}
+                            disabled={batchProcessing || jobs.length === 0}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {batchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                            Batch Approve ({jobs.length})
+                        </button>
+                        <button
+                            onClick={handleFetchJobs}
+                            disabled={fetching}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            {fetching ? 'Fetching...' : 'Fetch New Jobs'}
+                        </button>
+                    </div>
                 </div>
 
                 {/* Stats Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center gap-3">
                             <Clock className="w-6 h-6 text-amber-400" />
@@ -211,6 +293,15 @@ export default function AdminExternalJobs() {
                             </div>
                         </div>
                     </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center gap-3">
+                            <Database className="w-6 h-6 text-primary-400" />
+                            <div>
+                                <div className="text-2xl font-bold text-white">SQL Import Ready</div>
+                                <div className="text-sm text-slate-400">Insert via SQL → Approve here</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Jobs List */}
@@ -219,7 +310,24 @@ export default function AdminExternalJobs() {
                         <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
                         <p className="text-slate-400">
-                            All external jobs have been reviewed. Click "Fetch New Jobs" to import more.
+                            All external jobs have been reviewed.
+                        </p>
+                        <div className="mt-4 flex gap-3 justify-center">
+                            <button
+                                onClick={handleFetchJobs}
+                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                            >
+                                Fetch New Jobs
+                            </button>
+                            <button
+                                onClick={handleSyncFromSQL}
+                                className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors"
+                            >
+                                Sync SQL Jobs
+                            </button>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-4">
+                            💡 Tip: You can also insert jobs directly via SQL and they will appear here for approval.
                         </p>
                     </div>
                 ) : (
@@ -245,7 +353,7 @@ export default function AdminExternalJobs() {
                                         
                                         <div className="flex flex-wrap gap-4 text-sm text-slate-400 mb-3">
                                             <span className="flex items-center gap-1">
-                                                <MapPin className="w-3 h-3" /> {job.location || job.source_country}
+                                                <MapPin className="w-3 h-3" /> {job.location || getCountryName(job.source_country)}
                                             </span>
                                             <span className="flex items-center gap-1">
                                                 <DollarSign className="w-3 h-3" /> {job.salary_range || 'Competitive'}
@@ -254,7 +362,7 @@ export default function AdminExternalJobs() {
                                         
                                         {job.description && (
                                             <p className="text-slate-400 text-sm line-clamp-2">
-                                                {job.description}
+                                                {job.description.replace(/<[^>]*>/g, '').substring(0, 200)}...
                                             </p>
                                         )}
                                         
@@ -298,10 +406,11 @@ export default function AdminExternalJobs() {
                                 </div>
                                 
                                 {/* Expanded Preview */}
-                                {selectedJob?.id === job.id && job.description && (
+                                {selectedJob?.id === job.id && (
                                     <div className="mt-4 pt-4 border-t border-slate-800">
                                         <h4 className="text-white font-semibold mb-2">Full Description</h4>
-                                        <p className="text-slate-400 text-sm whitespace-pre-wrap">{job.description}</p>
+                                        <div className="text-slate-400 text-sm whitespace-pre-wrap" 
+                                             dangerouslySetInnerHTML={{ __html: job.description || 'No description provided.' }} />
                                         {job.external_apply_url && (
                                             <a 
                                                 href={job.external_apply_url} 
@@ -337,6 +446,7 @@ export default function AdminExternalJobs() {
                                 placeholder="Reason for rejection (required)..."
                                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 mb-4"
                                 rows="3"
+                                required
                             />
                             <div className="flex gap-3">
                                 <button
