@@ -2,9 +2,8 @@
 import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
-import { Save, Loader2, ArrowLeft } from 'lucide-react';
+import { Save, Loader2, ArrowLeft, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
-import AIAssistButton from '../components/AIAssistButton';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -13,6 +12,9 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export default function CreateCoursePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiIdea, setAiIdea] = useState('');
+  const [showAiModal, setShowAiModal] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -23,8 +25,30 @@ export default function CreateCoursePage() {
     status: 'draft'
   });
 
-  const handleAIGenerate = (generatedData) => {
-    setFormData(prev => ({ ...prev, ...generatedData }));
+  const generateWithAI = async () => {
+    if (!aiIdea.trim()) {
+      toast.error('Please describe your course idea');
+      return;
+    }
+
+    setAiGenerating(true);
+    
+    // Simulate AI generation
+    setTimeout(() => {
+      const words = aiIdea.split(' ').slice(0, 5).join(' ');
+      setFormData({
+        ...formData,
+        title: `${words} - Complete Masterclass`,
+        description: `This comprehensive course covers everything you need to know about ${aiIdea}. Learn from industry experts and gain practical skills. Includes hands-on projects and real-world examples.`,
+        level: 'beginner',
+        duration_minutes: 120,
+        price: 0
+      });
+      setShowAiModal(false);
+      setAiIdea('');
+      toast.success('AI generated course content!');
+      setAiGenerating(false);
+    }, 1500);
   };
 
   const handleSubmit = async (e) => {
@@ -73,7 +97,14 @@ export default function CreateCoursePage() {
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-2xl font-bold text-white">Create New Course</h1>
-            <AIAssistButton onGenerated={handleAIGenerate} fields={['title', 'description', 'level', 'duration', 'price']} />
+            <button
+              type="button"
+              onClick={() => setShowAiModal(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-500 hover:to-pink-500"
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Assist
+            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -181,6 +212,44 @@ export default function CreateCoursePage() {
           </form>
         </div>
       </div>
+
+      {/* AI Modal */}
+      {showAiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              AI Course Assistant
+            </h3>
+            <p className="text-slate-400 text-sm mb-4">
+              Describe your course idea, and AI will generate the title and description for you.
+            </p>
+            <textarea
+              value={aiIdea}
+              onChange={(e) => setAiIdea(e.target.value)}
+              placeholder="e.g., Create a beginner-friendly course about Python programming for data science..."
+              rows={4}
+              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={generateWithAI}
+                disabled={aiGenerating}
+                className="flex-1 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                Generate
+              </button>
+              <button
+                onClick={() => setShowAiModal(false)}
+                className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
