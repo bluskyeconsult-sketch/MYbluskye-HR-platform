@@ -20,6 +20,7 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 import ScrollingBanner from './components/ScrollingBanner';
+import FraudAlertBanner from './components/FraudAlertBanner';
 
 // Public Pages (Lazy Loaded)
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -79,7 +80,7 @@ const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
 const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
 
-// NEW: Additional Admin Pages
+// Additional Admin Pages
 const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
 const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
@@ -89,7 +90,6 @@ const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 // SUPER ADMIN PAGES
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
-const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'));
 const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
 
 // Legal Pages (Lazy Loaded)
@@ -134,7 +134,7 @@ function AnimatedPage({ children }) {
   );
 }
 
-// Protected Route Component with caching
+// Protected Route Component
 const routeCache = new Map();
 
 function ProtectedRoute({ children, allowedRoles = [] }) {
@@ -251,6 +251,7 @@ function AppContent() {
   return (
     <>
       <Navbar />
+      <FraudAlertBanner />
       <ScrollingBanner />
       <main className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
         <div className="w-full px-4 sm:px-6 lg:px-8">
@@ -343,13 +344,8 @@ function AppContent() {
                   <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
-
-                  {/* ========================================== */}
-                  {/* SUPER ADMIN ROUTES */}
-                  {/* ========================================== */}
                   <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/jobs" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
-                  <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/audit" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminAudit /></AnimatedPage></ProtectedRoute>} />
 
                   {/* ========================================== */}
