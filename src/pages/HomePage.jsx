@@ -1,5 +1,5 @@
 // src/pages/HomePage.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
@@ -10,31 +10,22 @@ import {
 } from 'lucide-react';
 import HeroSection from '../components/HeroSection';
 import PromoBanner from '../components/PromoBanner';
-import { useInView } from 'react-intersection-observer';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Stagger animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: {
-      staggerChildren: 0.1,
-      delayChildren: 0.2
-    }
+    transition: { staggerChildren: 0.1, delayChildren: 0.2 }
   }
 };
 
 const itemVariants = {
   hidden: { opacity: 0, y: 30 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: "easeOut" }
-  }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
 };
 
 export default function HomePage() {
@@ -42,10 +33,11 @@ export default function HomePage() {
   const [articles, setArticles] = useState([]);
   const [countryStats, setCountryStats] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isStatsVisible, setIsStatsVisible] = useState(false);
+  const [isFeaturesVisible, setIsFeaturesVisible] = useState(false);
   
-  const statsRef = useInView({ triggerOnce: true, threshold: 0.3 });
-  const featuresRef = useInView({ triggerOnce: true, threshold: 0.3 });
-  const articlesRef = useInView({ triggerOnce: true, threshold: 0.3 });
+  const statsRef = useRef(null);
+  const featuresRef = useRef(null);
 
   const countries = [
     { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
@@ -59,17 +51,37 @@ export default function HomePage() {
 
   const features = [
     { icon: Sparkles, title: "AI-Powered Intelligence", description: "ODUSBABA learns from every interaction to provide smarter recommendations", color: "primary" },
-    { icon: Shield, title: "Governed Trust", description: "Every skill verified through AI and human oversight for maximum reliability", color: "emerald" },
-    { icon: Globe, title: "Global Workforce", description: "Connect with professionals and employers from around the world", color: "purple" },
+    { icon: Shield, title: "Governed Trust", description: "Every skill verified through AI and human oversight", color: "emerald" },
+    { icon: Globe, title: "Global Workforce", description: "Connect with professionals from around the world", color: "purple" },
     { icon: Users, title: "7 Countries", description: "UK, Nigeria, US, Canada, AU, DE, FR - with more coming", color: "blue", highlight: true },
-    { icon: Zap, title: "Real-Time Matching", description: "Instant job and skill matching powered by advanced AI algorithms", color: "amber" },
-    { icon: Award, title: "Value Partnership", description: "Creating Value for Partnership in every interaction and transaction", color: "pink" }
+    { icon: Zap, title: "Real-Time Matching", description: "Instant job and skill matching powered by AI", color: "amber" },
+    { icon: Award, title: "Value Partnership", description: "Creating Value for Partnership in every interaction", color: "pink" }
   ];
 
   useEffect(() => {
     loadStats();
     loadArticles();
     loadCountryStats();
+    
+    // Intersection Observer for scroll animations
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.target.id === 'stats-section') {
+            setIsStatsVisible(entry.isIntersecting);
+          }
+          if (entry.target.id === 'features-section') {
+            setIsFeaturesVisible(entry.isIntersecting);
+          }
+        });
+      },
+      { threshold: 0.3, triggerOnce: true }
+    );
+    
+    if (statsRef.current) observer.observe(statsRef.current);
+    if (featuresRef.current) observer.observe(featuresRef.current);
+    
+    return () => observer.disconnect();
   }, []);
 
   async function loadStats() {
@@ -85,9 +97,7 @@ export default function HomePage() {
         courses: coursesCount || 0,
         assessments: assessmentsCount || 0
       });
-    } catch (err) { 
-      console.error('Error loading stats:', err); 
-    }
+    } catch (err) { console.error(err); }
   }
 
   async function loadCountryStats() {
@@ -101,9 +111,7 @@ export default function HomePage() {
         countryData.push({ ...country, jobCount: count || 0 });
       }
       setCountryStats(countryData);
-    } catch (err) { 
-      console.error('Error loading country stats:', err); 
-    }
+    } catch (err) { console.error(err); }
   }
 
   async function loadArticles() {
@@ -115,11 +123,8 @@ export default function HomePage() {
         .order('created_at', { ascending: false })
         .limit(3);
       setArticles(data || []);
-    } catch (err) { 
-      console.error('Error loading articles:', err); 
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -128,11 +133,10 @@ export default function HomePage() {
       <PromoBanner />
 
       {/* Stats Section */}
-      <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
+      <div ref={statsRef} id="stats-section" className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
         <motion.div
-          ref={statsRef.ref}
           initial="hidden"
-          animate={statsRef.inView ? "visible" : "hidden"}
+          animate={isStatsVisible ? "visible" : "hidden"}
           variants={containerVariants}
           className="grid grid-cols-2 md:grid-cols-4 gap-6"
         >
@@ -142,7 +146,7 @@ export default function HomePage() {
             { icon: BookOpen, value: stats.courses, label: "Courses Available", suffix: "+", color: "purple" },
             { icon: Brain, value: stats.assessments, label: "Assessments", suffix: "+", color: "pink" }
           ].map((stat, idx) => (
-            <motion.div key={idx} variants={itemVariants} className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center card-hover particle-burst">
+            <motion.div key={idx} variants={itemVariants} className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center">
               <div className={`w-12 h-12 rounded-lg bg-${stat.color}-500/10 flex items-center justify-center mx-auto mb-3`}>
                 <stat.icon className={`w-6 h-6 text-${stat.color}-400`} />
               </div>
@@ -154,7 +158,7 @@ export default function HomePage() {
       </div>
 
       {/* Features Section */}
-      <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
+      <div ref={featuresRef} id="features-section" className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary-500/10 text-primary-400 rounded-full text-sm mb-4">
             <Sparkles className="w-4 h-4" />
@@ -165,15 +169,14 @@ export default function HomePage() {
         </div>
         
         <motion.div
-          ref={featuresRef.ref}
           initial="hidden"
-          animate={featuresRef.inView ? "visible" : "hidden"}
+          animate={isFeaturesVisible ? "visible" : "hidden"}
           variants={containerVariants}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
         >
           {features.map((feature, idx) => (
             <motion.div key={idx} variants={itemVariants}>
-              <div className={`bg-slate-900/30 border rounded-xl p-6 backdrop-blur-sm transition-all hover:-translate-y-1 hover:shadow-xl ${feature.highlight ? 'border-primary-500/30 bg-primary-500/5' : 'border-slate-800'}`}>
+              <div className={`bg-slate-900/30 border rounded-xl p-6 backdrop-blur-sm transition-all hover:-translate-y-1 ${feature.highlight ? 'border-primary-500/30 bg-primary-500/5' : 'border-slate-800'}`}>
                 <div className={`w-12 h-12 rounded-lg bg-${feature.color}-500/10 flex items-center justify-center mb-4`}>
                   <feature.icon className={`w-6 h-6 text-${feature.color}-400`} />
                 </div>
