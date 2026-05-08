@@ -55,13 +55,10 @@ const UserMessages = lazy(() => import('./pages/UserMessages'));
 const UserSettings = lazy(() => import('./pages/UserSettings'));
 const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
-const MyLearningPage = lazy(() => import('./pages/MyLearningPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 
-// Employer Pages (Lazy)
+// Employer Pages (Lazy - only existing files)
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
-const EmployerJobsPage = lazy(() => import('./pages/EmployerJobsPage'));
-const EmployerApplicationsPage = lazy(() => import('./pages/EmployerApplicationsPage'));
 
 // Tester Pages (Lazy)
 const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
@@ -216,7 +213,8 @@ function AppContent() {
             <AnimatePresence mode="wait">
               <Suspense fallback={<LoadingSpinner />}>
                 <Routes location={location} key={location.pathname}>
-                  {/* Public Routes */}
+                  
+                  {/* ========== PUBLIC ROUTES ========== */}
                   <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                   <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                   <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
@@ -240,7 +238,7 @@ function AppContent() {
                   <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
                   <Route path="/admin-reset-password" element={<AnimatedPage><AdminResetPassword /></AnimatedPage>} />
 
-                  {/* User Routes */}
+                  {/* ========== USER ROUTES ========== */}
                   <Route path="/dashboard" element={<ProtectedRoute><AnimatedPage><UserDashboard /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/profile" element={<ProtectedRoute><AnimatedPage><UserProfile /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/applications" element={<ProtectedRoute><AnimatedPage><UserApplications /></AnimatedPage></ProtectedRoute>} />
@@ -249,20 +247,17 @@ function AppContent() {
                   <Route path="/settings" element={<ProtectedRoute><AnimatedPage><UserSettings /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/saved-jobs" element={<ProtectedRoute><AnimatedPage><SavedJobsPage /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
-                  <Route path="/my-learning" element={<ProtectedRoute><AnimatedPage><MyLearningPage /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                  {/* Employer Routes */}
+                  {/* ========== EMPLOYER ROUTES ========== */}
                   <Route path="/company-profile" element={<ProtectedRoute allowedRoles={['employer', 'business']}><AnimatedPage><CompanyProfile /></AnimatedPage></ProtectedRoute>} />
-                  <Route path="/employer/jobs" element={<ProtectedRoute allowedRoles={['employer', 'business']}><AnimatedPage><EmployerJobsPage /></AnimatedPage></ProtectedRoute>} />
-                  <Route path="/employer/applications" element={<ProtectedRoute allowedRoles={['employer', 'business']}><AnimatedPage><EmployerApplicationsPage /></AnimatedPage></ProtectedRoute>} />
 
-                  {/* Tester Routes */}
+                  {/* ========== TESTER ROUTES ========== */}
                   <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
                   <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
                   <Route path="/tester/dashboard" element={<ProtectedRoute allowedRoles={['tester']}><AnimatedPage><TesterDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                  {/* Admin Routes */}
+                  {/* ========== ADMIN ROUTES ========== */}
                   <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/jobs" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><AdminJobs /></AnimatedPage></ProtectedRoute>} />
@@ -281,14 +276,14 @@ function AppContent() {
                   <Route path="/admin/super/countries" element={<ProtectedRoute allowedRoles={['super_admin']}><AnimatedPage><CountryManagement /></AnimatedPage></ProtectedRoute>} />
                   <Route path="/admin/testing-mode" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><TestingModeSettings /></AnimatedPage></ProtectedRoute>} />
 
-                  {/* Legal Routes */}
+                  {/* ========== LEGAL ROUTES ========== */}
                   <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
                   <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
                   <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
                   <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
                   <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
 
-                  {/* 404 Fallback */}
+                  {/* ========== 404 FALLBACK ========== */}
                   <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </Suspense>
