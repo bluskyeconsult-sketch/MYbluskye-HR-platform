@@ -1,11 +1,5 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "functions": {
-    "api/fetch-government-jobs.js": {
-      "maxDuration": 30,
-      "memory": 1024
-    }
-  }
+  ]
 }
