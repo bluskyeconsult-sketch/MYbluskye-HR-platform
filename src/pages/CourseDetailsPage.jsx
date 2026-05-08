@@ -1,8 +1,8 @@
 // src/pages/CourseDetailsPage.jsx
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
-import { Clock, BookOpen, Users, Star, ArrowLeft, Play, CheckCircle, Loader2 } from 'lucide-react';
+import { Clock, BookOpen, Star, ArrowLeft, Loader2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -118,7 +118,9 @@ export default function CourseDetailsPage() {
               <div className="text-3xl font-bold text-primary-400 mb-4">${course.price}</div>
               
               {enrolled ? (
-                <div className="text-center text-emerald-400">✓ You are enrolled in this course</div>
+                <div className="text-center text-emerald-400 flex items-center justify-center gap-2">
+                  <CheckCircle className="w-5 h-5" /> You are enrolled
+                </div>
               ) : (
                 <button onClick={handleEnroll} className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition">
                   Enroll Now
