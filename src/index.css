@@ -1,298 +1,162 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* src/index.css - Add to existing file */
 
-/* Mobile-First Base Styles */
-@layer base {
-  html {
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  
-  /* Mobile font size */
-  @media (max-width: 640px) {
-    html {
-      font-size: 15px;
-    }
-  }
-  
-  body {
-    @apply bg-background text-white;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.5;
-    overflow-x: hidden;
-    width: 100%;
-  }
-  
-  /* Ensure all content is centered on mobile */
-  #root {
-    width: 100%;
-    overflow-x: hidden;
-  }
-  
-  /* Headings - responsive */
-  h1 {
-    @apply text-3xl sm:text-4xl md:text-5xl font-bold;
-    letter-spacing: -0.02em;
-    line-height: 1.2;
-  }
-  
-  h2 {
-    @apply text-2xl sm:text-3xl font-semibold;
-    letter-spacing: -0.01em;
-    line-height: 1.3;
-  }
-  
-  h3 {
-    @apply text-xl sm:text-2xl font-semibold;
-  }
-  
-  /* Paragraphs */
-  p {
-    @apply text-base sm:text-lg;
-    line-height: 1.6;
-    color: #cbd5e1;
-  }
-  
-  /* Links and buttons - larger touch targets on mobile */
-  a, button {
-    @apply cursor-pointer;
-  }
-  
-  button, .btn {
-    min-height: 44px;
-  }
-  
-  /* Remove tap highlight on mobile */
-  * {
-    -webkit-tap-highlight-color: transparent;
-  }
-}
-
-/* Container utilities */
-@layer components {
-  .container-center {
-    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-  }
-  
-  .text-center-mobile {
-    @apply text-center;
-  }
-  
-  /* Card styles */
-  .card {
-    @apply rounded-xl border border-slate-800 bg-slate-950/50 transition-all duration-200;
-  }
-  
-  .card:hover {
-    @apply border-primary-500/30 shadow-lg shadow-primary-500/5;
-  }
-  
-  /* Button styles */
-  .btn-primary {
-    @apply bg-primary-500 text-white px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-600;
-  }
-  
-  .btn-secondary {
-    @apply bg-secondary text-slate-200 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-secondary-light;
-  }
-  
-  .btn-outline {
-    @apply border border-primary-500 text-primary-500 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:bg-primary-500/10;
-  }
-}
-
-/* Utility classes */
-@layer utilities {
-  /* Hide scrollbar but keep functionality */
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-}
-
-/* Marquee animation */
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.animate-marquee {
-  animation: marquee 25s linear infinite;
-  display: inline-block;
-}
-
-.animate-marquee:hover {
-  animation-play-state: paused;
-}
-
-/* ============================================ */
-/* PROFESSIONAL HOVER EFFECTS - ADDED MAY 2026 */
-/* ============================================ */
-
-/* Button hover effects */
-button, 
-a,
-.btn,
-[role="button"] {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Primary button hover */
-.btn-primary, 
-button.bg-primary-600,
-a.bg-primary-600 {
-  transition: all 0.3s ease;
-}
-.btn-primary:hover,
-button.bg-primary-600:hover,
-a.bg-primary-600:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(14, 165, 233, 0.3);
-}
-
-/* Secondary button hover */
-.btn-secondary,
-button.bg-slate-700,
-a.bg-slate-700 {
-  transition: all 0.3s ease;
-}
-.btn-secondary:hover,
-button.bg-slate-700:hover,
-a.bg-slate-700:hover {
-  transform: translateY(-2px);
-  background-color: rgb(51, 65, 85);
-}
-
-/* Outline button hover */
-.btn-outline,
-button.border-primary-500,
-a.border-primary-500 {
-  transition: all 0.3s ease;
-}
-.btn-outline:hover,
-button.border-primary-500:hover,
-a.border-primary-500:hover {
-  transform: translateY(-2px);
-  background-color: rgba(14, 165, 233, 0.1);
-}
-
-/* Card hover effects */
-.card-hover {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.card-hover:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.3);
-  border-color: rgba(14, 165, 233, 0.3);
-}
-
-/* Navigation link hover */
-.nav-link {
-  position: relative;
-  transition: all 0.3s ease;
-}
-.nav-link::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 0;
-  height: 2px;
-  background: linear-gradient(90deg, #0ea5e9, #38bdf8);
-  transition: width 0.3s ease;
-}
-.nav-link:hover::after {
-  width: 100%;
-}
-
-/* Icon hover */
-.icon-hover {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.icon-hover:hover {
-  transform: scale(1.1) rotate(5deg);
-}
-
-/* Glowing effect on focus */
-.glow-on-focus:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.3);
-}
-
-/* Pulse animation for important elements */
+/* Pulse Glow Animation for Buttons */
 @keyframes pulse-glow {
-  0%, 100% {
+  0% {
     box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4);
   }
-  50% {
-    box-shadow: 0 0 0 8px rgba(14, 165, 233, 0);
+  70% {
+    box-shadow: 0 0 0 15px rgba(14, 165, 233, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0);
   }
 }
-.pulse-glow {
+
+.animate-pulse-glow {
   animation: pulse-glow 2s infinite;
 }
 
-/* Smooth scale on interactive cards */
-.interactive-card {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.interactive-card:hover {
-  transform: translateY(-4px) scale(1.01);
+/* Float Animation for Background Orbs */
+@keyframes float {
+  0% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(-20px) translateX(10px);
+  }
+  100% {
+    transform: translateY(0px) translateX(0px);
+  }
 }
 
-/* Button shine effect */
-.btn-shine {
+.animate-float {
+  animation: float 8s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: float 10s ease-in-out infinite reverse;
+}
+
+/* Slide Up for Stagger Reveal */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s ease-out forwards;
+}
+
+/* Stagger Reveal Classes */
+.stagger-item {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: all 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+}
+
+.stagger-item.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Parallax Background */
+.parallax-bg {
+  transform: translateY(0);
+  transition: transform 0.1s ease-out;
+  will-change: transform;
+}
+
+/* Typing Cursor */
+.typed-cursor {
+  font-size: inherit;
+  opacity: 1;
+  animation: blink 0.7s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Shimmer Loading Effect */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Card Hover Effects */
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+}
+
+.card-hover:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.3);
+}
+
+/* Particle Burst on Hover */
+.particle-burst {
   position: relative;
   overflow: hidden;
 }
-.btn-shine::after {
+
+.particle-burst::before {
   content: '';
   position: absolute;
-  top: -50%;
-  left: -60%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    to right,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  transform: rotate(25deg);
-  transition: transform 0.6s ease;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.4s, height 0.4s;
+}
+
+.particle-burst:hover::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* Scroll Reveal Animation */
+.reveal-on-scroll {
   opacity: 0;
+  transform: translateY(30px);
+  transition: all 0.6s cubic-bezier(0.2, 0.9, 0.4, 1.1);
 }
-.btn-shine:hover::after {
-  transform: translateX(100%) rotate(25deg);
+
+.reveal-on-scroll.revealed {
   opacity: 1;
+  transform: translateY(0);
 }
 
-/* Hover lift for all clickable cards */
-.hover-lift {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.hover-lift:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.25);
+/* Progress Bar Animation */
+@keyframes progressBar {
+  from {
+    width: 0%;
+  }
+  to {
+    width: var(--progress-width);
+  }
 }
 
-/* Smooth border transition */
-.hover-border-glow {
-  transition: all 0.3s ease;
+.progress-bar-animate {
+  animation: progressBar 1s ease-out forwards;
 }
-.hover-border-glow:hover {
-  border-color: rgba(14, 165, 233, 0.5);
-  box-shadow: 0 0 15px rgba(14, 165, 233, 0.15);
-}
-/* Add these 3 lines to the VERY BOTTOM of your index.css */
-
-/* Make ODUSBABA bold and "Creating Value for Partnership" stand out */
-.odusbaba-highlight { font-weight: 800; color: #0ea5e9; }
-.value-partnership { font-weight: 700; color: #10b981; font-style: italic; }
