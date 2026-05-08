@@ -12,17 +12,15 @@ const CACHE_DURATION = 5 * 60 * 1000;
 let isFetching = false;
 
 // ============================================
-// FETCH EXTERNAL JOBS (via proxy)
+// FETCH EXTERNAL JOBS
 // ============================================
 
 export async function fetchExternalJobs(forceRefresh = false) {
-  // Check cache
   if (!forceRefresh && fetchCache.data && (Date.now() - fetchCache.timestamp) < CACHE_DURATION) {
     console.log(`📦 Returning cached external jobs (${fetchCache.data.length} jobs)`);
     return fetchCache.data;
   }
   
-  // Prevent concurrent fetches
   if (isFetching) {
     console.log('⏳ Fetch already in progress, waiting...');
     await new Promise(resolve => {
@@ -63,7 +61,6 @@ export async function fetchExternalJobs(forceRefresh = false) {
 export async function saveExternalJobsToDatabase(jobs, userId) {
   if (!jobs || jobs.length === 0) return 0;
   
-  // Get existing jobs to check duplicates
   const { data: existingJobs } = await supabase
     .from('external_jobs')
     .select('title, company, source_name, source_country');
@@ -99,12 +96,12 @@ export async function saveExternalJobsToDatabase(jobs, userId) {
 }
 
 // ============================================
-// APPROVE JOB
+// APPROVE JOB - FIXED VERSION
 // ============================================
 
 export async function approveExternalJob(jobId, userId) {
   try {
-    // Get the external job
+    // 1. Get the external job
     const { data: job, error: fetchError } = await supabase
       .from('external_jobs')
       .select('*')
@@ -113,7 +110,9 @@ export async function approveExternalJob(jobId, userId) {
     
     if (fetchError) throw fetchError;
     
-    // Insert into main jobs table
+    console.log('Approving job:', job.title);
+    
+    // 2. Insert into main jobs table
     const { error: insertError } = await supabase.from('jobs').insert({
       title: job.title,
       company: job.company,
@@ -125,12 +124,16 @@ export async function approveExternalJob(jobId, userId) {
       status: 'approved',
       is_active: true,
       source_type: 'external',
-      source_name: job.source_name
+      source_name: job.source_name,
+      created_at: new Date().toISOString()
     });
     
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error('Insert error:', insertError);
+      throw insertError;
+    }
     
-    // Update external job status
+    // 3. Update external job status
     const { error: updateError } = await supabase
       .from('external_jobs')
       .update({ 
@@ -142,7 +145,9 @@ export async function approveExternalJob(jobId, userId) {
     
     if (updateError) throw updateError;
     
+    console.log(`✅ Job approved: ${job.title}`);
     return { success: true };
+    
   } catch (err) {
     console.error('Approve error:', err);
     return { success: false, error: err.message };
