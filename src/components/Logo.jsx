@@ -11,7 +11,7 @@ export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
   
   const currentSize = sizes[size] || sizes.md;
   
-  // Your actual logo path (already uploaded)
+  // Your actual logo path (already uploaded to public/images/BluSkye.png)
   const logoSrc = '/images/BluSkye.png';
   
   // Handle image error - show fallback
