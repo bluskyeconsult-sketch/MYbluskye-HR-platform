@@ -5,7 +5,7 @@ import {
   Briefcase, Search, RefreshCw, Loader2, AlertCircle, 
   CheckCircle, XCircle, ChevronDown, ChevronUp, 
   Globe, Clock, MapPin, Building, ThumbsUp, ThumbsDown, 
-  X, Square, Trash2, Filter
+  X, Square, Trash2
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -270,6 +270,33 @@ export default function AdminExternalJobs() {
     );
   }
 
+  // Render job details row as a separate component to avoid JSX complexity
+  const renderJobDetails = (job) => {
+    if (expandedJobId !== job.id) return null;
+    
+    return (
+      <tr className="bg-slate-900/30 border-t border-slate-800">
+        <td colSpan="6" className="px-6 py-4">
+          <div className="space-y-2">
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-1">Description</h4>
+              <p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p>
+            </div>
+            {job.salary_range && (
+              <div>
+                <h4 className="text-sm font-semibold text-white mb-1">Salary</h4>
+                <p className="text-slate-400 text-sm">{job.salary_range}</p>
+              </div>
+            )}
+            <div className="text-xs text-slate-500">
+              Fetched: {new Date(job.created_at).toLocaleString()}
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
@@ -530,29 +557,9 @@ export default function AdminExternalJobs() {
                               <Trash2 className="w-3.5 h-3.5 text-red-400" />
                             </button>
                           </div>
-                        </tr>
+                        </td>
                       </tr>
-                      {expandedJobId === job.id && (
-                        <tr className="border-t border-slate-800 bg-slate-900/30">
-                          <td colSpan="6" className="px-6 py-4">
-                            <div className="space-y-2">
-                              <div>
-                                <h4 className="text-sm font-semibold text-white mb-1">Description</h4>
-                                <p className="text-slate-400 text-sm">{job.description || 'No description provided.'}</p>
-                              </div>
-                              {job.salary_range && (
-                                <div>
-                                  <h4 className="text-sm font-semibold text-white mb-1">Salary</h4>
-                                  <p className="text-slate-400 text-sm">{job.salary_range}</p>
-                                </div>
-                              )}
-                              <div className="text-xs text-slate-500">
-                                Fetched: {new Date(job.created_at).toLocaleString()}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                      {renderJobDetails(job)}
                     </React.Fragment>
                   ))}
                 </tbody>
