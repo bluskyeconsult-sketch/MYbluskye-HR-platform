@@ -1,4 +1,4 @@
-// Replace the approveExternalJob function with this simplified version
+// src/services/externalJobService.js - Fixed approve function
 
 export async function approveExternalJob(jobId, userId) {
   try {
@@ -12,22 +12,24 @@ export async function approveExternalJob(jobId, userId) {
     if (fetchError) throw fetchError;
     
     console.log('Approving job:', job.title);
-    console.log('Job data:', job);
     
-    // Try insert with ONLY basic fields first
+    // Map external job to jobs table structure
     const jobData = {
       title: job.title,
       company: job.company,
       location: job.location || 'Remote',
+      country_code: job.source_country,
       description: job.description || 'No description provided.',
+      salary_range: job.salary_range,
+      job_type: job.job_type || 'full-time',
       status: 'approved',
-      created_at: new Date().toISOString()
+      is_active: true,
+      source_type: 'external',
+      source_name: job.source_name,
+      created_at: new Date().toISOString(),
+      posted_at: new Date().toISOString(),
+      posted_by: userId
     };
-    
-    // Add optional fields only if they exist in the job object
-    if (job.source_country) jobData.country_code = job.source_country;
-    if (job.salary_range) jobData.salary_range = job.salary_range;
-    if (job.job_type) jobData.job_type = job.job_type;
     
     console.log('Inserting into jobs:', jobData);
     
