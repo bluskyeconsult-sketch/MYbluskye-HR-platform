@@ -1,28 +1,15 @@
 // api/fetch-government-jobs.js
-// Vercel Serverless Function - Place in /api folder at project root
-
 import axios from 'axios';
 
-// CORS headers for response
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json'
-};
-
-// Cache for server-side (5 minutes)
 let cache = { data: null, timestamp: null };
 const CACHE_DURATION = 5 * 60 * 1000;
 
 export default async function handler(req, res) {
-  // Handle preflight CORS
   if (req.method === 'OPTIONS') {
     res.status(200).setHeader('Access-Control-Allow-Origin', '*').end();
     return;
   }
   
-  // Only allow GET requests
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
@@ -31,13 +18,12 @@ export default async function handler(req, res) {
   // Check cache
   if (cache.data && (Date.now() - cache.timestamp) < CACHE_DURATION) {
     console.log('📦 Returning cached government jobs');
-    res.status(200).setHeader('Access-Control-Allow-Origin', '*').json(cache.data);
-    return;
+    return res.status(200).setHeader('Access-Control-Allow-Origin', '*').json(cache.data);
   }
   
-  const timeout = 8000; // 8 second timeout per request
+  const timeout = 10000;
   
-  // Define all government job sources with server-safe fetch
+  // Define all government job sources with working endpoints
   const sources = [
     {
       name: 'UK Government Jobs',
@@ -45,23 +31,34 @@ export default async function handler(req, res) {
       flag: '🇬🇧',
       fetch: async () => {
         try {
-          const response = await axios.get('https://findajob.dwp.gov.uk/feeds/jobs.rss', { timeout });
-          const xml = response.data;
-          const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-          return jobMatches.slice(0, 15).map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || 'Government Position',
-            company: 'UK Government',
-            location: 'United Kingdom',
-            country: 'GB',
-            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '').substring(0, 500),
-            salary_range: 'Competitive',
-            source_name: 'FindAJob (DWP)',
-            is_government: true
-          }));
-        } catch (err) {
-          console.log(`⚠️ UK failed: ${err.message}`);
-          return [];
-        }
+          // Try multiple UK job sources
+          const sources = [
+            'https://findajob.dwp.gov.uk/feeds/jobs.rss',
+            'https://www.civilservicejobs.service.gov.uk/csr/index.cgi?action=feed.homesite&language=en'
+          ];
+          for (const url of sources) {
+            try {
+              const response = await axios.get(url, { timeout });
+              if (response.data) {
+                const xml = response.data;
+                const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+                if (jobMatches.length > 0) {
+                  return jobMatches.slice(0, 10).map(item => ({
+                    title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || 'UK Government Position',
+                    company: 'UK Government',
+                    location: 'United Kingdom',
+                    country: 'GB',
+                    description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '').substring(0, 500),
+                    salary_range: 'Competitive',
+                    source_name: 'UK Government Jobs',
+                    is_government: true
+                  }));
+                }
+              }
+            } catch (e) { continue; }
+          }
+        } catch (err) { console.log(`⚠️ UK failed:`, err.message); }
+        return [];
       }
     },
     {
@@ -70,23 +67,21 @@ export default async function handler(req, res) {
       flag: '🇺🇸',
       fetch: async () => {
         try {
-          const response = await axios.get('https://www.usajobs.gov/jobs/feed/rss', { timeout });
+          const response = await axios.get('https://www.usajobs.gov/jobs/feed/rss?Keyword=technology&Number=15', { timeout });
           const xml = response.data;
           const jobMatches = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-          return jobMatches.slice(0, 15).map(item => ({
-            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || 'Federal Position',
+          return jobMatches.slice(0, 10).map(item => ({
+            title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || 'Federal Position',
             company: 'U.S. Federal Government',
             location: 'United States',
             country: 'US',
-            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || '').substring(0, 500),
+            description: (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || '').substring(0, 500),
             salary_range: 'Federal Pay Scale',
             source_name: 'USAJobs.gov',
             is_government: true
           }));
-        } catch (err) {
-          console.log(`⚠️ USA failed: ${err.message}`);
-          return [];
-        }
+        } catch (err) { console.log(`⚠️ USA failed:`, err.message); }
+        return [];
       }
     },
     {
@@ -111,9 +106,7 @@ export default async function handler(req, res) {
               is_government: true
             }));
           }
-        } catch (err) {
-          console.log(`⚠️ Canada failed: ${err.message}`);
-        }
+        } catch (err) { console.log(`⚠️ Canada failed:`, err.message); }
         return [];
       }
     },
@@ -139,9 +132,7 @@ export default async function handler(req, res) {
               is_government: true
             }));
           }
-        } catch (err) {
-          console.log(`⚠️ Australia failed: ${err.message}`);
-        }
+        } catch (err) { console.log(`⚠️ Australia failed:`, err.message); }
         return [];
       }
     },
@@ -168,9 +159,7 @@ export default async function handler(req, res) {
               language: 'DE/EN'
             }));
           }
-        } catch (err) {
-          console.log(`⚠️ Germany failed: ${err.message}`);
-        }
+        } catch (err) { console.log(`⚠️ Germany failed:`, err.message); }
         return [];
       }
     },
@@ -197,9 +186,7 @@ export default async function handler(req, res) {
               language: 'FR'
             }));
           }
-        } catch (err) {
-          console.log(`⚠️ France failed: ${err.message}`);
-        }
+        } catch (err) { console.log(`⚠️ France failed:`, err.message); }
         return [];
       }
     },
@@ -211,7 +198,7 @@ export default async function handler(req, res) {
         try {
           const response = await axios.get('https://jobs.niya.gov.ng/api/jobs', { timeout });
           if (response.data?.jobs) {
-            return response.data.jobs.slice(0, 15).map(job => ({
+            return response.data.jobs.slice(0, 10).map(job => ({
               title: job.title || 'Government Position',
               company: job.employer || 'Federal Government of Nigeria',
               location: `${job.location || 'Abuja'}, Nigeria`,
@@ -222,15 +209,13 @@ export default async function handler(req, res) {
               is_government: true
             }));
           }
-        } catch (err) {
-          console.log(`⚠️ Nigeria failed: ${err.message}`);
-        }
+        } catch (err) { console.log(`⚠️ Nigeria failed:`, err.message); }
         return [];
       }
     }
   ];
   
-  // Fetch all in parallel with error handling
+  // Fetch all in parallel
   const results = await Promise.allSettled(sources.map(s => s.fetch()));
   
   let allJobs = [];
@@ -245,18 +230,18 @@ export default async function handler(req, res) {
       successCount++;
       console.log(`✅ ${source.name}: ${result.value.length} jobs`);
     } else {
-      console.log(`⚠️ ${source.name}: Failed - using fallback`);
-      // Add fallback for failed source
+      console.log(`⚠️ ${source.name}: Failed`);
+      // Add a single placeholder so the country is represented
       allJobs.push({
-        title: `${source.name} - Government Position`,
+        title: `${source.name} - Check Official Portal`,
         company: source.name,
         location: source.country,
         country: source.country,
-        description: `Government job opportunity in ${source.country}. Check official portal for latest listings.`,
-        salary_range: 'Competitive',
+        description: `For the latest government job opportunities in ${source.country}, please visit the official ${source.name} portal.`,
+        salary_range: 'Visit portal for details',
         source_name: source.name,
         is_government: true,
-        is_fallback: true
+        is_placeholder: true
       });
     }
   }
@@ -264,7 +249,7 @@ export default async function handler(req, res) {
   // Cache results
   cache = { data: allJobs, timestamp: Date.now() };
   
-  console.log(`🎯 Total jobs fetched: ${allJobs.length} from ${successCount}/${sources.length} sources`);
+  console.log(`🎯 Total: ${allJobs.length} jobs from ${successCount}/${sources.length} sources`);
   
   res.status(200).setHeader('Access-Control-Allow-Origin', '*').json({
     success: true,
