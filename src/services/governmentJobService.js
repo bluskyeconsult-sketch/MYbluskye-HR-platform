@@ -10,7 +10,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // PERFORMANCE CONFIGURATION
 // ============================================
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
-const PROXY_URL = '/api/fetch-government-jobs';
+const PROXY_URL = '/api/fetch-jobs'; // Updated endpoint
 let jobsCache = { data: null, timestamp: null };
 let isFetching = false;
 
@@ -95,7 +95,7 @@ export async function fetchGovernmentJobs(forceRefresh = false) {
   }
   
   isFetching = true;
-  console.log('🚀 Fetching government jobs via serverless proxy...');
+  console.log('🚀 Fetching jobs via serverless proxy...');
   
   try {
     // Call the Vercel serverless function
@@ -103,7 +103,7 @@ export async function fetchGovernmentJobs(forceRefresh = false) {
     
     if (response.data && response.data.success && response.data.jobs) {
       jobsCache = { data: response.data.jobs, timestamp: Date.now() };
-      console.log(`✅ Fetched ${response.data.count} jobs from ${response.data.sources} sources`);
+      console.log(`✅ Fetched ${response.data.count} jobs successfully`);
       return response.data.jobs;
     } else {
       throw new Error('Invalid response from proxy');
@@ -147,7 +147,7 @@ export async function saveGovernmentJobsToSupabase(jobs, userId) {
       title: job.title,
       company: job.company,
       location: job.location || 'Remote',
-      source_name: job.source_name || 'Government Portal',
+      source_name: job.source_name || 'External API',
       source_country: job.country || job.source_country || 'GB',
       description: job.description || 'No description provided.',
       salary_range: job.salary_range || 'Competitive',
@@ -155,7 +155,7 @@ export async function saveGovernmentJobsToSupabase(jobs, userId) {
       status: 'pending_approval',
       created_at: new Date().toISOString(),
       metadata: {
-        is_government: job.is_government || true,
+        is_government: job.is_government || false,
         department: job.department,
         agency: job.agency,
         grade_level: job.grade_level,
