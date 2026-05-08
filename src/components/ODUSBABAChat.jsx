@@ -1,24 +1,23 @@
 // src/components/ODUSBABAChat.jsx
 import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Bot, User, Sparkles, Zap, Briefcase, Users, Shield, Settings, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Sparkles, Zap, Briefcase, Users, Shield, Settings, Loader2, FileText, Award, TrendingUp } from 'lucide-react';
+import { aiChat } from '../services/aiService';
 
 export default function ODUSBABAChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hello! I\'m ODUSBABA AI Assistant. How can I help you today?' }
+    { role: 'assistant', content: '👋 Hello! I\'m ODUSBABA, your AI assistant. I can help with job searching, resume analysis, skill development, career advice, and much more. What would you like help with today?' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const messagesEndRef = useRef(null);
 
-  const suggestedActions = [
-    { icon: Briefcase, text: "Show pending jobs", action: "Show me pending job approvals" },
-    { icon: Users, text: "User statistics", action: "How many users are on the platform?" },
-    { icon: Shield, text: "Security check", action: "Show me security status" },
-    { icon: Settings, text: "System health", action: "Check system health" },
-    { icon: Zap, text: "Popular skills", action: "What are the most in-demand skills?" },
-    { icon: Sparkles, text: "AI insights", action: "Give me insights about platform growth" }
-  ];
+  useEffect(() => {
+    // Get user role from localStorage or context
+    const storedRole = localStorage.getItem('userRole');
+    if (storedRole) setUserRole(storedRole);
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -27,6 +26,15 @@ export default function ODUSBABAChat() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  const suggestedActions = [
+    { icon: Briefcase, text: "Find jobs", action: "Show me job opportunities" },
+    { icon: FileText, text: "Analyze resume", action: "Help me improve my resume" },
+    { icon: Award, text: "Skill gaps", action: "Identify my skill gaps" },
+    { icon: TrendingUp, text: "Career path", action: "Suggest career paths for me" },
+    { icon: Users, text: "Interview prep", action: "Generate interview questions" },
+    { icon: Zap, text: "AI insights", action: "Give me platform insights" }
+  ];
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -37,49 +45,13 @@ export default function ODUSBABAChat() {
     setIsLoading(true);
     
     try {
-      // Try to call OpenAI API via serverless function
-      const response = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: input,
-          context: messages 
-        })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-      } else {
-        // Fallback responses when API is unavailable
-        const fallbackResponse = getFallbackResponse(input);
-        setMessages(prev => [...prev, { role: 'assistant', content: fallbackResponse }]);
-      }
+      const reply = await aiChat(input, { userRole, page: window.location.pathname });
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (error) {
       console.error('Chat error:', error);
-      const fallbackResponse = getFallbackResponse(input);
-      setMessages(prev => [...prev, { role: 'assistant', content: fallbackResponse }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const getFallbackResponse = (query) => {
-    const q = query.toLowerCase();
-    if (q.includes('job') || q.includes('pending')) {
-      return "📊 You can view pending job approvals in the Admin Dashboard under 'External Jobs'. Would you like me to navigate you there?";
-    } else if (q.includes('user') || q.includes('how many')) {
-      return "👥 You can see complete user statistics in the Analytics Dashboard. Total users, growth trends, and user type breakdowns are available there.";
-    } else if (q.includes('security') || q.includes('blocked')) {
-      return "🛡️ Security monitoring is available in the Admin Security panel. You can view blocked IPs, audit logs, and security events there.";
-    } else if (q.includes('health') || q.includes('system')) {
-      return "⚙️ System health metrics are available in the Diagnostics panel. All systems are currently operational.";
-    } else if (q.includes('skill') || q.includes('trending')) {
-      return "📈 The most in-demand skills currently are: AI/ML, Cloud Computing, Data Analysis, Cybersecurity, and Project Management.";
-    } else if (q.includes('insight') || q.includes('growth')) {
-      return "📊 Platform insights: User growth is steady, job postings have increased 15% this month, and assessment completion rates are up 8%.";
-    } else {
-      return "I can help you with:\n• Pending job approvals\n• User statistics\n• Security monitoring\n• System health\n• Trending skills\n• Platform insights\n\nWhat would you like to know?";
     }
   };
 
@@ -110,7 +82,7 @@ export default function ODUSBABAChat() {
               </div>
               <div>
                 <h3 className="font-semibold text-white">ODUSBABA AI</h3>
-                <p className="text-xs text-slate-400">Powered by ODUSBABA Intelligence</p>
+                <p className="text-xs text-slate-400">Powered by OpenAI • Always learning</p>
               </div>
             </div>
             <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white">
