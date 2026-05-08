@@ -25,6 +25,7 @@ const SUPPORTED_COUNTRIES = [
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     users: 0,
     jobs: 0,
@@ -140,9 +141,11 @@ export default function AdminDashboard() {
   }
 
   async function refreshData() {
-    toast.loading('Refreshing...', { id: 'refresh' });
+    setRefreshing(true);
+    toast.loading('Refreshing dashboard...', { id: 'refresh' });
     await loadStats();
     toast.success('Dashboard refreshed', { id: 'refresh' });
+    setRefreshing(false);
   }
 
   const statCards = [
@@ -191,8 +194,13 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-slate-400 text-sm">Welcome back, {user?.email}</p>
           </div>
-          <button onClick={refreshData} className="px-4 py-2 bg-slate-700 text-white rounded-lg flex items-center gap-2 hover:bg-slate-600">
-            <RefreshCw className="w-4 h-4" /> Refresh
+          <button 
+            onClick={refreshData} 
+            disabled={refreshing}
+            className="px-4 py-2 bg-slate-700 text-white rounded-lg flex items-center gap-2 hover:bg-slate-600 disabled:opacity-50"
+          >
+            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} 
+            Refresh
           </button>
         </div>
 
