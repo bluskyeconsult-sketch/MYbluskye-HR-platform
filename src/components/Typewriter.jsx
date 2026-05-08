@@ -16,6 +16,7 @@ export default function Typewriter({
 
   useEffect(() => {
     if (isPaused) return;
+    if (words.length === 0) return;
     
     const currentWord = words[currentWordIndex];
     let timeout;
@@ -33,7 +34,7 @@ export default function Typewriter({
     } else {
       timeout = setTimeout(() => {
         setCurrentText(currentWord.slice(0, currentText.length + 1));
-        if (currentText.length === currentWord.length) {
+        if (currentText.length + 1 === currentWord.length) {
           if (!loop && currentWordIndex === words.length - 1) return;
           setIsPaused(true);
           setTimeout(() => {
@@ -47,10 +48,14 @@ export default function Typewriter({
     return () => clearTimeout(timeout);
   }, [currentText, isDeleting, currentWordIndex, words, typingSpeed, deletingSpeed, delay, loop, isPaused]);
 
+  if (words.length === 0) {
+    return null;
+  }
+
   return (
     <span className={className}>
       {currentText}
-      <span className="animate-blink border-r-2 border-primary-400 ml-0.5">|</span>
+      <span className="inline-block w-[2px] h-5 bg-primary-400 ml-0.5 animate-blink" />
     </span>
   );
 }
