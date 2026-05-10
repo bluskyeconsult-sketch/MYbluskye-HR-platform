@@ -40,6 +40,7 @@ const PricingPage = lazy(() => import('./pages/PricingPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const FraudPreventionPage = lazy(() => import('./pages/FraudPreventionPage'));
 const MoreProductsPage = lazy(() => import('./pages/MoreProductsPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage')); // Added from second code
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 
@@ -58,11 +59,13 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
 const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
+const ManageBooks = lazy(() => import('./pages/admin/ManageBooks')); // Added from second code
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
 const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
 const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'));
+const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager')); // Added from second code
 
 // Lazy-loaded Pages - Legal
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
@@ -184,6 +187,7 @@ function AppContent() {
                 <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
                 <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
                 <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
+                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} /> {/* Added from second code */}
                 <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                 <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                 <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
@@ -202,11 +206,13 @@ function AppContent() {
                 <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/articles" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminArticles /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminBooks /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/manage-books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><ManageBooks /></AnimatedPage></ProtectedRoute>} /> {/* Added from second code */}
                 <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/external-jobs" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
                 <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
+                <Route path="/admin/knowledge-sources" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><KnowledgeSourceManager /></AnimatedPage></ProtectedRoute>} /> {/* Added from second code */}
 
                 {/* ========== LEGAL ROUTES ========== */}
                 <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
