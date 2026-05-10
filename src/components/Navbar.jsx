@@ -84,7 +84,7 @@ export default function Navbar() {
 
   // Products dropdown items
   const productsItems = [
-    { name: 'More Products', path: '/more-products', icon: ShoppingBag, description: 'Explore all offerings' },
+    { name: 'All Products', path: '/products', icon: ShoppingBag, description: 'Explore all offerings' },
     { name: 'Hire VA', path: '/hire-va', icon: Bot, description: 'AI-powered assistants' },
     { name: 'Newsletter', path: '/newsletter', icon: Mail, description: 'Stay updated' },
   ];
@@ -133,6 +133,8 @@ export default function Navbar() {
     { name: 'Manage VAs', path: '/admin/virtual-assistants', icon: Bot },
     { name: 'Manage Assessments', path: '/admin/assessments', icon: Brain },
     { name: 'External Jobs', path: '/admin/external-jobs', icon: Globe },
+    { name: 'Knowledge Sources', path: '/admin/knowledge-sources', icon: Database },
+    { name: 'Manage Books V2', path: '/admin/manage-books', icon: BookOpen },
   ] : [];
 
   // Close dropdowns when clicking outside
@@ -165,15 +167,15 @@ export default function Navbar() {
                 <Link to="/sign-in" className="px-4 py-2 text-sm font-medium border border-slate-600 text-slate-200 rounded-lg hover:bg-slate-800 transition">
                   Log In
                 </Link>
-                <Link to="/sign-up" className="px-4 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition shadow-lg shadow-primary-500/20">
+                <Link to="/sign-up" className="px-4 py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition shadow-lg shadow-purple-500/20">
                   Sign Up Free
                 </Link>
               </>
             ) : (
               <div className="relative">
                 <button onClick={(e) => { e.stopPropagation(); setUserMenuOpen(!userMenuOpen); }} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 transition">
-                  <div className="w-8 h-8 rounded-full bg-primary-600/20 flex items-center justify-center">
-                    <UserCircle className="w-5 h-5 text-primary-400" />
+                  <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center">
+                    <UserCircle className="w-5 h-5 text-purple-400" />
                   </div>
                   <div className="text-left hidden sm:block">
                     <p className="text-xs text-slate-400">{profile?.tier || profile?.user_type || 'Member'}</p>
@@ -198,7 +200,7 @@ export default function Navbar() {
                         </Link>
                       ))}
                       {adminNavItems.map((item) => (
-                        <Link key={item.name} to={item.path} onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-primary-400 hover:bg-primary-500/10 transition">
+                        <Link key={item.name} to={item.path} onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-purple-400 hover:bg-purple-500/10 transition">
                           <item.icon className="w-4 h-4" />
                           {item.name}
                         </Link>
@@ -231,9 +233,9 @@ export default function Navbar() {
                 to={item.path}
                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1 ${
                   isActive(item.path)
-                    ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                     : item.highlight 
-                      ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
+                      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20'
                       : 'text-slate-200 hover:text-white hover:bg-slate-800'
                 }`}
               >
@@ -242,7 +244,7 @@ export default function Navbar() {
               </Link>
             ))}
             
-            {/* Products Dropdown */}
+            {/* Products Dropdown - UPDATED SECTION (around line 150-170) */}
             <div className="relative">
               <button
                 onClick={(e) => { e.stopPropagation(); setProductsOpen(!productsOpen); }}
@@ -250,26 +252,31 @@ export default function Navbar() {
                   productsOpen ? 'bg-slate-800 text-white' : 'text-slate-200 hover:text-white hover:bg-slate-800'
                 }`}
               >
-                Products <ChevronDown className={`w-3.5 h-3.5 transition-transform ${productsOpen ? 'rotate-180' : ''}`} />
+                More Products <ChevronDown className={`w-3.5 h-3.5 transition-transform ${productsOpen ? 'rotate-180' : ''}`} />
               </button>
               {productsOpen && (
-                <div className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
-                  <div className="p-2">
-                    {productsItems.map((item) => (
-                      <Link
-                        key={item.name}
-                        to={item.path}
-                        onClick={() => setProductsOpen(false)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition"
-                      >
-                        <item.icon className="w-4 h-4 text-primary-400" />
-                        <div>
-                          <div className="font-medium text-white">{item.name}</div>
-                          <div className="text-xs text-slate-500">{item.description}</div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
+                <div className="absolute left-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
+                  <Link 
+                    to="/products" 
+                    onClick={() => setProductsOpen(false)} 
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white border-b border-slate-700"
+                  >
+                    🚀 All Products
+                  </Link>
+                  <Link 
+                    to="/hire-va" 
+                    onClick={() => setProductsOpen(false)} 
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white border-b border-slate-700"
+                  >
+                    🤖 Hire Virtual Assistant
+                  </Link>
+                  <Link 
+                    to="/newsletter" 
+                    onClick={() => setProductsOpen(false)} 
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"
+                  >
+                    📧 Newsletter
+                  </Link>
                 </div>
               )}
             </div>
@@ -325,7 +332,7 @@ export default function Navbar() {
         {mobileMenuOpen && (
           <div className="lg:hidden py-4 border-t border-slate-800 max-h-[80vh] overflow-y-auto">
             <div className="flex flex-col space-y-2">
-              <div className="text-xs font-semibold text-primary-400 uppercase px-3 pt-2 pb-1">MAIN MENU</div>
+              <div className="text-xs font-semibold text-purple-400 uppercase px-3 pt-2 pb-1">MAIN MENU</div>
               {mainNavItems.map((item) => (
                 <Link
                   key={item.name}
@@ -333,9 +340,9 @@ export default function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                   className={`px-3 py-2 rounded-lg text-base font-semibold flex items-center gap-2 ${
                     isActive(item.path)
-                      ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                       : item.highlight
-                        ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
+                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                         : 'text-slate-200 hover:text-white hover:bg-slate-800'
                   }`}
                 >
@@ -345,17 +352,27 @@ export default function Navbar() {
               ))}
               
               <div className="text-xs font-semibold text-purple-400 uppercase px-3 pt-4 pb-1">PRODUCTS</div>
-              {productsItems.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="px-3 py-2 rounded-lg text-base text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <item.icon className="w-4 h-4" />
-                  {item.name}
-                </Link>
-              ))}
+              <Link 
+                to="/products" 
+                onClick={() => setMobileMenuOpen(false)} 
+                className="px-3 py-2 rounded-lg text-base text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2"
+              >
+                🚀 All Products
+              </Link>
+              <Link 
+                to="/hire-va" 
+                onClick={() => setMobileMenuOpen(false)} 
+                className="px-3 py-2 rounded-lg text-base text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2"
+              >
+                🤖 Hire Virtual Assistant
+              </Link>
+              <Link 
+                to="/newsletter" 
+                onClick={() => setMobileMenuOpen(false)} 
+                className="px-3 py-2 rounded-lg text-base text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2"
+              >
+                📧 Newsletter
+              </Link>
               
               <div className="text-xs font-semibold text-slate-500 uppercase px-3 pt-4 pb-1">COMPANY</div>
               {companyLinks.map((item) => (
@@ -400,13 +417,13 @@ export default function Navbar() {
               
               {isAdmin && (
                 <>
-                  <div className="text-xs font-semibold text-primary-400 uppercase px-3 pt-4 pb-1">ADMIN</div>
+                  <div className="text-xs font-semibold text-purple-400 uppercase px-3 pt-4 pb-1">ADMIN</div>
                   {adminNavItems.map((item) => (
                     <Link
                       key={item.name}
                       to={item.path}
                       onClick={() => setMobileMenuOpen(false)}
-                      className="px-3 py-2 rounded-lg text-sm border border-primary-500/30 text-primary-400 hover:bg-primary-500/10 text-center"
+                      className="px-3 py-2 rounded-lg text-sm border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 text-center"
                     >
                       {item.name}
                     </Link>
