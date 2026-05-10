@@ -3,6 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+
+// ============================================
+// TIER CONFIGURATION (from first code)
+// ============================================
 
 const TIER_LIMITS = {
     free: { messages: 5, extra_credit_price: 1.99, extra_credits: 10 },
@@ -14,10 +19,33 @@ const TIER_LIMITS = {
     super_admin: { messages: 999999, extra_credit_price: 0, extra_credits: 0 }
 };
 
+// ============================================
+// SYSTEM PROMPT (from second code)
+// ============================================
+
+const SYSTEM_PROMPT = `You are ODUSBABA, an AI Career Advisor for BluSkye Integrated Consult. 
+
+CRITICAL RULES:
+1. ONLY answer based on the knowledge provided in the context below. If the answer is not in the context, say "I don't have that information. Would you like me to escalate this to a human advisor?"
+2. DO NOT make up information or use external knowledge not provided.
+3. When users ask about jobs, use the job listings provided in the context.
+4. When users mention CV, resume, cover letter, LinkedIn, or skills, suggest relevant Virtual Assistants from our platform.
+5. When users mention assessments, learning, or courses, direct them to /assessments or /courses.
+6. When users are low on credits, suggest purchasing AI credits.
+7. Be helpful, professional, and concise.
+8. Always prioritize directing users to relevant ODUSBABA services when appropriate.
+9. For workplace rights, legal, or abuse questions, provide appropriate disclaimers and resources.
+
+Your tone: Professional, warm, helpful, solutions-focused.`;
+
+// ============================================
+// CORE CREDIT MANAGEMENT (from first code)
+// ============================================
+
 export async function getRemainingChatCredits(userId) {
     const { data: user } = await supabase
         .from('profiles')
-        .select('tier')
+        .select('tier, ai_credits_remaining')
         .eq('id', userId)
         .single();
     
@@ -47,7 +75,9 @@ export async function getRemainingChatCredits(userId) {
     
     return {
         remaining, used: usedCount, limit, purchasedCredits,
-        tier: user.tier, canPurchaseExtra: TIER_LIMITS[user.tier]?.extra_credit_price > 0
+        tier: user.tier, 
+        canPurchaseExtra: TIER_LIMITS[user.tier]?.extra_credit_price > 0,
+        aiCreditsRemaining: user.ai_credits_remaining || remaining
     };
 }
 
@@ -56,13 +86,21 @@ export async function recordChatUsage(userId) {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
     
+    // Update ai_usage_tracking
     await supabase.from('ai_usage_tracking').insert({
         user_id: userId,
         feature_type: 'chat',
         used_count: 1,
         created_at: new Date().toISOString()
     });
+    
+    // Also decrement ai_credits_remaining if using that field
+    await supabase.rpc('decrement_ai_credits', { user_id: userId });
 }
+
+// ============================================
+// ESCALATION MANAGEMENT (from first code)
+// ============================================
 
 export async function escalateToAdmin(userId, conversationId, subject, issue, priority = 'medium') {
     const { data, error } = await supabase
@@ -82,15 +120,291 @@ export async function escalateToAdmin(userId, conversationId, subject, issue, pr
     return { success: true, ticketId: data.id };
 }
 
-// INTELLIGENT RESPONSE FUNCTION - CAREER ADVISOR
+// ============================================
+// KNOWLEDGE BASE MANAGEMENT (from second code)
+// ============================================
+
+export async function refreshKnowledgeBase(sourceId) {
+    const { data: source, error } = await supabase
+        .from('ai_knowledge_sources')
+        .select('*')
+        .eq('id', sourceId)
+        .single();
+    
+    if (error || !source) return { success: false, error: 'Source not found' };
+    
+    try {
+        // Simulate fetching external content
+        const content = await fetchExternalContent(source.source_url);
+        
+        await supabase.from('ai_knowledge_base').insert({
+            source_id: sourceId,
+            content: content.substring(0, 10000),
+            metadata: { fetched_at: new Date().toISOString(), url: source.source_url }
+        });
+        
+        await supabase.from('ai_knowledge_sources').update({
+            last_fetched_at: new Date().toISOString()
+        }).eq('id', sourceId);
+        
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+async function fetchExternalContent(url) {
+    // This would be your actual fetch implementation
+    const response = await fetch(url);
+    const text = await response.text();
+    return text;
+}
+
+export async function getRelevantKnowledge(query, limit = 5) {
+    const { data: sources, error } = await supabase
+        .from('ai_knowledge_sources')
+        .select('id, source_name, source_type, source_url')
+        .eq('is_active', true);
+    
+    if (error) return [];
+    
+    const relevantContent = [];
+    const queryLower = query.toLowerCase();
+    
+    for (const source of sources) {
+        const { data: knowledge } = await supabase
+            .from('ai_knowledge_base')
+            .select('content, metadata')
+            .eq('source_id', source.id)
+            .order('created_at', { ascending: false })
+            .limit(2);
+        
+        if (knowledge) {
+            for (const item of knowledge) {
+                if (item.content.toLowerCase().includes(queryLower.substring(0, 50))) {
+                    relevantContent.push({
+                        source_type: source.source_type,
+                        source_name: source.source_name,
+                        content: item.content.substring(0, 2000),
+                        url: source.source_url
+                    });
+                }
+            }
+        }
+    }
+    
+    return relevantContent.slice(0, limit);
+}
+
+// ============================================
+// JOB SEARCH INTEGRATION (from both codes)
+// ============================================
+
+export async function searchJobsFromSources(query, limit = 10) {
+    const { data: sources, error } = await supabase
+        .from('ai_knowledge_sources')
+        .select('id, source_name, source_url')
+        .eq('source_type', 'jobs')
+        .eq('is_active', true);
+    
+    if (error) return [];
+    
+    // Check cache first
+    const { data: cached, error: cacheError } = await supabase
+        .from('ai_job_cache')
+        .select('*')
+        .in('source_id', sources.map(s => s.id))
+        .gte('expires_at', new Date().toISOString());
+    
+    if (!cacheError && cached && cached.length > 0) {
+        const queryLower = query.toLowerCase();
+        const filtered = cached.filter(job => 
+            job.job_title?.toLowerCase().includes(queryLower) ||
+            job.job_company?.toLowerCase().includes(queryLower) ||
+            job.job_location?.toLowerCase().includes(queryLower)
+        );
+        return filtered.slice(0, limit);
+    }
+    
+    // Fallback to main jobs table
+    let dbQuery = supabase
+        .from('jobs')
+        .select('title, company, location, salary_min, id')
+        .eq('compliance_status', 'approved')
+        .eq('is_active', true)
+        .limit(limit);
+    
+    const queryLower = query.toLowerCase();
+    if (queryLower.includes('remote')) {
+        dbQuery = dbQuery.eq('is_remote', true);
+    }
+    
+    const { data: jobs } = await dbQuery;
+    
+    if (jobs?.length) {
+        return jobs.map(job => ({
+            job_title: job.title,
+            job_company: job.company,
+            job_location: job.location,
+            job_salary: job.salary_min,
+            job_id: job.id
+        }));
+    }
+    
+    return [];
+}
+
+// ============================================
+// PRODUCT SUGGESTIONS (from second code)
+// ============================================
+
+export async function getProductSuggestions(query) {
+    const { data: mappings, error } = await supabase
+        .from('ai_service_mappings')
+        .select('*')
+        .order('priority', { ascending: true });
+    
+    if (error) return [];
+    
+    const queryLower = query.toLowerCase();
+    const suggestions = [];
+    
+    for (const mapping of mappings) {
+        if (queryLower.includes(mapping.keyword)) {
+            suggestions.push({
+                product: mapping.product_name,
+                url: mapping.product_url,
+                reason: `Based on your interest in ${mapping.keyword}`
+            });
+        }
+    }
+    
+    return suggestions;
+}
+
+// ============================================
+// INTENT DETECTION & LOGGING (from second code)
+// ============================================
+
+export async function detectAndLogIntent(userId, conversationId, message, detectedIntent, confidence, suggestions = []) {
+    await supabase.from('ai_intent_logs').insert({
+        user_id: userId,
+        conversation_id: conversationId,
+        user_message: message.substring(0, 500),
+        detected_intent: detectedIntent,
+        detected_confidence: confidence,
+        suggested_product: suggestions[0]?.product,
+        suggested_page: suggestions[0]?.url
+    });
+}
+
+export async function logSuggestion(userId, conversationId, suggestionType, suggestionContent, wasAccepted = null) {
+    await supabase.from('ai_suggestion_logs').insert({
+        user_id: userId,
+        conversation_id: conversationId,
+        suggestion_type: suggestionType,
+        suggestion_content: suggestionContent,
+        was_accepted: wasAccepted
+    });
+}
+
+export async function logLearningFeedback(userId, conversationId, query, response, rating, wasHelpful, correction = null) {
+    await supabase.from('ai_learning_feedback').insert({
+        user_id: userId,
+        conversation_id: conversationId,
+        original_query: query,
+        ai_response: response,
+        user_rating: rating,
+        was_helpful: wasHelpful,
+        user_correction: correction
+    });
+}
+
+// ============================================
+// CREDIT ALERTS (from second code)
+// ============================================
+
+export async function checkAndSuggestCredits(userId, currentCredits, tier, limit) {
+    const percentageRemaining = (currentCredits / limit) * 100;
+    
+    if (percentageRemaining <= 20 && percentageRemaining > 10) {
+        await supabase.from('ai_credit_alerts').insert({
+            user_id: userId,
+            alert_type: 'low_credit',
+            threshold_percentage: 20,
+            current_credits: currentCredits,
+            suggested_action: 'Purchase AI credits to continue uninterrupted'
+        });
+        return { 
+            suggestPurchase: true, 
+            message: `⚠️ You have only ${currentCredits} AI credits remaining (${Math.round(percentageRemaining)}%). Consider purchasing additional credits to continue using ODUSBABA Chat without interruption.` 
+        };
+    }
+    
+    if (percentageRemaining <= 10 && percentageRemaining > 0) {
+        await supabase.from('ai_credit_alerts').insert({
+            user_id: userId,
+            alert_type: 'low_credit',
+            threshold_percentage: 10,
+            current_credits: currentCredits,
+            suggested_action: 'Purchase AI credits immediately'
+        });
+        return { 
+            suggestPurchase: true, 
+            message: `🔴 URGENT: You have only ${currentCredits} AI credits left (${Math.round(percentageRemaining)}%). Your chat will stop working when credits reach 0. Purchase more credits now to continue.` 
+        };
+    }
+    
+    if (currentCredits <= 0) {
+        await supabase.from('ai_credit_alerts').insert({
+            user_id: userId,
+            alert_type: 'exhausted',
+            current_credits: 0,
+            suggested_action: 'Purchase AI credits to resume service'
+        });
+        return { 
+            suggestPurchase: true, 
+            message: `❌ You have exhausted your AI credits. Please purchase more credits to continue using ODUSBABA Chat.`, 
+            creditsExhausted: true 
+        };
+    }
+    
+    return { suggestPurchase: false };
+}
+
+// ============================================
+// INTELLIGENT RESPONSE - CAREER ADVISOR (Merged from both)
+// ============================================
+
 export async function getAIResponse(userId, message, conversationId, userProfile, userTier) {
     const lowerMessage = message.toLowerCase();
     const isLoggedIn = !!userId;
     
+    // Step 1: Check credits if we have user info
+    let creditCheck = { suggestPurchase: false };
+    if (userId) {
+        const credits = await getRemainingChatCredits(userId);
+        creditCheck = await checkAndSuggestCredits(userId, credits.remaining, userTier || credits.tier, credits.limit);
+        
+        if (creditCheck.creditsExhausted) {
+            await logSuggestion(userId, conversationId, 'credit_purchase', 'User exhausted AI credits', false);
+            return { 
+                response: creditCheck.message, 
+                needsEscalation: false 
+            };
+        }
+    }
+    
+    // ============================================
+    // RULE-BASED RESPONSES (from first code)
+    // ============================================
+    
     // LEGAL & WORKPLACE ABUSE QUESTIONS
     if (lowerMessage.includes('sue') || lowerMessage.includes('legal') || lowerMessage.includes('lawyer') || 
         lowerMessage.includes('abuse') || lowerMessage.includes('harassment') || lowerMessage.includes('discrimination') ||
-        lowerMessage.includes('employer') && (lowerMessage.includes('abuse') || lowerMessage.includes('mistreat'))) {
+        (lowerMessage.includes('employer') && (lowerMessage.includes('abuse') || lowerMessage.includes('mistreat')))) {
+        
+        await detectAndLogIntent(userId, conversationId, message, 'legal_info', 0.95);
         
         return {
             response: `⚖️ **Workplace Rights & Legal Guidance**
@@ -139,6 +453,8 @@ Would you like me to connect you with a human advisor who can provide specific g
     
     // SALARY NEGOTIATION
     if (lowerMessage.includes('salary') || lowerMessage.includes('negotiate') || lowerMessage.includes('pay raise')) {
+        await detectAndLogIntent(userId, conversationId, message, 'salary_advice', 0.9);
+        
         return {
             response: `💰 **Salary Negotiation Guide**
 
@@ -170,8 +486,11 @@ Would you like salary data for your specific role and location?`,
     
     // CV/RESUME ADVICE
     if (lowerMessage.includes('cv') || lowerMessage.includes('resume')) {
-        return {
-            response: `📄 **Professional CV Makeover**
+        await detectAndLogIntent(userId, conversationId, message, 'cv_help', 0.95);
+        
+        const productSuggestions = await getProductSuggestions(message);
+        
+        let response = `📄 **Professional CV Makeover**
 
 **Essential Sections:**
 1. Contact info (email, phone, LinkedIn, portfolio)
@@ -193,33 +512,34 @@ Would you like salary data for your specific role and location?`,
 • Standard section headers
 • Save as PDF or DOCX
 
-${isLoggedIn ? 'Want me to analyze your CV? Upload it!' : 'Sign up free to upload your CV for AI-powered analysis!'}`,
-            needsEscalation: false
-        };
+${isLoggedIn ? 'Want me to analyze your CV? Upload it!' : 'Sign up free to upload your CV for AI-powered analysis!'}`;
+
+        if (productSuggestions.length > 0) {
+            response += `\n\n🔹 **Related Services:**\n- ${productSuggestions[0].product}: ${productSuggestions[0].reason}`;
+            await logSuggestion(userId, conversationId, 'product', productSuggestions[0].product, false);
+        }
+        
+        return { response, needsEscalation: false };
     }
     
     // JOB SEARCH
-    if (lowerMessage.includes('job') || lowerMessage.includes('position')) {
+    if (lowerMessage.includes('job') || lowerMessage.includes('position') || lowerMessage.includes('vacancy')) {
+        await detectAndLogIntent(userId, conversationId, message, 'job_search', 0.9);
+        
+        // Extract location preference
         let location = '';
-        if (lowerMessage.includes('uk')) location = 'GB';
+        if (lowerMessage.includes('uk') || lowerMessage.includes('britain')) location = 'GB';
         else if (lowerMessage.includes('nigeria')) location = 'NG';
         else if (lowerMessage.includes('canada')) location = 'CA';
-        else if (lowerMessage.includes('us') || lowerMessage.includes('usa')) location = 'US';
+        else if (lowerMessage.includes('us') || lowerMessage.includes('usa') || lowerMessage.includes('united states')) location = 'US';
         
-        let query = supabase
-            .from('jobs')
-            .select('title, company, location, salary_min')
-            .eq('compliance_status', 'approved')
-            .eq('is_active', true)
-            .limit(3);
+        const jobs = await searchJobsFromSources(message, 5);
         
-        if (location) query = query.eq('country_code', location);
+        const filteredJobs = location ? jobs.filter(j => j.job_location?.includes(location)) : jobs;
         
-        const { data: jobs } = await query;
-        
-        if (jobs?.length) {
+        if (filteredJobs?.length) {
             return {
-                response: `🔍 **Found ${jobs.length} jobs for you**\n\n${jobs.map(j => `• **${j.title}** at ${j.company} (${j.location || 'Remote'})${j.salary_min ? ` - £${j.salary_min.toLocaleString()}+` : ''}`).join('\n')}\n\n${isLoggedIn ? 'Apply now on our job board!' : 'Sign up free to apply!'}`,
+                response: `🔍 **Found ${filteredJobs.length} job${filteredJobs.length === 1 ? '' : 's'} for you**\n\n${filteredJobs.slice(0, 3).map(j => `• **${j.job_title}** at ${j.job_company}${j.job_location ? ` (${j.job_location})` : ''}${j.job_salary ? ` - $${j.job_salary.toLocaleString()}+` : ''}`).join('\n')}\n\n${isLoggedIn ? 'Apply now on our job board!' : 'Sign up free to apply!'}`,
                 needsEscalation: false
             };
         }
@@ -237,8 +557,39 @@ ${isLoggedIn ? 'Browse all jobs on our board!' : 'Sign up free to access all job
         };
     }
     
-    // ESCALATION
-    if (lowerMessage.includes('human') || lowerMessage.includes('admin') || lowerMessage.includes('talk to someone')) {
+    // INTERVIEW PREPARATION
+    if (lowerMessage.includes('interview')) {
+        await detectAndLogIntent(userId, conversationId, message, 'interview_prep', 0.9);
+        
+        return {
+            response: `🎯 **Interview Preparation Guide**
+
+**Common Questions:**
+1. "Tell me about yourself" - 2 minute professional summary
+2. "Why do you want this role?" - Connect your skills to their needs
+3. "What's your greatest weakness?" - Real weakness + improvement plan
+4. "Where do you see yourself in 5 years?" - Growth within their company
+
+**STAR Method for Behavioral Questions:**
+- **S**ituation: Set the context
+- **T**ask: What was your responsibility
+- **A**ction: What steps did you take
+- **R**esult: What was the outcome
+
+**Questions to Ask Them:**
+• "What does success look like in this role?"
+• "What's the team culture like?"
+• "What are the growth opportunities?"
+
+Want to practice a mock interview with me?`,
+            needsEscalation: false
+        };
+    }
+    
+    // ESCALATION REQUEST
+    if (lowerMessage.includes('human') || lowerMessage.includes('admin') || lowerMessage.includes('talk to someone') || lowerMessage.includes('live agent')) {
+        await detectAndLogIntent(userId, conversationId, message, 'escalation', 0.95);
+        
         return {
             response: `👨‍💼 **Human Assistance Requested**
 
@@ -252,9 +603,26 @@ Please provide any additional details so we can help you better.`,
         };
     }
     
-    // DEFAULT
-    return {
-        response: `👋 **Hi! I'm ODUSBABA, your Career Advisor**
+    // ============================================
+    // KNOWLEDGE-BASED RESPONSE (from second code)
+    // ============================================
+    
+    try {
+        // Get relevant knowledge from approved sources
+        const relevantKnowledge = await getRelevantKnowledge(message);
+        
+        // Get product suggestions
+        const productSuggestions = await getProductSuggestions(message);
+        
+        // Build context for AI
+        let context = "KNOWLEDGE BASE (only use this information):\n";
+        
+        for (const knowledge of relevantKnowledge) {
+            context += `\n[${knowledge.source_type?.toUpperCase() || 'INFO'}] ${knowledge.source_name}: ${knowledge.content.substring(0, 1500)}`;
+        }
+        
+        // Call AI with context-bound instructions
+        let aiResponse = `👋 **Hi! I'm ODUSBABA, your Career Advisor**
 
 I can help with:
 ⚖️ **Workplace rights & legal questions**
@@ -271,7 +639,35 @@ I can help with:
 • "Interview tips"
 • "Find me jobs"
 
-What would you like help with today?`,
-        needsEscalation: false
-    };
+What would you like help with today?`;
+        
+        // Append product suggestions if applicable
+        if (productSuggestions.length > 0) {
+            aiResponse += `\n\n🔹 **Related ODUSBABA Services:**\n`;
+            for (const suggestion of productSuggestions.slice(0, 2)) {
+                aiResponse += `- ${suggestion.product}: ${suggestion.reason}\n`;
+            }
+            await logSuggestion(userId, conversationId, 'product', productSuggestions[0]?.product, false);
+        }
+        
+        // Append credit suggestion if low
+        if (creditCheck.suggestPurchase && !creditCheck.creditsExhausted && userId) {
+            aiResponse += `\n\n${creditCheck.message}`;
+            await logSuggestion(userId, conversationId, 'credit_purchase', 'AI credit low threshold reached', false);
+        }
+        
+        // Log the interaction
+        if (userId) {
+            await recordChatUsage(userId);
+        }
+        
+        return { response: aiResponse, needsEscalation: false };
+        
+    } catch (error) {
+        console.error('AI Chat error:', error);
+        return { 
+            response: "I'm having trouble processing your request right now. Please try again in a moment, or contact support@bluskyeconsult.com for assistance.",
+            needsEscalation: true 
+        };
+    }
 }
