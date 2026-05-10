@@ -37,10 +37,10 @@ const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
 const ContactPage = lazy(() => import('./pages/ContactPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
-const FAQPage = lazy(() => import('./pages/FAQPage'));
+const FAQPage = lazy(() => import('./pages/FAQPage')); // Upgraded version
 const FraudPreventionPage = lazy(() => import('./pages/FraudPreventionPage'));
 const MoreProductsPage = lazy(() => import('./pages/MoreProductsPage'));
-const ProductsPage = lazy(() => import('./pages/ProductsPage')); // Added from second code
+const ProductsPage = lazy(() => import('./pages/ProductsPage')); // New from second code
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 
@@ -59,13 +59,13 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
 const AdminBooks = lazy(() => import('./pages/admin/AdminBooks'));
-const ManageBooks = lazy(() => import('./pages/admin/ManageBooks')); // Added from second code
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
 const AdminVirtualAssistants = lazy(() => import('./pages/admin/AdminVirtualAssistants'));
 const AdminAssessments = lazy(() => import('./pages/admin/AdminAssessments'));
 const AdminExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'));
-const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager')); // Added from second code
+const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager')); // New from second code
+const ManageBooks = lazy(() => import('./pages/admin/ManageBooks')); // New from second code
 
 // Lazy-loaded Pages - Legal
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
@@ -78,7 +78,7 @@ function LoadingSpinner() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
         <p className="text-slate-400">Loading...</p>
       </div>
     </div>
@@ -129,14 +129,19 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
   }
 
   if (loading) return <LoadingSpinner />;
+  
   if (!user) {
-    window.location.href = '/sign-in';
+    // Preserve the intended destination for redirect after login
+    const returnUrl = encodeURIComponent(location.pathname);
+    window.location.href = `/sign-in?returnTo=${returnUrl}`;
     return null;
   }
+  
   if (allowedRoles.length > 0 && !allowedRoles.includes(profile?.user_type)) {
     window.location.href = '/dashboard';
     return null;
   }
+  
   return children;
 }
 
@@ -147,7 +152,10 @@ function NotFoundPage() {
         <h1 className="text-7xl font-bold text-white mb-4">404</h1>
         <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
         <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
-        <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
+        <button 
+          onClick={() => window.location.href = '/'} 
+          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+        >
           Go Home
         </button>
       </div>
@@ -166,73 +174,81 @@ function AppContent() {
       <ScrollingBanner />
       <PromoBanner />
       <main className="min-h-screen relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <AnimatePresence mode="wait">
-            <Suspense fallback={<LoadingSpinner />}>
-              <Routes location={location} key={location.pathname}>
-                {/* ========== PUBLIC ROUTES ========== */}
-                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
-                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
-                <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
-                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
-                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-                <Route path="/courses/:id" element={<AnimatedPage><CourseDetailsPage /></AnimatedPage>} />
-                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
-                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
-                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
-                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
-                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
-                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
-                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
-                <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
-                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} /> {/* Added from second code */}
-                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
-                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-                <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+        <AnimatePresence mode="wait">
+          <Suspense fallback={<LoadingSpinner />}>
+            <Routes location={location} key={location.pathname}>
+              {/* ========== PUBLIC ROUTES ========== */}
+              <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+              <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+              <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
+              <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+              <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+              <Route path="/courses/:id" element={<AnimatedPage><CourseDetailsPage /></AnimatedPage>} />
+              <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+              <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+              <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+              <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+              <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+              <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+              <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+              <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+              <Route path="/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
+              <Route path="/more-products" element={<AnimatedPage><MoreProductsPage /></AnimatedPage>} />
+              <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} /> {/* New route */}
+              <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+              <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+              <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
-                {/* ========== USER DASHBOARD ROUTES ========== */}
-                <Route path="/dashboard" element={<ProtectedRoute><AnimatedPage><UserDashboard /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/profile" element={<ProtectedRoute><AnimatedPage><UserProfile /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/applications" element={<ProtectedRoute><AnimatedPage><UserApplications /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/skills" element={<ProtectedRoute><AnimatedPage><UserSkills /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/saved-jobs" element={<ProtectedRoute><AnimatedPage><SavedJobsPage /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
+              {/* ========== USER DASHBOARD ROUTES ========== */}
+              <Route path="/dashboard" element={<ProtectedRoute><AnimatedPage><UserDashboard /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><AnimatedPage><UserProfile /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/applications" element={<ProtectedRoute><AnimatedPage><UserApplications /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/skills" element={<ProtectedRoute><AnimatedPage><UserSkills /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/saved-jobs" element={<ProtectedRoute><AnimatedPage><SavedJobsPage /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/job-alerts" element={<ProtectedRoute><AnimatedPage><JobAlertsPage /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/affiliate" element={<ProtectedRoute><AnimatedPage><AffiliateDashboard /></AnimatedPage></ProtectedRoute>} />
 
-                {/* ========== ADMIN ROUTES ========== */}
-                <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/articles" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminArticles /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminBooks /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/manage-books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><ManageBooks /></AnimatedPage></ProtectedRoute>} /> {/* Added from second code */}
-                <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/external-jobs" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
-                <Route path="/admin/knowledge-sources" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><KnowledgeSourceManager /></AnimatedPage></ProtectedRoute>} /> {/* Added from second code */}
+              {/* ========== ADMIN ROUTES ========== */}
+              <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminDashboard /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminUsers /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/articles" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminArticles /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminBooks /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/courses" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminCourses /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/virtual-assistants" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminVirtualAssistants /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/assessments" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAssessments /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/external-jobs" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminExternalJobs /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><AdminAnalytics /></AnimatedPage></ProtectedRoute>} />
+              <Route path="/admin/knowledge-sources" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><KnowledgeSourceManager /></AnimatedPage></ProtectedRoute>} /> {/* New route */}
+              <Route path="/admin/manage-books" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AnimatedPage><ManageBooks /></AnimatedPage></ProtectedRoute>} /> {/* New route */}
 
-                {/* ========== LEGAL ROUTES ========== */}
-                <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
-                <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
-                <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
-                <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
-                <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+              {/* ========== LEGAL ROUTES ========== */}
+              <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+              <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+              <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+              <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+              <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
 
-                {/* 404 Fallback */}
-                <Route path="*" element={<NotFoundPage />} />
-              </Routes>
-            </Suspense>
-          </AnimatePresence>
-        </div>
+              {/* 404 Fallback */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </AnimatePresence>
       </main>
       <Footer />
       <CookieConsent />
       <ODUSBABAChat />
       <AIAssistButton />
-      <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { 
+            background: '#1e293b', 
+            color: '#fff',
+            borderRadius: '12px',
+            border: '1px solid #334155'
+          } 
+        }} 
+      />
     </>
   );
 }
