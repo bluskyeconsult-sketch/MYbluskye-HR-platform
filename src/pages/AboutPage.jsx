@@ -5,8 +5,9 @@ import { Link } from 'react-router-dom';
 import { 
     Shield, Brain, Users, Globe, Zap, Sparkles, 
     CheckCircle, Award, TrendingUp, Heart, Star, 
-    Clock, Building2, ClipboardCheck, Handshake,
-    ArrowRight, Quote, Rocket, Target, Eye
+    Clock, Building2, ClipboardCheck, Hand,
+    ArrowRight, Quote, Rocket, Target, Eye,
+    Briefcase, BookOpen, FileText, MessageCircle
 } from 'lucide-react';
 
 export default function AboutPage() {
@@ -120,7 +121,7 @@ export default function AboutPage() {
                         { icon: Users, title: 'Global Workforce', desc: 'Connect with professionals and employers from 7 countries, with more coming soon.', color: 'from-emerald-500/20 to-emerald-600/20' },
                         { icon: Globe, title: '7 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia - with intelligent geo-pricing for fair access.', color: 'from-cyan-500/20 to-cyan-600/20' },
                         { icon: Zap, title: 'Real-Time Matching', desc: 'Instant job and skill matching powered by advanced AI algorithms that learn your preferences.', color: 'from-amber-500/20 to-amber-600/20' },
-                        { icon: Handshake, title: 'Value Partnership', desc: 'Creating Value for Partnership in every interaction - we succeed when you succeed.', color: 'from-emerald-500/20 to-emerald-600/20' }
+                        { icon: Hand, title: 'Value Partnership', desc: 'Creating Value for Partnership in every interaction - we succeed when you succeed.', color: 'from-emerald-500/20 to-emerald-600/20' }
                     ].map((pillar, idx) => (
                         <div key={idx} className={`bg-gradient-to-br ${pillar.color} border border-slate-700 rounded-xl p-6 hover:-translate-y-1 transition-all duration-300`}>
                             <div className="w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4">
