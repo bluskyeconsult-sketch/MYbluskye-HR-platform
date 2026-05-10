@@ -1,6 +1,6 @@
 // src/App.jsx
 // COMPLETE PRODUCTION-READY APP WITH ALL ROUTES
-// No placeholders - all components properly imported
+// ALL IMPORTS HAVE CORRECT .jsx EXTENSIONS
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
@@ -10,122 +10,122 @@ import { AnimatePresence, motion } from 'framer-motion';
 // ============================================
 // COMPONENTS
 // ============================================
-import Navbar from './components/Navbar';
-import Footer from './components/Footer';
-import PremiumTermsPopup from './components/PremiumTermsPopup';
-import CookieConsent from './components/CookieConsent';
-import ODUSBABAChat from './components/ODUSBABAChat';
-import BrainstormPartner from './components/BrainstormPartner';
-import TermsPopup from './components/TermsPopup';
-import ScrollingBanner from './components/ScrollingBanner';
+import Navbar from './components/Navbar.jsx';
+import Footer from './components/Footer.jsx';
+import PremiumTermsPopup from './components/PremiumTermsPopup.jsx';
+import CookieConsent from './components/CookieConsent.jsx';
+import ODUSBABAChat from './components/ODUSBABAChat.jsx';
+import BrainstormPartner from './components/BrainstormPartner.jsx';
+import TermsPopup from './components/TermsPopup.jsx';
+import ScrollingBanner from './components/ScrollingBanner.jsx';
 
 // ============================================
 // PUBLIC PAGES
 // ============================================
-import HomePage from './pages/HomePage';
-import AdminLogin from './pages/AdminLogin';
-import WorkforceMarketplace from './pages/WorkforceMarketplace';
-import JobsPage from './pages/JobsPage';
-import CoursesPage from './pages/CoursesPage';
-import BooksPage from './pages/BooksPage';
-import NewsletterPage from './pages/NewsletterPage';
-import HireVirtualAssistant from './pages/HireVirtualAssistant';
-import AboutPage from './pages/AboutPage';
-import ContactPage from './pages/ContactPage';
-import PricingPage from './pages/PricingPage';
-import SignInPage from './pages/SignInPage';
-import SignUpPage from './pages/SignUpPage';
+import HomePage from './pages/HomePage.jsx';
+import AdminLogin from './pages/AdminLogin.jsx';
+import WorkforceMarketplace from './pages/WorkforceMarketplace.jsx';
+import JobsPage from './pages/JobsPage.jsx';
+import CoursesPage from './pages/CoursesPage.jsx';
+import BooksPage from './pages/BooksPage.jsx';
+import NewsletterPage from './pages/NewsletterPage.jsx';
+import HireVirtualAssistant from './pages/HireVirtualAssistant.jsx';
+import AboutPage from './pages/AboutPage.jsx';
+import ContactPage from './pages/ContactPage.jsx';
+import PricingPage from './pages/PricingPage.jsx';
+import SignInPage from './pages/SignInPage.jsx';
+import SignUpPage from './pages/SignUpPage.jsx';
 
 // ============================================
 // ASSESSMENT PAGES
 // ============================================
-import AssessmentsPage from './pages/AssessmentsPage';
-import TakeAssessment from './pages/TakeAssessment';
-import AssessmentResults from './pages/AssessmentResults';
+import AssessmentsPage from './pages/AssessmentsPage.jsx';
+import TakeAssessment from './pages/TakeAssessment.jsx';
+import AssessmentResults from './pages/AssessmentResults.jsx';
 
 // ============================================
 // ARTICLE PAGES
 // ============================================
-import ArticlesPage from './pages/ArticlesPage';
-import ArticleDetail from './pages/ArticleDetail';
+import ArticlesPage from './pages/ArticlesPage.jsx';
+import ArticleDetail from './pages/ArticleDetail.jsx';
 
 // ============================================
 // TESTER PAGES
 // ============================================
-import TesterLoginPage from './pages/tester/TesterLoginPage';
-import TesterRegisterPage from './pages/tester/TesterRegisterPage';
-import TesterDashboard from './pages/tester/TesterDashboard';
+import TesterLoginPage from './pages/tester/TesterLoginPage.jsx';
+import TesterRegisterPage from './pages/tester/TesterRegisterPage.jsx';
+import TesterDashboard from './pages/tester/TesterDashboard.jsx';
 
 // ============================================
 // USER PAGES
 // ============================================
-import UserDashboard from './pages/UserDashboard';
-import UserProfile from './pages/UserProfile';
-import UserApplications from './pages/UserApplications';
-import UserSkills from './pages/UserSkills';
-import UserMessages from './pages/UserMessages';
-import UserSettings from './pages/UserSettings';
-import SavedJobsPage from './pages/SavedJobsPage';
-import JobAlertsPage from './pages/JobAlertsPage';
-import AffiliateDashboard from './pages/AffiliateDashboard';
+import UserDashboard from './pages/UserDashboard.jsx';
+import UserProfile from './pages/UserProfile.jsx';
+import UserApplications from './pages/UserApplications.jsx';
+import UserSkills from './pages/UserSkills.jsx';
+import UserMessages from './pages/UserMessages.jsx';
+import UserSettings from './pages/UserSettings.jsx';
+import SavedJobsPage from './pages/SavedJobsPage.jsx';
+import JobAlertsPage from './pages/JobAlertsPage.jsx';
+import AffiliateDashboard from './pages/AffiliateDashboard.jsx';
 
 // ============================================
 // EMPLOYER PAGES
 // ============================================
-import CompanyProfile from './pages/CompanyProfile';
+import CompanyProfile from './pages/CompanyProfile.jsx';
 
 // ============================================
 // LMS (LEARNING MANAGEMENT SYSTEM) PAGES
 // ============================================
-import LearnerDashboard from './pages/LearnerDashboard';
-import AICourseBuilder from './pages/admin/AICourseBuilder';
+import LearnerDashboard from './pages/LearnerDashboard.jsx';
+import AICourseBuilder from './pages/admin/AICourseBuilder.jsx';
 
 // ============================================
 // NEW PRODUCT PAGES
 // ============================================
-import ProductsPage from './pages/ProductsPage';
-import FAQPage from './pages/FAQPage';
+import ProductsPage from './pages/ProductsPage.jsx';
+import FAQPage from './pages/FAQPage.jsx';
 
 // ============================================
 // WORKFORCE MARKETPLACE PAGES
 // ============================================
-import WorkforceDashboard from './pages/WorkforceDashboard';
-import WorkforceOnboarding from './components/workforce/WorkforceOnboarding';
-import ServiceRequestForm from './components/workforce/ServiceRequestForm';
-import ProposalsList from './components/workforce/ProposalsList';
-import EngagementsDashboard from './components/workforce/EngagementsDashboard';
+import WorkforceDashboard from './pages/WorkforceDashboard.jsx';
+import WorkforceOnboarding from './components/workforce/WorkforceOnboarding.jsx';
+import ServiceRequestForm from './components/workforce/ServiceRequestForm.jsx';
+import ProposalsList from './components/workforce/ProposalsList.jsx';
+import EngagementsDashboard from './components/workforce/EngagementsDashboard.jsx';
 
 // ============================================
 // ADMIN PAGES
 // ============================================
-import AdminDashboard from './pages/admin/AdminDashboard';
-import CountryManagement from './pages/admin/super/CountryManagement';
-import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
-import AffiliateManagement from './pages/admin/AffiliateManagement';
-import ArticleEditor from './pages/admin/ArticleEditor';
-import AdminArticles from './pages/admin/AdminArticles';
-import TesterVisibilitySettings from './pages/admin/TesterVisibilitySettings';
-import TestingModeSettings from './pages/admin/TestingModeSettings';
-import EmailTest from './pages/admin/EmailTest';
-import KnowledgeSourceManager from './pages/admin/KnowledgeSourceManager';
-import ManageBooks from './pages/admin/ManageBooks';
-import NewsletterAdmin from './pages/admin/NewsletterAdmin';
+import AdminDashboard from './pages/admin/AdminDashboard.jsx';
+import CountryManagement from './pages/admin/super/CountryManagement.jsx';
+import AnalyticsDashboard from './pages/admin/AnalyticsDashboard.jsx';
+import AffiliateManagement from './pages/admin/AffiliateManagement.jsx';
+import ArticleEditor from './pages/admin/ArticleEditor.jsx';
+import AdminArticles from './pages/admin/AdminArticles.jsx';
+import TesterVisibilitySettings from './pages/admin/TesterVisibilitySettings.jsx';
+import TestingModeSettings from './pages/admin/TestingModeSettings.jsx';
+import EmailTest from './pages/admin/EmailTest.jsx';
+import KnowledgeSourceManager from './pages/admin/KnowledgeSourceManager.jsx';
+import ManageBooks from './pages/admin/ManageBooks.jsx';
+import NewsletterAdmin from './pages/admin/NewsletterAdmin.jsx';
 
 // ============================================
-// LEGAL PAGES
+// LEGAL PAGES - WITH CORRECT .jsx EXTENSIONS
 // ============================================
-import TermsPage from './pages/legal/TermsPage';
-import PrivacyPage from './pages/legal/PrivacyPage';
-import CookiesPage from './pages/legal/CookiesPage';
-import DisclaimerPage from './pages/legal/DisclaimerPage';
-import AcceptableUsePage from './pages/legal/AcceptableUsePage';
-import FraudPreventionPage from './pages/legal/FraudPreventionPage';
-import FraudSafetyBanner from './components/FraudSafetyBanner';
-import ReportFraudPage from './pages/ReportFraudPage';
-import SafetyTipsPage from './pages/legal/SafetyTipsPage';
+import TermsPage from './pages/legal/TermsPage.jsx';
+import PrivacyPage from './pages/legal/PrivacyPage.jsx';
+import CookiesPage from './pages/legal/CookiesPage.jsx';
+import DisclaimerPage from './pages/legal/DisclaimerPage.jsx';
+import AcceptableUsePage from './pages/legal/AcceptableUsePage.jsx';
+import FraudPreventionPage from './pages/legal/FraudPreventionPage.jsx';
+import FraudSafetyBanner from './components/FraudSafetyBanner.jsx';
+import ReportFraudPage from './pages/ReportFraudPage.jsx';
+import SafetyTipsPage from './pages/legal/SafetyTipsPage.jsx';
 
 // ============================================
-// SUPABASE CLIENT (Singleton)
+// SUPABASE CLIENT
 // ============================================
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -172,10 +172,15 @@ function NotFoundPage() {
 }
 
 // ============================================
-// WRAPPER COMPONENTS (for workforce routes)
+// WRAPPER COMPONENTS
 // ============================================
 function WorkforceOnboardingWrapper() {
-    return <WorkforceOnboarding onComplete={() => window.location.href = '/workforce/dashboard'} />;
+    const [onboardComplete, setOnboardComplete] = useState(false);
+    if (onboardComplete) {
+        window.location.href = '/workforce/dashboard';
+        return null;
+    }
+    return <WorkforceOnboarding onComplete={() => setOnboardComplete(true)} />;
 }
 
 function ProposalsListWrapper() {
@@ -231,9 +236,7 @@ function AppContent() {
                         <AnimatePresence mode="wait">
                             <Routes location={location} key={location.pathname}>
                                 
-                                {/* ============================================ */}
                                 {/* PUBLIC ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                                 <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                                 <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
@@ -250,43 +253,31 @@ function AppContent() {
                                 <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                 <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* ASSESSMENT ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                                 <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
                                 <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* ARTICLE ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
                                 <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* LMS ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
                                 <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* WORKFORCE MARKETPLACE ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/workforce/dashboard" element={<AnimatedPage><WorkforceDashboard /></AnimatedPage>} />
                                 <Route path="/workforce/setup" element={<AnimatedPage><WorkforceOnboardingWrapper /></AnimatedPage>} />
                                 <Route path="/workforce/proposals" element={<AnimatedPage><ProposalsListWrapper /></AnimatedPage>} />
                                 <Route path="/workforce/engagements" element={<AnimatedPage><EngagementsDashboardWrapper /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* TESTER ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
                                 <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
                                 <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* USER ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
                                 <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
                                 <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
@@ -297,14 +288,10 @@ function AppContent() {
                                 <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
                                 <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* EMPLOYER ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* ADMIN ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                                 <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
                                 <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
@@ -319,9 +306,7 @@ function AppContent() {
                                 <Route path="/admin/books" element={<AnimatedPage><ManageBooks /></AnimatedPage>} />
                                 <Route path="/admin/newsletter" element={<AnimatedPage><NewsletterAdmin /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* LEGAL & SAFETY ROUTES */}
-                                {/* ============================================ */}
                                 <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
                                 <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
                                 <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
@@ -331,9 +316,7 @@ function AppContent() {
                                 <Route path="/safety-tips" element={<AnimatedPage><SafetyTipsPage /></AnimatedPage>} />
                                 <Route path="/report-fraud" element={<AnimatedPage><ReportFraudPage /></AnimatedPage>} />
 
-                                {/* ============================================ */}
                                 {/* 404 FALLBACK - MUST BE LAST */}
-                                {/* ============================================ */}
                                 <Route path="*" element={<NotFoundPage />} />
                                 
                             </Routes>
