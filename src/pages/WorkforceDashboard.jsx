@@ -11,7 +11,7 @@ import EngagementsDashboard from '../components/workforce/EngagementsDashboard';
 import { 
     User, Briefcase, FileText, Star, TrendingUp, Clock, 
     CheckCircle, DollarSign, Calendar, Award, Users, Settings,
-    PlusCircle, MessageCircle, Bell, Activity
+    PlusCircle, MessageCircle, Bell, Activity, Loader2
 } from 'lucide-react';
 
 export default function WorkforceDashboard() {
@@ -36,7 +36,6 @@ export default function WorkforceDashboard() {
         }
         setUser(user);
 
-        // Get user profile to determine type
         const { data: userProfile } = await supabase
             .from('profiles')
             .select('user_type')
@@ -45,7 +44,6 @@ export default function WorkforceDashboard() {
         
         setUserType(userProfile?.user_type);
 
-        // Check if workforce profile exists
         const workforceProfile = await getWorkforceProfile(user.id);
         
         if (!workforceProfile && userProfile?.user_type === 'professional') {
@@ -78,7 +76,7 @@ export default function WorkforceDashboard() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <div className="animate-pulse text-slate-400">Loading dashboard...</div>
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
         );
     }
@@ -186,7 +184,6 @@ export default function WorkforceDashboard() {
                 <div className="min-h-[400px]">
                     {activeTab === 'overview' && (
                         <div className="space-y-6">
-                            {/* Welcome Section */}
                             <div className="bg-gradient-to-r from-primary-900/20 to-slate-900 rounded-xl p-6 border border-primary-500/20">
                                 <h2 className="text-xl font-bold text-white mb-2">
                                     {userType === 'employer' 
@@ -216,7 +213,6 @@ export default function WorkforceDashboard() {
                                 )}
                             </div>
 
-                            {/* Recent Activity */}
                             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                                 <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
                                     <Activity className="w-4 h-4 text-primary-400" />
@@ -263,7 +259,7 @@ export default function WorkforceDashboard() {
     );
 }
 
-// ServiceRequestsList Component (simplified version - would be expanded)
+// ServiceRequestsList Component
 function ServiceRequestsList({ employerId }) {
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -290,7 +286,6 @@ function ServiceRequestsList({ employerId }) {
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
                 <FileText className="w-12 h-12 text-slate-600 mx-auto mb-3" />
                 <p className="text-slate-400">No service requests yet</p>
-                <button className="mt-3 text-primary-400 hover:underline">Post your first request →</button>
             </div>
         );
     }
@@ -404,6 +399,3 @@ function WorkforceProfileEdit({ profile, onUpdate }) {
         </div>
     );
 }
-
-// Import missing components
-import { Loader2, FileText } from 'lucide-react';
