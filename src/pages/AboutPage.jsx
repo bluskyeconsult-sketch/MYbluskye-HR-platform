@@ -1,11 +1,11 @@
 // src/pages/AboutPage.jsx
-// COMPLETE About Us page - Value-driven, professional, compelling
+// COMPLETE About Us page - No Database references, pure frontend
 
 import { Link } from 'react-router-dom';
 import { 
     Shield, Brain, Users, Globe, Zap, Sparkles, 
     CheckCircle, Award, TrendingUp, Heart, Star, 
-    Clock, Building2, ClipboardCheck, Hand,
+    Clock, Building2, Hand,
     ArrowRight, Quote, Rocket, Target, Eye,
     Briefcase, BookOpen, FileText, MessageCircle
 } from 'lucide-react';
@@ -57,7 +57,7 @@ export default function AboutPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-3">Our Mission</h2>
                         <p className="text-slate-400 leading-relaxed">
-                            To create a transparent, trustworthy, and AI-governed workforce ecosystem where verified skills meet genuine opportunities. We empower professionals to showcase their authentic abilities and enable employers to hire with confidence.
+                            To create a transparent, trustworthy, and AI-governed workforce ecosystem where verified skills meet genuine opportunities.
                         </p>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8 hover:border-primary-500/30 transition-all">
@@ -66,7 +66,7 @@ export default function AboutPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-3">Our Vision</h2>
                         <p className="text-slate-400 leading-relaxed">
-                            A world where every professional's skills are recognized and valued, and where every employer finds the perfect match with complete confidence and security.
+                            A world where every professional's skills are recognized and valued, and where every employer finds the perfect match with complete confidence.
                         </p>
                     </div>
                 </div>
@@ -116,11 +116,11 @@ export default function AboutPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {[
-                        { icon: Brain, title: 'AI-Powered Intelligence', desc: 'ODUSBABA learns from every interaction to provide smarter recommendations and personalized career guidance.', color: 'from-purple-500/20 to-purple-600/20' },
+                        { icon: Brain, title: 'AI-Powered Intelligence', desc: 'ODUSBABA learns from every interaction to provide smarter recommendations.', color: 'from-purple-500/20 to-purple-600/20' },
                         { icon: Shield, title: 'Governed Trust', desc: 'Every skill is verified through AI and human oversight. Trust Scores reflect authentic capabilities.', color: 'from-blue-500/20 to-blue-600/20' },
                         { icon: Users, title: 'Global Workforce', desc: 'Connect with professionals and employers from 7 countries, with more coming soon.', color: 'from-emerald-500/20 to-emerald-600/20' },
-                        { icon: Globe, title: '7 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia - with intelligent geo-pricing for fair access.', color: 'from-cyan-500/20 to-cyan-600/20' },
-                        { icon: Zap, title: 'Real-Time Matching', desc: 'Instant job and skill matching powered by advanced AI algorithms that learn your preferences.', color: 'from-amber-500/20 to-amber-600/20' },
+                        { icon: Globe, title: '7 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia - with intelligent geo-pricing.', color: 'from-cyan-500/20 to-cyan-600/20' },
+                        { icon: Zap, title: 'Real-Time Matching', desc: 'Instant job and skill matching powered by advanced AI algorithms.', color: 'from-amber-500/20 to-amber-600/20' },
                         { icon: Hand, title: 'Value Partnership', desc: 'Creating Value for Partnership in every interaction - we succeed when you succeed.', color: 'from-emerald-500/20 to-emerald-600/20' }
                     ].map((pillar, idx) => (
                         <div key={idx} className={`bg-gradient-to-br ${pillar.color} border border-slate-700 rounded-xl p-6 hover:-translate-y-1 transition-all duration-300`}>
@@ -128,13 +128,13 @@ export default function AboutPage() {
                                 <pillar.icon className="w-6 h-6 text-primary-400" />
                             </div>
                             <h3 className="text-xl font-bold text-white mb-2">{pillar.title}</h3>
-                            <p className="text-slate-400">{pillar.desc}</p>
+                            <p className="text-slate-400 text-sm">{pillar.desc}</p>
                         </div>
                     ))}
                 </div>
             </div>
 
-            {/* Our Features - Comprehensive List */}
+            {/* Features Grid */}
             <div className="bg-slate-900/20 py-16">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="text-center mb-12">
@@ -166,14 +166,8 @@ export default function AboutPage() {
                 </div>
             </div>
 
-            {/* Testimonials / Trust Indicators */}
+            {/* Trust Indicators */}
             <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
-                <div className="text-center mb-12">
-                    <h2 className="text-3xl font-bold text-white mb-4">Trusted by Professionals Worldwide</h2>
-                    <p className="text-slate-400 max-w-2xl mx-auto">
-                        Join thousands who have transformed their careers with ODUSBABA
-                    </p>
-                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                     <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-6 text-center">
                         <div className="text-4xl font-bold text-primary-400 mb-2">98%</div>
@@ -193,7 +187,7 @@ export default function AboutPage() {
                 </div>
             </div>
 
-            {/* The Value Promise */}
+            {/* Value Promise */}
             <div className="bg-gradient-to-r from-emerald-900/20 to-primary-900/20 py-16 border-y border-emerald-500/20">
                 <div className="max-w-4xl mx-auto px-4 text-center">
                     <Quote className="w-12 h-12 text-emerald-400 mx-auto mb-4 opacity-50" />
