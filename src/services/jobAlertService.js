@@ -1,312 +1,383 @@
-// src/services/jobAlertService.js
-// Complete Job Alerts System - Email triggers, frequency options, matching engine
+// src/pages/JobAlertsPage.jsx
+// Complete Job Alerts Management Page
+// Users can create, manage, and receive email notifications for job matches
 
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { sendEmail } from './emailService';
+import { 
+    Bell, Plus, Edit2, Trash2, ToggleLeft, ToggleRight,
+    Mail, Clock, MapPin, Briefcase, DollarSign, Loader2,
+    CheckCircle, XCircle, AlertCircle
+} from 'lucide-react';
+import {
+    getUserJobAlerts,
+    createJobAlert,
+    updateJobAlert,
+    deleteJobAlert,
+    toggleJobAlert
+} from '../services/jobAlertService';
 
-// ============================================
-// JOB ALERT CRUD OPERATIONS
-// ============================================
+export default function JobAlertsPage() {
+    const [alerts, setAlerts] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showModal, setShowModal] = useState(false);
+    const [editingAlert, setEditingAlert] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [user, setUser] = useState(null);
+    const [formData, setFormData] = useState({
+        name: '',
+        keywords: '',
+        location: '',
+        country_code: '',
+        job_type: '',
+        salary_min: '',
+        salary_max: '',
+        frequency: 'daily'
+    });
 
-export async function createJobAlert(userId, alertData) {
-    const { data, error } = await supabase
-        .from('job_alerts')
-        .insert({
-            user_id: userId,
-            name: alertData.name,
-            keywords: alertData.keywords || [],
-            location: alertData.location,
-            country_code: alertData.country_code,
-            job_type: alertData.job_type,
-            salary_min: alertData.salary_min,
-            salary_max: alertData.salary_max,
-            frequency: alertData.frequency || 'daily',
-            is_active: true
-        })
-        .select()
-        .single();
+    const countries = [
+        { code: '', name: 'All Countries' },
+        { code: 'GB', name: 'United Kingdom 🇬🇧' },
+        { code: 'NG', name: 'Nigeria 🇳🇬' },
+        { code: 'IE', name: 'Ireland 🇮🇪' },
+        { code: 'CA', name: 'Canada 🇨🇦' },
+        { code: 'US', name: 'United States 🇺🇸' },
+        { code: 'DE', name: 'Germany 🇩🇪' },
+        { code: 'AU', name: 'Australia 🇦🇺' }
+    ];
 
-    if (error) throw error;
-    return { success: true, alertId: data.id };
-}
+    const jobTypes = [
+        { value: '', label: 'All Types' },
+        { value: 'full_time', label: 'Full Time' },
+        { value: 'part_time', label: 'Part Time' },
+        { value: 'remote', label: 'Remote' },
+        { value: 'contract', label: 'Contract' },
+        { value: 'freelance', label: 'Freelance' },
+        { value: 'hybrid', label: 'Hybrid' }
+    ];
 
-export async function updateJobAlert(alertId, userId, alertData) {
-    const { error } = await supabase
-        .from('job_alerts')
-        .update({
-            name: alertData.name,
-            keywords: alertData.keywords,
-            location: alertData.location,
-            country_code: alertData.country_code,
-            job_type: alertData.job_type,
-            salary_min: alertData.salary_min,
-            salary_max: alertData.salary_max,
-            frequency: alertData.frequency,
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', alertId)
-        .eq('user_id', userId);
+    const frequencies = [
+        { value: 'instant', label: 'Instant (as they appear)' },
+        { value: 'daily', label: 'Daily Digest' },
+        { value: 'weekly', label: 'Weekly Digest' }
+    ];
 
-    if (error) throw error;
-    return { success: true };
-}
+    useEffect(() => {
+        loadUserAndAlerts();
+    }, []);
 
-export async function deleteJobAlert(alertId, userId) {
-    const { error } = await supabase
-        .from('job_alerts')
-        .delete()
-        .eq('id', alertId)
-        .eq('user_id', userId);
-
-    if (error) throw error;
-    return { success: true };
-}
-
-export async function toggleJobAlert(alertId, userId, isActive) {
-    const { error } = await supabase
-        .from('job_alerts')
-        .update({ is_active: isActive })
-        .eq('id', alertId)
-        .eq('user_id', userId);
-
-    if (error) throw error;
-    return { success: true };
-}
-
-export async function getUserJobAlerts(userId) {
-    const { data, error } = await supabase
-        .from('job_alerts')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-}
-
-// ============================================
-// JOB MATCHING ENGINE
-// ============================================
-
-export async function matchJobsToAlert(alert, limit = 20) {
-    let query = supabase
-        .from('jobs')
-        .select('*')
-        .eq('is_active', true)
-        .eq('compliance_status', 'approved');
-
-    // Apply filters
-    if (alert.keywords && alert.keywords.length > 0) {
-        const keywordConditions = alert.keywords.map(k => `title.ilike.%${k}%`).join(',');
-        query = query.or(keywordConditions);
-    }
-
-    if (alert.location) {
-        query = query.ilike('location', `%${alert.location}%`);
-    }
-
-    if (alert.country_code) {
-        query = query.eq('country_code', alert.country_code);
-    }
-
-    if (alert.job_type) {
-        query = query.eq('job_type', alert.job_type);
-    }
-
-    if (alert.salary_min) {
-        query = query.gte('salary_min', alert.salary_min);
-    }
-
-    if (alert.salary_max) {
-        query = query.lte('salary_max', alert.salary_max);
-    }
-
-    // Only get jobs posted since last alert
-    if (alert.last_sent_at) {
-        query = query.gt('posted_at', alert.last_sent_at);
-    } else {
-        // Last 7 days if never sent
-        query = query.gt('posted_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
-    }
-
-    const { data, error } = await query
-        .order('posted_at', { ascending: false })
-        .limit(limit);
-
-    if (error) throw error;
-    return data || [];
-}
-
-// ============================================
-// ALERT DISPATCH (Email Sending)
-// ============================================
-
-export async function dispatchJobAlert(alertId, userId, userEmail, userName) {
-    // Get alert details
-    const { data: alert, error: aError } = await supabase
-        .from('job_alerts')
-        .select('*')
-        .eq('id', alertId)
-        .single();
-
-    if (aError) throw aError;
-
-    // Find matching jobs
-    const matchedJobs = await matchJobsToAlert(alert);
-
-    if (matchedJobs.length === 0) {
-        // Log no matches
-        await supabase.from('job_alert_logs').insert({
-            alert_id: alertId,
-            jobs_matched: 0,
-            status: 'no_matches'
-        });
-        return { success: true, matched: 0 };
-    }
-
-    // Send email
-    const emailHtml = generateJobAlertEmail(alert, matchedJobs, userName);
-    
-    const emailResult = await sendEmail(
-        userEmail,
-        `🔔 Job Alert: ${matchedJobs.length} new ${alert.name} positions`,
-        emailHtml,
-        'job_alert'
-    );
-
-    if (emailResult.success) {
-        // Update alert last_sent_at
-        await supabase
-            .from('job_alerts')
-            .update({ last_sent_at: new Date().toISOString() })
-            .eq('id', alertId);
-
-        // Log the send
-        await supabase.from('job_alert_logs').insert({
-            alert_id: alertId,
-            jobs_matched: matchedJobs.length,
-            status: 'sent'
-        });
-    }
-
-    return { success: emailResult.success, matched: matchedJobs.length };
-}
-
-// ============================================
-// BATCH PROCESS ALL ACTIVE ALERTS
-// ============================================
-
-export async function processAllJobAlerts(frequency = 'daily') {
-    const { data: alerts, error } = await supabase
-        .from('job_alerts')
-        .select('*, profiles!inner(email, full_name)')
-        .eq('is_active', true)
-        .eq('frequency', frequency);
-
-    if (error) throw error;
-
-    const results = [];
-    for (const alert of alerts) {
-        const result = await dispatchJobAlert(
-            alert.id,
-            alert.user_id,
-            alert.profiles.email,
-            alert.profiles.full_name || 'User'
-        );
-        results.push({ alertId: alert.id, ...result });
+    async function loadUserAndAlerts() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            window.location.href = '/sign-in?redirect=/job-alerts';
+            return;
+        }
+        setUser(user);
         
-        // Rate limiting delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+            const data = await getUserJobAlerts(user.id);
+            setAlerts(data);
+        } catch (error) {
+            console.error('Error loading alerts:', error);
+        } finally {
+            setLoading(false);
+        }
     }
 
-    return results;
-}
+    async function handleSubmit(e) {
+        e.preventDefault();
+        setSubmitting(true);
+        
+        const alertData = {
+            name: formData.name,
+            keywords: formData.keywords.split(',').map(k => k.trim()).filter(k => k),
+            location: formData.location,
+            country_code: formData.country_code || null,
+            job_type: formData.job_type || null,
+            salary_min: formData.salary_min ? parseInt(formData.salary_min) : null,
+            salary_max: formData.salary_max ? parseInt(formData.salary_max) : null,
+            frequency: formData.frequency
+        };
 
-// ============================================
-// JOB ALERT EMAIL TEMPLATE
-// ============================================
+        try {
+            if (editingAlert) {
+                await updateJobAlert(editingAlert.id, user.id, alertData);
+            } else {
+                await createJobAlert(user.id, alertData);
+            }
+            
+            setShowModal(false);
+            setEditingAlert(null);
+            setFormData({ name: '', keywords: '', location: '', country_code: '', job_type: '', salary_min: '', salary_max: '', frequency: 'daily' });
+            loadUserAndAlerts();
+        } catch (error) {
+            console.error('Error saving alert:', error);
+            alert('Error saving alert: ' + error.message);
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
-function generateJobAlertEmail(alert, jobs, userName) {
-    const jobListHtml = jobs.map(job => `
-        <div style="background-color: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 12px;">
-            <h3 style="margin: 0 0 8px 0; color: #0ea5e9;">${job.title}</h3>
-            <p style="margin: 0 0 4px 0; color: #cbd5e1;"><strong>${job.company}</strong> • ${job.location || 'Remote'}</p>
-            <p style="margin: 0 0 8px 0; color: #94a3b8;">💰 ${job.salary_min ? `$${job.salary_min.toLocaleString()} - $${job.salary_max?.toLocaleString() || 'Competitive'}` : 'Competitive salary'}</p>
-            <p style="margin: 0 0 8px 0; color: #94a3b8;">📅 Posted: ${new Date(job.posted_at).toLocaleDateString()}</p>
-            <a href="https://www.bluskyeconsult.com/jobs/${job.id}" style="color: #0ea5e9; text-decoration: none;">View Details →</a>
-        </div>
-    `).join('');
+    async function handleToggle(alert) {
+        await toggleJobAlert(alert.id, user.id, !alert.is_active);
+        loadUserAndAlerts();
+    }
 
-    return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Job Alert: ${alert.name}</title>
-            <style>
-                body { font-family: Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px; }
-                .container { max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; overflow: hidden; }
-                .header { background: linear-gradient(135deg, #0B3C5D, #1a6d8a); padding: 30px; text-align: center; }
-                .content { padding: 30px; }
-                .footer { background-color: #0a0f1c; padding: 20px; text-align: center; font-size: 12px; color: #475569; }
-                h1 { color: #ffffff; margin: 0; }
-                p { color: #94a3b8; line-height: 1.6; }
-                .button { display: inline-block; background-color: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin-top: 16px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🔔 New Job Matches!</h1>
-                    <p style="color: #cbd5e1; margin-top: 8px;">Alert: "${alert.name}"</p>
-                </div>
-                <div class="content">
-                    <p>Hello ${userName || 'Professional'},</p>
-                    <p>We found <strong style="color: #0ea5e9;">${jobs.length} new job${jobs.length !== 1 ? 's' : ''}</strong> matching your alert criteria:</p>
-                    
-                    <div style="margin: 20px 0;">
-                        ${jobListHtml}
-                    </div>
-                    
-                    <div style="text-align: center;">
-                        <a href="https://www.bluskyeconsult.com/jobs" class="button">Browse All Jobs →</a>
-                    </div>
-                    
-                    <hr style="border-color: #1e293b; margin: 24px 0;">
-                    <p style="font-size: 12px; color: #64748b;">
-                        You received this because you have job alerts enabled. 
-                        <a href="https://www.bluskyeconsult.com/job-alerts" style="color: #0ea5e9;">Manage your alerts</a> or 
-                        <a href="https://www.bluskyeconsult.com/unsubscribe" style="color: #0ea5e9;">unsubscribe</a>.
-                    </p>
-                </div>
-                <div class="footer">
-                    <p>BluSkye Integrated Consult - Creating Value for Partnership</p>
-                </div>
+    async function handleDelete(alertId) {
+        if (confirm('Delete this job alert? You will no longer receive notifications for this alert.')) {
+            await deleteJobAlert(alertId, user.id);
+            loadUserAndAlerts();
+        }
+    }
+
+    function openEditModal(alert) {
+        setEditingAlert(alert);
+        setFormData({
+            name: alert.name,
+            keywords: alert.keywords?.join(', ') || '',
+            location: alert.location || '',
+            country_code: alert.country_code || '',
+            job_type: alert.job_type || '',
+            salary_min: alert.salary_min || '',
+            salary_max: alert.salary_max || '',
+            frequency: alert.frequency
+        });
+        setShowModal(true);
+    }
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
-        </body>
-        </html>
-    `;
-}
+        );
+    }
 
-// ============================================
-// CRON JOB HANDLER (For scheduled execution)
-// ============================================
+    return (
+        <div className="min-h-screen bg-slate-950 py-12">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                
+                {/* Header */}
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold text-white mb-2">Job Alerts</h1>
+                        <p className="text-slate-400">Get notified when new jobs match your criteria</p>
+                    </div>
+                    <button
+                        onClick={() => { setEditingAlert(null); setFormData({ name: '', keywords: '', location: '', country_code: '', job_type: '', salary_min: '', salary_max: '', frequency: 'daily' }); setShowModal(true); }}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" /> Create Alert
+                    </button>
+                </div>
 
-export async function runJobAlertCron() {
-    console.log('🔄 Running job alert cron job...');
-    
-    // Process daily alerts
-    const dailyResults = await processAllJobAlerts('daily');
-    console.log(`📧 Daily alerts processed: ${dailyResults.length}`);
-    
-    // Process weekly alerts
-    const weeklyResults = await processAllJobAlerts('weekly');
-    console.log(`📧 Weekly alerts processed: ${weeklyResults.length}`);
-    
-    return {
-        daily: dailyResults,
-        weekly: weeklyResults,
-        timestamp: new Date().toISOString()
-    };
+                {/* Alerts List */}
+                {alerts.length === 0 ? (
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
+                        <Bell className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                        <h2 className="text-xl font-semibold text-white mb-2">No job alerts yet</h2>
+                        <p className="text-slate-400 mb-4">Create your first job alert to get personalized job matches delivered to your inbox</p>
+                        <button
+                            onClick={() => setShowModal(true)}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                            Create Your First Alert
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {alerts.map(alert => (
+                            <div key={alert.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <h3 className="text-lg font-semibold text-white">{alert.name}</h3>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs ${
+                                                alert.frequency === 'instant' ? 'bg-purple-500/20 text-purple-400' :
+                                                alert.frequency === 'daily' ? 'bg-blue-500/20 text-blue-400' :
+                                                'bg-emerald-500/20 text-emerald-400'
+                                            }`}>
+                                                {alert.frequency === 'instant' ? 'Instant' : alert.frequency === 'daily' ? 'Daily' : 'Weekly'}
+                                            </span>
+                                            {!alert.is_active && (
+                                                <span className="px-2 py-0.5 rounded-full text-xs bg-slate-500/20 text-slate-400">Paused</span>
+                                            )}
+                                        </div>
+                                        
+                                        {alert.keywords && alert.keywords.length > 0 && (
+                                            <div className="flex flex-wrap gap-1 mb-2">
+                                                {alert.keywords.map(keyword => (
+                                                    <span key={keyword} className="px-2 py-0.5 bg-slate-800 rounded-full text-xs text-slate-300">
+                                                        {keyword}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        
+                                        <div className="flex flex-wrap gap-4 text-sm text-slate-400">
+                                            {alert.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {alert.location}</span>}
+                                            {alert.country_code && <span className="flex items-center gap-1">🌍 {alert.country_code}</span>}
+                                            {alert.job_type && <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" /> {alert.job_type.replace('_', ' ')}</span>}
+                                            {(alert.salary_min || alert.salary_max) && (
+                                                <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> ${alert.salary_min || 0} - ${alert.salary_max || 'Unlimited'}</span>
+                                            )}
+                                        </div>
+                                        
+                                        {alert.last_sent_at && (
+                                            <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                                                <Mail className="w-3 h-3" /> Last alert: {new Date(alert.last_sent_at).toLocaleDateString()}
+                                            </p>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleToggle(alert)}
+                                            className="p-2 rounded-lg hover:bg-slate-800 transition"
+                                            title={alert.is_active ? 'Pause Alert' : 'Activate Alert'}
+                                        >
+                                            {alert.is_active ? 
+                                                <ToggleRight className="w-6 h-6 text-emerald-400" /> : 
+                                                <ToggleLeft className="w-6 h-6 text-slate-500" />
+                                            }
+                                        </button>
+                                        <button
+                                            onClick={() => openEditModal(alert)}
+                                            className="p-2 rounded-lg hover:bg-slate-800 transition text-slate-400 hover:text-white"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(alert.id)}
+                                            className="p-2 rounded-lg hover:bg-slate-800 transition text-red-400 hover:text-red-300"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Create/Edit Modal */}
+                {showModal && (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+                            <h2 className="text-xl font-bold text-white mb-4">
+                                {editingAlert ? 'Edit Job Alert' : 'Create Job Alert'}
+                            </h2>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Alert Name *</label>
+                                    <input
+                                        type="text"
+                                        value={formData.name}
+                                        onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                        placeholder="e.g., Senior Developer Jobs"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        required
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Keywords (comma separated)</label>
+                                    <input
+                                        type="text"
+                                        value={formData.keywords}
+                                        onChange={(e) => setFormData({...formData, keywords: e.target.value})}
+                                        placeholder="e.g., Python, React, Senior"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">Separate multiple keywords with commas</p>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Location</label>
+                                        <input
+                                            type="text"
+                                            value={formData.location}
+                                            onChange={(e) => setFormData({...formData, location: e.target.value})}
+                                            placeholder="e.g., London, Remote"
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Country</label>
+                                        <select
+                                            value={formData.country_code}
+                                            onChange={(e) => setFormData({...formData, country_code: e.target.value})}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        >
+                                            {countries.map(c => (
+                                                <option key={c.code} value={c.code}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Job Type</label>
+                                        <select
+                                            value={formData.job_type}
+                                            onChange={(e) => setFormData({...formData, job_type: e.target.value})}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        >
+                                            {jobTypes.map(j => (
+                                                <option key={j.value} value={j.value}>{j.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Frequency</label>
+                                        <select
+                                            value={formData.frequency}
+                                            onChange={(e) => setFormData({...formData, frequency: e.target.value})}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        >
+                                            {frequencies.map(f => (
+                                                <option key={f.value} value={f.value}>{f.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Min Salary ($)</label>
+                                        <input
+                                            type="number"
+                                            value={formData.salary_min}
+                                            onChange={(e) => setFormData({...formData, salary_min: e.target.value})}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1">Max Salary ($)</label>
+                                        <input
+                                            type="number"
+                                            value={formData.salary_max}
+                                            onChange={(e) => setFormData({...formData, salary_max: e.target.value})}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div className="flex gap-3 pt-2">
+                                    <button type="submit" disabled={submitting} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
+                                        {submitting ? 'Saving...' : (editingAlert ? 'Update Alert' : 'Create Alert')}
+                                    </button>
+                                    <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
