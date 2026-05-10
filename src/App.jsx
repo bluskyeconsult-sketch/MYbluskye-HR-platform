@@ -1,6 +1,3 @@
-// ============================================
-// EXISTING IMPORTS (keep these)
-// ============================================
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
@@ -59,7 +56,7 @@ import AffiliateDashboard from './pages/AffiliateDashboard';
 // Pages - Employer
 import CompanyProfile from './pages/CompanyProfile';
 
-// Pages - LMS (Learning Management System)
+// Pages - LMS
 import LearnerDashboard from './pages/LearnerDashboard';
 import AICourseBuilder from './pages/admin/AICourseBuilder';
 
@@ -74,9 +71,7 @@ import TesterVisibilitySettings from './pages/admin/TesterVisibilitySettings';
 import TestingModeSettings from './pages/admin/TestingModeSettings';
 import EmailTest from './pages/admin/EmailTest';
 
-// ============================================
-// NEW IMPORTS - MUST HAVE .jsx EXTENSION
-// ============================================
+// NEW PAGES
 import ProductsPage from './pages/ProductsPage.jsx';
 import FAQPage from './pages/FAQPage.jsx';
 import KnowledgeSourceManager from './pages/admin/KnowledgeSourceManager.jsx';
@@ -89,24 +84,167 @@ import CookiesPage from './pages/legal/CookiesPage';
 import DisclaimerPage from './pages/legal/DisclaimerPage';
 import AcceptableUsePage from './pages/legal/AcceptableUsePage';
 
-// ============================================
-// SUPABASE CLIENT (Singleton)
-// ============================================
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================
-// ANIMATION WRAPPER & 404 PAGE (keep as is)
+// ANIMATION WRAPPER (FULL CODE - NOT PLACEHOLDER)
 // ============================================
-function AnimatedPage({ children }) { ... }
-function NotFoundPage() { ... }
+function AnimatedPage({ children }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 0 }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 // ============================================
-// APP CONTENT (keep as is)
+// 404 PAGE (FULL CODE - NOT PLACEHOLDER)
 // ============================================
-function AppContent() { ... }
+function NotFoundPage() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="text-center">
+        <h1 className="text-6xl font-bold text-white mb-4">404</h1>
+        <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
+        <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+        <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+          Go Home
+        </a>
+      </div>
+    </div>
+  );
+}
 
-function App() { ... }
+// ============================================
+// APP CONTENT
+// ============================================
+function AppContent() {
+  const [user, setUser] = useState(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user || null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  return (
+    <>
+      <Navbar />
+      <ScrollingBanner />
+      <main className="min-h-screen bg-background">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <AnimatePresence mode="wait">
+              <Routes location={location} key={location.pathname}>
+                {/* Public Routes */}
+                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
+
+                {/* NEW ROUTES */}
+                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
+                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+
+                {/* Assessment Routes */}
+                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+
+                {/* Article Routes */}
+                <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
+
+                {/* LMS Routes */}
+                <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
+                <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
+
+                {/* Tester Routes */}
+                <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
+                <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
+                <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
+
+                {/* User Routes */}
+                <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
+                <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
+                <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
+                <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
+                <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
+                <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+                <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
+                <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
+                <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
+
+                {/* Employer Routes */}
+                <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
+
+                {/* Admin Routes */}
+                <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
+                <Route path="/admin/super/countries" element={<AnimatedPage><CountryManagement /></AnimatedPage>} />
+                <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
+                <Route path="/admin/affiliates" element={<AnimatedPage><AffiliateManagement /></AnimatedPage>} />
+                <Route path="/admin/articles" element={<AnimatedPage><AdminArticles /></AnimatedPage>} />
+                <Route path="/admin/articles/new" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+                <Route path="/admin/articles/:id" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+                <Route path="/admin/settings/tester-visibility" element={<AnimatedPage><TesterVisibilitySettings /></AnimatedPage>} />
+                <Route path="/admin/testing-mode" element={<AnimatedPage><TestingModeSettings /></AnimatedPage>} />
+                <Route path="/admin/email-test" element={<AnimatedPage><EmailTest /></AnimatedPage>} />
+                <Route path="/admin/knowledge-sources" element={<AnimatedPage><KnowledgeSourceManager /></AnimatedPage>} />
+                <Route path="/admin/books" element={<AnimatedPage><ManageBooks /></AnimatedPage>} />
+
+                {/* Legal Routes */}
+                <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+                <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+                <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+                <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+                <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+
+                {/* 404 Fallback Route - MUST BE LAST */}
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </AnimatePresence>
+          </div>
+        </div>
+      </main>
+      <Footer />
+      <PremiumTermsPopup userId={user?.id} />
+      <CookieConsent />
+      <ODUSBABAChat />
+      <BrainstormPartner />
+      <TermsPopup />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
+  );
+}
 
 export default App;
