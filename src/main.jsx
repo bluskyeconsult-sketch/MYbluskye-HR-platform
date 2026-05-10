@@ -4,11 +4,17 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-// Use the singleton pattern - only one Supabase client
+// Import singleton Supabase (ensures single instance)
 import { supabase } from './lib/supabase';
 
-// Optional: Log that supabase is initialized (only once)
-console.log('✅ Supabase client initialized');
+// Optional: Verify Supabase is connected
+supabase.auth.getSession().then(({ data, error }) => {
+    if (error) {
+        console.error('Supabase connection error:', error);
+    } else {
+        console.log('✅ Supabase connected');
+    }
+});
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
