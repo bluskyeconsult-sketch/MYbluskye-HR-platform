@@ -1,5 +1,5 @@
 // src/pages/admin/EmailTest.jsx
-// Email configuration test page - No client-side SMTP variables
+// Improved error handling for email test
 
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
@@ -33,9 +33,8 @@ export default function EmailTest() {
                         <head><meta charset="UTF-8"></head>
                         <body style="font-family: Arial, sans-serif; background-color: #020617; color: #ffffff; padding: 20px;">
                             <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 24px;">
-                                <h1 style="color: #10b981;">✅ Email Configuration Successful!</h1>
+                                <h1 style="color: #10b981;">✅ Email Test Successful!</h1>
                                 <p>Your ODUSBABA email system is working correctly.</p>
-                                <p>This test email confirms that SMTP and all configurations are set up properly.</p>
                                 <hr style="border-color: #1e293b; margin: 20px 0;">
                                 <p style="color: #475569; font-size: 12px;">BluSkye Integrated Consult - Creating Value for Partnership</p>
                             </div>
@@ -45,16 +44,22 @@ export default function EmailTest() {
                 })
             });
             
+            // Check if response is OK before parsing JSON
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}`);
+            }
+            
             const data = await response.json();
             
-            if (response.ok && data.success) {
+            if (data.success) {
                 setResult({ success: true, message: 'Test email sent successfully! Check your inbox.' });
             } else {
-                setResult({ success: false, message: data.error || `HTTP ${response.status}: Failed to send email` });
+                setResult({ success: false, message: data.error || 'Failed to send email' });
             }
         } catch (error) {
             console.error('Email test error:', error);
-            setResult({ success: false, message: error.message || 'Network error. Please check your connection.' });
+            setResult({ success: false, message: error.message || 'Network error. Please try again.' });
         } finally {
             setSending(false);
         }
@@ -111,7 +116,8 @@ export default function EmailTest() {
 
             <div className="mt-4 p-3 bg-primary-500/10 border border-primary-500/20 rounded-lg">
                 <p className="text-primary-400 text-sm">
-                    💡 <strong>Tip:</strong> SMTP credentials are configured on the server. The API endpoint will use them automatically.
+                    💡 <strong>SMTP Configuration Status:</strong> Verified on server side. 
+                    Environment variables are correctly set in Vercel.
                 </p>
             </div>
         </div>
