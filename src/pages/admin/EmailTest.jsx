@@ -1,5 +1,5 @@
 // src/pages/admin/EmailTest.jsx
-// Email configuration test page
+// Email configuration test page - No client-side SMTP variables
 
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
@@ -41,19 +41,11 @@ export default function EmailTest() {
                             </div>
                         </body>
                         </html>
-                    `,
-                    emailType: 'test'
+                    `
                 })
             });
             
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                // If response is not JSON, get text
-                const text = await response.text();
-                throw new Error(`Server responded with: ${text.substring(0, 100)}`);
-            }
+            const data = await response.json();
             
             if (response.ok && data.success) {
                 setResult({ success: true, message: 'Test email sent successfully! Check your inbox.' });
@@ -110,36 +102,16 @@ export default function EmailTest() {
                 )}
             </div>
 
-            {/* SMTP Configuration Status */}
-            <div className="mt-6 p-4 bg-primary-500/10 border border-primary-500/20 rounded-lg">
-                <h3 className="text-primary-400 font-semibold mb-2 flex items-center gap-2">
+            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <p className="text-amber-400 text-sm flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
-                    SMTP Configuration Status
-                </h3>
-                <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                        <span className="text-slate-400">SMTP Host:</span>
-                        <span className="text-white">{import.meta.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'Not set'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-slate-400">SMTP Port:</span>
-                        <span className="text-white">{import.meta.env.VITE_SMTP_PORT || process.env.SMTP_PORT || 'Not set'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-slate-400">SMTP User:</span>
-                        <span className="text-white">{import.meta.env.VITE_SMTP_USER || process.env.SMTP_USER || 'Not set'}</span>
-                    </div>
-                </div>
-                <div className="mt-3 p-2 bg-amber-500/10 rounded-lg">
-                    <p className="text-amber-400 text-xs">
-                        ⚠️ <strong>Note:</strong> Make sure SMTP environment variables are set in Vercel Dashboard.
-                    </p>
-                </div>
+                    <strong>Note:</strong> Email may take a few minutes to arrive. Check spam folder if not received.
+                </p>
             </div>
 
-            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                <p className="text-amber-400 text-sm">
-                    ⚠️ <strong>Note:</strong> Email may take a few minutes to arrive. Check spam folder if not received.
+            <div className="mt-4 p-3 bg-primary-500/10 border border-primary-500/20 rounded-lg">
+                <p className="text-primary-400 text-sm">
+                    💡 <strong>Tip:</strong> SMTP credentials are configured on the server. The API endpoint will use them automatically.
                 </p>
             </div>
         </div>
