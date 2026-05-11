@@ -1,5 +1,5 @@
 // src/pages/admin/EmailTest.jsx
-// Improved error handling for email test
+// Updated to use /api/send-email endpoint
 
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
@@ -27,35 +27,16 @@ export default function EmailTest() {
                 body: JSON.stringify({ 
                     to: email, 
                     subject: 'ODUSBABA Email Test - ' + new Date().toLocaleString(), 
-                    html: `
-                        <!DOCTYPE html>
-                        <html>
-                        <head><meta charset="UTF-8"></head>
-                        <body style="font-family: Arial, sans-serif; background-color: #020617; color: #ffffff; padding: 20px;">
-                            <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 24px;">
-                                <h1 style="color: #10b981;">✅ Email Test Successful!</h1>
-                                <p>Your ODUSBABA email system is working correctly.</p>
-                                <hr style="border-color: #1e293b; margin: 20px 0;">
-                                <p style="color: #475569; font-size: 12px;">BluSkye Integrated Consult - Creating Value for Partnership</p>
-                            </div>
-                        </body>
-                        </html>
-                    `
+                    html: '<h1>Test Email</h1><p>If you receive this, your email is working!</p>'
                 })
             });
             
-            // Check if response is OK before parsing JSON
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}`);
-            }
-            
             const data = await response.json();
             
-            if (data.success) {
+            if (response.ok && data.success) {
                 setResult({ success: true, message: 'Test email sent successfully! Check your inbox.' });
             } else {
-                setResult({ success: false, message: data.error || 'Failed to send email' });
+                setResult({ success: false, message: data.error || `HTTP ${response.status}: Failed to send` });
             }
         } catch (error) {
             console.error('Email test error:', error);
@@ -110,14 +91,7 @@ export default function EmailTest() {
             <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                 <p className="text-amber-400 text-sm flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
-                    <strong>Note:</strong> Email may take a few minutes to arrive. Check spam folder if not received.
-                </p>
-            </div>
-
-            <div className="mt-4 p-3 bg-primary-500/10 border border-primary-500/20 rounded-lg">
-                <p className="text-primary-400 text-sm">
-                    💡 <strong>SMTP Configuration Status:</strong> Verified on server side. 
-                    Environment variables are correctly set in Vercel.
+                    <strong>Note:</strong> Email may take a few minutes. Check spam folder.
                 </p>
             </div>
         </div>
