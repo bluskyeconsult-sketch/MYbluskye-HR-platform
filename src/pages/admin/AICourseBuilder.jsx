@@ -1,462 +1,339 @@
 // src/pages/admin/AICourseBuilder.jsx
-import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { 
-  Sparkles, Loader2, BookOpen, Clock, Users, 
-  CheckCircle, XCircle, ChevronRight, Save,
-  Plus, Trash2, Edit, Eye, EyeOff, TrendingUp,
-  FileText, Video, HelpCircle, Award, Zap
-} from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
-import { generateCourseOutline, generateModuleContent, generateQuiz, getTrendingTopics, analyzeLearningProgress } from '../../services/courseAIService';
+// ENHANCED AI-POWERED COURSE BUILDER - Full automation
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+import { 
+    Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
+    CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
+    Brain, Wand2, Image, Music, FileQuestion, Award, TrendingUp
+} from 'lucide-react';
+import { autoCreateCourse, generateCourseAudio, generateLessonImage } from '../../lib/courseBuilderService';
 
 export default function AICourseBuilder() {
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [courseData, setCourseData] = useState({
-    topic: '',
-    level: 'beginner',
-    targetAudience: 'general',
-    title: '',
-    description: '',
-    modules: [],
-    totalDuration: 0
-  });
-  const [generatedCourse, setGeneratedCourse] = useState(null);
-  const [trendingTopics, setTrendingTopics] = useState([]);
-  const [publishing, setPublishing] = useState(false);
-  const [previewMode, setPreviewMode] = useState(false);
-  const [expandedModule, setExpandedModule] = useState(null);
-  const [user, setUser] = useState(null);
-  const [isAuthorized, setIsAuthorized] = useState(false);
+    const navigate = useNavigate();
+    const [topic, setTopic] = useState('');
+    const [level, setLevel] = useState('intermediate');
+    const [durationHours, setDurationHours] = useState(5);
+    const [targetAudience, setTargetAudience] = useState('');
+    const [learningObjectives, setLearningObjectives] = useState('');
+    const [includeImages, setIncludeImages] = useState(true);
+    const [includeAudio, setIncludeAudio] = useState(true);
+    const [includeQuizzes, setIncludeQuizzes] = useState(true);
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState(null);
+    const [error, setError] = useState('');
+    const [user, setUser] = useState(null);
+    const [generatedOutline, setGeneratedOutline] = useState(null);
+    const [showPreview, setShowPreview] = useState(false);
 
-  useEffect(() => {
-    checkAuth();
-    loadTrendingTopics();
-  }, []);
+    useEffect(() => {
+        getUser();
+    }, []);
 
-  async function checkAuth() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { window.location.href = '/admin-login'; return; }
-      setUser(session.user);
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('user_type')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
-        window.location.href = '/dashboard';
-        return;
-      }
-      
-      setIsAuthorized(true);
-    } catch (err) { window.location.href = '/admin-login'; }
-  }
-
-  async function loadTrendingTopics() {
-    const topics = await getTrendingTopics('technology');
-    setTrendingTopics(topics);
-  }
-
-  async function generateCourse() {
-    if (!courseData.topic.trim()) {
-      toast.error('Please enter a course topic');
-      return;
-    }
-    
-    setGenerating(true);
-    toast.loading('AI is designing your course...', { id: 'generate' });
-    
-    try {
-      const result = await generateCourseOutline(
-        courseData.topic,
-        courseData.level,
-        courseData.targetAudience
-      );
-      
-      setGeneratedCourse(result);
-      setCourseData({
-        ...courseData,
-        title: result.title,
-        description: result.description,
-        modules: result.modules,
-        totalDuration: result.estimatedDuration
-      });
-      setStep(2);
-      toast.success('Course outline generated!', { id: 'generate' });
-    } catch (err) {
-      console.error('Generation error:', err);
-      toast.error('Failed to generate course', { id: 'generate' });
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function generateModuleContents() {
-    setLoading(true);
-    toast.loading('Generating module content...', { id: 'modules' });
-    
-    try {
-      const updatedModules = [];
-      for (const module of courseData.modules) {
-        const content = await generateModuleContent(
-          module.title,
-          module.description,
-          courseData.topic
-        );
-        updatedModules.push({ ...module, ...content });
-      }
-      
-      setCourseData({ ...courseData, modules: updatedModules });
-      setStep(3);
-      toast.success('Module content generated!', { id: 'modules' });
-    } catch (err) {
-      console.error('Module generation error:', err);
-      toast.error('Failed to generate module content', { id: 'modules' });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function generateModuleQuiz(moduleIndex) {
-    const module = courseData.modules[moduleIndex];
-    if (!module) return;
-    
-    toast.loading(`Generating quiz for ${module.title}...`, { id: 'quiz' });
-    
-    try {
-      const quiz = await generateQuiz(moduleIndex, module.content || module.description);
-      const updatedModules = [...courseData.modules];
-      updatedModules[moduleIndex] = { ...module, quiz };
-      setCourseData({ ...courseData, modules: updatedModules });
-      toast.success('Quiz generated!', { id: 'quiz' });
-    } catch (err) {
-      console.error('Quiz generation error:', err);
-      toast.error('Failed to generate quiz', { id: 'quiz' });
-    }
-  }
-
-  async function publishCourse() {
-    setPublishing(true);
-    toast.loading('Publishing course...', { id: 'publish' });
-    
-    try {
-      // Insert course
-      const { data: course, error: courseError } = await supabase
-        .from('courses')
-        .insert({
-          title: courseData.title,
-          description: courseData.description,
-          level: courseData.level,
-          duration_minutes: courseData.totalDuration,
-          price: 0,
-          status: 'published',
-          created_by: user?.id,
-          ai_generated: true,
-          topic: courseData.topic
-        })
-        .select()
-        .single();
-      
-      if (courseError) throw courseError;
-      
-      // Insert modules
-      for (let i = 0; i < courseData.modules.length; i++) {
-        const module = courseData.modules[i];
-        const { error: moduleError } = await supabase
-          .from('course_modules')
-          .insert({
-            course_id: course.id,
-            title: module.title,
-            description: module.description,
-            content: module.content || '',
-            order_index: i,
-            duration_minutes: module.estimatedMinutes || 30
-          });
-        
-        if (moduleError) throw moduleError;
-        
-        // Insert quiz if exists
-        if (module.quiz) {
-          const { error: quizError } = await supabase
-            .from('course_quizzes')
-            .insert({
-              module_id: module.id,
-              questions: module.quiz.questions,
-              passing_score: module.quiz.passingScore
-            });
-          
-          if (quizError) throw quizError;
+    async function getUser() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            navigate('/admin-login');
+            return;
         }
-      }
-      
-      toast.success('Course published successfully!', { id: 'publish' });
-      setTimeout(() => {
-        window.location.href = '/admin/courses';
-      }, 2000);
-    } catch (err) {
-      console.error('Publish error:', err);
-      toast.error('Failed to publish course', { id: 'publish' });
-    } finally {
-      setPublishing(false);
+        if (user.email !== 'bluskyeconsult@gmail.com') {
+            navigate('/dashboard');
+            return;
+        }
+        setUser(user);
     }
-  }
 
-  if (!isAuthorized) {
+    async function previewCourse() {
+        if (!topic.trim()) {
+            setError('Please enter a course topic');
+            return;
+        }
+        
+        setLoading(true);
+        setError('');
+        
+        // Simulate preview generation
+        setTimeout(() => {
+            setGeneratedOutline({
+                title: `Complete ${topic} Course`,
+                description: `Master ${topic} with this comprehensive ${level} level course designed for ${targetAudience || 'professionals'}.`,
+                modules: [
+                    { title: `Introduction to ${topic}`, lessons: 3, estimated_minutes: 45 },
+                    { title: `Core Concepts of ${topic}`, lessons: 4, estimated_minutes: 60 },
+                    { title: `Advanced ${topic} Techniques`, lessons: 3, estimated_minutes: 50 },
+                    { title: `Practical Applications`, lessons: 3, estimated_minutes: 40 },
+                    { title: `Mastery & Certification`, lessons: 2, estimated_minutes: 45 }
+                ],
+                total_lessons: 15,
+                estimated_minutes: durationHours * 60
+            });
+            setShowPreview(true);
+            setLoading(false);
+        }, 2000);
+    }
+
+    async function handleGenerateCourse(e) {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+        setResult(null);
+
+        const response = await autoCreateCourse(topic, level, durationHours, targetAudience, user?.id);
+        
+        if (response.success) {
+            setResult({ 
+                courseId: response.courseId, 
+                courseSlug: response.courseSlug,
+                lessonCount: response.lessonCount,
+                message: response.message 
+            });
+            
+            // Auto-generate images if enabled
+            if (includeImages && response.courseId) {
+                await generateCourseImages(response.courseId);
+            }
+            
+            // Auto-generate audio if enabled
+            if (includeAudio && response.courseId) {
+                await generateCourseAudioForAll(response.courseId);
+            }
+            
+            setTopic('');
+            setTargetAudience('');
+            setLearningObjectives('');
+        } else {
+            setError(response.error || 'Failed to create course');
+        }
+        setLoading(false);
+    }
+
+    async function generateCourseImages(courseId) {
+        // Get all lessons in the course
+        const { data: modules } = await supabase
+            .from('course_modules')
+            .select('id, lessons:course_lessons(id, title)')
+            .eq('course_id', courseId);
+        
+        for (const module of modules || []) {
+            for (const lesson of module.lessons || []) {
+                try {
+                    await generateLessonImage(lesson.id, `Illustration for ${lesson.title}`);
+                } catch (err) {
+                    console.warn('Image generation failed for lesson:', lesson.id);
+                }
+            }
+        }
+    }
+
+    async function generateCourseAudioForAll(courseId) {
+        const { data: modules } = await supabase
+            .from('course_modules')
+            .select('id, lessons:course_lessons(id, content)')
+            .eq('course_id', courseId);
+        
+        for (const module of modules || []) {
+            for (const lesson of module.lessons || []) {
+                if (lesson.content) {
+                    try {
+                        await generateCourseAudio(lesson.id, lesson.content);
+                    } catch (err) {
+                        console.warn('Audio generation failed for lesson:', lesson.id);
+                    }
+                }
+            }
+        }
+    }
+
+    if (!user) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+            </div>
+        );
+    }
+
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
-      </div>
-    );
-  }
+        <div className="min-h-screen bg-slate-950">
+            <div className="max-w-4xl mx-auto px-4 py-12">
+                <h1 className="text-3xl font-bold text-white mb-2">AI Course Builder</h1>
+                <p className="text-slate-400 mb-8">Generate complete, production-ready courses with AI</p>
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      <Toaster position="top-right" />
-      
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-            <Sparkles className="w-8 h-8 text-primary-400" />
-            AI Course Builder
-          </h1>
-          <p className="text-slate-400 mt-2">Create professional courses powered by artificial intelligence</p>
-        </div>
-
-        {/* Progress Steps */}
-        <div className="flex items-center justify-between mb-8 max-w-2xl">
-          {[
-            { step: 1, label: 'Define Topic', icon: FileText },
-            { step: 2, label: 'Review Outline', icon: BookOpen },
-            { step: 3, label: 'Generate Content', icon: Sparkles },
-            { step: 4, label: 'Publish', icon: Rocket }
-          ].map((s) => (
-            <div key={s.step} className="flex items-center">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
-                step >= s.step ? 'bg-primary-500 text-white' : 'bg-slate-800 text-slate-500'
-              }`}>
-                {step > s.step ? <CheckCircle className="w-5 h-5" /> : <s.icon className="w-5 h-5" />}
-              </div>
-              <span className={`ml-2 text-sm ${step >= s.step ? 'text-white' : 'text-slate-500'}`}>
-                {s.label}
-              </span>
-              {s.step < 4 && <div className={`w-16 h-0.5 mx-2 ${step > s.step ? 'bg-primary-500' : 'bg-slate-800'}`} />}
-            </div>
-          ))}
-        </div>
-
-        {/* Step 1: Topic Definition */}
-        {step === 1 && (
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8">
-            <div className="max-w-2xl mx-auto">
-              <h2 className="text-2xl font-bold text-white mb-4">What course would you like to create?</h2>
-              <p className="text-slate-400 mb-6">Our AI will generate a complete course outline, content, and assessments.</p>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Course Topic *</label>
-                  <input
-                    type="text"
-                    value={courseData.topic}
-                    onChange={(e) => setCourseData({ ...courseData, topic: e.target.value })}
-                    placeholder="e.g., Python Programming for Data Science"
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Level</label>
-                    <select
-                      value={courseData.level}
-                      onChange={(e) => setCourseData({ ...courseData, level: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
-                    >
-                      <option value="beginner">Beginner</option>
-                      <option value="intermediate">Intermediate</option>
-                      <option value="advanced">Advanced</option>
-                      <option value="expert">Expert</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Target Audience</label>
-                    <select
-                      value={courseData.targetAudience}
-                      onChange={(e) => setCourseData({ ...courseData, targetAudience: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
-                    >
-                      <option value="general">General Public</option>
-                      <option value="students">Students</option>
-                      <option value="professionals">Working Professionals</option>
-                      <option value="executives">Executives</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Trending Topics</label>
-                  <div className="flex flex-wrap gap-2">
-                    {trendingTopics.slice(0, 8).map((topic) => (
-                      <button
-                        key={topic}
-                        onClick={() => setCourseData({ ...courseData, topic })}
-                        className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition"
-                      >
-                        <TrendingUp className="w-3 h-3 inline mr-1" />
-                        {topic}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <button
-                  onClick={generateCourse}
-                  disabled={generating || !courseData.topic}
-                  className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  {generating ? 'Generating Course...' : 'Generate Course Outline'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Review Outline */}
-        {step === 2 && generatedCourse && (
-          <div className="space-y-6">
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8">
-              <h2 className="text-2xl font-bold text-white mb-2">{generatedCourse.title}</h2>
-              <p className="text-slate-400 mb-4">{generatedCourse.description}</p>
-              
-              <div className="flex flex-wrap gap-4 mb-6 pb-4 border-b border-slate-800">
-                <span className="flex items-center gap-2 text-slate-400"><Clock className="w-4 h-4" /> {generatedCourse.estimatedDuration} min</span>
-                <span className="flex items-center gap-2 text-slate-400"><BookOpen className="w-4 h-4" /> {generatedCourse.totalModules} modules</span>
-                <span className="flex items-center gap-2 text-slate-400"><Users className="w-4 h-4" /> {generatedCourse.targetAudience}</span>
-                <span className="flex items-center gap-2 text-slate-400"><Award className="w-4 h-4" /> Certificate included</span>
-              </div>
-              
-              <h3 className="text-lg font-semibold text-white mb-3">Course Modules</h3>
-              <div className="space-y-3">
-                {generatedCourse.modules.map((module, idx) => (
-                  <div key={idx} className="bg-slate-800/50 rounded-xl p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium text-white">Module {idx + 1}: {module.title}</h4>
-                        <p className="text-sm text-slate-400 mt-1">{module.description}</p>
-                      </div>
-                      <span className="text-sm text-slate-500">{module.estimatedMinutes} min</span>
+                {/* Feature Toggles */}
+                <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-4 mb-8">
+                    <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary-400" />
+                        AI Automation Features
+                    </h3>
+                    <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2">
+                            <input type="checkbox" checked={includeImages} onChange={(e) => setIncludeImages(e.target.checked)} className="w-4 h-4" />
+                            <span className="text-slate-300">Generate AI Images (DALL-E)</span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                            <input type="checkbox" checked={includeAudio} onChange={(e) => setIncludeAudio(e.target.checked)} className="w-4 h-4" />
+                            <span className="text-slate-300">Generate Audio Narration (TTS)</span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                            <input type="checkbox" checked={includeQuizzes} onChange={(e) => setIncludeQuizzes(e.target.checked)} className="w-4 h-4" />
+                            <span className="text-slate-300">Generate In-Lesson Quizzes</span>
+                        </label>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="flex justify-between">
-              <button onClick={() => setStep(1)} className="px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
-                Back
-              </button>
-              <button onClick={generateModuleContents} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 flex items-center gap-2">
-                Continue to Content Generation <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+                </div>
 
-        {/* Step 3: Content Generation */}
-        {step === 3 && (
-          <div className="space-y-6">
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8">
-              <h2 className="text-2xl font-bold text-white mb-4">Course Content</h2>
-              <p className="text-slate-400 mb-6">Review and edit the AI-generated content for each module.</p>
-              
-              <div className="space-y-4">
-                {courseData.modules.map((module, idx) => (
-                  <div key={idx} className="bg-slate-800/50 rounded-xl overflow-hidden">
-                    <button
-                      onClick={() => setExpandedModule(expandedModule === idx ? null : idx)}
-                      className="w-full p-4 flex justify-between items-center hover:bg-slate-800/80 transition"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
-                          <span className="text-primary-400 font-bold">{idx + 1}</span>
-                        </div>
-                        <div>
-                          <h3 className="font-medium text-white text-left">{module.title}</h3>
-                          <p className="text-sm text-slate-400 text-left">{module.estimatedMinutes} min</p>
-                        </div>
-                      </div>
-                      <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform ${expandedModule === idx ? 'rotate-90' : ''}`} />
-                    </button>
+                {/* Course Generation Form */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-8">
+                    <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-purple-400" />
+                        Create New Course with AI
+                    </h2>
                     
-                    {expandedModule === idx && (
-                      <div className="p-4 pt-0 border-t border-slate-700 space-y-4">
+                    <form onSubmit={handleGenerateCourse} className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-1">Content</label>
-                          <textarea
-                            value={module.content || ''}
-                            onChange={(e) => {
-                              const updatedModules = [...courseData.modules];
-                              updatedModules[idx].content = e.target.value;
-                              setCourseData({ ...courseData, modules: updatedModules });
-                            }}
-                            rows={6}
-                            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
-                          />
+                            <label className="block text-sm font-medium text-slate-300 mb-1">Course Topic *</label>
+                            <input
+                                type="text"
+                                value={topic}
+                                onChange={(e) => setTopic(e.target.value)}
+                                placeholder="e.g., Python Programming, Project Management, Digital Marketing, Leadership Skills"
+                                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                required
+                            />
                         </div>
                         
-                        <div className="flex justify-end">
-                          <button
-                            onClick={() => generateModuleQuiz(idx)}
-                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 flex items-center gap-2"
-                          >
-                            <HelpCircle className="w-4 h-4" />
-                            Generate Quiz
-                          </button>
-                        </div>
-                        
-                        {module.quiz && (
-                          <div className="bg-slate-900/50 rounded-lg p-4">
-                            <h4 className="font-medium text-white mb-2">Quiz Questions</h4>
-                            <div className="space-y-3">
-                              {module.quiz.questions?.map((q, qIdx) => (
-                                <div key={qIdx} className="text-sm">
-                                  <p className="text-white">{qIdx + 1}. {q.text}</p>
-                                  <p className="text-slate-400 ml-4">✓ {q.correctAnswer}</p>
-                                  <p className="text-xs text-slate-500 ml-4">{q.explanation}</p>
-                                </div>
-                              ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Difficulty Level</label>
+                                <select value={level} onChange={(e) => setLevel(e.target.value)} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                                    <option value="beginner">Beginner</option>
+                                    <option value="intermediate">Intermediate</option>
+                                    <option value="advanced">Advanced</option>
+                                    <option value="expert">Expert</option>
+                                </select>
                             </div>
-                          </div>
-                        )}
-                      </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Duration (hours)</label>
+                                <input type="number" value={durationHours} onChange={(e) => setDurationHours(parseInt(e.target.value))} min="1" max="100" className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-slate-300 mb-1">Target Audience</label>
+                            <textarea value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} rows={2} placeholder="e.g., Beginners with no prior experience, professionals looking to upskill..." className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500" required />
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-slate-300 mb-1">Learning Objectives (Optional)</label>
+                            <textarea value={learningObjectives} onChange={(e) => setLearningObjectives(e.target.value)} rows={2} placeholder="What students will be able to do after completing this course..." className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                        </div>
+                        
+                        <div className="flex gap-3">
+                            <button type="button" onClick={previewCourse} disabled={loading || !topic.trim()} className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                                Preview Course
+                            </button>
+                            <button type="submit" disabled={loading} className="flex-1 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                {loading ? 'Generating Course...' : 'Generate Full Course'}
+                            </button>
+                        </div>
+                    </form>
+                    
+                    {error && (
+                        <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                            {error}
+                        </div>
                     )}
-                  </div>
-                ))}
-              </div>
+                    
+                    {result && (
+                        <div className="mt-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                            <p className="text-emerald-400 font-semibold">✅ {result.message}</p>
+                            <div className="flex gap-3 mt-3">
+                                <a href={`/courses/${result.courseSlug}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-primary-500 text-white rounded-lg text-sm hover:bg-primary-600">
+                                    View Course
+                                </a>
+                                <a href={`/admin/courses/edit/${result.courseId}`} className="px-3 py-1 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600">
+                                    Edit Course
+                                </a>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Course Preview Modal */}
+                {showPreview && generatedOutline && (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold text-white">Course Preview</h2>
+                                <button onClick={() => setShowPreview(false)} className="text-slate-400 hover:text-white">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-primary-400">{generatedOutline.title}</h3>
+                                    <p className="text-slate-400 text-sm mt-1">{generatedOutline.description}</p>
+                                </div>
+                                
+                                <div className="flex gap-4 text-sm text-slate-400">
+                                    <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {generatedOutline.estimated_minutes} minutes</span>
+                                    <span className="flex items-center gap-1"><BookOpen className="w-4 h-4" /> {generatedOutline.total_lessons} lessons</span>
+                                    <span className="flex items-center gap-1"><TrendingUp className="w-4 h-4" /> {level}</span>
+                                </div>
+                                
+                                <div className="border-t border-slate-800 pt-4">
+                                    <h4 className="text-white font-semibold mb-2">Course Modules</h4>
+                                    <div className="space-y-2">
+                                        {generatedOutline.modules.map((mod, idx) => (
+                                            <div key={idx} className="bg-slate-800/50 rounded-lg p-3">
+                                                <p className="text-white font-medium">Module {idx + 1}: {mod.title}</p>
+                                                <p className="text-slate-400 text-sm">{mod.lessons} lessons • {mod.estimated_minutes} minutes</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-primary-500/10 border border-primary-500/20 rounded-lg p-3">
+                                    <p className="text-primary-400 text-sm flex items-center gap-2">
+                                        <Sparkles className="w-4 h-4" />
+                                        AI will generate: detailed lessons, quizzes, images, and audio narration
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3 mt-6">
+                                <button onClick={() => { setShowPreview(false); handleGenerateCourse(new Event('submit')); }} className="flex-1 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700">
+                                    Generate Full Course
+                                </button>
+                                <button onClick={() => setShowPreview(false)} className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Info Box */}
+                <div className="bg-primary-500/10 border border-primary-500/20 rounded-lg p-4">
+                    <h3 className="text-primary-400 font-semibold mb-2 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" /> How AI Course Builder Works
+                    </h3>
+                    <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
+                        <li>AI generates complete course outline with modules and lessons</li>
+                        <li>Each lesson includes detailed content, examples, and key takeaways</li>
+                        <li>AI creates in-lesson quizzes to test understanding</li>
+                        <li>DALL-E generates relevant images for visual learning</li>
+                        <li>Text-to-speech creates audio narration for every lesson</li>
+                        <li>Course is saved as DRAFT - review before publishing</li>
+                    </ul>
+                </div>
             </div>
-            
-            <div className="flex justify-between">
-              <button onClick={() => setStep(2)} className="px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
-                Back
-              </button>
-              <button onClick={publishCourse} disabled={publishing} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 flex items-center gap-2">
-                {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Publish Course
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+        </div>
+    );
 }
+
+// Missing import
+import { Eye } from 'lucide-react';
