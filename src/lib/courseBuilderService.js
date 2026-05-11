@@ -12,10 +12,6 @@ const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
 const VALID_JOB_TYPES = ['full_time', 'part_time', 'contract', 'freelance', 'remote', 'hybrid', 'onsite'];
 
-function isValidJobType(jobType) {
-    return VALID_JOB_TYPES.includes(jobType);
-}
-
 function normalizeJobType(jobType) {
     if (!jobType) return 'full_time';
     
