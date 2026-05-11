@@ -1,5 +1,6 @@
 // src/lib/courseBuilderService.js
-// AI-Powered Course Builder Service - Uses Supabase only, no Database object
+// COMPLETE COURSE BUILDER SERVICE - Full production code
+// Exports: autoCreateCourse, generateCourseAudio, generateLessonImage
 
 import { supabase } from './supabase';
 
@@ -9,9 +10,10 @@ const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 // VALIDATION HELPERS
 // ============================================
 
+const VALID_JOB_TYPES = ['full_time', 'part_time', 'contract', 'freelance', 'remote', 'hybrid', 'onsite'];
+
 function isValidJobType(jobType) {
-    const validTypes = ['full_time', 'part_time', 'contract', 'freelance', 'remote', 'hybrid', 'onsite'];
-    return validTypes.includes(jobType);
+    return VALID_JOB_TYPES.includes(jobType);
 }
 
 function normalizeJobType(jobType) {
@@ -217,7 +219,6 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
     try {
         console.log('📚 Generating course outline for:', topic);
         
-        // Step 1: Generate course outline
         const outline = await generateCourseOutline(topic, level, durationHours, targetAudience);
         
         if (!outline || !outline.modules || outline.modules.length === 0) {
@@ -226,10 +227,8 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
 
         console.log('✅ Course outline generated');
 
-        // Step 2: Create course slug
         const courseSlug = topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 90);
         
-        // Step 3: Create course in database
         const { data: course, error: courseError } = await supabase
             .from('courses')
             .insert({
@@ -259,7 +258,6 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
         
         console.log('✅ Course created:', course.id);
 
-        // Step 4: Create modules and lessons
         let totalDuration = 0;
         let lessonCount = 0;
         
@@ -285,7 +283,6 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
             
             console.log(`📖 Creating module ${moduleIdx + 1}: ${moduleData.title}`);
             
-            // Create lessons for this module
             const lessons = moduleData.lessons || [
                 { title: `Introduction to ${moduleData.title}`, description: `Overview of ${moduleData.title}` },
                 { title: `Key Concepts of ${moduleData.title}`, description: `Core principles and practices` },
@@ -297,7 +294,6 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
                 
                 console.log(`  📝 Generating lesson ${lessonIdx + 1}: ${lessonData.title}`);
                 
-                // Generate lesson content
                 const lessonContent = await generateLessonContent(
                     moduleData.title,
                     lessonData.title,
@@ -325,14 +321,12 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
                 }
             }
             
-            // Update module duration
             await supabase
                 .from('course_modules')
                 .update({ duration_minutes: Math.ceil(totalDuration / 60) })
                 .eq('id', module.id);
         }
         
-        // Step 5: Update course totals
         await supabase
             .from('courses')
             .update({ 
@@ -358,74 +352,6 @@ export async function autoCreateCourse(topic, level, durationHours, targetAudien
 }
 
 // ============================================
-// GENERATE AND ATTACH QUIZ
-// ============================================
-
-export async function generateAndAttachQuiz(moduleId, moduleTitle, topic, level) {
-    try {
-        const quizData = await generateQuizQuestions(moduleTitle, topic, level);
-        
-        if (!quizData) {
-            return { success: false, error: 'Failed to generate quiz' };
-        }
-        
-        // Create quiz record
-        const { data: quiz, error: quizError } = await supabase
-            .from('quizzes')
-            .insert({
-                module_id: moduleId,
-                title: quizData.title,
-                passing_score: 70,
-                time_limit_minutes: 15
-            })
-            .select()
-            .single();
-        
-        if (quizError) throw quizError;
-        
-        // Add questions
-        for (const q of quizData.questions) {
-            const { data: question, error: qError } = await supabase
-                .from('quiz_questions')
-                .insert({
-                    quiz_id: quiz.id,
-                    question_text: q.question_text,
-                    question_type: 'multiple_choice',
-                    points: 1
-                })
-                .select()
-                .single();
-            
-            if (qError) throw qError;
-            
-            // Add options
-            for (let i = 0; i < q.options.length; i++) {
-                await supabase
-                    .from('quiz_options')
-                    .insert({
-                        question_id: question.id,
-                        option_text: q.options[i],
-                        is_correct: i === q.correct_answer,
-                        sort_order: i
-                    });
-            }
-        }
-        
-        // Update lesson to indicate it has a quiz
-        await supabase
-            .from('course_lessons')
-            .update({ has_quiz: true })
-            .eq('module_id', moduleId);
-        
-        return { success: true, quizId: quiz.id };
-        
-    } catch (error) {
-        console.error('Quiz generation error:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// ============================================
 // GENERATE AUDIO FOR LESSON (OpenAI TTS)
 // ============================================
 
@@ -436,17 +362,14 @@ export async function generateCourseAudio(lessonId, textContent) {
     }
     
     try {
-        // Clean text (remove HTML tags)
         const cleanText = textContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         
         if (!cleanText || cleanText.length === 0) {
             return { success: false, error: 'No content to convert to audio' };
         }
         
-        // Limit text length (OpenAI TTS limit is 4096 characters)
         const truncatedText = cleanText.substring(0, 4000);
         
-        // Call OpenAI TTS API
         const response = await fetch('https://api.openai.com/v1/audio/speech', {
             method: 'POST',
             headers: {
@@ -465,10 +388,8 @@ export async function generateCourseAudio(lessonId, textContent) {
             throw new Error('TTS generation failed');
         }
         
-        // Get audio as buffer
         const audioBuffer = await response.arrayBuffer();
         
-        // Upload to Supabase Storage
         const fileName = `course_audio/${lessonId}_${Date.now()}.mp3`;
         const { error: uploadError } = await supabase.storage
             .from('course_content')
@@ -479,12 +400,10 @@ export async function generateCourseAudio(lessonId, textContent) {
         
         if (uploadError) throw uploadError;
         
-        // Get public URL
         const { data: { publicUrl } } = supabase.storage
             .from('course_content')
             .getPublicUrl(fileName);
         
-        // Update lesson with audio URL
         const wordCount = cleanText.split(/\s+/).length;
         const estimatedDuration = Math.ceil(wordCount / 150 * 60);
         
@@ -502,4 +421,161 @@ export async function generateCourseAudio(lessonId, textContent) {
         console.error('Audio generation error:', error);
         return { success: false, error: error.message };
     }
+}
+
+// ============================================
+// GENERATE IMAGE FOR LESSON (DALL-E)
+// ============================================
+
+export async function generateLessonImage(lessonId, imagePrompt) {
+    if (!OPENAI_API_KEY) {
+        console.warn('OpenAI API key not configured. Image generation skipped.');
+        return { success: false, error: 'OpenAI not configured' };
+    }
+
+    try {
+        const response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'dall-e-3',
+                prompt: `${imagePrompt}. Educational illustration, professional, clear, suitable for learning. No text, no words on the image.`,
+                n: 1,
+                size: '1024x1024',
+                quality: 'standard'
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error?.message || 'DALL-E generation failed');
+        }
+
+        const data = await response.json();
+        const imageUrl = data.data[0].url;
+
+        const imageResponse = await fetch(imageUrl);
+        const imageBuffer = await imageResponse.arrayBuffer();
+        
+        const fileName = `lesson_images/${lessonId}_${Date.now()}.png`;
+        const { error: uploadError } = await supabase.storage
+            .from('course_content')
+            .upload(fileName, imageBuffer, {
+                contentType: 'image/png',
+                cacheControl: '3600'
+            });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('course_content')
+            .getPublicUrl(fileName);
+
+        await supabase
+            .from('course_lessons')
+            .update({ image_url: publicUrl })
+            .eq('id', lessonId);
+
+        return { success: true, imageUrl: publicUrl };
+        
+    } catch (error) {
+        console.error('Image generation error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// GENERATE AND ATTACH QUIZ
+// ============================================
+
+export async function generateAndAttachQuiz(moduleId, moduleTitle, topic, level) {
+    try {
+        const quizData = await generateQuizQuestions(moduleTitle, topic, level);
+        
+        if (!quizData) {
+            return { success: false, error: 'Failed to generate quiz' };
+        }
+        
+        const { data: quiz, error: quizError } = await supabase
+            .from('quizzes')
+            .insert({
+                module_id: moduleId,
+                title: quizData.title,
+                passing_score: 70,
+                time_limit_minutes: 15
+            })
+            .select()
+            .single();
+        
+        if (quizError) throw quizError;
+        
+        for (const q of quizData.questions) {
+            const { data: question, error: qError } = await supabase
+                .from('quiz_questions')
+                .insert({
+                    quiz_id: quiz.id,
+                    question_text: q.question_text,
+                    question_type: 'multiple_choice',
+                    points: 1
+                })
+                .select()
+                .single();
+            
+            if (qError) throw qError;
+            
+            for (let i = 0; i < q.options.length; i++) {
+                await supabase
+                    .from('quiz_options')
+                    .insert({
+                        question_id: question.id,
+                        option_text: q.options[i],
+                        is_correct: i === q.correct_answer,
+                        sort_order: i
+                    });
+            }
+        }
+        
+        await supabase
+            .from('course_lessons')
+            .update({ has_quiz: true })
+            .eq('module_id', moduleId);
+        
+        return { success: true, quizId: quiz.id };
+        
+    } catch (error) {
+        console.error('Quiz generation error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// BATCH GENERATE AUDIO FOR ALL LESSONS
+// ============================================
+
+export async function batchGenerateCourseAudio(courseId) {
+    const { data: modules } = await supabase
+        .from('course_modules')
+        .select('id, lessons:course_lessons(id, content)')
+        .eq('course_id', courseId);
+    
+    const results = { total: 0, succeeded: 0, failed: 0 };
+    
+    for (const module of modules || []) {
+        for (const lesson of module.lessons || []) {
+            results.total++;
+            if (lesson.content) {
+                const result = await generateCourseAudio(lesson.id, lesson.content);
+                if (result.success) {
+                    results.succeeded++;
+                } else {
+                    results.failed++;
+                }
+            }
+        }
+    }
+    
+    return results;
 }
