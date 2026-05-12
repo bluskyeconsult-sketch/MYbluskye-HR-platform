@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE APP WITH ADMIN-LOGIN ROUTE
+// COMPLETE APP WITH SCROLL TO TOP AND ALL ROUTES
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
-// IMMEDIATELY LOADED COMPONENTS (No lazy loading for critical pages)
+// CORE COMPONENTS
 // ============================================
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -15,8 +15,11 @@ import ScrollingBanner from './components/ScrollingBanner';
 import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import ErrorBoundary from './components/ErrorBoundary';
+import ScrollToTop from './components/ScrollToTop';
 
-// CRITICAL: AdminLogin loaded immediately - NO LAZY LOADING
+// ============================================
+// IMMEDIATELY LOADED COMPONENTS
+// ============================================
 import AdminLogin from './pages/AdminLogin';
 
 // ============================================
@@ -66,7 +69,7 @@ const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'
 const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
 
 // ============================================
-// LAZY LOADED ADMIN PAGES (except login)
+// LAZY LOADED ADMIN PAGES
 // ============================================
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
@@ -228,6 +231,7 @@ function AppContent() {
 
     return (
         <ErrorBoundary>
+            <ScrollToTop />
             <Navbar />
             <ScrollingBanner />
             <main className="min-h-screen bg-slate-950">
@@ -253,7 +257,7 @@ function AppContent() {
                                     <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                     <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
 
-                                    {/* CRITICAL: ADMIN LOGIN - NO ANIMATION WRAPPER TO AVOID ISSUES */}
+                                    {/* ADMIN LOGIN */}
                                     <Route path="/admin-login" element={<AdminLogin />} />
 
                                     {/* ASSESSMENT ROUTES */}
