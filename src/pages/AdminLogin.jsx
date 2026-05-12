@@ -1,5 +1,5 @@
 // src/pages/AdminLogin.jsx
-// Complete Admin Login Page
+// COMPLETE WORKING ADMIN LOGIN PAGE
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
