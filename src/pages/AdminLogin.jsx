@@ -26,7 +26,6 @@ export default function AdminLogin() {
 
             if (signInError) throw signInError;
 
-            // Check if user is admin
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('user_type')
