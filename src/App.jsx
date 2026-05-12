@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE PRODUCTION-READY APP WITH ALL DASHBOARD ROUTES
+// COMPLETE APP WITH ALL ADMIN ROUTES
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -17,12 +17,11 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // ============================================
-// LAZY LOADED COMPONENTS
+// LAZY LOADED PUBLIC PAGES
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
-const AdminLogin = lazy(() => import('./pages/AdminLogin'));
-const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
+const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
 const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
@@ -37,9 +36,12 @@ const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
 const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
 const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
 const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
-const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
-const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
-const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const FAQPage = lazy(() => import('./pages/FAQPage'));
+
+// ============================================
+// LAZY LOADED USER PAGES
+// ============================================
 const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const UserApplications = lazy(() => import('./pages/UserApplications'));
@@ -49,40 +51,48 @@ const UserSettings = lazy(() => import('./pages/UserSettings'));
 const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
-const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
-const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
-const ProductsPage = lazy(() => import('./pages/ProductsPage'));
-const FAQPage = lazy(() => import('./pages/FAQPage'));
+const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
 
 // ============================================
-// ADMIN PAGES
+// LAZY LOADED TESTER PAGES
 // ============================================
+const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
+const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
+const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
+
+// ============================================
+// LAZY LOADED ADMIN PAGES (ALL)
+// ============================================
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
-const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
-const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
-const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
-const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
-const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
 const AdminFraudReports = lazy(() => import('./pages/admin/AdminFraudReports'));
+const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
+const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
+const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
+const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
+const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
+const ExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
 const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
+const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
+const SkillsVerification = lazy(() => import('./pages/admin/AdminSkills'));
 
 // ============================================
-// DASHBOARD PAGES (NEW)
+// LAZY LOADED DASHBOARD PAGES
 // ============================================
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
 
 // ============================================
-// LEGAL PAGES
+// LAZY LOADED LEGAL PAGES
 // ============================================
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
@@ -94,7 +104,7 @@ const SafetyTipsPage = lazy(() => import('./pages/legal/SafetyTipsPage'));
 const ReportFraudPage = lazy(() => import('./pages/ReportFraudPage'));
 
 // ============================================
-// WORKFORCE COMPONENTS
+// LAZY LOADED WORKFORCE COMPONENTS
 // ============================================
 const WorkforceOnboarding = lazy(() => import('./components/workforce/WorkforceOnboarding'));
 const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'));
@@ -240,9 +250,11 @@ function AppContent() {
                                     <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                                     <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                                     <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-                                    <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
                                     <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                     <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                                    
+                                    {/* ADMIN LOGIN - CRITICAL */}
+                                    <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
                                     {/* ============================================ */}
                                     {/* ASSESSMENT ROUTES */}
@@ -261,7 +273,6 @@ function AppContent() {
                                     {/* LMS ROUTES */}
                                     {/* ============================================ */}
                                     <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
-                                    <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
 
                                     {/* ============================================ */}
                                     {/* WORKFORCE MARKETPLACE ROUTES */}
@@ -297,7 +308,7 @@ function AppContent() {
                                     <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
                                     {/* ============================================ */}
-                                    {/* ADMIN ROUTES */}
+                                    {/* ADMIN ROUTES (ALL) */}
                                     {/* ============================================ */}
                                     <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                                     <Route path="/admin/users" element={<AnimatedPage><AdminUsers /></AnimatedPage>} />
@@ -309,15 +320,14 @@ function AppContent() {
                                     <Route path="/admin/testing-mode" element={<AnimatedPage><TestingModeSettings /></AnimatedPage>} />
                                     <Route path="/admin/settings/tester-visibility" element={<AnimatedPage><TesterVisibilitySettings /></AnimatedPage>} />
                                     <Route path="/admin/email-test" element={<AnimatedPage><EmailTest /></AnimatedPage>} />
+                                    <Route path="/admin/external-jobs" element={<AnimatedPage><ExternalJobs /></AnimatedPage>} />
                                     <Route path="/admin/knowledge-sources" element={<AnimatedPage><KnowledgeSourceManager /></AnimatedPage>} />
                                     <Route path="/admin/books" element={<AnimatedPage><ManageBooks /></AnimatedPage>} />
                                     <Route path="/admin/newsletter" element={<AnimatedPage><NewsletterAdmin /></AnimatedPage>} />
                                     <Route path="/admin/assessments" element={<AnimatedPage><AssessmentManager /></AnimatedPage>} />
                                     <Route path="/admin/virtual-assistants" element={<AnimatedPage><VirtualAssistantManager /></AnimatedPage>} />
-
-                                    {/* ============================================ */}
-                                    {/* DASHBOARD ROUTES (NEW) */}
-                                    {/* ============================================ */}
+                                    <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
+                                    <Route path="/admin/skills" element={<AnimatedPage><SkillsVerification /></AnimatedPage>} />
                                     <Route path="/admin/health" element={<AnimatedPage><SystemHealthDashboard /></AnimatedPage>} />
                                     <Route path="/admin/security" element={<AnimatedPage><SecurityDashboard /></AnimatedPage>} />
                                     <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
