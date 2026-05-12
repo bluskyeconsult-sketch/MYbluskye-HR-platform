@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE WORKING APP - No white screen, all routes functional
+// COMPLETE PRODUCTION-READY APP WITH ALL DASHBOARD ROUTES
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -17,7 +17,7 @@ import ODUSBABAChat from './components/ODUSBABAChat';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // ============================================
-// LAZY LOADED COMPONENTS (Prevents white screen)
+// LAZY LOADED COMPONENTS
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
@@ -55,6 +55,10 @@ const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
+
+// ============================================
+// ADMIN PAGES
+// ============================================
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
@@ -69,11 +73,17 @@ const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
+
+// ============================================
+// DASHBOARD PAGES (NEW)
+// ============================================
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
 
-// Legal Pages
+// ============================================
+// LEGAL PAGES
+// ============================================
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
 const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
@@ -83,7 +93,9 @@ const FraudPreventionPage = lazy(() => import('./pages/legal/FraudPreventionPage
 const SafetyTipsPage = lazy(() => import('./pages/legal/SafetyTipsPage'));
 const ReportFraudPage = lazy(() => import('./pages/ReportFraudPage'));
 
-// Workforce Components
+// ============================================
+// WORKFORCE COMPONENTS
+// ============================================
 const WorkforceOnboarding = lazy(() => import('./components/workforce/WorkforceOnboarding'));
 const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'));
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
@@ -100,7 +112,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================
-// LOADING FALLBACK - Prevents white screen
+// LOADING FALLBACK
 // ============================================
 function PageLoader() {
     return (
@@ -213,7 +225,9 @@ function AppContent() {
                             <AnimatePresence mode="wait">
                                 <Routes location={location} key={location.pathname}>
                                     
+                                    {/* ============================================ */}
                                     {/* PUBLIC ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                                     <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
                                     <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
@@ -227,36 +241,46 @@ function AppContent() {
                                     <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                                     <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                                     <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
-                                    
-                                    {/* PRODUCT & FAQ */}
                                     <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                     <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* ASSESSMENT ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                                     <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
                                     <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* ARTICLE ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
                                     <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* LMS ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
                                     <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
-                                    
-                                    {/* WORKFORCE MARKETPLACE */}
+
+                                    {/* ============================================ */}
+                                    {/* WORKFORCE MARKETPLACE ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/workforce/dashboard" element={<AnimatedPage><WorkforceDashboard /></AnimatedPage>} />
                                     <Route path="/workforce/setup" element={<AnimatedPage><WorkforceOnboardingWrapper /></AnimatedPage>} />
                                     <Route path="/workforce/proposals" element={<AnimatedPage><ProposalsListWrapper /></AnimatedPage>} />
                                     <Route path="/workforce/engagements" element={<AnimatedPage><EngagementsDashboardWrapper /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* TESTER ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
                                     <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
                                     <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* USER ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
                                     <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
                                     <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
@@ -266,11 +290,15 @@ function AppContent() {
                                     <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
                                     <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
                                     <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* EMPLOYER ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
-                                    
+
+                                    {/* ============================================ */}
                                     {/* ADMIN ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
                                     <Route path="/admin/users" element={<AnimatedPage><AdminUsers /></AnimatedPage>} />
                                     <Route path="/admin/jobs" element={<AnimatedPage><AdminJobs /></AnimatedPage>} />
@@ -286,11 +314,17 @@ function AppContent() {
                                     <Route path="/admin/newsletter" element={<AnimatedPage><NewsletterAdmin /></AnimatedPage>} />
                                     <Route path="/admin/assessments" element={<AnimatedPage><AssessmentManager /></AnimatedPage>} />
                                     <Route path="/admin/virtual-assistants" element={<AnimatedPage><VirtualAssistantManager /></AnimatedPage>} />
+
+                                    {/* ============================================ */}
+                                    {/* DASHBOARD ROUTES (NEW) */}
+                                    {/* ============================================ */}
                                     <Route path="/admin/health" element={<AnimatedPage><SystemHealthDashboard /></AnimatedPage>} />
                                     <Route path="/admin/security" element={<AnimatedPage><SecurityDashboard /></AnimatedPage>} />
                                     <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
-                                    
-                                    {/* LEGAL ROUTES */}
+
+                                    {/* ============================================ */}
+                                    {/* LEGAL & SAFETY ROUTES */}
+                                    {/* ============================================ */}
                                     <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
                                     <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
                                     <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
@@ -299,8 +333,10 @@ function AppContent() {
                                     <Route path="/legal/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
                                     <Route path="/safety-tips" element={<AnimatedPage><SafetyTipsPage /></AnimatedPage>} />
                                     <Route path="/report-fraud" element={<AnimatedPage><ReportFraudPage /></AnimatedPage>} />
-                                    
-                                    {/* 404 FALLBACK */}
+
+                                    {/* ============================================ */}
+                                    {/* 404 FALLBACK - MUST BE LAST */}
+                                    {/* ============================================ */}
                                     <Route path="*" element={<NotFoundPage />} />
                                 </Routes>
                             </AnimatePresence>
