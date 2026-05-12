@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE APP WITH ALL ADMIN ROUTES
+// COMPLETE APP WITH ALL ROUTES - NO 404s
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -82,7 +82,7 @@ const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
-const SkillsVerification = lazy(() => import('./pages/admin/AdminSkills'));
+const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
 
 // ============================================
 // LAZY LOADED DASHBOARD PAGES
@@ -252,9 +252,6 @@ function AppContent() {
                                     <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                                     <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                     <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                                    
-                                    {/* ADMIN LOGIN - CRITICAL */}
-                                    <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
                                     {/* ============================================ */}
                                     {/* ASSESSMENT ROUTES */}
@@ -308,6 +305,11 @@ function AppContent() {
                                     <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
 
                                     {/* ============================================ */}
+                                    {/* ADMIN LOGIN - CRITICAL FIX */}
+                                    {/* ============================================ */}
+                                    <Route path="/admin-login" element={<AdminLogin />} />
+
+                                    {/* ============================================ */}
                                     {/* ADMIN ROUTES (ALL) */}
                                     {/* ============================================ */}
                                     <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
@@ -327,7 +329,7 @@ function AppContent() {
                                     <Route path="/admin/assessments" element={<AnimatedPage><AssessmentManager /></AnimatedPage>} />
                                     <Route path="/admin/virtual-assistants" element={<AnimatedPage><VirtualAssistantManager /></AnimatedPage>} />
                                     <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
-                                    <Route path="/admin/skills" element={<AnimatedPage><SkillsVerification /></AnimatedPage>} />
+                                    <Route path="/admin/skills" element={<AnimatedPage><AdminSkills /></AnimatedPage>} />
                                     <Route path="/admin/health" element={<AnimatedPage><SystemHealthDashboard /></AnimatedPage>} />
                                     <Route path="/admin/security" element={<AnimatedPage><SecurityDashboard /></AnimatedPage>} />
                                     <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
