@@ -26,25 +26,14 @@ export default function AdminLogin() {
 
             if (signInError) throw signInError;
 
-            // Check if user is admin or super admin
-            const { data: profile, error: profileError } = await supabase
+            // Check if user is admin
+            const { data: profile } = await supabase
                 .from('profiles')
                 .select('user_type')
                 .eq('id', data.user.id)
                 .single();
 
-            if (profileError) {
-                // If no profile exists, create one
-                await supabase
-                    .from('profiles')
-                    .insert({
-                        id: data.user.id,
-                        email: data.user.email,
-                        user_type: email === 'bluskyeconsult@gmail.com' ? 'super_admin' : 'user'
-                    });
-            }
-
-            const userType = profile?.user_type || (email === 'bluskyeconsult@gmail.com' ? 'super_admin' : 'user');
+            const userType = profile?.user_type;
 
             if (userType === 'admin' || userType === 'super_admin' || email === 'bluskyeconsult@gmail.com') {
                 navigate('/admin/dashboard');
@@ -62,7 +51,6 @@ export default function AdminLogin() {
     return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
             <div className="max-w-md w-full">
-                {/* Logo & Header */}
                 <div className="text-center mb-8">
                     <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
                         <Shield className="w-8 h-8 text-white" />
@@ -71,7 +59,6 @@ export default function AdminLogin() {
                     <p className="text-slate-400 mt-2">Access the ODUSBABA administration panel</p>
                 </div>
 
-                {/* Login Form */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
@@ -122,7 +109,6 @@ export default function AdminLogin() {
                     </form>
                 </div>
 
-                {/* Help Text */}
                 <p className="text-center text-xs text-slate-500 mt-6">
                     Only authorized administrators can access this panel.
                 </p>
