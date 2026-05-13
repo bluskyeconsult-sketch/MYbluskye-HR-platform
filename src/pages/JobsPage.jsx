@@ -1,21 +1,13 @@
 // src/pages/JobsPage.jsx
-// COMPLETE REWRITE - Card layout with job type badges, country flags, and apply buttons
+// COMPLETE JOB BOARD WITH PAGINATION & SORTING
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
-    Briefcase, 
-    Search, 
-    MapPin, 
-    DollarSign, 
-    Clock, 
-    Building2,
-    Filter,
-    X,
-    ChevronDown,
-    Loader2,
-    ExternalLink
+    Briefcase, Search, MapPin, DollarSign, Clock, 
+    Building2, Filter, X, ChevronLeft, ChevronRight,
+    Loader2, ExternalLink, Star, TrendingUp, Award
 } from 'lucide-react';
 
 export default function JobsPage() {
@@ -24,12 +16,18 @@ export default function JobsPage() {
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState(null);
     
+    // Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [jobsPerPage, setJobsPerPage] = useState(50);
+    const [totalJobs, setTotalJobs] = useState(0);
+    
     // Filter states
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCountry, setSelectedCountry] = useState('all');
     const [selectedJobType, setSelectedJobType] = useState('all');
     const [sortBy, setSortBy] = useState('newest');
     const [showFilters, setShowFilters] = useState(false);
+    const [salaryRange, setSalaryRange] = useState({ min: '', max: '' });
     
     // Country options
     const countries = [
@@ -60,8 +58,12 @@ export default function JobsPage() {
         { value: 'newest', label: 'Newest First' },
         { value: 'oldest', label: 'Oldest First' },
         { value: 'salary_high', label: 'Highest Salary' },
-        { value: 'salary_low', label: 'Lowest Salary' }
+        { value: 'salary_low', label: 'Lowest Salary' },
+        { value: 'relevance', label: 'Most Relevant' }
     ];
+
+    // Jobs per page options
+    const perPageOptions = [25, 50, 100, 250];
 
     useEffect(() => {
         getUser();
@@ -70,7 +72,12 @@ export default function JobsPage() {
 
     useEffect(() => {
         filterAndSortJobs();
-    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy]);
+    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange]);
+
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange]);
 
     async function getUser() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -80,6 +87,17 @@ export default function JobsPage() {
     async function fetchJobs() {
         setLoading(true);
         try {
+            // Get total count first
+            const { count, error: countError } = await supabase
+                .from('jobs')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_active', true)
+                .eq('compliance_status', 'approved');
+            
+            if (countError) throw countError;
+            setTotalJobs(count || 0);
+            
+            // Fetch all jobs (pagination handled client-side for better filtering)
             const { data, error } = await supabase
                 .from('jobs')
                 .select('*')
@@ -89,7 +107,6 @@ export default function JobsPage() {
             
             if (error) throw error;
             setJobs(data || []);
-            setFilteredJobs(data || []);
         } catch (error) {
             console.error('Error fetching jobs:', error);
         } finally {
@@ -121,6 +138,14 @@ export default function JobsPage() {
             filtered = filtered.filter(job => job.job_type === selectedJobType);
         }
         
+        // Salary range filter
+        if (salaryRange.min) {
+            filtered = filtered.filter(job => (job.salary_min || 0) >= parseInt(salaryRange.min));
+        }
+        if (salaryRange.max) {
+            filtered = filtered.filter(job => (job.salary_max || 999999) <= parseInt(salaryRange.max));
+        }
+        
         // Sorting
         switch (sortBy) {
             case 'newest':
@@ -147,31 +172,27 @@ export default function JobsPage() {
         setSelectedCountry('all');
         setSelectedJobType('all');
         setSortBy('newest');
+        setSalaryRange({ min: '', max: '' });
+    }
+
+    // Pagination calculations
+    const indexOfLastJob = currentPage * jobsPerPage;
+    const indexOfFirstJob = indexOfLastJob - jobsPerPage;
+    const currentJobs = filteredJobs.slice(indexOfFirstJob, indexOfLastJob);
+    const totalPages = Math.ceil(filteredJobs.length / jobsPerPage);
+
+    function goToPage(page) {
+        setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function getCountryFlag(countryCode) {
-        const flags = {
-            GB: '🇬🇧',
-            NG: '🇳🇬',
-            IE: '🇮🇪',
-            CA: '🇨🇦',
-            US: '🇺🇸',
-            DE: '🇩🇪',
-            AU: '🇦🇺'
-        };
+        const flags = { GB: '🇬🇧', NG: '🇳🇬', IE: '🇮🇪', CA: '🇨🇦', US: '🇺🇸', DE: '🇩🇪', AU: '🇦🇺' };
         return flags[countryCode] || '🌍';
     }
 
     function getCountryName(countryCode) {
-        const names = {
-            GB: 'United Kingdom',
-            NG: 'Nigeria',
-            IE: 'Ireland',
-            CA: 'Canada',
-            US: 'United States',
-            DE: 'Germany',
-            AU: 'Australia'
-        };
+        const names = { GB: 'United Kingdom', NG: 'Nigeria', IE: 'Ireland', CA: 'Canada', US: 'United States', DE: 'Germany', AU: 'Australia' };
         return names[countryCode] || countryCode;
     }
 
@@ -200,26 +221,21 @@ export default function JobsPage() {
 
     function handleApply(job) {
         if (!user) {
-            // Redirect to sign in with return URL
             window.location.href = `/sign-in?redirect=/jobs/${job.id}`;
             return;
         }
-        // Navigate to job detail page where they can apply
         window.location.href = `/jobs/${job.id}`;
     }
+
+    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max;
 
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
-                    <p className="text-slate-400">Loading jobs...</p>
-                </div>
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
         );
     }
-
-    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '';
 
     return (
         <div className="min-h-screen bg-slate-950">
@@ -230,8 +246,7 @@ export default function JobsPage() {
                         Find Your Next Opportunity
                     </h1>
                     <p className="text-lg text-slate-300 max-w-2xl">
-                        Browse thousands of jobs from trusted employers across 7 countries.
-                        Verified listings. No scams.
+                        Browse {totalJobs.toLocaleString()} jobs from trusted employers across 7 countries.
                     </p>
                     
                     {/* Search Bar */}
@@ -262,7 +277,7 @@ export default function JobsPage() {
             {showFilters && (
                 <div className="border-b border-slate-800 bg-slate-900/30">
                     <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             {/* Country Filter */}
                             <div>
                                 <label className="block text-sm font-medium text-slate-400 mb-2">Country</label>
@@ -293,18 +308,25 @@ export default function JobsPage() {
                                 </select>
                             </div>
                             
-                            {/* Sort By */}
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-2">Sort By</label>
-                                <select
-                                    value={sortBy}
-                                    onChange={(e) => setSortBy(e.target.value)}
-                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
-                                >
-                                    {sortOptions.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
+                            {/* Salary Range */}
+                            <div className="col-span-1 sm:col-span-2">
+                                <label className="block text-sm font-medium text-slate-400 mb-2">Salary Range (USD)</label>
+                                <div className="flex gap-3">
+                                    <input
+                                        type="number"
+                                        value={salaryRange.min}
+                                        onChange={(e) => setSalaryRange({...salaryRange, min: e.target.value})}
+                                        placeholder="Min"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                    />
+                                    <input
+                                        type="number"
+                                        value={salaryRange.max}
+                                        onChange={(e) => setSalaryRange({...salaryRange, max: e.target.value})}
+                                        placeholder="Max"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                    />
+                                </div>
                             </div>
                         </div>
                         
@@ -322,40 +344,58 @@ export default function JobsPage() {
                 </div>
             )}
 
-            {/* Results Count */}
+            {/* Sort and Per Page Controls */}
             <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-                <p className="text-slate-400 text-sm">
-                    Showing {filteredJobs.length} of {jobs.length} jobs
-                </p>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        <span className="text-slate-400 text-sm">Sort by:</span>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        >
+                            {sortOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                        <span className="text-slate-400 text-sm">Show:</span>
+                        <select
+                            value={jobsPerPage}
+                            onChange={(e) => { setJobsPerPage(parseInt(e.target.value)); setCurrentPage(1); }}
+                            className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        >
+                            {perPageOptions.map(option => (
+                                <option key={option} value={option}>{option} per page</option>
+                            ))}
+                        </select>
+                        <span className="text-slate-400 text-sm">
+                            Showing {indexOfFirstJob + 1}-{Math.min(indexOfLastJob, filteredJobs.length)} of {filteredJobs.length} jobs
+                        </span>
+                    </div>
+                </div>
             </div>
 
             {/* Job Cards Grid */}
-            <div className="max-w-7xl mx-auto px-4 pb-12 sm:px-6 lg:px-8">
-                {filteredJobs.length === 0 ? (
+            <div className="max-w-7xl mx-auto px-4 pb-8 sm:px-6 lg:px-8">
+                {currentJobs.length === 0 ? (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                         <Briefcase className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-white mb-2">No jobs found</h3>
-                        <p className="text-slate-400">
-                            Try adjusting your search or filters to find more opportunities.
-                        </p>
+                        <p className="text-slate-400">Try adjusting your search or filters.</p>
                         {hasActiveFilters && (
-                            <button
-                                onClick={clearFilters}
-                                className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                            >
+                            <button onClick={clearFilters} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                                 Clear all filters
                             </button>
                         )}
                     </div>
                 ) : (
                     <div className="space-y-4">
-                        {filteredJobs.map((job) => (
-                            <div 
-                                key={job.id} 
-                                className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all hover:-translate-y-1 duration-200"
-                            >
+                        {currentJobs.map((job) => (
+                            <div key={job.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all hover:-translate-y-1 duration-200">
                                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                                    {/* Job Info */}
                                     <div className="flex-1">
                                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                                             <span className="text-2xl">{getCountryFlag(job.country_code)}</span>
@@ -374,15 +414,9 @@ export default function JobsPage() {
                                         </p>
                                         
                                         <div className="flex flex-wrap gap-4 text-sm text-slate-400 mb-3">
-                                            <span className="flex items-center gap-1">
-                                                <MapPin className="w-3 h-3" /> {job.location || getCountryName(job.country_code)}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <DollarSign className="w-3 h-3" /> {formatSalary(job)}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <Clock className="w-3 h-3" /> {new Date(job.posted_at).toLocaleDateString()}
-                                            </span>
+                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || getCountryName(job.country_code)}</span>
+                                            <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {formatSalary(job)}</span>
+                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(job.posted_at).toLocaleDateString()}</span>
                                         </div>
                                         
                                         {job.description && (
@@ -390,33 +424,15 @@ export default function JobsPage() {
                                                 {job.description.replace(/<[^>]*>/g, '').substring(0, 200)}...
                                             </p>
                                         )}
-                                        
-                                        <div className="flex items-center gap-4 mt-3">
-                                            {job.external_apply_url && (
-                                                <span className="text-xs text-slate-500 flex items-center gap-1">
-                                                    <ExternalLink className="w-3 h-3" />
-                                                    External listing
-                                                </span>
-                                            )}
-                                        </div>
                                     </div>
                                     
-                                    {/* Apply Button */}
                                     <div className="flex flex-row md:flex-col gap-2">
                                         {job.external_apply_url ? (
-                                            <a
-                                                href={job.external_apply_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-colors text-sm font-medium flex items-center gap-1 whitespace-nowrap"
-                                            >
+                                            <a href={job.external_apply_url} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-colors text-sm font-medium flex items-center gap-1 whitespace-nowrap">
                                                 Apply on Source <ExternalLink className="w-3 h-3" />
                                             </a>
                                         ) : (
-                                            <button
-                                                onClick={() => handleApply(job)}
-                                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-colors text-sm font-medium flex items-center gap-1 whitespace-nowrap"
-                                            >
+                                            <button onClick={() => handleApply(job)} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition-colors text-sm font-medium flex items-center gap-1 whitespace-nowrap">
                                                 Apply Now →
                                             </button>
                                         )}
@@ -424,6 +440,56 @@ export default function JobsPage() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                )}
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-8 pt-4 border-t border-slate-800">
+                        <button
+                            onClick={() => goToPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        
+                        <div className="flex gap-1">
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum;
+                                if (totalPages <= 5) {
+                                    pageNum = i + 1;
+                                } else if (currentPage <= 3) {
+                                    pageNum = i + 1;
+                                } else if (currentPage >= totalPages - 2) {
+                                    pageNum = totalPages - 4 + i;
+                                } else {
+                                    pageNum = currentPage - 2 + i;
+                                }
+                                
+                                return (
+                                    <button
+                                        key={pageNum}
+                                        onClick={() => goToPage(pageNum)}
+                                        className={`w-10 h-10 rounded-lg transition ${
+                                            currentPage === pageNum
+                                                ? 'bg-primary-600 text-white'
+                                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                                        }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        
+                        <button
+                            onClick={() => goToPage(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            <ChevronRight className="w-5 h-5" />
+                        </button>
                     </div>
                 )}
             </div>
