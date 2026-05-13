@@ -1,13 +1,10 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE FIXED ASSESSMENTS PAGE - Handles undefined data safely
+// COMPLETE FIXED ASSESSMENTS PAGE - No localeCompare errors
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
-    Brain, Clock, TrendingUp, Award, Search, Filter, 
-    Star, Users, FileText, Loader2, AlertCircle
-} from 'lucide-react';
+import { Brain, Clock, TrendingUp, Award, Search, Loader2, AlertCircle, Star, Users, FileText } from 'lucide-react';
 
 export default function AssessmentsPage() {
     const [assessments, setAssessments] = useState([]);
@@ -107,7 +104,7 @@ export default function AssessmentsPage() {
             filtered = filtered.filter(a => a.assessment_type === selectedCategory);
         }
         
-        // SAFE: Sort safely - handle undefined titles
+        // SAFE SORT: Handle undefined titles properly
         filtered.sort((a, b) => {
             const titleA = a?.title || '';
             const titleB = b?.title || '';
