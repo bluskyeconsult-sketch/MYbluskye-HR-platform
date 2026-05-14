@@ -81,6 +81,7 @@ const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
 const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
 const ExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
+const ExternalJobsManager = lazy(() => import('./pages/admin/ExternalJobsManager'));
 const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
@@ -309,6 +310,7 @@ function AppContent() {
                                     <Route path="/admin/settings/tester-visibility" element={<AnimatedPage><TesterVisibilitySettings /></AnimatedPage>} />
                                     <Route path="/admin/email-test" element={<AnimatedPage><EmailTest /></AnimatedPage>} />
                                     <Route path="/admin/external-jobs" element={<AnimatedPage><ExternalJobs /></AnimatedPage>} />
+                                    <Route path="/admin/external-jobs-manager" element={<AnimatedPage><ExternalJobsManager /></AnimatedPage>} />
                                     <Route path="/admin/knowledge-sources" element={<AnimatedPage><KnowledgeSourceManager /></AnimatedPage>} />
                                     <Route path="/admin/books" element={<AnimatedPage><ManageBooks /></AnimatedPage>} />
                                     <Route path="/admin/newsletter" element={<AnimatedPage><NewsletterAdmin /></AnimatedPage>} />
