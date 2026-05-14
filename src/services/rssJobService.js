@@ -1,5 +1,5 @@
 // src/services/rssJobService.js
-// LIVE RSS FETCHING SERVICE - Real-time jobs from government sources
+// COMPLETE RSS JOB FETCHING SERVICE - Live jobs from government sources with sponsorship detection and duplicate handling
 
 import { supabase } from '../lib/supabase';
 
@@ -14,6 +14,7 @@ const RSS_FEEDS = {
         country: 'GB',
         url: 'https://www.civilservicejobs.gov.uk/feeds/jobs.xml',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa', 'Certificate of Sponsorship']
     },
     UK_NHS: {
@@ -21,6 +22,7 @@ const RSS_FEEDS = {
         country: 'GB',
         url: 'https://www.jobs.nhs.uk/feeds/jobs.xml',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa']
     },
     UK_GOV_FIND_JOB: {
@@ -28,6 +30,7 @@ const RSS_FEEDS = {
         country: 'GB',
         url: 'https://findajob.dwp.gov.uk/feeds/jobs.rss',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Sponsorship', 'Visa', 'Skilled Worker']
     },
     
@@ -37,6 +40,7 @@ const RSS_FEEDS = {
         country: 'IE',
         url: 'https://www.publicjobs.ie/rss',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Work Permit', 'Critical Skills', 'Sponsorship']
     },
     
@@ -46,6 +50,7 @@ const RSS_FEEDS = {
         country: 'CA',
         url: 'https://www.jobs.gc.ca/rss',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Work Permit', 'LMIA', 'Sponsorship']
     },
     
@@ -55,6 +60,7 @@ const RSS_FEEDS = {
         country: 'AU',
         url: 'https://www.apsjobs.gov.au/rss',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Visa Sponsorship', 'Work Visa', 'Sponsorship']
     },
     
@@ -64,6 +70,7 @@ const RSS_FEEDS = {
         country: 'US',
         url: 'https://www.usajobs.gov/rss',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship']
     },
     
@@ -73,6 +80,7 @@ const RSS_FEEDS = {
         country: 'DE',
         url: 'https://www.bund.de/rss/jobs',
         type: 'rss',
+        is_active: true,
         sponsorship_keywords: ['Work Visa', 'Blue Card', 'Sponsorship']
     }
 };
@@ -81,7 +89,7 @@ const RSS_FEEDS = {
 // PARSE RSS FEED FUNCTION
 // ============================================
 
-async function parseRSSFeed(feedUrl) {
+async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
     try {
         const response = await fetch(feedUrl, {
             headers: {
@@ -123,8 +131,8 @@ async function parseRSSFeed(feedUrl) {
                               description.match(/\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i);
             
             if (salaryMatch) {
-                salary = `£${salaryMatch[1]}`;
-                if (salaryMatch[2]) salary += ` - £${salaryMatch[2]}`;
+                salary = `${salaryMatch[1]}`;
+                if (salaryMatch[2]) salary += ` - ${salaryMatch[2]}`;
             }
             
             // Extract location from description
@@ -134,12 +142,13 @@ async function parseRSSFeed(feedUrl) {
             
             jobs.push({
                 title: title.substring(0, 200),
-                description: description.substring(0, 500),
-                link: link,
-                pubDate: pubDate,
-                salary: salary,
+                description: description.substring(0, 1000),
+                external_url: link,
+                salary_range: salary,
                 location: location,
-                source: feedUrl
+                posted_date: pubDate,
+                source_name: sourceName,
+                source_country: sourceCountry
             });
         }
         
@@ -151,20 +160,22 @@ async function parseRSSFeed(feedUrl) {
 }
 
 // ============================================
-// SEARCH JOBS WITH SPONSORSHIP DETECTION
+// SPONSORSHIP DETECTION
 // ============================================
 
 function detectSponsorshipEligibility(title, description, sourceConfig) {
-    const text = `${title} ${description}`.toLowerCase();
+    const text = `${title} ${description || ''}`.toLowerCase();
     
     // Check source-specific sponsorship keywords
-    for (const keyword of sourceConfig.sponsorship_keywords) {
-        if (text.includes(keyword.toLowerCase())) {
-            return {
-                eligible: true,
-                keyword: keyword,
-                type: 'explicit'
-            };
+    if (sourceConfig.sponsorship_keywords) {
+        for (const keyword of sourceConfig.sponsorship_keywords) {
+            if (text.includes(keyword.toLowerCase())) {
+                return {
+                    eligible: true,
+                    keyword: keyword,
+                    type: 'explicit'
+                };
+            }
         }
     }
     
@@ -189,15 +200,102 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
 }
 
 // ============================================
-// MAIN FUNCTION: Search Jobs with Live RSS Fetch
+// FETCH EXTERNAL JOBS (with duplicate detection)
+// ============================================
+
+export async function fetchExternalJobs(forceRefresh = false) {
+    const allJobs = [];
+    const results = [];
+    
+    // If force refresh, clear old cache
+    if (forceRefresh) {
+        await supabase.from('external_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        console.log('🔄 Force refresh: Cleared existing external jobs');
+    }
+    
+    for (const [key, source] of Object.entries(RSS_FEEDS)) {
+        if (!source.is_active) continue;
+        
+        console.log(`🔍 Fetching jobs from ${source.name}...`);
+        const jobs = await parseRSSFeed(source.url, source.name, source.country);
+        
+        for (const job of jobs) {
+            // Detect sponsorship eligibility
+            const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
+            
+            // Create a unique key for duplicate detection
+            const uniqueKey = `${job.title.substring(0, 100)}-${job.source_name}`;
+            
+            // Check if job already exists in external_jobs
+            const { data: existing, error: checkError } = await supabase
+                .from('external_jobs')
+                .select('id, status')
+                .eq('title', job.title.substring(0, 150))
+                .eq('source_name', job.source_name)
+                .maybeSingle();
+            
+            if (existing) {
+                results.push({ source: source.name, job: job.title, status: 'exists', id: existing.id });
+                continue;
+            }
+            
+            // Insert new job
+            const { error: insertError, data: newJob } = await supabase
+                .from('external_jobs')
+                .insert({
+                    title: job.title,
+                    company: job.source_name,
+                    location: job.location || job.source_country,
+                    description: job.description,
+                    salary_range: job.salary_range,
+                    external_apply_url: job.external_url,
+                    source_country: job.source_country,
+                    source_name: job.source_name,
+                    sponsorship_eligible: sponsorship.eligible,
+                    sponsorship_keyword: sponsorship.keyword,
+                    status: 'pending_approval',
+                    created_at: new Date().toISOString()
+                })
+                .select();
+            
+            if (!insertError) {
+                allJobs.push({ ...job, sponsorship_eligible: sponsorship.eligible });
+                results.push({ source: source.name, job: job.title, status: 'added', sponsorship: sponsorship.eligible });
+            } else {
+                results.push({ source: source.name, job: job.title, status: 'error', error: insertError.message });
+            }
+        }
+    }
+    
+    // Log fetch results (create table if using)
+    const { data: logTable } = await supabase
+        .from('external_job_fetch_log')
+        .select('id')
+        .limit(1);
+    
+    if (logTable !== null) {
+        await supabase.from('external_job_fetch_log').insert({
+            source_name: 'rss_fetch_all',
+            fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
+            jobs_fetched: allJobs.length,
+            jobs_new: allJobs.length,
+            jobs_existing: results.filter(r => r.status === 'exists').length,
+            created_at: new Date().toISOString()
+        }).catch(err => console.warn('Log insert failed:', err));
+    }
+    
+    return { jobs: allJobs, results, totalAdded: allJobs.length };
+}
+
+// ============================================
+// SEARCH JOBS WITH SPONSORSHIP DETECTION
 // ============================================
 
 export async function searchLiveJobs(query, filters = {}) {
-    const results = [];
     const allJobs = [];
     
     // Determine which sources to search
-    let sourcesToSearch = Object.entries(RSS_FEEDS);
+    let sourcesToSearch = Object.entries(RSS_FEEDS).filter(([_, config]) => config.is_active);
     
     // Filter by country if specified
     if (filters.country) {
@@ -208,7 +306,7 @@ export async function searchLiveJobs(query, filters = {}) {
     
     // Fetch from all relevant RSS feeds in parallel
     const fetchPromises = sourcesToSearch.map(async ([key, config]) => {
-        const jobs = await parseRSSFeed(config.url);
+        const jobs = await parseRSSFeed(config.url, config.name, config.country);
         return { config, jobs };
     });
     
@@ -219,7 +317,13 @@ export async function searchLiveJobs(query, filters = {}) {
             const sponsorship = detectSponsorshipEligibility(job.title, job.description, config);
             
             allJobs.push({
-                ...job,
+                title: job.title,
+                description: job.description,
+                link: job.external_url,
+                pubDate: job.posted_date,
+                salary: job.salary_range,
+                location: job.location,
+                source: config.name,
                 source_country: config.country,
                 source_name: config.name,
                 sponsorship_eligible: sponsorship.eligible,
@@ -235,7 +339,7 @@ export async function searchLiveJobs(query, filters = {}) {
         const queryLower = query.toLowerCase();
         filteredJobs = filteredJobs.filter(job => 
             job.title.toLowerCase().includes(queryLower) ||
-            job.description.toLowerCase().includes(queryLower) ||
+            (job.description && job.description.toLowerCase().includes(queryLower)) ||
             (job.location && job.location.toLowerCase().includes(queryLower))
         );
     }
@@ -250,7 +354,7 @@ export async function searchLiveJobs(query, filters = {}) {
         const jobTypeLower = filters.jobType.toLowerCase();
         filteredJobs = filteredJobs.filter(job => 
             job.title.toLowerCase().includes(jobTypeLower) ||
-            job.description.toLowerCase().includes(jobTypeLower)
+            (job.description && job.description.toLowerCase().includes(jobTypeLower))
         );
     }
     
@@ -263,38 +367,6 @@ export async function searchLiveJobs(query, filters = {}) {
     });
     
     return filteredJobs.slice(0, filters.limit || 20);
-}
-
-// ============================================
-// CACHE RESULTS to Database (Optional)
-// ============================================
-
-export async function cacheJobsToDatabase(jobs) {
-    for (const job of jobs) {
-        // Check if job already exists in cache
-        const { data: existing } = await supabase
-            .from('ai_job_cache')
-            .select('id')
-            .eq('job_title', job.title.substring(0, 100))
-            .eq('job_url', job.link)
-            .maybeSingle();
-        
-        if (!existing) {
-            await supabase
-                .from('ai_job_cache')
-                .insert({
-                    job_title: job.title,
-                    job_company: job.source_name,
-                    job_location: job.location,
-                    job_salary: job.salary,
-                    job_url: job.link,
-                    job_summary: job.description,
-                    fetched_at: new Date().toISOString(),
-                    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-                })
-                .catch(err => console.error('Cache insert error:', err));
-        }
-    }
 }
 
 // ============================================
@@ -354,4 +426,134 @@ export async function getJobSuggestions(userQuery) {
         filters: filters,
         total: jobs.length
     };
+}
+
+// ============================================
+// EXTERNAL JOB MANAGEMENT (Admin functions)
+// ============================================
+
+export async function getPendingExternalJobs() {
+    const { data, error } = await supabase
+        .from('external_jobs')
+        .select('*')
+        .eq('status', 'pending_approval')
+        .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+}
+
+export async function approveExternalJob(jobId) {
+    const { data: externalJob, error: fetchError } = await supabase
+        .from('external_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+    
+    if (fetchError) throw fetchError;
+    
+    // Insert into main jobs table
+    const { data: newJob, error: insertError } = await supabase
+        .from('jobs')
+        .insert({
+            title: externalJob.title,
+            company: externalJob.company,
+            location: externalJob.location || externalJob.source_country,
+            description: externalJob.description,
+            salary_range: externalJob.salary_range,
+            external_apply_url: externalJob.external_apply_url,
+            country_code: externalJob.source_country,
+            source_type: 'authoritative',
+            source_name: externalJob.source_name,
+            sponsorship_eligible: externalJob.sponsorship_eligible,
+            compliance_status: 'approved',
+            is_active: true,
+            posted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+    
+    if (insertError) throw insertError;
+    
+    // Update external job status
+    await supabase
+        .from('external_jobs')
+        .update({ 
+            status: 'approved', 
+            approved_at: new Date().toISOString(),
+            approved_job_id: newJob.id
+        })
+        .eq('id', jobId);
+    
+    return { success: true, jobId: newJob.id };
+}
+
+export async function rejectExternalJob(jobId, reason = null) {
+    const { error } = await supabase
+        .from('external_jobs')
+        .update({ 
+            status: 'rejected',
+            rejection_reason: reason,
+            rejected_at: new Date().toISOString()
+        })
+        .eq('id', jobId);
+    
+    if (error) throw error;
+    return { success: true };
+}
+
+export async function batchApproveExternalJobs() {
+    const { data: pendingJobs, error } = await supabase
+        .from('external_jobs')
+        .select('id')
+        .eq('status', 'pending_approval');
+    
+    if (error) throw error;
+    
+    const results = { approved: 0, failed: 0, errors: [] };
+    
+    for (const job of pendingJobs || []) {
+        try {
+            await approveExternalJob(job.id);
+            results.approved++;
+        } catch (err) {
+            results.failed++;
+            results.errors.push({ jobId: job.id, error: err.message });
+        }
+    }
+    
+    return results;
+}
+
+// ============================================
+// CACHE RESULTS to Database (Optional)
+// ============================================
+
+export async function cacheJobsToDatabase(jobs) {
+    for (const job of jobs) {
+        // Check if job already exists in cache
+        const { data: existing } = await supabase
+            .from('ai_job_cache')
+            .select('id')
+            .eq('job_title', job.title.substring(0, 100))
+            .eq('job_url', job.link)
+            .maybeSingle();
+        
+        if (!existing) {
+            await supabase
+                .from('ai_job_cache')
+                .insert({
+                    job_title: job.title,
+                    job_company: job.source_name,
+                    job_location: job.location,
+                    job_salary: job.salary,
+                    job_url: job.link,
+                    job_summary: job.description,
+                    sponsorship_eligible: job.sponsorship_eligible,
+                    fetched_at: new Date().toISOString(),
+                    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                })
+                .catch(err => console.error('Cache insert error:', err));
+        }
+    }
 }
