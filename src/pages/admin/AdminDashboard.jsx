@@ -1,5 +1,5 @@
 // src/pages/admin/AdminDashboard.jsx
-// COMPLETE ADMIN DASHBOARD - All routes working
+// COMPLETE ADMIN DASHBOARD - All routes working with Super Admin unlimited access
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -9,11 +9,12 @@ import {
     Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
     Clock, CheckCircle, XCircle, AlertCircle, Activity,
     Server, HardDrive, Eye, Ban, Flag, Calendar, UserPlus,
-    FileText, ShoppingBag, Gift, Heart, Bell, Zap
+    FileText, ShoppingBag, Gift, Heart, Bell, Zap, Globe, Award
 } from 'lucide-react';
 
 export default function AdminDashboard() {
     const [user, setUser] = useState(null);
+    const [profile, setProfile] = useState(null);
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalJobs: 0,
@@ -36,11 +37,26 @@ export default function AdminDashboard() {
             window.location.href = '/admin-login';
             return;
         }
-        if (user.email !== 'bluskyeconsult@gmail.com') {
+        
+        // Get user profile
+        const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+        
+        setUser(user);
+        setProfile(profileData);
+        
+        // Check if user is admin (supports both profile-based and legacy email check)
+        const isAuthorized = profileData?.user_type === 'admin' || 
+                            profileData?.user_type === 'super_admin' || 
+                            user.email === 'bluskyeconsult@gmail.com';
+        
+        if (!isAuthorized) {
             window.location.href = '/dashboard';
             return;
         }
-        setUser(user);
         
         // Load stats
         const { count: userCount } = await supabase
@@ -76,6 +92,8 @@ export default function AdminDashboard() {
         setLoading(false);
     }
 
+    const isSuperAdmin = profile?.user_type === 'super_admin' || user?.email === 'bluskyeconsult@gmail.com';
+
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -88,10 +106,18 @@ export default function AdminDashboard() {
         <div className="min-h-screen bg-slate-950 py-8">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
-                {/* Welcome Header */}
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
-                    <p className="text-slate-400">Welcome back, {user?.email}</p>
+                {/* Welcome Header with Unlimited Badge */}
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
+                        <p className="text-slate-400">Welcome back, {user?.email}</p>
+                    </div>
+                    {isSuperAdmin && (
+                        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                            <Award className="w-5 h-5 text-emerald-400" />
+                            <span className="text-emerald-400 font-semibold">Super Admin • Unlimited Access</span>
+                        </div>
+                    )}
                 </div>
 
                 {/* System Health Banner */}
@@ -103,6 +129,25 @@ export default function AdminDashboard() {
                     </div>
                     <Link to="/admin/health" className="ml-auto text-primary-400 text-sm hover:underline">View Details →</Link>
                 </div>
+
+                {/* Unlimited Access Card - Super Admin Only */}
+                {isSuperAdmin && (
+                    <div className="mb-6 p-4 bg-gradient-to-r from-primary-900/30 to-sky-900/30 border border-primary-500/30 rounded-xl">
+                        <div className="flex items-center gap-4 flex-wrap">
+                            <Shield className="w-10 h-10 text-primary-400" />
+                            <div>
+                                <h3 className="text-white font-bold text-lg">Unlimited Access Granted</h3>
+                                <p className="text-slate-300 text-sm">As a Super Admin, you have unlimited access to all features:</p>
+                            </div>
+                            <div className="flex flex-wrap gap-3 ml-auto">
+                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Chat</span>
+                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited VA Tasks</span>
+                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Applications</span>
+                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Assessments</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -154,14 +199,14 @@ export default function AdminDashboard() {
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center gap-3">
-                            <FileText className="w-8 h-8 text-primary-400 opacity-50" />
+                            <Shield className="w-8 h-8 text-primary-400 opacity-50" />
                             <div><p className="text-slate-400 text-sm">Fraud Reports</p><p className="text-xl font-bold text-white">{stats.pendingReports}</p></div>
                         </div>
                         <Link to="/admin/fraud-reports" className="text-xs text-primary-400 hover:underline mt-2 inline-block">View Reports →</Link>
                     </div>
                 </div>
 
-                {/* MAIN ADMIN SECTIONS - All Working Routes */}
+                {/* MAIN ADMIN SECTIONS - All Working Routes (from first version) */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     
                     {/* LEFT COLUMN: Core Management */}
@@ -309,6 +354,3 @@ export default function AdminDashboard() {
         </div>
     );
 }
-
-// Add missing import
-import { Globe } from 'lucide-react';
