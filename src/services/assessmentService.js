@@ -1,5 +1,5 @@
 // src/services/assessmentService.js
-// Complete Assessment Service - Compatible with actual database schema
+// COMPLETE ASSESSMENT SERVICE - With AI scoring, unlimited admin access, and report generation
 
 import { supabase } from '../lib/supabase';
 
@@ -10,13 +10,14 @@ const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 // ============================================
 
 const TIER_LIMITS = {
-    free: { assessments_per_month: 1, can_download_report: false, can_retake: false },
-    registered: { assessments_per_month: 3, can_download_report: true, can_retake: true },
-    professional: { assessments_per_month: 10, can_download_report: true, can_retake: true },
-    employer: { assessments_per_month: 5, can_download_report: true, can_retake: true },
-    business: { assessments_per_month: 999, can_download_report: true, can_retake: true },
-    admin: { assessments_per_month: 999, can_download_report: true, can_retake: true },
-    super_admin: { assessments_per_month: 999, can_download_report: true, can_retake: true }
+    free: { assessments_per_month: 3, can_download_report: false, can_retake: false },
+    registered: { assessments_per_month: 10, can_download_report: true, can_retake: true },
+    professional: { assessments_per_month: 50, can_download_report: true, can_retake: true },
+    employer: { assessments_per_month: 30, can_download_report: true, can_retake: true },
+    business: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
+    admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
+    super_admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
+    tester: { assessments_per_month: 5, can_download_report: false, can_retake: true }
 };
 
 // ============================================
@@ -46,7 +47,7 @@ export async function getAssessmentById(assessmentId) {
 }
 
 // ============================================
-// USER ELIGIBILITY & TRACKING
+// USER ELIGIBILITY & TRACKING (with unlimited admins)
 // ============================================
 
 export async function checkUserEligibility(userId, assessmentId) {
@@ -83,12 +84,26 @@ export async function checkUserEligibility(userId, assessmentId) {
             limit: limits.assessments_per_month,
             tier: tier,
             canDownloadReport: limits.can_download_report,
-            canRetake: limits.can_retake
+            canRetake: limits.can_retake,
+            isUnlimited: tier === 'super_admin' || tier === 'admin'
         };
     }
     
-    const tier = profile?.tier || 'free';
+    const tier = profile?.tier || profile?.user_type || 'free';
     const limits = TIER_LIMITS[tier] || TIER_LIMITS.free;
+    
+    // Super admin and admin have unlimited access
+    if (tier === 'super_admin' || tier === 'admin' || profile?.user_type === 'super_admin') {
+        return {
+            eligible: true,
+            remaining: 999999,
+            limit: 999999,
+            tier: tier,
+            canDownloadReport: true,
+            canRetake: true,
+            isUnlimited: true
+        };
+    }
     
     // Count assessments taken this month
     const startOfMonth = new Date();
@@ -105,15 +120,18 @@ export async function checkUserEligibility(userId, assessmentId) {
         console.warn('Error counting assessments:', error);
     }
     
-    const remaining = Math.max(0, limits.assessments_per_month - (count || 0));
+    const used = count || 0;
+    const remaining = Math.max(0, limits.assessments_per_month - used);
     
     return {
-        eligible: remaining > 0 || tier === 'business' || tier === 'super_admin',
+        eligible: remaining > 0,
         remaining,
+        used,
         limit: limits.assessments_per_month,
         tier,
         canDownloadReport: limits.can_download_report,
-        canRetake: limits.can_retake
+        canRetake: limits.can_retake,
+        isUnlimited: false
     };
 }
 
@@ -125,6 +143,9 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
             assessment_id: assessmentId,
             session_id: sessionId,
             status: 'in_progress',
+            answers: [],
+            current_question_index: 0,
+            time_spent_seconds: 0,
             started_at: new Date().toISOString(),
             created_at: new Date().toISOString()
         })
@@ -136,7 +157,108 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
 }
 
 // ============================================
-// ASSESSMENT SCORING
+// START ASSESSMENT (simplified wrapper)
+// ============================================
+
+export async function startAssessment(userId, assessmentId) {
+    try {
+        // Check eligibility
+        const eligibility = await checkUserEligibility(userId, assessmentId);
+        
+        if (!eligibility.eligible && !eligibility.isUnlimited) {
+            return {
+                success: false,
+                error: `You have reached your monthly limit of ${eligibility.limit} assessments. Upgrade to continue.`,
+                limitReached: true,
+                eligibility
+            };
+        }
+        
+        // Generate unique session ID
+        const sessionId = `${userId}_${assessmentId}_${Date.now()}`;
+        
+        // Create assessment session
+        const session = await recordAssessmentStart(userId, assessmentId, sessionId);
+        
+        // Get assessment questions
+        const { data: questions, error: questionsError } = await supabase
+            .from('assessment_questions')
+            .select('*, options:assessment_options(*)')
+            .eq('assessment_id', assessmentId)
+            .order('sort_order', { ascending: true });
+        
+        if (questionsError) throw questionsError;
+        
+        return {
+            success: true,
+            sessionId,
+            session,
+            questions: questions || [],
+            totalQuestions: questions?.length || 0,
+            eligibility
+        };
+    } catch (error) {
+        console.error('Error starting assessment:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// SAVE ANSWER (simplified)
+// ============================================
+
+export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
+    try {
+        // Get current session
+        const { data: session, error: sessionError } = await supabase
+            .from('user_assessments')
+            .select('answers, current_question_index')
+            .eq('session_id', sessionId)
+            .single();
+        
+        if (sessionError) throw sessionError;
+        
+        let currentAnswers = session.answers || [];
+        
+        // Update or add answer
+        const existingIndex = currentAnswers.findIndex(a => a.question_id === questionId);
+        if (existingIndex >= 0) {
+            currentAnswers[existingIndex] = {
+                question_id: questionId,
+                answer: answer,
+                answered_at: new Date().toISOString(),
+                question_index: questionIndex
+            };
+        } else {
+            currentAnswers.push({
+                question_id: questionId,
+                answer: answer,
+                answered_at: new Date().toISOString(),
+                question_index: questionIndex
+            });
+        }
+        
+        // Update session
+        const { error: updateError } = await supabase
+            .from('user_assessments')
+            .update({
+                answers: currentAnswers,
+                current_question_index: questionIndex + 1,
+                updated_at: new Date().toISOString()
+            })
+            .eq('session_id', sessionId);
+        
+        if (updateError) throw updateError;
+        
+        return { success: true };
+    } catch (error) {
+        console.error('Error saving answer:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// ASSESSMENT SCORING & COMPLETION
 // ============================================
 
 export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpentSeconds) {
@@ -251,6 +373,34 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
     };
 }
 
+// Simplified complete assessment function
+export async function completeAssessment(sessionId) {
+    try {
+        // Get session by session_id
+        const { data: session, error: sessionError } = await supabase
+            .from('user_assessments')
+            .select('id')
+            .eq('session_id', sessionId)
+            .single();
+        
+        if (sessionError) throw sessionError;
+        
+        // Use the full scoring function
+        // This assumes answers are already stored
+        const result = await submitAssessmentAnswers(session.id, {}, 0);
+        
+        return {
+            success: true,
+            score: result.percentage,
+            percentage: result.percentage,
+            performanceLevel: result.performanceLevel
+        };
+    } catch (error) {
+        console.error('Error completing assessment:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function scoreScenarioAnswer(question, answer) {
     if (!OPENAI_API_KEY) return 7;
     
@@ -316,6 +466,49 @@ async function generateAssessmentInsights(assessmentTitle, percentage, dimension
             improvements: ['Continuous learning'],
             recommendations: ['Seek mentorship', 'Take relevant courses']
         };
+    }
+}
+
+// ============================================
+// GET ASSESSMENT RESULTS
+// ============================================
+
+export async function getAssessmentResults(sessionId) {
+    try {
+        const { data, error } = await supabase
+            .from('user_assessments')
+            .select('*, assessment:assessment_id(*)')
+            .eq('session_id', sessionId)
+            .single();
+        
+        if (error) throw error;
+        
+        return { success: true, results: data };
+    } catch (error) {
+        console.error('Error getting results:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// USER ASSESSMENT HISTORY
+// ============================================
+
+export async function getUserAssessmentHistory(userId) {
+    try {
+        const { data, error } = await supabase
+            .from('user_assessments')
+            .select('*, assessment:assessment_id(title, assessment_type)')
+            .eq('user_id', userId)
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        return { success: true, history: data || [] };
+    } catch (error) {
+        console.error('Error getting history:', error);
+        return { success: false, history: [] };
     }
 }
 
