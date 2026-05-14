@@ -46,7 +46,19 @@ CRITICAL RULES:
 Your tone: Professional, warm, helpful, solutions-focused.`;
 
 // ============================================
-// CORE CREDIT MANAGEMENT (MERGED - with admin detection)
+// UTILITY FUNCTIONS
+// ============================================
+
+export function isUnlimitedUser(userTier, userType) {
+    return userTier === 'super_admin' || 
+           userTier === 'admin' || 
+           userTier === 'business' ||
+           userType === 'super_admin' || 
+           userType === 'admin';
+}
+
+// ============================================
+// CORE CREDIT MANAGEMENT (with admin detection)
 // ============================================
 
 export async function getRemainingChatCredits(userId) {
@@ -62,8 +74,8 @@ export async function getRemainingChatCredits(userId) {
         return { remaining: 5, tier: 'free', limit: 5, isUnlimited: false };
     }
     
-    // Super Admin and Admin have unlimited messages
-    if (profile.user_type === 'super_admin' || profile.user_type === 'admin') {
+    // Check for unlimited access using helper function
+    if (isUnlimitedUser(profile.tier, profile.user_type)) {
         return {
             remaining: 999999,
             used: 0,
@@ -114,11 +126,11 @@ export async function recordChatUsage(userId) {
     // Check if admin - don't record usage for admins
     const { data: profile } = await supabase
         .from('profiles')
-        .select('user_type')
+        .select('tier, user_type')
         .eq('id', userId)
         .single();
     
-    if (profile?.user_type === 'super_admin' || profile?.user_type === 'admin') {
+    if (profile && isUnlimitedUser(profile.tier, profile.user_type)) {
         return { success: true, message: 'Admin usage not tracked' };
     }
     
@@ -380,18 +392,18 @@ export async function logLearningFeedback(userId, conversationId, query, respons
 }
 
 // ============================================
-// CREDIT ALERTS (MERGED - with admin detection)
+// CREDIT ALERTS (with admin detection)
 // ============================================
 
 export async function checkAndSuggestCredits(userId, currentCredits, tier, limit) {
-    // Check if admin
+    // Check if admin using helper function
     const { data: profile } = await supabase
         .from('profiles')
-        .select('user_type')
+        .select('tier, user_type')
         .eq('id', userId)
         .single();
     
-    if (profile?.user_type === 'super_admin' || profile?.user_type === 'admin') {
+    if (profile && isUnlimitedUser(profile.tier, profile.user_type)) {
         return { suggestPurchase: false, isUnlimited: true };
     }
     
