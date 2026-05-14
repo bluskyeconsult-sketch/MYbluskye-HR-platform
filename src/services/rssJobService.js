@@ -1,5 +1,6 @@
 // src/services/rssJobService.js
-// COMPLETE RSS JOB FETCHING SERVICE - Live jobs from government sources with sponsorship detection and duplicate handling
+// COMPLETE RSS JOB FETCHING SERVICE - Live jobs from government sources
+// Features: sponsorship detection, job type detection, duplicate handling, RPC approval, search, suggestions
 
 import { supabase } from '../lib/supabase';
 
@@ -86,77 +87,39 @@ const RSS_FEEDS = {
 };
 
 // ============================================
-// PARSE RSS FEED FUNCTION
+// JOB TYPE DETECTION - AUTO-DETECT FROM TEXT
 // ============================================
 
-async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
-    try {
-        const response = await fetch(feedUrl, {
-            headers: {
-                'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)'
-            }
-        });
-        
-        if (!response.ok) {
-            console.warn(`Failed to fetch RSS: ${feedUrl} - Status: ${response.status}`);
-            return [];
-        }
-        
-        const text = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, 'text/xml');
-        
-        // Check for parsing errors
-        if (xmlDoc.querySelector('parsererror')) {
-            console.warn(`RSS parsing error for ${feedUrl}`);
-            return [];
-        }
-        
-        const items = xmlDoc.querySelectorAll('item');
-        const jobs = [];
-        
-        for (const item of items) {
-            const title = item.querySelector('title')?.textContent || '';
-            const description = item.querySelector('description')?.textContent || '';
-            const link = item.querySelector('link')?.textContent || '';
-            const pubDate = item.querySelector('pubDate')?.textContent;
-            
-            // Skip if missing critical fields
-            if (!title || !link) continue;
-            
-            // Extract salary from description using regex
-            let salary = null;
-            const salaryMatch = description.match(/£([\d,]+)(?:\s*-\s*£([\d,]+))?/i) ||
-                              description.match(/€([\d,]+)(?:\s*-\s*€([\d,]+))?/i) ||
-                              description.match(/\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i);
-            
-            if (salaryMatch) {
-                salary = `${salaryMatch[1]}`;
-                if (salaryMatch[2]) salary += ` - ${salaryMatch[2]}`;
-            }
-            
-            // Extract location from description
-            let location = '';
-            const locationMatch = description.match(/(?:Location|based in|located in):?\s*([A-Za-z\s,]+)/i);
-            if (locationMatch) location = locationMatch[1].trim();
-            
-            jobs.push({
-                title: title.substring(0, 200),
-                description: description.substring(0, 1000),
-                external_url: link,
-                salary_range: salary,
-                location: location,
-                posted_date: pubDate,
-                source_name: sourceName,
-                source_country: sourceCountry
-            });
-        }
-        
-        return jobs;
-    } catch (error) {
-        console.error(`Error parsing RSS feed ${feedUrl}:`, error);
-        return [];
+function detectJobType(title, description) {
+    const text = `${title} ${description || ''}`.toLowerCase();
+    
+    // Remote jobs
+    if (text.includes('remote') || text.includes('work from home') || text.includes('wfh') || text.includes('telework')) {
+        return 'remote';
     }
+    
+    // Part-time jobs
+    if (text.includes('part time') || text.includes('part-time') || text.includes('parttime') || text.includes('pt')) {
+        return 'part_time';
+    }
+    
+    // Contract jobs
+    if (text.includes('contract') || text.includes('fixed term') || text.includes('temporary') || text.includes('temp')) {
+        return 'contract';
+    }
+    
+    // Freelance jobs
+    if (text.includes('freelance') || text.includes('freelancer') || text.includes('gig')) {
+        return 'freelance';
+    }
+    
+    // Hybrid jobs
+    if (text.includes('hybrid') || text.includes('mix of office') || text.includes('home and office')) {
+        return 'hybrid';
+    }
+    
+    // Onsite jobs (default for government jobs)
+    return 'full_time';
 }
 
 // ============================================
@@ -200,6 +163,92 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
 }
 
 // ============================================
+// PARSE RSS FEED FUNCTION
+// ============================================
+
+async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
+    try {
+        const response = await fetch(feedUrl, {
+            headers: {
+                'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)'
+            }
+        });
+        
+        if (!response.ok) {
+            console.warn(`Failed to fetch RSS: ${feedUrl} - Status: ${response.status}`);
+            return [];
+        }
+        
+        const text = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, 'text/xml');
+        
+        // Check for parsing errors
+        if (xmlDoc.querySelector('parsererror')) {
+            console.warn(`RSS parsing error for ${feedUrl}`);
+            return [];
+        }
+        
+        const items = xmlDoc.querySelectorAll('item');
+        const jobs = [];
+        
+        for (const item of items) {
+            const title = item.querySelector('title')?.textContent || '';
+            const description = item.querySelector('description')?.textContent || '';
+            const link = item.querySelector('link')?.textContent || '';
+            const pubDate = item.querySelector('pubDate')?.textContent;
+            
+            // Skip if missing critical fields
+            if (!title || !link) continue;
+            
+            // Extract salary from description using regex
+            let salaryRange = null;
+            let salaryMin = null;
+            let salaryMax = null;
+            
+            const salaryMatch = description.match(/£([\d,]+)(?:\s*-\s*£([\d,]+))?/i) ||
+                              description.match(/€([\d,]+)(?:\s*-\s*€([\d,]+))?/i) ||
+                              description.match(/\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i);
+            
+            if (salaryMatch) {
+                salaryRange = `${salaryMatch[1]}${salaryMatch[2] ? ` - ${salaryMatch[2]}` : ''}`;
+                salaryMin = parseInt(salaryMatch[1].replace(/,/g, ''));
+                if (salaryMatch[2]) {
+                    salaryMax = parseInt(salaryMatch[2].replace(/,/g, ''));
+                }
+            }
+            
+            // Extract location from description
+            let location = '';
+            const locationMatch = description.match(/(?:Location|based in|located in):?\s*([A-Za-z\s,]+)/i);
+            if (locationMatch) location = locationMatch[1].trim();
+            
+            // Detect job type
+            const jobType = detectJobType(title, description);
+            
+            jobs.push({
+                title: title.substring(0, 200),
+                description: description.substring(0, 1000),
+                external_url: link,
+                salary_range: salaryRange,
+                salary_min: salaryMin,
+                salary_max: salaryMax,
+                location: location,
+                posted_date: pubDate,
+                source_name: sourceName,
+                source_country: sourceCountry,
+                job_type: jobType
+            });
+        }
+        
+        return jobs;
+    } catch (error) {
+        console.error(`Error parsing RSS feed ${feedUrl}:`, error);
+        return [];
+    }
+}
+
+// ============================================
 // FETCH EXTERNAL JOBS (with duplicate detection)
 // ============================================
 
@@ -207,7 +256,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
     const allJobs = [];
     const results = [];
     
-    // If force refresh, clear old cache
+    // If force refresh, clear old external jobs
     if (forceRefresh) {
         await supabase.from('external_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         console.log('🔄 Force refresh: Cleared existing external jobs');
@@ -223,24 +272,21 @@ export async function fetchExternalJobs(forceRefresh = false) {
             // Detect sponsorship eligibility
             const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
             
-            // Create a unique key for duplicate detection
-            const uniqueKey = `${job.title.substring(0, 100)}-${job.source_name}`;
-            
             // Check if job already exists in external_jobs
-            const { data: existing, error: checkError } = await supabase
+            const { data: existing } = await supabase
                 .from('external_jobs')
-                .select('id, status')
+                .select('id')
                 .eq('title', job.title.substring(0, 150))
                 .eq('source_name', job.source_name)
                 .maybeSingle();
             
             if (existing) {
-                results.push({ source: source.name, job: job.title, status: 'exists', id: existing.id });
+                results.push({ source: source.name, job: job.title, status: 'exists' });
                 continue;
             }
             
-            // Insert new job
-            const { error: insertError, data: newJob } = await supabase
+            // Insert new job with all fields
+            const { error: insertError } = await supabase
                 .from('external_jobs')
                 .insert({
                     title: job.title,
@@ -248,26 +294,34 @@ export async function fetchExternalJobs(forceRefresh = false) {
                     location: job.location || job.source_country,
                     description: job.description,
                     salary_range: job.salary_range,
+                    salary_min: job.salary_min,
+                    salary_max: job.salary_max,
+                    job_type: job.job_type,
                     external_apply_url: job.external_url,
                     source_country: job.source_country,
                     source_name: job.source_name,
                     sponsorship_eligible: sponsorship.eligible,
-                    sponsorship_keyword: sponsorship.keyword,
                     status: 'pending_approval',
-                    created_at: new Date().toISOString()
-                })
-                .select();
+                    created_at: new Date().toISOString(),
+                    published_at: job.posted_date
+                });
             
             if (!insertError) {
-                allJobs.push({ ...job, sponsorship_eligible: sponsorship.eligible });
-                results.push({ source: source.name, job: job.title, status: 'added', sponsorship: sponsorship.eligible });
+                allJobs.push(job);
+                results.push({ 
+                    source: source.name, 
+                    job: job.title, 
+                    status: 'added', 
+                    job_type: job.job_type,
+                    sponsorship: sponsorship.eligible 
+                });
             } else {
                 results.push({ source: source.name, job: job.title, status: 'error', error: insertError.message });
             }
         }
     }
     
-    // Log fetch results (create table if using)
+    // Log fetch results
     const { data: logTable } = await supabase
         .from('external_job_fetch_log')
         .select('id')
@@ -279,11 +333,12 @@ export async function fetchExternalJobs(forceRefresh = false) {
             fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
             jobs_fetched: allJobs.length,
             jobs_new: allJobs.length,
-            jobs_existing: results.filter(r => r.status === 'exists').length,
+            details: results,
             created_at: new Date().toISOString()
         }).catch(err => console.warn('Log insert failed:', err));
     }
     
+    console.log(`📊 Fetch complete: ${allJobs.length} new jobs added`);
     return { jobs: allJobs, results, totalAdded: allJobs.length };
 }
 
@@ -322,10 +377,13 @@ export async function searchLiveJobs(query, filters = {}) {
                 link: job.external_url,
                 pubDate: job.posted_date,
                 salary: job.salary_range,
+                salary_min: job.salary_min,
+                salary_max: job.salary_max,
                 location: job.location,
                 source: config.name,
                 source_country: config.country,
                 source_name: config.name,
+                job_type: job.job_type,
                 sponsorship_eligible: sponsorship.eligible,
                 sponsorship_keyword: sponsorship.keyword
             });
@@ -353,6 +411,7 @@ export async function searchLiveJobs(query, filters = {}) {
     if (filters.jobType) {
         const jobTypeLower = filters.jobType.toLowerCase();
         filteredJobs = filteredJobs.filter(job => 
+            job.job_type === filters.jobType ||
             job.title.toLowerCase().includes(jobTypeLower) ||
             (job.description && job.description.toLowerCase().includes(jobTypeLower))
         );
@@ -444,6 +503,16 @@ export async function getPendingExternalJobs() {
 }
 
 export async function approveExternalJob(jobId) {
+    // Try using RPC if available, otherwise use direct update
+    const { data: rpcAvailable } = await supabase
+        .rpc('approve_external_job', { job_id: jobId })
+        .catch(() => ({ data: null }));
+    
+    if (rpcAvailable) {
+        return { success: true, jobId: rpcAvailable };
+    }
+    
+    // Fallback to direct update
     const { data: externalJob, error: fetchError } = await supabase
         .from('external_jobs')
         .select('*')
@@ -461,6 +530,9 @@ export async function approveExternalJob(jobId) {
             location: externalJob.location || externalJob.source_country,
             description: externalJob.description,
             salary_range: externalJob.salary_range,
+            salary_min: externalJob.salary_min,
+            salary_max: externalJob.salary_max,
+            job_type: externalJob.job_type,
             external_apply_url: externalJob.external_apply_url,
             country_code: externalJob.source_country,
             source_type: 'authoritative',
@@ -480,7 +552,7 @@ export async function approveExternalJob(jobId) {
         .from('external_jobs')
         .update({ 
             status: 'approved', 
-            approved_at: new Date().toISOString(),
+            reviewed_at: new Date().toISOString(),
             approved_job_id: newJob.id
         })
         .eq('id', jobId);
@@ -493,8 +565,8 @@ export async function rejectExternalJob(jobId, reason = null) {
         .from('external_jobs')
         .update({ 
             status: 'rejected',
-            rejection_reason: reason,
-            rejected_at: new Date().toISOString()
+            reviewed_at: new Date().toISOString(),
+            rejection_reason: reason
         })
         .eq('id', jobId);
     
@@ -510,9 +582,13 @@ export async function batchApproveExternalJobs() {
     
     if (error) throw error;
     
-    const results = { approved: 0, failed: 0, errors: [] };
+    if (!pendingJobs || pendingJobs.length === 0) {
+        return { total: 0, approved: 0, failed: 0 };
+    }
     
-    for (const job of pendingJobs || []) {
+    const results = { total: pendingJobs.length, approved: 0, failed: 0, errors: [] };
+    
+    for (const job of pendingJobs) {
         try {
             await approveExternalJob(job.id);
             results.approved++;
@@ -526,12 +602,45 @@ export async function batchApproveExternalJobs() {
 }
 
 // ============================================
+// TEST RSS CONNECTIONS
+// ============================================
+
+export async function testRSSConnection() {
+    const results = [];
+    
+    for (const [key, source] of Object.entries(RSS_FEEDS)) {
+        try {
+            const response = await fetch(source.url, {
+                headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' }
+            });
+            
+            results.push({
+                source: source.name,
+                url: source.url,
+                status: response.status,
+                ok: response.ok,
+                country: source.country
+            });
+        } catch (error) {
+            results.push({
+                source: source.name,
+                url: source.url,
+                status: 'error',
+                error: error.message,
+                country: source.country
+            });
+        }
+    }
+    
+    return results;
+}
+
+// ============================================
 // CACHE RESULTS to Database (Optional)
 // ============================================
 
 export async function cacheJobsToDatabase(jobs) {
     for (const job of jobs) {
-        // Check if job already exists in cache
         const { data: existing } = await supabase
             .from('ai_job_cache')
             .select('id')
@@ -549,6 +658,7 @@ export async function cacheJobsToDatabase(jobs) {
                     job_salary: job.salary,
                     job_url: job.link,
                     job_summary: job.description,
+                    job_type: job.job_type,
                     sponsorship_eligible: job.sponsorship_eligible,
                     fetched_at: new Date().toISOString(),
                     expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
