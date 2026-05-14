@@ -1,5 +1,5 @@
 // src/services/assessmentService.js
-// Complete Assessment Service - Scoring, Timing, Tier Access, Reports
+// Complete Assessment Service - Compatible with actual database schema
 
 import { supabase } from '../lib/supabase';
 
@@ -14,7 +14,9 @@ const TIER_LIMITS = {
     registered: { assessments_per_month: 3, can_download_report: true, can_retake: true },
     professional: { assessments_per_month: 10, can_download_report: true, can_retake: true },
     employer: { assessments_per_month: 5, can_download_report: true, can_retake: true },
-    business: { assessments_per_month: 999, can_download_report: true, can_retake: true }
+    business: { assessments_per_month: 999, can_download_report: true, can_retake: true },
+    admin: { assessments_per_month: 999, can_download_report: true, can_retake: true },
+    super_admin: { assessments_per_month: 999, can_download_report: true, can_retake: true }
 };
 
 // ============================================
@@ -48,15 +50,45 @@ export async function getAssessmentById(assessmentId) {
 // ============================================
 
 export async function checkUserEligibility(userId, assessmentId) {
-    // Get user tier
-    const { data: profile } = await supabase
+    // Get user profile with correct column names
+    const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('tier')
+        .select('tier, user_type')
         .eq('id', userId)
         .single();
     
+    // Handle missing profile - create one if needed
+    if (profileError || !profile) {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // Create profile with only existing columns from your schema
+        await supabase
+            .from('profiles')
+            .insert({
+                id: userId,
+                email: user?.email,
+                tier: user?.email === 'bluskyeconsult@gmail.com' ? 'business' : 'free',
+                user_type: user?.email === 'bluskyeconsult@gmail.com' ? 'super_admin' : 'user',
+                country_code: 'GB',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            });
+        
+        const tier = user?.email === 'bluskyeconsult@gmail.com' ? 'business' : 'free';
+        const limits = TIER_LIMITS[tier] || TIER_LIMITS.free;
+        
+        return {
+            eligible: true,
+            remaining: limits.assessments_per_month,
+            limit: limits.assessments_per_month,
+            tier: tier,
+            canDownloadReport: limits.can_download_report,
+            canRetake: limits.can_retake
+        };
+    }
+    
     const tier = profile?.tier || 'free';
-    const limits = TIER_LIMITS[tier];
+    const limits = TIER_LIMITS[tier] || TIER_LIMITS.free;
     
     // Count assessments taken this month
     const startOfMonth = new Date();
@@ -69,12 +101,14 @@ export async function checkUserEligibility(userId, assessmentId) {
         .eq('user_id', userId)
         .gte('created_at', startOfMonth.toISOString());
     
-    if (error) throw error;
+    if (error && error.code !== 'PGRST116') {
+        console.warn('Error counting assessments:', error);
+    }
     
     const remaining = Math.max(0, limits.assessments_per_month - (count || 0));
     
     return {
-        eligible: remaining > 0,
+        eligible: remaining > 0 || tier === 'business' || tier === 'super_admin',
         remaining,
         limit: limits.assessments_per_month,
         tier,
@@ -91,7 +125,8 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
             assessment_id: assessmentId,
             session_id: sessionId,
             status: 'in_progress',
-            started_at: new Date().toISOString()
+            started_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -106,25 +141,27 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
 
 export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpentSeconds) {
     // Get assessment questions
-    const { data: userAssessment } = await supabase
+    const { data: userAssessment, error: uaError } = await supabase
         .from('user_assessments')
         .select('*, assessment:assessments(*)')
         .eq('id', userAssessmentId)
         .single();
     
-    if (!userAssessment) throw new Error('Assessment session not found');
+    if (uaError) throw uaError;
     
-    const { data: questions } = await supabase
+    const { data: questions, error: qError } = await supabase
         .from('assessment_questions')
         .select('*, options:assessment_options(*)')
         .eq('assessment_id', userAssessment.assessment_id);
+    
+    if (qError) throw qError;
     
     let totalScore = 0;
     let maxPossibleScore = 0;
     const dimensionScores = {};
     const questionResults = [];
     
-    for (const question of questions) {
+    for (const question of questions || []) {
         const userAnswer = answers[question.id];
         const maxPoints = question.points || 1;
         maxPossibleScore += maxPoints;
@@ -139,10 +176,9 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 isCorrect = true;
             }
         } else if (question.question_type === 'likert_scale') {
-            score = userAnswer * (maxPoints / 5);
+            score = (userAnswer || 3) * (maxPoints / 5);
             isCorrect = true;
         } else if (question.question_type === 'scenario') {
-            // AI-powered scoring for scenario questions
             const aiScore = await scoreScenarioAnswer(question.question_text, userAnswer);
             score = aiScore * (maxPoints / 10);
             isCorrect = score >= maxPoints * 0.7;
@@ -168,7 +204,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         });
     }
     
-    const percentage = Math.round((totalScore / maxPossibleScore) * 100);
+    const percentage = maxPossibleScore > 0 ? Math.round((totalScore / maxPossibleScore) * 100) : 0;
     let performanceLevel = 'needs_improvement';
     if (percentage >= 80) performanceLevel = 'excellent';
     else if (percentage >= 60) performanceLevel = 'good';
@@ -216,7 +252,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
 }
 
 async function scoreScenarioAnswer(question, answer) {
-    if (!OPENAI_API_KEY) return 7; // Default score
+    if (!OPENAI_API_KEY) return 7;
     
     try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -228,7 +264,7 @@ async function scoreScenarioAnswer(question, answer) {
             body: JSON.stringify({
                 model: 'gpt-4o-mini',
                 messages: [
-                    { role: 'system', content: 'You are an expert assessor. Score the following answer from 1-10 based on quality, relevance, and insight. Return ONLY a number.' },
+                    { role: 'system', content: 'You are an expert assessor. Score the following answer from 1-10. Return ONLY a number.' },
                     { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
                 ],
                 temperature: 0.3,
@@ -262,8 +298,8 @@ async function generateAssessmentInsights(assessmentTitle, percentage, dimension
             body: JSON.stringify({
                 model: 'gpt-4o-mini',
                 messages: [
-                    { role: 'system', content: 'You are a career coach. Provide personalized assessment insights.' },
-                    { role: 'user', content: `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nProvide JSON with: summary, strengths (array), improvements (array), recommendations (array)` }
+                    { role: 'system', content: 'You are a career coach. Provide personalized assessment insights as JSON.' },
+                    { role: 'user', content: `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array), improvements (array), recommendations (array)` }
                 ],
                 temperature: 0.7,
                 max_tokens: 500
@@ -297,26 +333,20 @@ export async function generateAssessmentReport(userAssessmentId, userId) {
     
     if (error) throw error;
     
-    // Get user profile
     const { data: profile } = await supabase
         .from('profiles')
         .select('full_name, email')
         .eq('id', userId)
         .single();
     
-    // Generate HTML report
-    const html = generateReportHTML(userAssessment, profile);
-    
-    // Convert to PDF (using html2pdf or similar - placeholder for now)
     const reportUrl = `https://www.bluskyeconsult.com/reports/${userAssessmentId}`;
     
-    // Save report URL
     await supabase
         .from('user_assessments')
         .update({ report_url: reportUrl })
         .eq('id', userAssessmentId);
     
-    return { reportUrl, html };
+    return { reportUrl, html: generateReportHTML(userAssessment, profile) };
 }
 
 function generateReportHTML(userAssessment, profile) {
@@ -450,7 +480,8 @@ Make questions professional, insightful, and appropriate. Return ONLY valid JSON
             time_limit_minutes: assessmentData.time_limit_minutes,
             question_count: assessmentData.questions.length,
             is_active: true,
-            created_by: adminId
+            created_by: adminId,
+            created_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -469,7 +500,8 @@ Make questions professional, insightful, and appropriate. Return ONLY valid JSON
                 question_type: q.question_type,
                 points: q.points,
                 dimension: q.dimension,
-                sort_order: i
+                sort_order: i,
+                created_at: new Date().toISOString()
             })
             .select()
             .single();
@@ -483,7 +515,8 @@ Make questions professional, insightful, and appropriate. Return ONLY valid JSON
                     question_id: question.id,
                     option_text: q.options[j],
                     is_correct: j === q.correct_answer,
-                    sort_order: j
+                    sort_order: j,
+                    created_at: new Date().toISOString()
                 });
         }
     }
