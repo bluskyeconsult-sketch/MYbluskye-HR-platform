@@ -1,7 +1,7 @@
 // src/services/odusbabaChatService.js
 // COMPLETE PRODUCTION-READY FILE
 // Includes: tier management, credit tracking, legal advice, CV help, salary negotiation,
-//           interview prep, escalation, knowledge base, AND live RSS job fetching
+//           interview prep, escalation, knowledge base, live RSS job fetching, AND admin unlimited access
 // NO ERRORS - All imports and functions properly defined
 
 import { createClient } from '@supabase/supabase-js';
@@ -13,14 +13,14 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
 // ============================================
-// TIER CONFIGURATION
+// TIER CONFIGURATION - Admins have unlimited
 // ============================================
 
 const TIER_LIMITS = {
     free: { messages: 5, extra_credit_price: 1.99, extra_credits: 10 },
     registered: { messages: 20, extra_credit_price: 1.99, extra_credits: 10 },
     professional: { messages: 100, extra_credit_price: 0.99, extra_credits: 20 },
-    employer: { messages: 50, extra_credit_price: 1.99, extra_credits: 10 },
+    employer: { messages: 200, extra_credit_price: 0.99, extra_credits: 20 },
     business: { messages: 999999, extra_credit_price: 0, extra_credits: 0 },
     admin: { messages: 999999, extra_credit_price: 0, extra_credits: 0 },
     super_admin: { messages: 999999, extra_credit_price: 0, extra_credits: 0 }
@@ -46,19 +46,37 @@ CRITICAL RULES:
 Your tone: Professional, warm, helpful, solutions-focused.`;
 
 // ============================================
-// CORE CREDIT MANAGEMENT
+// CORE CREDIT MANAGEMENT (MERGED - with admin detection)
 // ============================================
 
 export async function getRemainingChatCredits(userId) {
-    const { data: user } = await supabase
+    // First check if user is admin/super_admin
+    const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('tier, ai_credits_remaining')
+        .select('tier, user_type')
         .eq('id', userId)
         .single();
     
-    if (!user) return { remaining: 0, tier: 'free', limit: 5 };
+    if (profileError || !profile) {
+        console.error('Error fetching profile:', profileError);
+        return { remaining: 5, tier: 'free', limit: 5, isUnlimited: false };
+    }
     
-    const limit = TIER_LIMITS[user.tier]?.messages || 5;
+    // Super Admin and Admin have unlimited messages
+    if (profile.user_type === 'super_admin' || profile.user_type === 'admin') {
+        return {
+            remaining: 999999,
+            used: 0,
+            limit: 999999,
+            tier: profile.tier || 'super_admin',
+            purchasedCredits: 0,
+            canPurchaseExtra: false,
+            isUnlimited: true,
+            aiCreditsRemaining: 999999
+        };
+    }
+    
+    const limit = TIER_LIMITS[profile.tier]?.messages || 5;
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -81,14 +99,29 @@ export async function getRemainingChatCredits(userId) {
     const remaining = Math.max(0, (limit + purchasedCredits) - usedCount);
     
     return {
-        remaining, used: usedCount, limit, purchasedCredits,
-        tier: user.tier, 
-        canPurchaseExtra: TIER_LIMITS[user.tier]?.extra_credit_price > 0,
-        aiCreditsRemaining: user.ai_credits_remaining || remaining
+        remaining,
+        used: usedCount,
+        limit,
+        purchasedCredits,
+        tier: profile.tier,
+        canPurchaseExtra: TIER_LIMITS[profile.tier]?.extra_credit_price > 0,
+        isUnlimited: false,
+        aiCreditsRemaining: remaining
     };
 }
 
 export async function recordChatUsage(userId) {
+    // Check if admin - don't record usage for admins
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type')
+        .eq('id', userId)
+        .single();
+    
+    if (profile?.user_type === 'super_admin' || profile?.user_type === 'admin') {
+        return { success: true, message: 'Admin usage not tracked' };
+    }
+    
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -101,6 +134,8 @@ export async function recordChatUsage(userId) {
     });
     
     await supabase.rpc('decrement_ai_credits', { user_id: userId });
+    
+    return { success: true };
 }
 
 // ============================================
@@ -345,10 +380,21 @@ export async function logLearningFeedback(userId, conversationId, query, respons
 }
 
 // ============================================
-// CREDIT ALERTS
+// CREDIT ALERTS (MERGED - with admin detection)
 // ============================================
 
 export async function checkAndSuggestCredits(userId, currentCredits, tier, limit) {
+    // Check if admin
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type')
+        .eq('id', userId)
+        .single();
+    
+    if (profile?.user_type === 'super_admin' || profile?.user_type === 'admin') {
+        return { suggestPurchase: false, isUnlimited: true };
+    }
+    
     const percentageRemaining = (currentCredits / limit) * 100;
     
     if (percentageRemaining <= 20 && percentageRemaining > 10) {
@@ -361,7 +407,7 @@ export async function checkAndSuggestCredits(userId, currentCredits, tier, limit
         });
         return { 
             suggestPurchase: true, 
-            message: `⚠️ You have only ${currentCredits} AI credits remaining (${Math.round(percentageRemaining)}%). Consider purchasing additional credits to continue using ODUSBABA Chat without interruption.` 
+            message: `⚠️ You have only ${currentCredits} AI credits remaining (${Math.round(percentageRemaining)}%). Consider purchasing additional credits to continue using ODUSBABA Chat without interruption.`
         };
     }
     
@@ -375,7 +421,7 @@ export async function checkAndSuggestCredits(userId, currentCredits, tier, limit
         });
         return { 
             suggestPurchase: true, 
-            message: `🔴 URGENT: You have only ${currentCredits} AI credits left (${Math.round(percentageRemaining)}%). Your chat will stop working when credits reach 0. Purchase more credits now to continue.` 
+            message: `🔴 URGENT: You have only ${currentCredits} AI credits left (${Math.round(percentageRemaining)}%). Your chat will stop working when credits reach 0. Purchase more credits now to continue.`
         };
     }
     
@@ -388,7 +434,7 @@ export async function checkAndSuggestCredits(userId, currentCredits, tier, limit
         });
         return { 
             suggestPurchase: true, 
-            message: `❌ You have exhausted your AI credits. Please purchase more credits to continue using ODUSBABA Chat.`, 
+            message: `❌ You have exhausted your AI credits. Please purchase more credits to continue using ODUSBABA Chat.`,
             creditsExhausted: true 
         };
     }
@@ -410,7 +456,7 @@ export async function getAIResponse(userId, message, conversationId, userProfile
         const credits = await getRemainingChatCredits(userId);
         creditCheck = await checkAndSuggestCredits(userId, credits.remaining, userTier || credits.tier, credits.limit);
         
-        if (creditCheck.creditsExhausted) {
+        if (creditCheck.creditsExhausted && !creditCheck.isUnlimited) {
             await logSuggestion(userId, conversationId, 'credit_purchase', 'User exhausted AI credits', false);
             return { 
                 response: creditCheck.message, 
@@ -723,7 +769,7 @@ What would you like help with today?`;
             await logSuggestion(userId, conversationId, 'product', productSuggestions[0]?.product, false);
         }
         
-        if (creditCheck.suggestPurchase && !creditCheck.creditsExhausted && userId) {
+        if (creditCheck.suggestPurchase && !creditCheck.creditsExhausted && userId && !creditCheck.isUnlimited) {
             aiResponse += `\n\n${creditCheck.message}`;
             await logSuggestion(userId, conversationId, 'credit_purchase', 'AI credit low threshold reached', false);
         }
