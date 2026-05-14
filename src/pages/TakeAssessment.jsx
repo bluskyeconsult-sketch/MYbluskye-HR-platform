@@ -11,8 +11,7 @@ import {
     submitAssessmentAnswers,
     startAssessment,
     saveAnswer,
-    completeAssessment,
-    canUserTakeAssessment
+    completeAssessment
 } from '../services/assessmentService';
 import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award } from 'lucide-react';
 
@@ -69,20 +68,31 @@ export default function TakeAssessment() {
             }
             setUser(user);
             
-            // Check eligibility (using both methods for compatibility)
+            // Check eligibility using checkUserEligibility
             let eligibilityData;
             try {
                 eligibilityData = await checkUserEligibility(user.id, id);
-            } catch {
-                const canTake = await canUserTakeAssessment(user.id);
+            } catch (err) {
+                // Fallback: manually check using profiles table
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('tier, user_type')
+                    .eq('id', user.id)
+                    .single();
+                
+                const isUnlimited = profile?.tier === 'super_admin' || 
+                                   profile?.tier === 'admin' || 
+                                   profile?.user_type === 'super_admin' ||
+                                   profile?.user_type === 'admin';
+                
                 eligibilityData = {
-                    eligible: canTake.allowed,
-                    remaining: canTake.remaining,
-                    limit: canTake.limit,
-                    tier: user.user_metadata?.tier || 'free',
+                    eligible: isUnlimited,
+                    remaining: isUnlimited ? 999 : 3,
+                    limit: isUnlimited ? 999 : 3,
+                    tier: profile?.tier || 'free',
                     canDownloadReport: true,
                     canRetake: true,
-                    isUnlimited: canTake.isUnlimited
+                    isUnlimited: isUnlimited
                 };
             }
             setEligibility(eligibilityData);
@@ -210,7 +220,7 @@ export default function TakeAssessment() {
                                 <button
                                     key={value}
                                     onClick={() => handleAnswer(question.id, value)}
-                                    className={`py-3 rounded-lg font-semibold transition ${
+                                    className={`py-3 rounded-lg font-semibold transition whitespace-pre-line ${
                                         currentAnswer === value
                                             ? 'bg-primary-600 text-white'
                                             : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
