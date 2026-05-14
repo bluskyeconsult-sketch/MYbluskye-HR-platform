@@ -1,6 +1,6 @@
 // src/pages/admin/AdminExternalJobs.jsx
 // COMPLETE ADMIN PAGE: Review and approve external jobs from government sources
-// Includes: individual approve/reject, batch approve, SQL sync, job type mapping
+// Includes: individual approve/reject, batch approve, SQL sync, job type mapping, force refresh
 
 import { useState, useEffect } from 'react';
 import { 
@@ -9,7 +9,8 @@ import {
     rejectExternalJob,
     triggerJobFetch,
     batchApproveExternalJobs,
-    loadJobsFromSQL
+    loadJobsFromSQL,
+    fetchExternalJobs
 } from '../../services/externalJobService';
 import { supabase } from '../../lib/supabase';
 import { 
@@ -25,7 +26,8 @@ import {
     MapPin,
     DollarSign,
     Building2,
-    Database
+    Database,
+    Zap
 } from 'lucide-react';
 
 export default function AdminExternalJobs() {
@@ -39,6 +41,7 @@ export default function AdminExternalJobs() {
     const [rejectingId, setRejectingId] = useState(null);
     const [batchProcessing, setBatchProcessing] = useState(false);
     const [syncingSQL, setSyncingSQL] = useState(false);
+    const [forceRefreshing, setForceRefreshing] = useState(false);
     const [user, setUser] = useState(null);
 
     useEffect(() => {
@@ -75,6 +78,24 @@ export default function AdminExternalJobs() {
             alert('Error fetching jobs: ' + error.message);
         } finally {
             setFetching(false);
+        }
+    }
+
+    async function handleForceRefresh() {
+        if (!window.confirm('⚠️ FORCE REFRESH: This will clear existing external jobs and fetch fresh ones from all sources. This action cannot be undone. Continue?')) {
+            return;
+        }
+        
+        setForceRefreshing(true);
+        try {
+            const result = await fetchExternalJobs(true);
+            alert(`✅ Force refresh complete!\nAdded: ${result.totalAdded} new jobs\nTotal fetched: ${result.jobs?.length || 0}`);
+            await loadPendingJobs();
+        } catch (error) {
+            console.error('Force refresh error:', error);
+            alert('❌ Error during force refresh: ' + error.message);
+        } finally {
+            setForceRefreshing(false);
         }
     }
 
@@ -209,6 +230,8 @@ export default function AdminExternalJobs() {
         return <span className={`text-xs px-2 py-0.5 rounded-full ${info.color}`}>{info.label}</span>;
     }
 
+    const isAnyProcessing = fetching || batchProcessing || syncingSQL || forceRefreshing;
+
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -235,10 +258,10 @@ export default function AdminExternalJobs() {
                             Review and approve jobs from authoritative government sources across 7 countries
                         </p>
                     </div>
-                    <div className="flex gap-2 mt-4 sm:mt-0">
+                    <div className="flex gap-2 mt-4 sm:mt-0 flex-wrap">
                         <button
                             onClick={handleSyncFromSQL}
-                            disabled={syncingSQL}
+                            disabled={isAnyProcessing}
                             className="px-4 py-2 bg-primary-600/80 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                             title="Sync jobs already in database from SQL scripts"
                         >
@@ -247,7 +270,7 @@ export default function AdminExternalJobs() {
                         </button>
                         <button
                             onClick={handleBatchApprove}
-                            disabled={batchProcessing || jobs.length === 0}
+                            disabled={isAnyProcessing || jobs.length === 0}
                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2 disabled:opacity-50"
                         >
                             {batchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
@@ -255,17 +278,26 @@ export default function AdminExternalJobs() {
                         </button>
                         <button
                             onClick={handleFetchJobs}
-                            disabled={fetching}
+                            disabled={isAnyProcessing}
                             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                         >
                             {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                             {fetching ? 'Fetching...' : 'Fetch New Jobs'}
                         </button>
+                        <button
+                            onClick={handleForceRefresh}
+                            disabled={isAnyProcessing}
+                            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Clear all external jobs and fetch fresh from all sources"
+                        >
+                            {forceRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                            {forceRefreshing ? 'Refreshing...' : 'Force Refresh'}
+                        </button>
                     </div>
                 </div>
 
                 {/* Stats Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center gap-3">
                             <Clock className="w-6 h-6 text-amber-400" />
@@ -312,22 +344,33 @@ export default function AdminExternalJobs() {
                         <p className="text-slate-400">
                             All external jobs have been reviewed.
                         </p>
-                        <div className="mt-4 flex gap-3 justify-center">
+                        <div className="mt-4 flex gap-3 justify-center flex-wrap">
                             <button
                                 onClick={handleFetchJobs}
-                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                                disabled={isAnyProcessing}
+                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
                             >
                                 Fetch New Jobs
                             </button>
                             <button
+                                onClick={handleForceRefresh}
+                                disabled={isAnyProcessing}
+                                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+                            >
+                                Force Refresh All
+                            </button>
+                            <button
                                 onClick={handleSyncFromSQL}
-                                className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors"
+                                disabled={isAnyProcessing}
+                                className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
                             >
                                 Sync SQL Jobs
                             </button>
                         </div>
                         <p className="text-xs text-slate-500 mt-4">
                             💡 Tip: You can also insert jobs directly via SQL and they will appear here for approval.
+                            <br />
+                            ⚡ Force Refresh clears all existing external jobs and fetches fresh from all sources.
                         </p>
                     </div>
                 ) : (
