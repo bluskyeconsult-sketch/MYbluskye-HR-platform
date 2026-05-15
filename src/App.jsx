@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE APP WITH SCROLL TO TOP AND ALL ROUTES
+// COMPLETE APP WITH SCROLL TO TOP, ALL ROUTES, AND ANALYTICS TRACKING
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -16,6 +16,17 @@ import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import ErrorBoundary from './components/ErrorBoundary';
 import ScrollToTop from './components/ScrollToTop';
+
+// ============================================
+// ANALYTICS TRACKING SERVICE
+// ============================================
+import { 
+    startSession, 
+    endSession, 
+    trackPageView, 
+    updatePageViewMetrics,
+    trackEvent 
+} from './services/analyticsTrackingService';
 
 // ============================================
 // IMMEDIATELY LOADED COMPONENTS
@@ -229,6 +240,111 @@ function AppContent() {
 
         return () => subscription.unsubscribe();
     }, []);
+
+    // ============================================
+    // ANALYTICS TRACKING
+    // ============================================
+    useEffect(() => {
+        // Start session on app load
+        startSession();
+        
+        // Track page view on route change
+        const trackCurrentPage = () => {
+            const path = location.pathname;
+            const title = document.title;
+            trackPageView(path, title);
+        };
+        
+        // Track initial page
+        trackCurrentPage();
+        
+        // Track scroll depth
+        let maxScroll = 0;
+        const handleScroll = () => {
+            const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrollPercent = scrollHeight > 0 
+                ? (window.scrollY / scrollHeight) * 100 
+                : 0;
+            
+            if (scrollPercent > maxScroll) {
+                maxScroll = scrollPercent;
+                updatePageViewMetrics(Math.round(maxScroll), null);
+                
+                // Track milestone scroll events
+                if (maxScroll >= 25 && maxScroll < 30) {
+                    trackEvent('scroll_25_percent', { page: location.pathname });
+                } else if (maxScroll >= 50 && maxScroll < 55) {
+                    trackEvent('scroll_50_percent', { page: location.pathname });
+                } else if (maxScroll >= 75 && maxScroll < 80) {
+                    trackEvent('scroll_75_percent', { page: location.pathname });
+                } else if (maxScroll >= 90) {
+                    trackEvent('scroll_almost_complete', { page: location.pathname });
+                }
+            }
+        };
+        
+        // Track clicks
+        let clickCount = 0;
+        const handleClick = (e) => {
+            clickCount++;
+            updatePageViewMetrics(null, clickCount);
+            
+            // Track specific important clicks
+            const target = e.target.closest('a, button, [role="button"]');
+            if (target) {
+                const elementType = target.tagName.toLowerCase();
+                const elementText = target.innerText?.substring(0, 100) || '';
+                const elementHref = target.getAttribute('href') || '';
+                
+                // Don't track every click, just important ones
+                if (elementText.includes('Apply') || 
+                    elementText.includes('Sign') ||
+                    elementText.includes('Register') ||
+                    elementText.includes('Purchase') ||
+                    elementText.includes('Contact')) {
+                    trackEvent('important_click', {
+                        element: elementType,
+                        text: elementText,
+                        href: elementHref,
+                        page: location.pathname
+                    });
+                }
+            }
+        };
+        
+        // Track time on page (every 30 seconds)
+        let timeOnPage = 0;
+        const timeInterval = setInterval(() => {
+            timeOnPage += 30;
+            if (timeOnPage === 30) {
+                trackEvent('time_on_page_30s', { page: location.pathname });
+            } else if (timeOnPage === 60) {
+                trackEvent('time_on_page_1m', { page: location.pathname });
+            } else if (timeOnPage === 120) {
+                trackEvent('time_on_page_2m', { page: location.pathname });
+            } else if (timeOnPage === 300) {
+                trackEvent('time_on_page_5m', { page: location.pathname });
+            }
+        }, 30000);
+        
+        window.addEventListener('scroll', handleScroll);
+        document.addEventListener('click', handleClick);
+        
+        // End session on page unload
+        const handleBeforeUnload = () => {
+            endSession();
+        };
+        
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        
+        return () => {
+            window.removeEventListener('scroll', handleScroll);
+            document.removeEventListener('click', handleClick);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            clearInterval(timeInterval);
+            endSession();
+        };
+    }, [location.pathname]);
 
     return (
         <ErrorBoundary>
