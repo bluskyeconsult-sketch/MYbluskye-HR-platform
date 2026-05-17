@@ -1,7 +1,7 @@
 // src/services/rssJobService.js
 // OPTIMIZED - Complete RSS Job Fetching Service
 // Merged: Government feeds + Commercial feeds + Jobicy API
-// Features: Sponsorship detection, job type detection, duplicate handling, RPC approval, search, suggestions
+// Features: Sponsorship detection, job type detection, duplicate handling, RPC approval, search, suggestions, stats
 
 import { supabase } from '../lib/supabase';
 
@@ -240,7 +240,7 @@ async function fetchJobicyJobs() {
 }
 
 // ============================================
-// PARSE RSS FEED FUNCTION (with CORS proxy)
+// PARSE RSS FEED FUNCTION (with CORS proxy + Node.js support)
 // ============================================
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
@@ -261,22 +261,50 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         }
         
         const text = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, 'text/xml');
         
-        if (xmlDoc.querySelector('parsererror')) {
-            console.warn(`RSS parsing error for ${feedUrl}`);
-            return [];
+        // Parse XML - works in both browser and Node.js
+        let items = [];
+        
+        if (typeof window === 'undefined') {
+            // Node.js environment (serverless functions)
+            const { parseString } = await import('xml2js');
+            let parsed;
+            await new Promise((resolve, reject) => {
+                parseString(text, (err, result) => {
+                    if (err) reject(err);
+                    else parsed = result;
+                    resolve();
+                });
+            });
+            items = parsed?.rss?.channel?.[0]?.item || [];
+        } else {
+            // Browser environment
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(text, 'text/xml');
+            
+            if (xmlDoc.querySelector('parsererror')) {
+                console.warn(`RSS parsing error for ${feedUrl}`);
+                return [];
+            }
+            items = xmlDoc.querySelectorAll('item');
         }
         
-        const items = xmlDoc.querySelectorAll('item');
         const jobs = [];
         
         for (const item of items) {
-            const title = item.querySelector('title')?.textContent || '';
-            const description = item.querySelector('description')?.textContent || '';
-            const link = item.querySelector('link')?.textContent || '';
-            const pubDate = item.querySelector('pubDate')?.textContent;
+            let title, description, link, pubDate;
+            
+            if (typeof window === 'undefined') {
+                title = item.title?.[0] || '';
+                description = item.description?.[0] || '';
+                link = item.link?.[0] || '';
+                pubDate = item.pubDate?.[0];
+            } else {
+                title = item.querySelector('title')?.textContent || '';
+                description = item.querySelector('description')?.textContent || '';
+                link = item.querySelector('link')?.textContent || '';
+                pubDate = item.querySelector('pubDate')?.textContent;
+            }
             
             if (!title || !link) continue;
             
@@ -425,15 +453,19 @@ export async function fetchExternalJobs(forceRefresh = false) {
         console.error('Jobicy fetch error:', error);
     }
     
-    // Log fetch results
-    await supabase.from('external_job_fetch_log').insert({
-        source_name: 'rss_fetch_all',
-        fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
-        jobs_fetched: allJobs.length,
-        jobs_new: allJobs.length,
-        details: results,
-        created_at: new Date().toISOString()
-    }).catch(err => console.warn('Log insert failed:', err));
+    // Log fetch results (table may not exist yet, wrap in try/catch)
+    try {
+        await supabase.from('external_job_fetch_log').insert({
+            source_name: 'rss_fetch_all',
+            fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
+            jobs_fetched: allJobs.length,
+            jobs_new: allJobs.length,
+            details: results,
+            created_at: new Date().toISOString()
+        });
+    } catch (err) {
+        console.warn('Log insert failed (table may not exist):', err.message);
+    }
     
     console.log(`📊 Fetch complete: ${allJobs.length} new jobs added`);
     return { jobs: allJobs, results, totalAdded: allJobs.length };
@@ -452,6 +484,52 @@ export async function getPendingExternalJobs() {
     
     if (error) throw error;
     return data || [];
+}
+
+export async function getApprovedExternalJobs() {
+    const { data, error } = await supabase
+        .from('external_jobs')
+        .select('*')
+        .eq('status', 'approved')
+        .order('reviewed_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+}
+
+export async function getRejectedExternalJobs() {
+    const { data, error } = await supabase
+        .from('external_jobs')
+        .select('*')
+        .eq('status', 'rejected')
+        .order('reviewed_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+}
+
+export async function getExternalJobsStats() {
+    const { count: pending } = await supabase
+        .from('external_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending_approval');
+    
+    const { count: approved } = await supabase
+        .from('external_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'approved');
+    
+    const { count: rejected } = await supabase
+        .from('external_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'rejected');
+    
+    return {
+        pending: pending || 0,
+        approved: approved || 0,
+        rejected: rejected || 0,
+        total: (pending || 0) + (approved || 0) + (rejected || 0)
+    };
 }
 
 export async function approveExternalJob(jobId) {
@@ -605,11 +683,29 @@ export async function testRSSConnection() {
     const results = [];
     for (const [_, source] of Object.entries(RSS_FEEDS)) {
         try {
-            const response = await fetch(source.url, { headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' } });
-            results.push({ source: source.name, url: source.url, status: response.status, ok: response.ok, country: source.country });
+            const response = await fetch(source.url, { 
+                headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' },
+                signal: AbortSignal.timeout(10000)
+            });
+            results.push({ 
+                source: source.name, 
+                url: source.url, 
+                status: response.status, 
+                ok: response.ok, 
+                country: source.country 
+            });
         } catch (error) {
-            results.push({ source: source.name, url: source.url, status: 'error', error: error.message, country: source.country });
+            results.push({ 
+                source: source.name, 
+                url: source.url, 
+                status: 'error', 
+                error: error.message, 
+                country: source.country 
+            });
         }
     }
     return results;
 }
+
+// Export all feeds configuration for external use
+export { RSS_FEEDS };
