@@ -1,15 +1,16 @@
 // src/services/rssJobService.js
-// COMPLETE RSS JOB FETCHING SERVICE - Live jobs from government sources
-// Features: sponsorship detection, job type detection, duplicate handling, RPC approval, search, suggestions
+// OPTIMIZED - Complete RSS Job Fetching Service
+// Merged: Government feeds + Commercial feeds + Jobicy API
+// Features: Sponsorship detection, job type detection, duplicate handling, RPC approval, search, suggestions
 
 import { supabase } from '../lib/supabase';
 
 // ============================================
-// CONFIGURATION - Government RSS Feed Sources
+// CONFIGURATION - ALL JOB SOURCES (Government + Commercial)
 // ============================================
 
 const RSS_FEEDS = {
-    // United Kingdom
+    // United Kingdom - Government
     UK_CIVIL_SERVICE: {
         name: 'UK Civil Service Jobs',
         country: 'GB',
@@ -35,7 +36,7 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Sponsorship', 'Visa', 'Skilled Worker']
     },
     
-    // Ireland
+    // Ireland - Government
     IRELAND_PUBLICJOBS: {
         name: 'Public Jobs Ireland',
         country: 'IE',
@@ -45,7 +46,7 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Work Permit', 'Critical Skills', 'Sponsorship']
     },
     
-    // Canada
+    // Canada - Government
     CANADA_GC_JOBS: {
         name: 'GC Jobs Canada',
         country: 'CA',
@@ -55,7 +56,7 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Work Permit', 'LMIA', 'Sponsorship']
     },
     
-    // Australia
+    // Australia - Government
     AUSTRALIA_APS_JOBS: {
         name: 'APS Jobs Australia',
         country: 'AU',
@@ -65,7 +66,7 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Visa Sponsorship', 'Work Visa', 'Sponsorship']
     },
     
-    // USA
+    // USA - Government
     USA_USAJOBS: {
         name: 'USAJobs',
         country: 'US',
@@ -75,7 +76,7 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship']
     },
     
-    // Germany
+    // Germany - Government
     GERMANY_BUND: {
         name: 'Bund.de - German Government Jobs',
         country: 'DE',
@@ -83,6 +84,64 @@ const RSS_FEEDS = {
         type: 'rss',
         is_active: true,
         sponsorship_keywords: ['Work Visa', 'Blue Card', 'Sponsorship']
+    },
+    
+    // Commercial - Remote OK
+    REMOTE_OK_ALL: {
+        name: 'Remote OK - All Remote Jobs',
+        country: 'Global',
+        url: 'https://remoteok.com/remote-jobs.rss',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
+    },
+    REMOTE_OK_DEV: {
+        name: 'Remote OK - Developer Jobs',
+        country: 'Global',
+        url: 'https://remoteok.com/remote-dev-jobs.rss',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
+    },
+    
+    // Commercial - HireWeb3
+    HIREWEB3: {
+        name: 'HireWeb3 - Web3 Remote Jobs',
+        country: 'Global',
+        url: 'https://hireweb3.io/job/rss',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
+    },
+    
+    // Commercial - We Work Remotely
+    WE_WORK_REMOTELY: {
+        name: 'We Work Remotely - Programming',
+        country: 'Global',
+        url: 'https://weworkremotely.com/categories/remote-programming-jobs.rss',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
+    },
+    
+    // Commercial - Stack Overflow
+    STACK_OVERFLOW: {
+        name: 'Stack Overflow - Remote Jobs',
+        country: 'Global',
+        url: 'https://stackoverflow.com/jobs/feed?l=Remote',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
+    },
+    
+    // Commercial - Zapier
+    ZAPIER: {
+        name: 'Zapier - Latest Jobs',
+        country: 'Global',
+        url: 'https://zapier.com/jobs/feeds/latest/',
+        type: 'rss',
+        is_active: true,
+        sponsorship_keywords: ['Visa', 'Sponsorship']
     }
 };
 
@@ -93,32 +152,21 @@ const RSS_FEEDS = {
 function detectJobType(title, description) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
-    // Remote jobs
     if (text.includes('remote') || text.includes('work from home') || text.includes('wfh') || text.includes('telework')) {
         return 'remote';
     }
-    
-    // Part-time jobs
     if (text.includes('part time') || text.includes('part-time') || text.includes('parttime') || text.includes('pt')) {
         return 'part_time';
     }
-    
-    // Contract jobs
     if (text.includes('contract') || text.includes('fixed term') || text.includes('temporary') || text.includes('temp')) {
         return 'contract';
     }
-    
-    // Freelance jobs
     if (text.includes('freelance') || text.includes('freelancer') || text.includes('gig')) {
         return 'freelance';
     }
-    
-    // Hybrid jobs
     if (text.includes('hybrid') || text.includes('mix of office') || text.includes('home and office')) {
         return 'hybrid';
     }
-    
-    // Onsite jobs (default for government jobs)
     return 'full_time';
 }
 
@@ -129,20 +177,14 @@ function detectJobType(title, description) {
 function detectSponsorshipEligibility(title, description, sourceConfig) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
-    // Check source-specific sponsorship keywords
     if (sourceConfig.sponsorship_keywords) {
         for (const keyword of sourceConfig.sponsorship_keywords) {
             if (text.includes(keyword.toLowerCase())) {
-                return {
-                    eligible: true,
-                    keyword: keyword,
-                    type: 'explicit'
-                };
+                return { eligible: true, keyword: keyword, type: 'explicit' };
             }
         }
     }
     
-    // Check general sponsorship indicators
     const generalKeywords = [
         'visa sponsorship', 'work visa', 'skilled worker', 'tier 2', 
         'certificate of sponsorship', 'sponsorship available', 'visa assistance',
@@ -151,11 +193,7 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
     
     for (const keyword of generalKeywords) {
         if (text.includes(keyword)) {
-            return {
-                eligible: true,
-                keyword: keyword,
-                type: 'general'
-            };
+            return { eligible: true, keyword: keyword, type: 'general' };
         }
     }
     
@@ -163,15 +201,58 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
 }
 
 // ============================================
-// PARSE RSS FEED FUNCTION
+// JOBICY API (Free, no auth required)
+// ============================================
+
+async function fetchJobicyJobs() {
+    try {
+        const response = await fetch('https://jobicy.com/api/v2/remote-jobs?count=20', {
+            headers: { 'User-Agent': 'ODUSBABA-Bot/1.0' }
+        });
+        
+        if (!response.ok) return [];
+        
+        const data = await response.json();
+        const jobs = [];
+        
+        for (const job of data.jobs || []) {
+            jobs.push({
+                title: job.jobTitle,
+                company: job.companyName,
+                location: job.jobLocation || 'Remote',
+                description: job.jobDescription?.substring(0, 1000) || '',
+                salary: job.salary ? `${job.salaryMin} - ${job.salaryMax}` : null,
+                salary_min: job.salaryMin,
+                salary_max: job.salaryMax,
+                link: job.url,
+                pubDate: job.pubDate,
+                source_name: 'Jobicy',
+                source_country: job.jobLocation?.includes('USA') ? 'US' : 'Global',
+                job_type: detectJobType(job.jobTitle, job.jobDescription)
+            });
+        }
+        
+        return jobs;
+    } catch (error) {
+        console.error('Jobicy fetch error:', error);
+        return [];
+    }
+}
+
+// ============================================
+// PARSE RSS FEED FUNCTION (with CORS proxy)
 // ============================================
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
     try {
-        const response = await fetch(feedUrl, {
-            headers: {
-                'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)'
-            }
+        // Use CORS proxy for government feeds that block direct access
+        const isGovernmentFeed = feedUrl.includes('.gov');
+        const finalUrl = isGovernmentFeed 
+            ? `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`
+            : feedUrl;
+        
+        const response = await fetch(finalUrl, {
+            headers: { 'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)' }
         });
         
         if (!response.ok) {
@@ -183,7 +264,6 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, 'text/xml');
         
-        // Check for parsing errors
         if (xmlDoc.querySelector('parsererror')) {
             console.warn(`RSS parsing error for ${feedUrl}`);
             return [];
@@ -198,10 +278,9 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
             const link = item.querySelector('link')?.textContent || '';
             const pubDate = item.querySelector('pubDate')?.textContent;
             
-            // Skip if missing critical fields
             if (!title || !link) continue;
             
-            // Extract salary from description using regex
+            // Extract salary
             let salaryRange = null;
             let salaryMin = null;
             let salaryMax = null;
@@ -213,17 +292,14 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
             if (salaryMatch) {
                 salaryRange = `${salaryMatch[1]}${salaryMatch[2] ? ` - ${salaryMatch[2]}` : ''}`;
                 salaryMin = parseInt(salaryMatch[1].replace(/,/g, ''));
-                if (salaryMatch[2]) {
-                    salaryMax = parseInt(salaryMatch[2].replace(/,/g, ''));
-                }
+                if (salaryMatch[2]) salaryMax = parseInt(salaryMatch[2].replace(/,/g, ''));
             }
             
-            // Extract location from description
+            // Extract location
             let location = '';
             const locationMatch = description.match(/(?:Location|based in|located in):?\s*([A-Za-z\s,]+)/i);
             if (locationMatch) location = locationMatch[1].trim();
             
-            // Detect job type
             const jobType = detectJobType(title, description);
             
             jobs.push({
@@ -249,19 +325,19 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
 }
 
 // ============================================
-// FETCH EXTERNAL JOBS (with duplicate detection)
+// MAIN FETCH FUNCTION (RSS + Jobicy + Deduplication)
 // ============================================
 
 export async function fetchExternalJobs(forceRefresh = false) {
     const allJobs = [];
     const results = [];
     
-    // If force refresh, clear old external jobs
     if (forceRefresh) {
         await supabase.from('external_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         console.log('🔄 Force refresh: Cleared existing external jobs');
     }
     
+    // 1. Fetch from RSS feeds
     for (const [key, source] of Object.entries(RSS_FEEDS)) {
         if (!source.is_active) continue;
         
@@ -269,10 +345,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
         const jobs = await parseRSSFeed(source.url, source.name, source.country);
         
         for (const job of jobs) {
-            // Detect sponsorship eligibility
             const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
             
-            // Check if job already exists in external_jobs
             const { data: existing } = await supabase
                 .from('external_jobs')
                 .select('id')
@@ -285,206 +359,84 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 continue;
             }
             
-            // Insert new job with all fields
-            const { error: insertError } = await supabase
-                .from('external_jobs')
-                .insert({
-                    title: job.title,
-                    company: job.source_name,
-                    location: job.location || job.source_country,
-                    description: job.description,
-                    salary_range: job.salary_range,
-                    salary_min: job.salary_min,
-                    salary_max: job.salary_max,
-                    job_type: job.job_type,
-                    external_apply_url: job.external_url,
-                    source_country: job.source_country,
-                    source_name: job.source_name,
-                    sponsorship_eligible: sponsorship.eligible,
-                    status: 'pending_approval',
-                    created_at: new Date().toISOString(),
-                    published_at: job.posted_date
-                });
+            const { error } = await supabase.from('external_jobs').insert({
+                title: job.title,
+                company: job.source_name,
+                location: job.location || job.source_country,
+                description: job.description,
+                salary_range: job.salary_range,
+                salary_min: job.salary_min,
+                salary_max: job.salary_max,
+                job_type: job.job_type,
+                external_apply_url: job.external_url,
+                source_country: job.source_country,
+                source_name: job.source_name,
+                sponsorship_eligible: sponsorship.eligible,
+                status: 'pending_approval',
+                created_at: new Date().toISOString(),
+                published_at: job.posted_date
+            });
             
-            if (!insertError) {
+            if (!error) {
                 allJobs.push(job);
-                results.push({ 
-                    source: source.name, 
-                    job: job.title, 
-                    status: 'added', 
-                    job_type: job.job_type,
-                    sponsorship: sponsorship.eligible 
-                });
+                results.push({ source: source.name, job: job.title, status: 'added', job_type: job.job_type });
             } else {
-                results.push({ source: source.name, job: job.title, status: 'error', error: insertError.message });
+                results.push({ source: source.name, job: job.title, status: 'error', error: error.message });
             }
         }
     }
     
-    // Log fetch results
-    const { data: logTable } = await supabase
-        .from('external_job_fetch_log')
-        .select('id')
-        .limit(1);
-    
-    if (logTable !== null) {
-        await supabase.from('external_job_fetch_log').insert({
-            source_name: 'rss_fetch_all',
-            fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
-            jobs_fetched: allJobs.length,
-            jobs_new: allJobs.length,
-            details: results,
-            created_at: new Date().toISOString()
-        }).catch(err => console.warn('Log insert failed:', err));
+    // 2. Fetch from Jobicy API
+    console.log('🔍 Fetching jobs from Jobicy API...');
+    try {
+        const jobicyJobs = await fetchJobicyJobs();
+        for (const job of jobicyJobs) {
+            const { data: existing } = await supabase
+                .from('external_jobs')
+                .select('id')
+                .eq('title', job.title)
+                .eq('company', job.company)
+                .maybeSingle();
+            
+            if (!existing) {
+                await supabase.from('external_jobs').insert({
+                    title: job.title,
+                    company: job.company,
+                    location: job.location,
+                    description: job.description,
+                    salary_range: job.salary,
+                    salary_min: job.salary_min,
+                    salary_max: job.salary_max,
+                    job_type: job.job_type,
+                    external_apply_url: job.link,
+                    source_country: job.source_country || 'Global',
+                    source_name: 'Jobicy',
+                    sponsorship_eligible: false,
+                    status: 'pending_approval',
+                    created_at: new Date().toISOString()
+                });
+                allJobs.push(job);
+                results.push({ source: 'Jobicy', job: job.title, status: 'added' });
+            } else {
+                results.push({ source: 'Jobicy', job: job.title, status: 'exists' });
+            }
+        }
+    } catch (error) {
+        console.error('Jobicy fetch error:', error);
     }
+    
+    // Log fetch results
+    await supabase.from('external_job_fetch_log').insert({
+        source_name: 'rss_fetch_all',
+        fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
+        jobs_fetched: allJobs.length,
+        jobs_new: allJobs.length,
+        details: results,
+        created_at: new Date().toISOString()
+    }).catch(err => console.warn('Log insert failed:', err));
     
     console.log(`📊 Fetch complete: ${allJobs.length} new jobs added`);
     return { jobs: allJobs, results, totalAdded: allJobs.length };
-}
-
-// ============================================
-// SEARCH JOBS WITH SPONSORSHIP DETECTION
-// ============================================
-
-export async function searchLiveJobs(query, filters = {}) {
-    const allJobs = [];
-    
-    // Determine which sources to search
-    let sourcesToSearch = Object.entries(RSS_FEEDS).filter(([_, config]) => config.is_active);
-    
-    // Filter by country if specified
-    if (filters.country) {
-        sourcesToSearch = sourcesToSearch.filter(([_, config]) => 
-            config.country === filters.country
-        );
-    }
-    
-    // Fetch from all relevant RSS feeds in parallel
-    const fetchPromises = sourcesToSearch.map(async ([key, config]) => {
-        const jobs = await parseRSSFeed(config.url, config.name, config.country);
-        return { config, jobs };
-    });
-    
-    const feedResults = await Promise.all(fetchPromises);
-    
-    for (const { config, jobs } of feedResults) {
-        for (const job of jobs) {
-            const sponsorship = detectSponsorshipEligibility(job.title, job.description, config);
-            
-            allJobs.push({
-                title: job.title,
-                description: job.description,
-                link: job.external_url,
-                pubDate: job.posted_date,
-                salary: job.salary_range,
-                salary_min: job.salary_min,
-                salary_max: job.salary_max,
-                location: job.location,
-                source: config.name,
-                source_country: config.country,
-                source_name: config.name,
-                job_type: job.job_type,
-                sponsorship_eligible: sponsorship.eligible,
-                sponsorship_keyword: sponsorship.keyword
-            });
-        }
-    }
-    
-    // Apply search query filter
-    let filteredJobs = allJobs;
-    
-    if (query) {
-        const queryLower = query.toLowerCase();
-        filteredJobs = filteredJobs.filter(job => 
-            job.title.toLowerCase().includes(queryLower) ||
-            (job.description && job.description.toLowerCase().includes(queryLower)) ||
-            (job.location && job.location.toLowerCase().includes(queryLower))
-        );
-    }
-    
-    // Apply sponsorship filter
-    if (filters.sponsorshipOnly) {
-        filteredJobs = filteredJobs.filter(job => job.sponsorship_eligible === true);
-    }
-    
-    // Apply job type filter
-    if (filters.jobType) {
-        const jobTypeLower = filters.jobType.toLowerCase();
-        filteredJobs = filteredJobs.filter(job => 
-            job.job_type === filters.jobType ||
-            job.title.toLowerCase().includes(jobTypeLower) ||
-            (job.description && job.description.toLowerCase().includes(jobTypeLower))
-        );
-    }
-    
-    // Sort by date (newest first) if pubDate exists
-    filteredJobs.sort((a, b) => {
-        if (a.pubDate && b.pubDate) {
-            return new Date(b.pubDate) - new Date(a.pubDate);
-        }
-        return 0;
-    });
-    
-    return filteredJobs.slice(0, filters.limit || 20);
-}
-
-// ============================================
-// GET JOB SUGGESTIONS BASED ON USER QUERY
-// ============================================
-
-export async function getJobSuggestions(userQuery) {
-    const queryLower = userQuery.toLowerCase();
-    
-    // Detect job type
-    let jobType = '';
-    if (queryLower.includes('healthcare') || queryLower.includes('nhs') || queryLower.includes('medical')) {
-        jobType = 'healthcare';
-    } else if (queryLower.includes('it') || queryLower.includes('tech') || queryLower.includes('software')) {
-        jobType = 'technology';
-    } else if (queryLower.includes('admin') || queryLower.includes('office') || queryLower.includes('assistant')) {
-        jobType = 'administration';
-    } else if (queryLower.includes('manager') || queryLower.includes('leadership')) {
-        jobType = 'management';
-    }
-    
-    // Detect country
-    let country = '';
-    if (queryLower.includes('uk') || queryLower.includes('britain') || queryLower.includes('london')) {
-        country = 'GB';
-    } else if (queryLower.includes('nigeria') || queryLower.includes('lagos')) {
-        country = 'NG';
-    } else if (queryLower.includes('canada') || queryLower.includes('toronto')) {
-        country = 'CA';
-    } else if (queryLower.includes('us') || queryLower.includes('usa') || queryLower.includes('america')) {
-        country = 'US';
-    } else if (queryLower.includes('germany') || queryLower.includes('berlin')) {
-        country = 'DE';
-    } else if (queryLower.includes('australia') || queryLower.includes('sydney')) {
-        country = 'AU';
-    } else if (queryLower.includes('ireland') || queryLower.includes('dublin')) {
-        country = 'IE';
-    }
-    
-    // Detect sponsorship requirement
-    const sponsorshipOnly = queryLower.includes('sponsorship') || 
-                           queryLower.includes('visa') || 
-                           queryLower.includes('tier 2') ||
-                           queryLower.includes('work permit');
-    
-    const filters = {
-        country: country,
-        jobType: jobType,
-        sponsorshipOnly: sponsorshipOnly,
-        limit: 15
-    };
-    
-    const jobs = await searchLiveJobs(jobType || userQuery, filters);
-    
-    return {
-        jobs: jobs,
-        filters: filters,
-        total: jobs.length
-    };
 }
 
 // ============================================
@@ -503,16 +455,6 @@ export async function getPendingExternalJobs() {
 }
 
 export async function approveExternalJob(jobId) {
-    // Try using RPC if available, otherwise use direct update
-    const { data: rpcAvailable } = await supabase
-        .rpc('approve_external_job', { job_id: jobId })
-        .catch(() => ({ data: null }));
-    
-    if (rpcAvailable) {
-        return { success: true, jobId: rpcAvailable };
-    }
-    
-    // Fallback to direct update
     const { data: externalJob, error: fetchError } = await supabase
         .from('external_jobs')
         .select('*')
@@ -521,7 +463,6 @@ export async function approveExternalJob(jobId) {
     
     if (fetchError) throw fetchError;
     
-    // Insert into main jobs table
     const { data: newJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
@@ -547,14 +488,9 @@ export async function approveExternalJob(jobId) {
     
     if (insertError) throw insertError;
     
-    // Update external job status
     await supabase
         .from('external_jobs')
-        .update({ 
-            status: 'approved', 
-            reviewed_at: new Date().toISOString(),
-            approved_job_id: newJob.id
-        })
+        .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
         .eq('id', jobId);
     
     return { success: true, jobId: newJob.id };
@@ -563,11 +499,7 @@ export async function approveExternalJob(jobId) {
 export async function rejectExternalJob(jobId, reason = null) {
     const { error } = await supabase
         .from('external_jobs')
-        .update({ 
-            status: 'rejected',
-            reviewed_at: new Date().toISOString(),
-            rejection_reason: reason
-        })
+        .update({ status: 'rejected', reviewed_at: new Date().toISOString(), rejection_reason: reason })
         .eq('id', jobId);
     
     if (error) throw error;
@@ -581,10 +513,7 @@ export async function batchApproveExternalJobs() {
         .eq('status', 'pending_approval');
     
     if (error) throw error;
-    
-    if (!pendingJobs || pendingJobs.length === 0) {
-        return { total: 0, approved: 0, failed: 0 };
-    }
+    if (!pendingJobs?.length) return { total: 0, approved: 0, failed: 0 };
     
     const results = { total: pendingJobs.length, approved: 0, failed: 0, errors: [] };
     
@@ -602,68 +531,85 @@ export async function batchApproveExternalJobs() {
 }
 
 // ============================================
-// TEST RSS CONNECTIONS
+// SEARCH & SUGGESTIONS
+// ============================================
+
+export async function searchLiveJobs(query, filters = {}) {
+    const allJobs = [];
+    const sourcesToSearch = Object.entries(RSS_FEEDS).filter(([_, config]) => config.is_active);
+    
+    if (filters.country) {
+        sourcesToSearch.filter(([_, config]) => config.country === filters.country);
+    }
+    
+    const fetchPromises = sourcesToSearch.map(async ([_, config]) => {
+        const jobs = await parseRSSFeed(config.url, config.name, config.country);
+        return { config, jobs };
+    });
+    
+    const feedResults = await Promise.all(fetchPromises);
+    
+    for (const { config, jobs } of feedResults) {
+        for (const job of jobs) {
+            const sponsorship = detectSponsorshipEligibility(job.title, job.description, config);
+            allJobs.push({
+                title: job.title,
+                description: job.description,
+                link: job.external_url,
+                salary: job.salary_range,
+                location: job.location,
+                source: config.name,
+                source_country: config.country,
+                job_type: job.job_type,
+                sponsorship_eligible: sponsorship.eligible,
+                sponsorship_keyword: sponsorship.keyword
+            });
+        }
+    }
+    
+    let filteredJobs = allJobs;
+    if (query) {
+        const q = query.toLowerCase();
+        filteredJobs = filteredJobs.filter(job => 
+            job.title.toLowerCase().includes(q) ||
+            (job.description && job.description.toLowerCase().includes(q))
+        );
+    }
+    if (filters.sponsorshipOnly) {
+        filteredJobs = filteredJobs.filter(job => job.sponsorship_eligible === true);
+    }
+    if (filters.jobType) {
+        filteredJobs = filteredJobs.filter(job => job.job_type === filters.jobType);
+    }
+    
+    return filteredJobs.slice(0, filters.limit || 20);
+}
+
+export async function getJobSuggestions(userQuery) {
+    const q = userQuery.toLowerCase();
+    const filters = {
+        country: q.includes('uk') ? 'GB' : q.includes('canada') ? 'CA' : q.includes('us') ? 'US' : null,
+        sponsorshipOnly: q.includes('sponsorship') || q.includes('visa'),
+        limit: 15
+    };
+    
+    const jobs = await searchLiveJobs(userQuery, filters);
+    return { jobs, filters, total: jobs.length };
+}
+
+// ============================================
+// TEST CONNECTIONS
 // ============================================
 
 export async function testRSSConnection() {
     const results = [];
-    
-    for (const [key, source] of Object.entries(RSS_FEEDS)) {
+    for (const [_, source] of Object.entries(RSS_FEEDS)) {
         try {
-            const response = await fetch(source.url, {
-                headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' }
-            });
-            
-            results.push({
-                source: source.name,
-                url: source.url,
-                status: response.status,
-                ok: response.ok,
-                country: source.country
-            });
+            const response = await fetch(source.url, { headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' } });
+            results.push({ source: source.name, url: source.url, status: response.status, ok: response.ok, country: source.country });
         } catch (error) {
-            results.push({
-                source: source.name,
-                url: source.url,
-                status: 'error',
-                error: error.message,
-                country: source.country
-            });
+            results.push({ source: source.name, url: source.url, status: 'error', error: error.message, country: source.country });
         }
     }
-    
     return results;
-}
-
-// ============================================
-// CACHE RESULTS to Database (Optional)
-// ============================================
-
-export async function cacheJobsToDatabase(jobs) {
-    for (const job of jobs) {
-        const { data: existing } = await supabase
-            .from('ai_job_cache')
-            .select('id')
-            .eq('job_title', job.title.substring(0, 100))
-            .eq('job_url', job.link)
-            .maybeSingle();
-        
-        if (!existing) {
-            await supabase
-                .from('ai_job_cache')
-                .insert({
-                    job_title: job.title,
-                    job_company: job.source_name,
-                    job_location: job.location,
-                    job_salary: job.salary,
-                    job_url: job.link,
-                    job_summary: job.description,
-                    job_type: job.job_type,
-                    sponsorship_eligible: job.sponsorship_eligible,
-                    fetched_at: new Date().toISOString(),
-                    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-                })
-                .catch(err => console.error('Cache insert error:', err));
-        }
-    }
 }
