@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE APP WITH SCROLL TO TOP, ALL ROUTES, AND ANALYTICS TRACKING
+// COMPLETE APP WITH SCROLL TO TOP, ALL ROUTES, ANALYTICS TRACKING, AND EXTERNAL JOBS MANAGER
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
