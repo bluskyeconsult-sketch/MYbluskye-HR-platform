@@ -1,10 +1,29 @@
 // src/pages/SignUpPage.jsx
 // COMPLETE SIGNUP PAGE - Handles tier selection, tester mode, profile creation, and RLS policies
+// UPDATED: Correct user_type mapping to match database constraint
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { UserPlus, Mail, Lock, User, Loader2, AlertCircle, CheckCircle, Briefcase, Building2, Sparkles, Star } from 'lucide-react';
+
+// Map tiers to correct user_type values (matching database constraint)
+const TIER_TO_USER_TYPE_MAP = {
+    'free': 'job_seeker',
+    'registered': 'job_seeker', 
+    'professional': 'job_seeker',
+    'employer': 'employer',
+    'business': 'business_owner'
+};
+
+// Map tiers to display names
+const TIER_DISPLAY_NAMES = {
+    'free': 'Free',
+    'registered': 'Registered',
+    'professional': 'Professional',
+    'employer': 'Employer',
+    'business': 'Business'
+};
 
 export default function SignUpPage() {
     const navigate = useNavigate();
@@ -26,14 +45,13 @@ export default function SignUpPage() {
         default_tester_uses: 10
     });
 
-    // Tiers configuration
+    // Tiers configuration with display info
     const tiers = [
         { 
             id: 'free', 
             name: 'Free', 
             price: '$0', 
             description: 'Browse jobs only',
-            userType: 'free',
             requiresPayment: false,
             redirect: '/dashboard',
             icon: User,
@@ -44,7 +62,6 @@ export default function SignUpPage() {
             name: 'Registered', 
             price: '$0', 
             description: 'Apply to jobs, submit skills',
-            userType: 'registered',
             requiresPayment: false,
             redirect: '/dashboard',
             icon: UserPlus,
@@ -55,7 +72,6 @@ export default function SignUpPage() {
             name: 'Professional', 
             price: '$39.99', 
             description: 'Unlimited applications, AI features',
-            userType: 'professional',
             requiresPayment: true,
             redirect: '/dashboard',
             icon: Star,
@@ -66,7 +82,6 @@ export default function SignUpPage() {
             name: 'Employer', 
             price: '$129.99', 
             description: 'Post jobs, view applicants',
-            userType: 'employer',
             requiresPayment: true,
             redirect: '/employer/dashboard',
             icon: Briefcase,
@@ -77,7 +92,6 @@ export default function SignUpPage() {
             name: 'Business', 
             price: '$399.99', 
             description: 'Unlimited jobs, team accounts (5 users)',
-            userType: 'business',
             requiresPayment: true,
             redirect: '/employer/dashboard',
             icon: Building2,
@@ -112,9 +126,18 @@ export default function SignUpPage() {
 
         try {
             const selected = tiers.find(t => t.id === formData.selectedTier);
-            let userType = testingMode ? 'tester' : selected.userType;
-            let tier = testingMode ? 'free' : formData.selectedTier;
-            let redirectPath = testingMode ? '/tester-login' : selected.redirect;
+            
+            // UPDATED: Use the correct user_type mapping
+            let userType;
+            let tier;
+            
+            if (testingMode) {
+                userType = 'job_seeker';  // Testers are job seekers
+                tier = 'free';
+            } else {
+                userType = TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker';
+                tier = formData.selectedTier;
+            }
 
             // Create auth user
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -147,7 +170,7 @@ export default function SignUpPage() {
                     country_code: 'GB',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                    ai_credits_remaining: testingMode ? 5 : 5,
+                    ai_credits_remaining: 5,
                     va_credits_balance: testingMode ? 10 : 0
                 });
 
@@ -372,6 +395,17 @@ export default function SignUpPage() {
                                         );
                                     })}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Info Box showing user_type mapping */}
+                        {!testingMode && (
+                            <div className="p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
+                                <p className="text-xs text-slate-400 text-center">
+                                    Account type will be: <span className="text-primary-400 font-medium">
+                                        {TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker'}
+                                    </span>
+                                </p>
                             </div>
                         )}
 
