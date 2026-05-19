@@ -7,7 +7,7 @@ import {
     Briefcase, CheckCircle, XCircle, Eye, RefreshCw, 
     AlertCircle, ExternalLink, Loader2, Clock, MapPin, 
     DollarSign, Building2, Database, Wifi, Download,
-    Globe, Zap, Shield, TrendingUp
+    Globe, Zap, Shield, TrendingUp, Trash2, Filter
 } from 'lucide-react';
 import { 
     getPendingExternalJobs, 
@@ -31,6 +31,8 @@ export default function AdminExternalJobs() {
     const [fetchResult, setFetchResult] = useState(null);
     const [user, setUser] = useState(null);
     const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
+    const [filterSource, setFilterSource] = useState('all');
+    const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         getUser();
@@ -77,12 +79,13 @@ export default function AdminExternalJobs() {
         }
     }
 
+    // Fetch from RSS feeds via service
     async function handleFetchJobs() {
         setFetching(true);
         setFetchResult(null);
         try {
             const result = await fetchExternalJobs();
-            setFetchResult(result);
+            setFetchResult({ success: true, totalAdded: result.totalAdded });
             alert(`✅ Job fetch completed!\nAdded: ${result.totalAdded}\nExisting: ${result.results?.filter(r => r.status === 'exists').length || 0}\nErrors: ${result.results?.filter(r => r.status === 'error').length || 0}`);
             await loadPendingJobs();
         } catch (error) {
@@ -93,6 +96,7 @@ export default function AdminExternalJobs() {
         }
     }
 
+    // Fetch from server API endpoint
     async function handleServerFetch() {
         setFetching(true);
         setFetchResult(null);
@@ -102,8 +106,8 @@ export default function AdminExternalJobs() {
                 headers: { 'Content-Type': 'application/json' }
             });
             const data = await response.json();
-            setFetchResult({ success: true, totalAdded: data.fetched || 0 });
-            alert(`✅ Server fetch completed!\nFetched: ${data.fetched || 0} new jobs`);
+            setFetchResult({ success: true, totalAdded: data.added || data.fetched || 0 });
+            alert(data.message || `✅ Server fetch completed!\nAdded: ${data.added || data.fetched || 0} new jobs`);
             await loadPendingJobs();
         } catch (error) {
             console.error('Server fetch error:', error);
@@ -188,7 +192,8 @@ export default function AdminExternalJobs() {
 
     function getCountryFlag(countryCode) {
         const flags = {
-            GB: '🇬🇧', NG: '🇳🇬', IE: '🇮🇪', CA: '🇨🇦', US: '🇺🇸', DE: '🇩🇪', AU: '🇦🇺', FR: '🇫🇷', ES: '🇪🇸', IT: '🇮🇹'
+            GB: '🇬🇧', NG: '🇳🇬', IE: '🇮🇪', CA: '🇨🇦', US: '🇺🇸', 
+            DE: '🇩🇪', AU: '🇦🇺', FR: '🇫🇷', ES: '🇪🇸', IT: '🇮🇹'
         };
         return flags[countryCode] || '🌍';
     }
@@ -206,6 +211,19 @@ export default function AdminExternalJobs() {
         const info = types[jobType] || { label: jobType || 'Unknown', color: 'bg-slate-500/20 text-slate-400' };
         return <span className={`text-xs px-2 py-0.5 rounded-full ${info.color}`}>{info.label}</span>;
     }
+
+    // Filter jobs
+    const filteredJobs = jobs.filter(job => {
+        const matchesSource = filterSource === 'all' || job.source_name === filterSource;
+        const matchesSearch = searchTerm === '' || 
+            job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            job.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            job.source_name?.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchesSource && matchesSearch;
+    });
+
+    // Get unique sources for filter
+    const uniqueSources = ['all', ...new Set(jobs.map(job => job.source_name).filter(Boolean))];
 
     if (loading) {
         return (
@@ -265,8 +283,11 @@ export default function AdminExternalJobs() {
 
                 {/* Fetch Result Banner */}
                 {fetchResult && fetchResult.success && (
-                    <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                    <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-between">
                         <p className="text-emerald-400">✅ Fetch completed: {fetchResult.totalAdded} new jobs added</p>
+                        <button onClick={() => setFetchResult(null)} className="text-emerald-400 hover:text-emerald-300">
+                            <XCircle className="w-4 h-4" />
+                        </button>
                     </div>
                 )}
 
@@ -310,12 +331,49 @@ export default function AdminExternalJobs() {
                     </div>
                 </div>
 
+                {/* Search and Filter Bar */}
+                <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                    <div className="flex-1">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Search jobs by title, company, or source..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full px-4 py-2 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                            />
+                            <svg className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <select
+                            value={filterSource}
+                            onChange={(e) => setFilterSource(e.target.value)}
+                            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                        >
+                            {uniqueSources.map(source => (
+                                <option key={source} value={source}>
+                                    {source === 'all' ? 'All Sources' : source}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
                 {/* Jobs List */}
-                {jobs.length === 0 ? (
+                {filteredJobs.length === 0 ? (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                         <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-                        <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
-                        <p className="text-slate-400">All external jobs have been reviewed.</p>
+                        <h3 className="text-xl font-semibold text-white mb-2">
+                            {jobs.length === 0 ? 'No Pending Jobs' : 'No Matching Jobs'}
+                        </h3>
+                        <p className="text-slate-400">
+                            {jobs.length === 0 
+                                ? 'All external jobs have been reviewed.'
+                                : `No jobs match "${searchTerm}" or the selected filter.`}
+                        </p>
                         <div className="mt-4 flex gap-3 justify-center">
                             <button
                                 onClick={handleFetchJobs}
@@ -331,11 +389,19 @@ export default function AdminExternalJobs() {
                             >
                                 Fetch Live Jobs
                             </button>
+                            {(searchTerm || filterSource !== 'all') && (
+                                <button
+                                    onClick={() => { setSearchTerm(''); setFilterSource('all'); }}
+                                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+                                >
+                                    Clear Filters
+                                </button>
+                            )}
                         </div>
                     </div>
                 ) : (
                     <div className="space-y-4">
-                        {jobs.map((job) => (
+                        {filteredJobs.map((job) => (
                             <div key={job.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all">
                                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                                     <div className="flex-1">
