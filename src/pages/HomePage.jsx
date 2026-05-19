@@ -1,4 +1,6 @@
 // src/pages/HomePage.jsx
+// COMPLETE HOMEPAGE - With Hero, Stats, Features, Countries, Articles, CTA, and Cinematic Advert
+
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion } from 'framer-motion';
@@ -10,6 +12,7 @@ import {
 } from 'lucide-react';
 import HeroSection from '../components/HeroSection';
 import PromoBanner from '../components/PromoBanner';
+import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -131,6 +134,9 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 overflow-x-hidden">
       <HeroSection />
       <PromoBanner />
+      
+      {/* OPTION A: Cinematic Text Advert After HeroSection (Recommended) */}
+      <CinematicTextAdvert />
 
       {/* Stats Section */}
       <div ref={statsRef} id="stats-section" className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
