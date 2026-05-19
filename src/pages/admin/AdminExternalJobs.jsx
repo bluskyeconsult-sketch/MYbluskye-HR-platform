@@ -17,7 +17,8 @@ import {
     rejectExternalJob,
     fetchExternalJobs,
     batchApproveExternalJobs,
-    getFetchStats
+    loadJobsFromSQL,
+    getExternalJobsStats
 } from '../../services/externalJobService';
 
 export default function AdminExternalJobs() {
@@ -51,22 +52,8 @@ export default function AdminExternalJobs() {
     }
 
     async function loadStats() {
-        const { count: pending } = await supabase
-            .from('external_jobs')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'pending_approval');
-        
-        const { count: approved } = await supabase
-            .from('external_jobs')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'approved');
-        
-        const { count: rejected } = await supabase
-            .from('external_jobs')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'rejected');
-        
-        setStats({ pending: pending || 0, approved: approved || 0, rejected: rejected || 0 });
+        const statsData = await getExternalJobsStats();
+        setStats(statsData);
     }
 
     async function loadPendingJobs() {
@@ -116,11 +103,9 @@ export default function AdminExternalJobs() {
                 headers: { 'Content-Type': 'application/json' }
             });
             
-            // Get response as text first for debugging
             const responseText = await response.text();
             console.log('Raw server response:', responseText);
             
-            // Try to parse as JSON
             let data;
             try {
                 data = JSON.parse(responseText);
@@ -150,7 +135,7 @@ export default function AdminExternalJobs() {
         }
     }
 
-    // Sync from SQL
+    // Sync from SQL - marks existing jobs as approved
     async function handleSyncFromSQL() {
         if (!window.confirm('Sync existing SQL jobs? This will mark any jobs already in your database as approved.')) {
             return;
@@ -159,8 +144,8 @@ export default function AdminExternalJobs() {
         setSyncingSQL(true);
         setFetchError(null);
         try {
-            // This would call your sync service
-            alert('✅ Sync feature coming soon');
+            const result = await loadJobsFromSQL();
+            alert(`✅ Sync complete!\nSynced: ${result.count} jobs from database`);
             await loadPendingJobs();
         } catch (error) {
             console.error('Sync error:', error);
@@ -250,14 +235,6 @@ export default function AdminExternalJobs() {
             DE: '🇩🇪', AU: '🇦🇺', FR: '🇫🇷', ES: '🇪🇸', IT: '🇮🇹'
         };
         return flags[countryCode] || '🌍';
-    }
-
-    function getCountryName(countryCode) {
-        const names = {
-            GB: 'United Kingdom', NG: 'Nigeria', IE: 'Ireland', 
-            CA: 'Canada', US: 'United States', DE: 'Germany', AU: 'Australia'
-        };
-        return names[countryCode] || countryCode;
     }
 
     function getJobTypeBadge(jobType) {
