@@ -1,11 +1,11 @@
 // src/pages/SignUpPage.jsx
 // COMPLETE SIGNUP PAGE - Handles tier selection, tester mode, profile creation, and RLS policies
-// UPDATED: Correct user_type mapping to match database constraint
+// FIXED: Correct user_type mapping to match database constraint with proper error handling
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { UserPlus, Mail, Lock, User, Loader2, AlertCircle, CheckCircle, Briefcase, Building2, Sparkles, Star } from 'lucide-react';
+import { UserPlus, Mail, Lock, User, Loader2, AlertCircle, CheckCircle, Briefcase, Building2, Sparkles, Star, Eye, EyeOff } from 'lucide-react';
 
 // Map tiers to correct user_type values (matching database constraint)
 const TIER_TO_USER_TYPE_MAP = {
@@ -16,25 +16,18 @@ const TIER_TO_USER_TYPE_MAP = {
     'business': 'business_owner'
 };
 
-// Map tiers to display names
-const TIER_DISPLAY_NAMES = {
-    'free': 'Free',
-    'registered': 'Registered',
-    'professional': 'Professional',
-    'employer': 'Employer',
-    'business': 'Business'
-};
-
 export default function SignUpPage() {
     const navigate = useNavigate();
     
     const [formData, setFormData] = useState({
         email: '',
         password: '',
+        confirmPassword: '',
         full_name: '',
         selectedTier: 'free',
         company_name: ''
     });
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
@@ -44,6 +37,7 @@ export default function SignUpPage() {
         default_tester_days: 30,
         default_tester_uses: 10
     });
+    const [passwordStrength, setPasswordStrength] = useState(0);
 
     // Tiers configuration with display info
     const tiers = [
@@ -119,15 +113,51 @@ export default function SignUpPage() {
         }
     }
 
+    // Password validation
+    const validatePassword = (password) => {
+        let strength = 0;
+        if (password.length >= 8) strength++;
+        if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
+        if (password.match(/[0-9]/)) strength++;
+        if (password.match(/[^a-zA-Z0-9]/)) strength++;
+        setPasswordStrength(strength);
+        return strength >= 3;
+    };
+
+    // Email validation
+    const validateEmail = (email) => {
+        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+        return emailRegex.test(email);
+    };
+
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
         setError('');
 
+        // Validation
+        if (!validateEmail(formData.email)) {
+            setError('Please enter a valid email address');
+            setLoading(false);
+            return;
+        }
+        
+        if (!validatePassword(formData.password)) {
+            setError('Password must be at least 8 characters with uppercase, lowercase, number, and special character');
+            setLoading(false);
+            return;
+        }
+        
+        if (formData.password !== formData.confirmPassword) {
+            setError('Passwords do not match');
+            setLoading(false);
+            return;
+        }
+
         try {
             const selected = tiers.find(t => t.id === formData.selectedTier);
             
-            // UPDATED: Use the correct user_type mapping
+            // Use the correct user_type mapping
             let userType;
             let tier;
             
@@ -223,6 +253,22 @@ export default function SignUpPage() {
             setLoading(false);
         }
     }
+
+    // Password strength text
+    const passwordStrengthText = () => {
+        if (passwordStrength === 0) return '';
+        if (passwordStrength === 1) return 'Weak';
+        if (passwordStrength === 2) return 'Fair';
+        if (passwordStrength === 3) return 'Good';
+        return 'Strong';
+    };
+
+    const passwordStrengthColor = () => {
+        if (passwordStrength <= 1) return 'bg-red-500';
+        if (passwordStrength === 2) return 'bg-yellow-500';
+        if (passwordStrength === 3) return 'bg-blue-500';
+        return 'bg-green-500';
+    };
 
     // Loading state
     if (testingMode === null) {
@@ -325,15 +371,62 @@ export default function SignUpPage() {
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
-                                    type="password"
+                                    type={showPassword ? "text" : "password"}
                                     value={formData.password}
-                                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                                    onChange={(e) => {
+                                        setFormData({...formData, password: e.target.value});
+                                        validatePassword(e.target.value);
+                                    }}
+                                    className="w-full pl-10 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    placeholder="••••••••"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            
+                            {/* Password Strength */}
+                            {formData.password && (
+                                <div className="mt-2">
+                                    <div className="flex gap-1 h-1.5 mb-1">
+                                        {[1, 2, 3, 4].map((level) => (
+                                            <div 
+                                                key={level}
+                                                className={`flex-1 rounded-full transition-all ${
+                                                    level <= passwordStrength ? passwordStrengthColor() : 'bg-slate-700'
+                                                }`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                        Password strength: {passwordStrengthText()}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Confirm Password */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Confirm Password</label>
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    value={formData.confirmPassword}
+                                    onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
                                     className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     placeholder="••••••••"
                                     required
                                 />
                             </div>
-                            <p className="text-xs text-slate-500 mt-1">Must be at least 6 characters</p>
+                            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                                <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
+                            )}
                         </div>
 
                         {/* Company Name (Employer/Business only) */}
