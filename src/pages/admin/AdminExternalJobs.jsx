@@ -1,5 +1,6 @@
 // src/pages/admin/AdminExternalJobs.jsx
 // COMPLETE ADMIN EXTERNAL JOBS PAGE - With server-side fetch, batch approval, search, and filters
+// Includes: RSS fetch, Live server fetch, SQL sync, batch approve, search, filters, and comprehensive error handling
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -36,6 +37,7 @@ export default function AdminExternalJobs() {
     const [searchTerm, setSearchTerm] = useState('');
     const [serverFetching, setServerFetching] = useState(false);
     const [syncingSQL, setSyncingSQL] = useState(false);
+    const [fetchError, setFetchError] = useState(null);
 
     useEffect(() => {
         getUser();
@@ -73,6 +75,7 @@ export default function AdminExternalJobs() {
             const data = await getPendingExternalJobs();
             setJobs(data);
             setFetchResult(null);
+            setFetchError(null);
             await loadStats();
         } catch (error) {
             console.error('Error loading pending jobs:', error);
@@ -86,6 +89,7 @@ export default function AdminExternalJobs() {
     async function handleFetchJobs() {
         setFetching(true);
         setFetchResult(null);
+        setFetchError(null);
         try {
             const result = await fetchExternalJobs();
             setFetchResult({ success: true, totalAdded: result.totalAdded });
@@ -93,32 +97,53 @@ export default function AdminExternalJobs() {
             await loadPendingJobs();
         } catch (error) {
             console.error('Fetch error:', error);
+            setFetchError(error.message);
             alert('❌ Error fetching jobs: ' + error.message);
         } finally {
             setFetching(false);
         }
     }
 
-    // Fetch from server API endpoint (LIVE)
+    // Fetch from server API endpoint (LIVE) - IMPROVED ERROR HANDLING
     async function handleServerFetch() {
         setServerFetching(true);
         setFetchResult(null);
+        setFetchError(null);
+        
         try {
             const response = await fetch('/api/fetch-jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
             
-            if (!response.ok) {
-                throw new Error(`Server returned ${response.status}`);
+            // Get response as text first for debugging
+            const responseText = await response.text();
+            console.log('Raw server response:', responseText);
+            
+            // Try to parse as JSON
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                throw new Error(`Server returned invalid response: ${responseText.substring(0, 100)}...`);
             }
             
-            const data = await response.json();
-            setFetchResult({ success: true, totalAdded: data.added || data.fetched || data.count || 0 });
-            alert(data.message || `✅ Server fetch completed!\nAdded: ${data.added || data.fetched || data.count || 0} new jobs`);
-            await loadPendingJobs();
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            if (data.success) {
+                const addedCount = data.added || data.fetched || data.count || 0;
+                setFetchResult({ success: true, totalAdded: addedCount });
+                alert(data.message || `✅ Server fetch completed!\nAdded: ${addedCount} new jobs`);
+                await loadPendingJobs();
+            } else {
+                throw new Error(data.error || 'Unknown error from server');
+            }
         } catch (error) {
             console.error('Server fetch error:', error);
+            setFetchError(error.message);
             alert('❌ Server fetch failed: ' + error.message);
         } finally {
             setServerFetching(false);
@@ -132,12 +157,14 @@ export default function AdminExternalJobs() {
         }
         
         setSyncingSQL(true);
+        setFetchError(null);
         try {
             // This would call your sync service
             alert('✅ Sync feature coming soon');
             await loadPendingJobs();
         } catch (error) {
             console.error('Sync error:', error);
+            setFetchError(error.message);
             alert('Error syncing: ' + error.message);
         } finally {
             setSyncingSQL(false);
@@ -339,6 +366,16 @@ export default function AdminExternalJobs() {
                     <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-between">
                         <p className="text-emerald-400">✅ Fetch completed: {fetchResult.totalAdded} new jobs added</p>
                         <button onClick={() => setFetchResult(null)} className="text-emerald-400 hover:text-emerald-300">
+                            <XCircle className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+
+                {/* Fetch Error Banner */}
+                {fetchError && (
+                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
+                        <p className="text-red-400">❌ Error: {fetchError}</p>
+                        <button onClick={() => setFetchError(null)} className="text-red-400 hover:text-red-300">
                             <XCircle className="w-4 h-4" />
                         </button>
                     </div>
