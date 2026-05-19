@@ -5,11 +5,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
-    Briefcase, CheckCircle, XCircle, Eye, RefreshCw, 
+    Briefcase, CheckCircle, XCircle, Eye, 
     AlertCircle, ExternalLink, Loader2, Clock, MapPin, 
-    DollarSign, Building2, Database, Wifi, Download,
-    Globe, Zap, Shield, TrendingUp, Trash2, Filter,
-    Search
+    DollarSign, Building2, Database, Wifi,
+    Globe, Shield, Search
 } from 'lucide-react';
 import { 
     getPendingExternalJobs, 
@@ -91,7 +90,7 @@ export default function AdminExternalJobs() {
         }
     }
 
-    // Fetch from server API endpoint (LIVE) - IMPROVED ERROR HANDLING
+    // Fetch from server API endpoint (LIVE)
     async function handleServerFetch() {
         setServerFetching(true);
         setFetchResult(null);
@@ -121,7 +120,12 @@ export default function AdminExternalJobs() {
             if (data.success) {
                 const addedCount = data.added || data.fetched || data.count || 0;
                 setFetchResult({ success: true, totalAdded: addedCount });
-                alert(data.message || `✅ Server fetch completed!\nAdded: ${addedCount} new jobs`);
+                
+                if (data.jobs && data.jobs.length > 0) {
+                    alert(`✅ Received ${data.jobs.length} job listings. Use "Sync SQL" or "Fetch RSS" to add them to the system.`);
+                } else {
+                    alert(data.message || `✅ Server fetch completed!\nAdded: ${addedCount} new jobs`);
+                }
                 await loadPendingJobs();
             } else {
                 throw new Error(data.error || 'Unknown error from server');
@@ -293,17 +297,6 @@ export default function AdminExternalJobs() {
                         </p>
                     </div>
                     <div className="flex gap-2 mt-4 sm:mt-0 flex-wrap">
-                        {/* RSS Feed Fetch */}
-                        <button
-                            onClick={handleFetchJobs}
-                            disabled={isLoading}
-                            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 disabled:opacity-50"
-                            title="Fetch from RSS feeds"
-                        >
-                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-                            {fetching ? 'Fetching...' : 'Fetch RSS'}
-                        </button>
-                        
                         {/* Live Server Fetch */}
                         <button
                             onClick={handleServerFetch}
@@ -313,6 +306,17 @@ export default function AdminExternalJobs() {
                         >
                             {serverFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                             {serverFetching ? 'Fetching...' : '🌐 Fetch Live Jobs'}
+                        </button>
+                        
+                        {/* RSS Feed Fetch */}
+                        <button
+                            onClick={handleFetchJobs}
+                            disabled={isLoading}
+                            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Fetch from RSS feeds"
+                        >
+                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                            {fetching ? 'Fetching...' : 'Fetch RSS'}
                         </button>
                         
                         {/* SQL Sync */}
