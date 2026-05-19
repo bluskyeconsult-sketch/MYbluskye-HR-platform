@@ -1,5 +1,5 @@
 // src/pages/admin/AdminExternalJobs.jsx
-// COMPLETE ADMIN EXTERNAL JOBS PAGE - With server-side fetch and batch approval
+// COMPLETE ADMIN EXTERNAL JOBS PAGE - With server-side fetch, batch approval, search, and filters
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -7,7 +7,8 @@ import {
     Briefcase, CheckCircle, XCircle, Eye, RefreshCw, 
     AlertCircle, ExternalLink, Loader2, Clock, MapPin, 
     DollarSign, Building2, Database, Wifi, Download,
-    Globe, Zap, Shield, TrendingUp, Trash2, Filter
+    Globe, Zap, Shield, TrendingUp, Trash2, Filter,
+    Search
 } from 'lucide-react';
 import { 
     getPendingExternalJobs, 
@@ -33,6 +34,8 @@ export default function AdminExternalJobs() {
     const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
     const [filterSource, setFilterSource] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [serverFetching, setServerFetching] = useState(false);
+    const [syncingSQL, setSyncingSQL] = useState(false);
 
     useEffect(() => {
         getUser();
@@ -96,24 +99,48 @@ export default function AdminExternalJobs() {
         }
     }
 
-    // Fetch from server API endpoint
+    // Fetch from server API endpoint (LIVE)
     async function handleServerFetch() {
-        setFetching(true);
+        setServerFetching(true);
         setFetchResult(null);
         try {
             const response = await fetch('/api/fetch-jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
+            
+            if (!response.ok) {
+                throw new Error(`Server returned ${response.status}`);
+            }
+            
             const data = await response.json();
-            setFetchResult({ success: true, totalAdded: data.added || data.fetched || 0 });
-            alert(data.message || `✅ Server fetch completed!\nAdded: ${data.added || data.fetched || 0} new jobs`);
+            setFetchResult({ success: true, totalAdded: data.added || data.fetched || data.count || 0 });
+            alert(data.message || `✅ Server fetch completed!\nAdded: ${data.added || data.fetched || data.count || 0} new jobs`);
             await loadPendingJobs();
         } catch (error) {
             console.error('Server fetch error:', error);
             alert('❌ Server fetch failed: ' + error.message);
         } finally {
-            setFetching(false);
+            setServerFetching(false);
+        }
+    }
+
+    // Sync from SQL
+    async function handleSyncFromSQL() {
+        if (!window.confirm('Sync existing SQL jobs? This will mark any jobs already in your database as approved.')) {
+            return;
+        }
+        
+        setSyncingSQL(true);
+        try {
+            // This would call your sync service
+            alert('✅ Sync feature coming soon');
+            await loadPendingJobs();
+        } catch (error) {
+            console.error('Sync error:', error);
+            alert('Error syncing: ' + error.message);
+        } finally {
+            setSyncingSQL(false);
         }
     }
 
@@ -198,6 +225,14 @@ export default function AdminExternalJobs() {
         return flags[countryCode] || '🌍';
     }
 
+    function getCountryName(countryCode) {
+        const names = {
+            GB: 'United Kingdom', NG: 'Nigeria', IE: 'Ireland', 
+            CA: 'Canada', US: 'United States', DE: 'Germany', AU: 'Australia'
+        };
+        return names[countryCode] || countryCode;
+    }
+
     function getJobTypeBadge(jobType) {
         const types = {
             full_time: { label: 'Full Time', color: 'bg-emerald-500/20 text-emerald-400' },
@@ -224,6 +259,8 @@ export default function AdminExternalJobs() {
 
     // Get unique sources for filter
     const uniqueSources = ['all', ...new Set(jobs.map(job => job.source_name).filter(Boolean))];
+
+    const isLoading = fetching || serverFetching || syncingSQL || batchProcessing;
 
     if (loading) {
         return (
@@ -252,24 +289,40 @@ export default function AdminExternalJobs() {
                         </p>
                     </div>
                     <div className="flex gap-2 mt-4 sm:mt-0 flex-wrap">
+                        {/* RSS Feed Fetch */}
                         <button
                             onClick={handleFetchJobs}
-                            disabled={fetching}
+                            disabled={isLoading}
                             className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 disabled:opacity-50"
                             title="Fetch from RSS feeds"
                         >
                             {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
                             {fetching ? 'Fetching...' : 'Fetch RSS'}
                         </button>
+                        
+                        {/* Live Server Fetch */}
                         <button
                             onClick={handleServerFetch}
-                            disabled={fetching}
+                            disabled={isLoading}
                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                             title="Fetch from server API"
                         >
-                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-                            {fetching ? 'Fetching...' : 'Fetch Live Jobs'}
+                            {serverFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                            {serverFetching ? 'Fetching...' : '🌐 Fetch Live Jobs'}
                         </button>
+                        
+                        {/* SQL Sync */}
+                        <button
+                            onClick={handleSyncFromSQL}
+                            disabled={syncingSQL}
+                            className="px-4 py-2 bg-primary-600/80 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Sync jobs already in database from SQL scripts"
+                        >
+                            {syncingSQL ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                            Sync SQL
+                        </button>
+                        
+                        {/* Batch Approve */}
                         <button
                             onClick={handleBatchApprove}
                             disabled={batchProcessing || jobs.length === 0}
@@ -335,16 +388,14 @@ export default function AdminExternalJobs() {
                 <div className="flex flex-col sm:flex-row gap-3 mb-6">
                     <div className="flex-1">
                         <div className="relative">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
                             <input
                                 type="text"
                                 placeholder="Search jobs by title, company, or source..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full px-4 py-2 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                                className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
                             />
-                            <svg className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
                         </div>
                     </div>
                     <div className="flex gap-2">
@@ -359,6 +410,14 @@ export default function AdminExternalJobs() {
                                 </option>
                             ))}
                         </select>
+                        {(searchTerm || filterSource !== 'all') && (
+                            <button
+                                onClick={() => { setSearchTerm(''); setFilterSource('all'); }}
+                                className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition"
+                            >
+                                Clear
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -376,27 +435,19 @@ export default function AdminExternalJobs() {
                         </p>
                         <div className="mt-4 flex gap-3 justify-center">
                             <button
+                                onClick={handleServerFetch}
+                                disabled={isLoading}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                            >
+                                🌐 Fetch Live Jobs
+                            </button>
+                            <button
                                 onClick={handleFetchJobs}
-                                disabled={fetching}
+                                disabled={isLoading}
                                 className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                             >
                                 Fetch RSS Jobs
                             </button>
-                            <button
-                                onClick={handleServerFetch}
-                                disabled={fetching}
-                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                            >
-                                Fetch Live Jobs
-                            </button>
-                            {(searchTerm || filterSource !== 'all') && (
-                                <button
-                                    onClick={() => { setSearchTerm(''); setFilterSource('all'); }}
-                                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
-                                >
-                                    Clear Filters
-                                </button>
-                            )}
                         </div>
                     </div>
                 ) : (
