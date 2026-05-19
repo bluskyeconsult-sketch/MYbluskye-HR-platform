@@ -21,6 +21,7 @@ import ScrollToTop from './components/ScrollToTop';
 // ANALYTICS TRACKING SERVICE
 // ============================================
 import { 
+    initAnalytics,
     startSession, 
     endSession, 
     trackPageView, 
@@ -223,12 +224,15 @@ function EngagementsDashboardWrapper() {
 }
 
 // ============================================
-// APP CONTENT
+// APP CONTENT WITH ANALYTICS
 // ============================================
 function AppContent() {
     const [user, setUser] = useState(null);
     const location = useLocation();
 
+    // ============================================
+    // AUTH STATE MANAGEMENT
+    // ============================================
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setUser(session?.user || null);
@@ -242,11 +246,11 @@ function AppContent() {
     }, []);
 
     // ============================================
-    // ANALYTICS TRACKING
+    // ANALYTICS TRACKING (OPTIMIZED & MERGED)
     // ============================================
     useEffect(() => {
-        // Start session on app load
-        startSession();
+        // Initialize analytics on app load
+        initAnalytics();
         
         // Track page view on route change
         const trackCurrentPage = () => {
@@ -258,8 +262,15 @@ function AppContent() {
         // Track initial page
         trackCurrentPage();
         
-        // Track scroll depth
+        // Track scroll depth with milestones
         let maxScroll = 0;
+        let scrollMilestonesTracked = {
+            25: false,
+            50: false,
+            75: false,
+            90: false
+        };
+        
         const handleScroll = () => {
             const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
             const scrollPercent = scrollHeight > 0 
@@ -270,20 +281,24 @@ function AppContent() {
                 maxScroll = scrollPercent;
                 updatePageViewMetrics(Math.round(maxScroll), null);
                 
-                // Track milestone scroll events
-                if (maxScroll >= 25 && maxScroll < 30) {
+                // Track milestone scroll events (only once per milestone)
+                if (maxScroll >= 25 && !scrollMilestonesTracked[25]) {
+                    scrollMilestonesTracked[25] = true;
                     trackEvent('scroll_25_percent', { page: location.pathname });
-                } else if (maxScroll >= 50 && maxScroll < 55) {
+                } else if (maxScroll >= 50 && !scrollMilestonesTracked[50]) {
+                    scrollMilestonesTracked[50] = true;
                     trackEvent('scroll_50_percent', { page: location.pathname });
-                } else if (maxScroll >= 75 && maxScroll < 80) {
+                } else if (maxScroll >= 75 && !scrollMilestonesTracked[75]) {
+                    scrollMilestonesTracked[75] = true;
                     trackEvent('scroll_75_percent', { page: location.pathname });
-                } else if (maxScroll >= 90) {
-                    trackEvent('scroll_almost_complete', { page: location.pathname });
+                } else if (maxScroll >= 90 && !scrollMilestonesTracked[90]) {
+                    scrollMilestonesTracked[90] = true;
+                    trackEvent('scroll_90_percent', { page: location.pathname });
                 }
             }
         };
         
-        // Track clicks
+        // Track important clicks
         let clickCount = 0;
         const handleClick = (e) => {
             clickCount++;
@@ -295,51 +310,84 @@ function AppContent() {
                 const elementType = target.tagName.toLowerCase();
                 const elementText = target.innerText?.substring(0, 100) || '';
                 const elementHref = target.getAttribute('href') || '';
+                const elementId = target.id || target.getAttribute('data-track-id');
                 
-                // Don't track every click, just important ones
-                if (elementText.includes('Apply') || 
+                // Track important actions (not every click)
+                const isImportant = 
+                    elementText.includes('Apply') || 
                     elementText.includes('Sign') ||
                     elementText.includes('Register') ||
                     elementText.includes('Purchase') ||
-                    elementText.includes('Contact')) {
+                    elementText.includes('Contact') ||
+                    elementText.includes('Subscribe') ||
+                    elementText.includes('Enroll') ||
+                    elementText.includes('Start') ||
+                    elementHref.includes('/apply') ||
+                    elementHref.includes('/sign-up') ||
+                    elementId?.includes('cta');
+                
+                if (isImportant) {
                     trackEvent('important_click', {
                         element: elementType,
                         text: elementText,
                         href: elementHref,
+                        id: elementId,
                         page: location.pathname
                     });
                 }
             }
         };
         
-        // Track time on page (every 30 seconds)
+        // Track time on page milestones
         let timeOnPage = 0;
+        let timeMilestonesTracked = {
+            30: false,
+            60: false,
+            120: false,
+            300: false
+        };
+        
         const timeInterval = setInterval(() => {
             timeOnPage += 30;
-            if (timeOnPage === 30) {
+            
+            if (timeOnPage === 30 && !timeMilestonesTracked[30]) {
+                timeMilestonesTracked[30] = true;
                 trackEvent('time_on_page_30s', { page: location.pathname });
-            } else if (timeOnPage === 60) {
+            } else if (timeOnPage === 60 && !timeMilestonesTracked[60]) {
+                timeMilestonesTracked[60] = true;
                 trackEvent('time_on_page_1m', { page: location.pathname });
-            } else if (timeOnPage === 120) {
+            } else if (timeOnPage === 120 && !timeMilestonesTracked[120]) {
+                timeMilestonesTracked[120] = true;
                 trackEvent('time_on_page_2m', { page: location.pathname });
-            } else if (timeOnPage === 300) {
+            } else if (timeOnPage === 300 && !timeMilestonesTracked[300]) {
+                timeMilestonesTracked[300] = true;
                 trackEvent('time_on_page_5m', { page: location.pathname });
             }
         }, 30000);
         
-        window.addEventListener('scroll', handleScroll);
-        document.addEventListener('click', handleClick);
+        // Track exit intent
+        const handleMouseLeave = (e) => {
+            if (e.clientY <= 0) {
+                trackEvent('exit_intent', { page: location.pathname });
+            }
+        };
         
         // End session on page unload
         const handleBeforeUnload = () => {
             endSession();
         };
         
+        // Add event listeners
+        window.addEventListener('scroll', handleScroll);
+        document.addEventListener('click', handleClick);
+        document.addEventListener('mouseleave', handleMouseLeave);
         window.addEventListener('beforeunload', handleBeforeUnload);
         
+        // Cleanup
         return () => {
             window.removeEventListener('scroll', handleScroll);
             document.removeEventListener('click', handleClick);
+            document.removeEventListener('mouseleave', handleMouseLeave);
             window.removeEventListener('beforeunload', handleBeforeUnload);
             clearInterval(timeInterval);
             endSession();
@@ -467,6 +515,9 @@ function AppContent() {
     );
 }
 
+// ============================================
+// MAIN APP COMPONENT
+// ============================================
 function App() {
     return (
         <BrowserRouter>
