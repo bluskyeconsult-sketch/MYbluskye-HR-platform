@@ -1,40 +1,42 @@
+// src/pages/tester/TesterRegisterPage.jsx
+// COMPLETE TESTER REGISTRATION PAGE - Master invite code system with usage tracking
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
-import { Eye, EyeOff, AlertCircle, CheckCircle, Key, Copy, Check } from 'lucide-react';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { supabase } from '../../lib/supabase';
+import { 
+    FlaskConical, Mail, Lock, User, Loader2, AlertCircle, 
+    CheckCircle, Key, Copy, Check, Eye, EyeOff, Shield 
+} from 'lucide-react';
 
 // Master invite code configuration
 const MASTER_INVITE_CODE = {
-    CODE: 'TESTER2026', // Change this to your preferred master code
-    HASH: btoa('TESTER2026_SALT_9x7k2p'), // Simple hash for validation
-    MAX_USES: 100, // Maximum number of uses
-    RESET_INTERVAL_DAYS: 30 // Auto-reset every 30 days
+    CODE: 'TESTER2026',
+    MAX_USES: 100,
+    RESET_INTERVAL_DAYS: 30
 };
 
 export default function TesterRegisterPage() {
+    const navigate = useNavigate();
+    
     const [formData, setFormData] = useState({
         email: '',
         password: '',
         confirmPassword: '',
-        fullName: '',
-        inviteCode: ''
+        full_name: '',
+        invite_code: ''
     });
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
-    const [requireInviteCode, setRequireInviteCode] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState(false);
     const [passwordStrength, setPasswordStrength] = useState(0);
     const [inviteCodeStats, setInviteCodeStats] = useState(null);
     const [copied, setCopied] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
-    const navigate = useNavigate();
+    const [requireInviteCode, setRequireInviteCode] = useState(true);
 
-    // Check if user is admin
+    // Check admin status and load settings
     useEffect(() => {
         checkAdminStatus();
         loadSettings();
@@ -49,19 +51,17 @@ export default function TesterRegisterPage() {
                 .select('user_type')
                 .eq('id', user.id)
                 .single();
-            setIsAdmin(profile?.user_type === 'admin');
+            setIsAdmin(profile?.user_type === 'super_admin' || profile?.user_type === 'admin');
         }
     }
 
     async function loadSettings() {
         try {
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from('system_config')
                 .select('config_value')
                 .eq('config_key', 'tester_visibility')
                 .single();
-            
-            if (error) throw error;
             
             if (data?.config_value) {
                 setRequireInviteCode(data.config_value.registration_mode !== 'public');
@@ -73,16 +73,15 @@ export default function TesterRegisterPage() {
 
     async function loadInviteCodeStats() {
         try {
-            // Get master invite code usage stats
             const { data, error } = await supabase
                 .from('tester_invites')
-                .select('used_count, last_reset')
+                .select('used_count, max_uses, last_reset')
                 .eq('code', MASTER_INVITE_CODE.CODE)
                 .single();
             
             if (!error && data) {
                 setInviteCodeStats(data);
-            } else if (!data) {
+            } else {
                 // Create master invite record if it doesn't exist
                 await supabase
                     .from('tester_invites')
@@ -100,7 +99,7 @@ export default function TesterRegisterPage() {
         }
     }
 
-    // High-performance password validation with memoization
+    // Password validation
     const validatePassword = useCallback((password) => {
         let strength = 0;
         if (password.length >= 8) strength++;
@@ -111,89 +110,75 @@ export default function TesterRegisterPage() {
         return strength >= 3;
     }, []);
 
-    // Memoized email validation
+    // Email validation
     const validateEmail = useCallback((email) => {
         const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
         return emailRegex.test(email);
     }, []);
 
-    // High-performance master invite code validation
+    // Validate master invite code
     const validateMasterInviteCode = useCallback(async (code) => {
         const upperCode = code.toUpperCase().trim();
         
-        // Fast path: check against master code
         if (upperCode !== MASTER_INVITE_CODE.CODE) {
             return { valid: false, message: 'Invalid invite code' };
         }
 
         try {
-            // Check usage limits with a single optimized query
             const { data, error } = await supabase
                 .from('tester_invites')
-                .select('used_count, max_uses, last_reset')
+                .select('used_count, max_uses')
                 .eq('code', MASTER_INVITE_CODE.CODE)
                 .single();
 
-            if (error) {
-                // If no record exists, create one
-                await supabase
-                    .from('tester_invites')
-                    .insert({
-                        code: MASTER_INVITE_CODE.CODE,
-                        max_uses: MASTER_INVITE_CODE.MAX_USES,
-                        used_count: 0,
-                        is_master: true
-                    });
-                return { valid: true, inviteId: null, isMaster: true };
-            }
+            if (error) return { valid: true, isMaster: true };
 
-            // Check if needs reset
-            const lastReset = data.last_reset ? new Date(data.last_reset) : null;
-            const needsReset = !lastReset || 
-                (new Date() - lastReset) > (MASTER_INVITE_CODE.RESET_INTERVAL_DAYS * 24 * 60 * 60 * 1000);
-
-            if (needsReset && isAdmin) {
-                // Auto-reset when admin triggers it (implement reset function)
-                await resetInviteCodeUsage();
-            }
-
-            // Check usage limit
             if (data.used_count >= (data.max_uses || MASTER_INVITE_CODE.MAX_USES)) {
                 return { valid: false, message: 'Invite code has reached maximum usage limit' };
             }
 
-            return { valid: true, inviteId: data?.id, isMaster: true, currentUses: data?.used_count };
-
+            return { valid: true, isMaster: true, currentUses: data.used_count };
         } catch (err) {
             console.error('Error validating invite code:', err);
-            return { valid: true, inviteId: null, isMaster: true }; // Fallback to allow registration
+            return { valid: true, isMaster: true };
         }
-    }, [isAdmin]);
+    }, []);
+
+    // Increment invite usage
+    const incrementInviteUsage = useCallback(async () => {
+        if (!inviteCodeStats) return;
+        
+        setInviteCodeStats(prev => prev ? { ...prev, used_count: prev.used_count + 1 } : prev);
+        
+        supabase
+            .from('tester_invites')
+            .update({ used_count: (inviteCodeStats.used_count || 0) + 1 })
+            .eq('code', MASTER_INVITE_CODE.CODE)
+            .then(({ error }) => {
+                if (error) console.error('Error updating usage count:', error);
+            });
+    }, [inviteCodeStats]);
 
     // Reset invite code usage (admin only)
     async function resetInviteCodeUsage() {
         if (!isAdmin) return;
         
-        try {
-            const { error } = await supabase
-                .from('tester_invites')
-                .update({
-                    used_count: 0,
-                    last_reset: new Date().toISOString()
-                })
-                .eq('code', MASTER_INVITE_CODE.CODE);
-            
-            if (!error) {
-                await loadInviteCodeStats();
-                setSuccess('Invite code usage has been reset');
-                setTimeout(() => setSuccess(''), 3000);
-            }
-        } catch (err) {
-            console.error('Error resetting invite code:', err);
+        const { error } = await supabase
+            .from('tester_invites')
+            .update({
+                used_count: 0,
+                last_reset: new Date().toISOString()
+            })
+            .eq('code', MASTER_INVITE_CODE.CODE);
+        
+        if (!error) {
+            await loadInviteCodeStats();
+            setSuccess('Invite code usage has been reset');
+            setTimeout(() => setSuccess(''), 3000);
         }
     }
 
-    // Copy master invite code to clipboard
+    // Copy invite code
     const copyInviteCode = useCallback(async () => {
         try {
             await navigator.clipboard.writeText(MASTER_INVITE_CODE.CODE);
@@ -204,30 +189,11 @@ export default function TesterRegisterPage() {
         }
     }, []);
 
-    // Increment invite code usage counter (optimized)
-    const incrementInviteUsage = useCallback(async () => {
-        if (!inviteCodeStats) return;
-        
-        // Optimistic update
-        setInviteCodeStats(prev => prev ? { ...prev, used_count: prev.used_count + 1 } : prev);
-        
-        // Background update (non-blocking)
-        supabase
-            .from('tester_invites')
-            .update({ used_count: inviteCodeStats.used_count + 1 })
-            .eq('code', MASTER_INVITE_CODE.CODE)
-            .then(({ error }) => {
-                if (error) console.error('Error updating usage count:', error);
-            });
-    }, [inviteCodeStats]);
-
-    // Handle registration with master invite code
-    const handleRegister = useCallback(async (e) => {
+    // Handle registration
+    const handleSubmit = useCallback(async (e) => {
         e.preventDefault();
         setError('');
-        setSuccess('');
         
-        // Validation checks (fast)
         if (!validateEmail(formData.email)) {
             setError('Please enter a valid email address');
             return;
@@ -243,7 +209,7 @@ export default function TesterRegisterPage() {
             return;
         }
         
-        if (requireInviteCode && !formData.inviteCode) {
+        if (requireInviteCode && !formData.invite_code) {
             setError('Invite code is required to register as a tester');
             return;
         }
@@ -251,97 +217,72 @@ export default function TesterRegisterPage() {
         setLoading(true);
         
         try {
-            let inviteId = null;
-            
-            // Validate master invite code if required
-            if (requireInviteCode && formData.inviteCode) {
-                const validation = await validateMasterInviteCode(formData.inviteCode);
+            // Validate invite code
+            if (requireInviteCode && formData.invite_code) {
+                const validation = await validateMasterInviteCode(formData.invite_code);
                 if (!validation.valid) {
                     setError(validation.message);
                     setLoading(false);
                     return;
                 }
-                inviteId = validation.inviteId;
-                
-                // Increment usage counter
                 await incrementInviteUsage();
             }
             
-            // Register user with Supabase
+            // Register user
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
                 email: formData.email,
                 password: formData.password,
                 options: {
                     data: {
-                        full_name: formData.fullName,
+                        full_name: formData.full_name,
                         user_type: 'tester',
-                        is_tester: true,
-                        registered_with_master_code: true
+                        is_tester: true
                     }
                 }
             });
             
             if (signUpError) throw signUpError;
+            if (!authData.user) throw new Error('Registration failed');
             
-            if (!authData.user) {
-                throw new Error('Registration failed. Please try again.');
-            }
-            
-            // Set tester expiry (4 weeks from now)
+            // Set tester expiry (30 days)
             const testerExpiry = new Date();
-            testerExpiry.setDate(testerExpiry.getDate() + 28);
+            testerExpiry.setDate(testerExpiry.getDate() + 30);
             
-            // Update profile with high-performance batch update
-            const { error: profileError } = await supabase
+            // Update profile
+            await supabase
                 .from('profiles')
                 .update({
                     user_type: 'tester',
                     is_tester: true,
                     tester_expires_at: testerExpiry.toISOString(),
-                    tier: 'tester',
-                    full_name: formData.fullName,
-                    registered_with: 'master_invite_code'
+                    tier: 'free',
+                    full_name: formData.full_name
                 })
                 .eq('id', authData.user.id);
             
-            if (profileError) throw profileError;
+            // Create tester allocation
+            await supabase
+                .from('tester_allocations')
+                .insert({
+                    user_id: authData.user.id,
+                    allocated_uses: 10,
+                    used_uses: 0,
+                    remaining_uses: 10,
+                    expires_at: testerExpiry.toISOString(),
+                    status: 'active'
+                });
             
-            // Mark invite code as used if not master (only for single-use codes)
-            if (inviteId && inviteId !== 'master') {
-                await supabase
-                    .from('tester_invites')
-                    .update({ 
-                        used_at: new Date().toISOString(),
-                        used_by: authData.user.id 
-                    })
-                    .eq('id', inviteId);
-            }
-            
-            setSuccess('Tester account created successfully! Please check your email to confirm your account.');
-            
-            // Clear form
-            setFormData({
-                email: '',
-                password: '',
-                confirmPassword: '',
-                fullName: '',
-                inviteCode: ''
-            });
-            
-            // Redirect after 3 seconds
-            setTimeout(() => {
-                navigate('/tester-login');
-            }, 3000);
+            setSuccess(true);
+            setTimeout(() => navigate('/tester-login'), 3000);
             
         } catch (err) {
-            console.error('Registration error:', err);
-            setError(err.message || 'Registration failed. Please try again.');
+            setError(err.message);
         } finally {
             setLoading(false);
         }
     }, [formData, requireInviteCode, validateEmail, validatePassword, validateMasterInviteCode, incrementInviteUsage, navigate]);
 
-    // Memoized password strength text
+    // Password strength text
     const passwordStrengthText = useMemo(() => {
         if (passwordStrength === 0) return '';
         if (passwordStrength === 1) return 'Weak';
@@ -357,32 +298,49 @@ export default function TesterRegisterPage() {
         return 'bg-green-500';
     }, [passwordStrength]);
 
-    return (
-        <div className="min-h-screen flex items-center justify-center bg-background px-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 w-full max-w-md">
-                <div className="text-center mb-6">
-                    <div className="flex justify-center mb-3">
-                        <div className="w-16 h-16 bg-purple-600/20 rounded-full flex items-center justify-center">
-                            <Key className="w-8 h-8 text-purple-400" />
-                        </div>
+    if (success) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+                <div className="max-w-md w-full text-center">
+                    <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <CheckCircle className="w-8 h-8 text-emerald-500" />
                     </div>
-                    <h1 className="text-2xl font-bold text-white mb-2">Become a Tester</h1>
-                    <p className="text-slate-400 text-sm">
-                        Join our exclusive testing program with master invite code
+                    <h1 className="text-2xl font-bold text-white mb-2">Tester Registration Successful!</h1>
+                    <p className="text-slate-400 mb-4">
+                        You now have 10 free uses for 30 days. Start exploring ODUSBABA!
                     </p>
+                    <p className="text-slate-500 text-sm">Redirecting to login...</p>
                 </div>
-                
-                {/* Admin: Show master invite code info */}
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
+            <div className="max-w-md w-full">
+                {/* Header */}
+                <div className="text-center mb-8">
+                    <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/20">
+                        <FlaskConical className="w-8 h-8 text-white" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-white">Become a Tester</h1>
+                    <p className="text-slate-400 mt-2">Get 10 free uses for 30 days</p>
+                </div>
+
+                {/* Admin: Master Invite Code Panel */}
                 {isAdmin && inviteCodeStats && (
-                    <div className="mb-4 p-4 bg-purple-600/10 border border-purple-500/20 rounded-lg">
+                    <div className="mb-6 p-4 bg-purple-600/10 border border-purple-500/20 rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-purple-400">Master Invite Code</span>
+                            <span className="text-sm font-medium text-purple-400 flex items-center gap-2">
+                                <Shield className="w-4 h-4" />
+                                Master Invite Code
+                            </span>
                             <span className="text-xs text-slate-500">
                                 Used: {inviteCodeStats.used_count || 0} / {MASTER_INVITE_CODE.MAX_USES}
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <code className="flex-1 px-3 py-2 bg-slate-800 rounded-lg text-purple-400 font-mono text-sm">
+                            <code className="flex-1 px-3 py-2 bg-slate-800 rounded-lg text-purple-400 font-mono text-sm text-center">
                                 {MASTER_INVITE_CODE.CODE}
                             </code>
                             <button
@@ -399,191 +357,167 @@ export default function TesterRegisterPage() {
                         </div>
                         <p className="text-xs text-slate-500 mt-2">
                             Share this code with potential testers. Max {MASTER_INVITE_CODE.MAX_USES} uses.
-                            {inviteCodeStats.used_count >= MASTER_INVITE_CODE.MAX_USES && (
-                                <span className="text-red-400 block mt-1">
-                                    ⚠️ Usage limit reached. Reset the counter when ready for more testers.
-                                </span>
-                            )}
                         </p>
                         {inviteCodeStats.used_count >= MASTER_INVITE_CODE.MAX_USES && (
-                            <button
-                                onClick={resetInviteCodeUsage}
-                                className="w-full mt-3 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 transition-colors"
-                            >
-                                Reset Usage Counter
-                            </button>
-                        )}
-                    </div>
-                )}
-                
-                {/* Error Alert */}
-                {error && (
-                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2 animate-shake">
-                        <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-red-400 text-sm">{error}</p>
-                    </div>
-                )}
-                
-                {/* Success Alert */}
-                {success && (
-                    <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-start gap-2 animate-fade-in">
-                        <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-emerald-400 text-sm">{success}</p>
-                    </div>
-                )}
-                
-                <form onSubmit={handleRegister} className="space-y-4">
-                    {/* Invite Code Field */}
-                    {requireInviteCode && (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">
-                                Master Invite Code <span className="text-red-400">*</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                placeholder="Enter master invite code" 
-                                value={formData.inviteCode} 
-                                onChange={(e) => setFormData({...formData, inviteCode: e.target.value.toUpperCase()})} 
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono" 
-                                required={requireInviteCode}
-                                disabled={loading}
-                                autoComplete="off"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">
-                                Enter the master invite code provided by your administrator
-                            </p>
-                        </div>
-                    )}
-                    
-                    {/* Full Name */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
-                            Full Name <span className="text-red-400">*</span>
-                        </label>
-                        <input 
-                            type="text" 
-                            value={formData.fullName} 
-                            onChange={(e) => setFormData({...formData, fullName: e.target.value})} 
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent" 
-                            required
-                            disabled={loading}
-                            placeholder="John Doe"
-                        />
-                    </div>
-                    
-                    {/* Email */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
-                            Email <span className="text-red-400">*</span>
-                        </label>
-                        <input 
-                            type="email" 
-                            value={formData.email} 
-                            onChange={(e) => setFormData({...formData, email: e.target.value})} 
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent" 
-                            required
-                            disabled={loading}
-                            placeholder="you@example.com"
-                        />
-                    </div>
-                    
-                    {/* Password */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
-                            Password <span className="text-red-400">*</span>
-                        </label>
-                        <div className="relative">
-                            <input 
-                                type={showPassword ? "text" : "password"} 
-                                value={formData.password} 
-                                onChange={(e) => {
-                                    setFormData({...formData, password: e.target.value});
-                                    validatePassword(e.target.value);
-                                }} 
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10" 
-                                required
-                                disabled={loading}
-                                placeholder="••••••••"
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                        </div>
-                        
-                        {/* Password Strength Indicator */}
-                        {formData.password && (
-                            <div className="mt-2">
-                                <div className="flex gap-1 h-1.5 mb-1">
-                                    {[1, 2, 3, 4].map((level) => (
-                                        <div 
-                                            key={level}
-                                            className={`flex-1 rounded-full transition-all duration-300 ${
-                                                level <= passwordStrength 
-                                                    ? passwordStrengthColor 
-                                                    : 'bg-slate-700'
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-                                <p className="text-xs text-slate-500">
-                                    Password strength: {passwordStrengthText}
-                                </p>
+                            <div className="mt-3">
+                                <p className="text-xs text-red-400 mb-2">⚠️ Usage limit reached.</p>
+                                <button
+                                    onClick={resetInviteCodeUsage}
+                                    className="w-full px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 transition-colors"
+                                >
+                                    Reset Usage Counter
+                                </button>
                             </div>
                         )}
                     </div>
-                    
-                    {/* Confirm Password */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
-                            Confirm Password <span className="text-red-400">*</span>
-                        </label>
-                        <input 
-                            type={showPassword ? "text" : "password"} 
-                            value={formData.confirmPassword} 
-                            onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})} 
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent" 
-                            required
+                )}
+
+                {/* Registration Form */}
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Invite Code */}
+                        {requireInviteCode && (
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">
+                                    Invite Code <span className="text-red-400">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.invite_code}
+                                    onChange={(e) => setFormData({...formData, invite_code: e.target.value.toUpperCase()})}
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="TESTER2026"
+                                    required={requireInviteCode}
+                                />
+                            </div>
+                        )}
+
+                        {/* Full Name */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                            <div className="relative">
+                                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type="text"
+                                    value={formData.full_name}
+                                    onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="John Doe"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        {/* Email */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Email Address</label>
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type="email"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="you@example.com"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        {/* Password */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Password</label>
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    value={formData.password}
+                                    onChange={(e) => {
+                                        setFormData({...formData, password: e.target.value});
+                                        validatePassword(e.target.value);
+                                    }}
+                                    className="w-full pl-10 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="••••••••"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            
+                            {/* Password Strength */}
+                            {formData.password && (
+                                <div className="mt-2">
+                                    <div className="flex gap-1 h-1.5 mb-1">
+                                        {[1, 2, 3, 4].map((level) => (
+                                            <div 
+                                                key={level}
+                                                className={`flex-1 rounded-full transition-all ${
+                                                    level <= passwordStrength ? passwordStrengthColor : 'bg-slate-700'
+                                                }`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                        Strength: {passwordStrengthText}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Confirm Password */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Confirm Password</label>
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    value={formData.confirmPassword}
+                                    onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="••••••••"
+                                    required
+                                />
+                            </div>
+                            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                                <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
+                            )}
+                        </div>
+
+                        {/* Error */}
+                        {error && (
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                                <p className="text-red-400 text-sm">{error}</p>
+                            </div>
+                        )}
+
+                        {/* Submit Button */}
+                        <button
+                            type="submit"
                             disabled={loading}
-                            placeholder="••••••••"
-                        />
-                        {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                            <p className="text-xs text-red-400 mt-1 animate-pulse">Passwords do not match</p>
-                        )}
-                    </div>
-                    
-                    <button 
-                        type="submit" 
-                        disabled={loading} 
-                        className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-purple-500 text-white rounded-lg hover:from-purple-500 hover:to-purple-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium"
-                    >
-                        {loading ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                Registering...
-                            </>
-                        ) : (
-                            <>
-                                <Key className="w-4 h-4" />
-                                Register as Tester
-                            </>
-                        )}
-                    </button>
-                </form>
-                
-                <p className="text-center text-slate-400 text-sm mt-6">
-                    Already have a tester account?{' '}
-                    <Link to="/tester-login" className="text-purple-400 hover:underline transition-colors">
-                        Sign In
-                    </Link>
-                </p>
-                
-                <p className="text-center text-xs text-slate-600 mt-4">
-                    By registering, you agree to our testing program terms and conditions
-                </p>
+                            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                        >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                            {loading ? 'Registering...' : 'Register as Tester'}
+                        </button>
+                    </form>
+
+                    {/* Footer */}
+                    <p className="text-center text-sm text-slate-500 mt-6">
+                        Already a tester?{' '}
+                        <Link to="/tester-login" className="text-purple-400 hover:underline">
+                            Sign In
+                        </Link>
+                    </p>
+                    <p className="text-center text-xs text-slate-600 mt-4">
+                        By registering, you agree to our testing program terms and conditions
+                    </p>
+                </div>
             </div>
         </div>
     );
