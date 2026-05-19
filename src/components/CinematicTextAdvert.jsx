@@ -1,10 +1,11 @@
 // src/components/CinematicTextAdvert.jsx
-// Cinematic animated text advert - Adds visual appeal without breaking existing layout
+// COMPLETE CINEMATIC TEXT ADVERT - Animated with dynamic content support
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const messages = [
+// Default messages (fallback if API fails)
+const DEFAULT_MESSAGES = [
     {
         text: "www.bluskyeconsult.com",
         subtext: "Your Trusted Career Platform",
@@ -78,14 +79,37 @@ const messages = [
 ];
 
 export default function CinematicTextAdvert() {
+    const [messages, setMessages] = useState(DEFAULT_MESSAGES);
+    const [loading, setLoading] = useState(true);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [progress, setProgress] = useState(0);
 
+    // Fetch dynamic content from API (optional)
+    useEffect(() => {
+        fetch('/api/marketing/content')
+            .then(res => {
+                if (!res.ok) throw new Error('API failed');
+                return res.json();
+            })
+            .then(data => {
+                if (data && Array.isArray(data) && data.length > 0) {
+                    setMessages(data);
+                }
+                setLoading(false);
+            })
+            .catch(err => {
+                console.warn("Failed to load advert content, using defaults:", err);
+                setLoading(false);
+            });
+    }, []);
+
     const currentMessage = messages[currentIndex];
-    const displayDuration = currentMessage.duration;
+    const displayDuration = currentMessage?.duration || 3500;
 
     useEffect(() => {
+        if (loading || !currentMessage) return;
+        
         let startTime = Date.now();
         let animationFrame;
 
@@ -114,11 +138,18 @@ export default function CinematicTextAdvert() {
 
         return () => {
             clearTimeout(timer);
-            cancelAnimationFrame(animationFrame);
+            if (animationFrame) cancelAnimationFrame(animationFrame);
         };
-    }, [currentIndex, displayDuration]);
+    }, [currentIndex, displayDuration, loading, messages.length, currentMessage]);
 
-    const isUrlMessage = currentMessage.text.includes("bluskyeconsult.com");
+    // Don't render while loading (prevents flash)
+    if (loading) {
+        return (
+            <div className="w-full h-64 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl my-8 animate-pulse" />
+        );
+    }
+
+    const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
     const urlTextStyle = isUrlMessage ? "tracking-wide font-mono text-3xl md:text-5xl lg:text-6xl" : "";
 
     return (
@@ -148,7 +179,7 @@ export default function CinematicTextAdvert() {
             <div className="relative z-30 px-6 py-16 md:py-20 lg:py-24">
                 <div className="max-w-4xl mx-auto text-center">
                     <AnimatePresence mode="wait">
-                        {isVisible && (
+                        {isVisible && currentMessage && (
                             <motion.div
                                 key={currentIndex}
                                 initial={{ opacity: 0, y: 30, filter: "blur(8px)" }}
@@ -167,7 +198,7 @@ export default function CinematicTextAdvert() {
                                     transition={{ duration: 0.4, delay: 0.1, type: "spring", stiffness: 200 }}
                                     className="text-7xl md:text-8xl lg:text-9xl mb-6"
                                 >
-                                    {currentMessage.icon}
+                                    {currentMessage.icon || "✨"}
                                 </motion.div>
                                 
                                 {/* Main text */}
@@ -175,7 +206,7 @@ export default function CinematicTextAdvert() {
                                     initial={{ clipPath: "inset(0 100% 0 0)" }}
                                     animate={{ clipPath: "inset(0 0% 0 0)" }}
                                     transition={{ duration: 0.8, delay: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-                                    className={`text-3xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r ${currentMessage.gradient} bg-clip-text text-transparent tracking-tight ${urlTextStyle}`}
+                                    className={`text-3xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r ${currentMessage.gradient || "from-sky-500 to-blue-600"} bg-clip-text text-transparent tracking-tight ${urlTextStyle}`}
                                 >
                                     {currentMessage.text}
                                 </motion.h2>
@@ -203,27 +234,29 @@ export default function CinematicTextAdvert() {
                 </div>
                 
                 {/* Navigation dots */}
-                <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2">
-                    {messages.map((_, idx) => (
-                        <button
-                            key={idx}
-                            onClick={() => {
-                                setIsVisible(false);
-                                setTimeout(() => {
-                                    setCurrentIndex(idx);
-                                    setProgress(0);
-                                    setIsVisible(true);
-                                }, 300);
-                            }}
-                            className={`transition-all duration-300 rounded-full ${
-                                idx === currentIndex 
-                                    ? 'w-8 h-1.5 bg-sky-500' 
-                                    : 'w-1.5 h-1.5 bg-slate-600 hover:bg-slate-500'
-                            }`}
-                            aria-label={`Go to slide ${idx + 1}`}
-                        />
-                    ))}
-                </div>
+                {messages.length > 1 && (
+                    <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2">
+                        {messages.map((_, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => {
+                                    setIsVisible(false);
+                                    setTimeout(() => {
+                                        setCurrentIndex(idx);
+                                        setProgress(0);
+                                        setIsVisible(true);
+                                    }, 300);
+                                }}
+                                className={`transition-all duration-300 rounded-full ${
+                                    idx === currentIndex 
+                                        ? 'w-8 h-1.5 bg-sky-500' 
+                                        : 'w-1.5 h-1.5 bg-slate-600 hover:bg-slate-500'
+                                }`}
+                                aria-label={`Go to slide ${idx + 1}`}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Vignette effect */}
