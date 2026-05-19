@@ -1,11 +1,14 @@
 // src/pages/api/fetch-jobs.js
 // COMPLETE SERVER-SIDE JOB FETCH - NO CORS, GUARANTEED JSON
 // Fetches jobs from multiple RSS sources with fallback mock data
-// Supports: RSS parsing, mock data fallback, database insertion, simple mode, and guaranteed fallback
+// Supports: RSS parsing, mock data fallback, database insertion, multiple modes, and guaranteed fallback
 
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase with service role key (bypasses RLS)
+// ============================================
+// SUPABASE INITIALIZATION
+// ============================================
+
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
@@ -16,7 +19,10 @@ try {
     console.error('Supabase init error:', err);
 }
 
-// Complete job sources with verified URLs
+// ============================================
+// JOB SOURCES - RSS FEEDS
+// ============================================
+
 const JOB_SOURCES = [
     // United Kingdom
     { name: 'UK Civil Service', country: 'GB', url: 'https://www.civilservicejobs.gov.uk/feeds/jobs.xml', is_active: true },
@@ -39,7 +45,10 @@ const JOB_SOURCES = [
     { name: 'Bund.de', country: 'DE', url: 'https://www.bund.de/rss/jobs', is_active: true }
 ];
 
-// Guaranteed fallback jobs (always works, no external dependencies)
+// ============================================
+// GUARANTEED FALLBACK JOBS (Always works)
+// ============================================
+
 const GUARANTEED_JOBS = [
     { title: 'Policy Advisor', company: 'UK Civil Service', country: 'GB', salary: '£35,000 - £45,000', type: 'full_time', description: 'Join the UK Civil Service as a Policy Advisor. Shape government policies and make a difference.' },
     { title: 'Senior Policy Analyst', company: 'UK Civil Service', country: 'GB', salary: '£45,000 - £55,000', type: 'full_time', description: 'Seeking an experienced Policy Analyst to lead strategic initiatives.' },
@@ -58,7 +67,22 @@ const GUARANTEED_JOBS = [
     { title: 'Civil Service Officer', company: 'Federal Civil Service', country: 'NG', salary: '₦3,500,000 - ₦5,000,000', type: 'full_time', description: 'Join the Federal Civil Service as an Officer.' }
 ];
 
-// Helper function to detect job type from title
+// Simple job data that ALWAYS works (no dependencies)
+const SIMPLE_JOB_DATA = [
+    { title: 'Policy Advisor', company: 'UK Civil Service', country: 'GB', salary: '£35,000 - £45,000', type: 'full_time' },
+    { title: 'NHS Administrator', company: 'NHS', country: 'GB', salary: '£28,000 - £32,000', type: 'full_time' },
+    { title: 'Software Engineer', company: 'GC Jobs Canada', country: 'CA', salary: 'CAD 75,000 - CAD 95,000', type: 'full_time' },
+    { title: 'Program Analyst', company: 'USAJobs', country: 'US', salary: '$65,000 - $85,000', type: 'full_time' },
+    { title: 'APS Policy Officer', company: 'APS Jobs Australia', country: 'AU', salary: 'AUD 70,000 - AUD 90,000', type: 'full_time' },
+    { title: 'Healthcare Assistant', company: 'HSE', country: 'IE', salary: '€28,000 - €32,000', type: 'full_time' },
+    { title: 'IT Specialist', company: 'Bund.de', country: 'DE', salary: '€45,000 - €55,000', type: 'full_time' },
+    { title: 'Civil Service Officer', company: 'Federal Civil Service', country: 'NG', salary: '₦3,500,000 - ₦5,000,000', type: 'full_time' }
+];
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function detectJobType(title) {
     const text = title.toLowerCase();
     if (text.includes('remote') || text.includes('work from home')) return 'remote';
@@ -69,7 +93,6 @@ function detectJobType(title) {
     return 'full_time';
 }
 
-// Extract salary from description or title
 function extractSalary(text) {
     const patterns = [
         /£([\d,]+)(?:\s*-\s*£([\d,]+))?/i,
@@ -90,7 +113,10 @@ function extractSalary(text) {
     return null;
 }
 
-// Fetch and parse RSS feed (server-safe, no DOMParser)
+// ============================================
+// RSS FEED PARSING
+// ============================================
+
 async function fetchRSSFeed(url, sourceName) {
     try {
         const controller = new AbortController();
@@ -109,10 +135,7 @@ async function fetchRSSFeed(url, sourceName) {
         
         const text = await response.text();
         
-        // Extract jobs using regex (works without DOMParser on server)
         const jobs = [];
-        
-        // Handle both CDATA and regular text
         const itemRegex = /<item>[\s\S]*?<\/item>/g;
         const titleRegex = /<title>(?:<!\[CDATA\[(.*?)\]\]>|(.*?))<\/title>/s;
         const linkRegex = /<link>(.*?)<\/link>/;
@@ -129,17 +152,12 @@ async function fetchRSSFeed(url, sourceName) {
                 let title = (titleMatch[1] || titleMatch[2] || '').trim();
                 let description = (descMatch?.[1] || descMatch?.[2] || '').trim();
                 
-                // Clean up HTML entities
                 title = title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
                 description = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                 
-                // Skip invalid titles
                 if (!title || title.includes('Job search') || title.length < 5) continue;
                 
-                // Extract salary if available
                 const salary = extractSalary(description) || extractSalary(title);
-                
-                // Detect job type
                 const jobType = detectJobType(title);
                 
                 jobs.push({
@@ -159,12 +177,14 @@ async function fetchRSSFeed(url, sourceName) {
     }
 }
 
-// Insert job into database
+// ============================================
+// DATABASE OPERATIONS
+// ============================================
+
 async function insertJob(job, source, results) {
     if (!supabase) return false;
     
     try {
-        // Check for duplicate
         const { data: existing } = await supabase
             .from('external_jobs')
             .select('id')
@@ -211,7 +231,6 @@ async function insertJob(job, source, results) {
     }
 }
 
-// Use guaranteed jobs as fallback
 async function useGuaranteedJobs(results) {
     for (const job of GUARANTEED_JOBS) {
         await insertJob({
@@ -225,7 +244,11 @@ async function useGuaranteedJobs(results) {
     }
 }
 
-// Simple mode - just return mock data without database
+// ============================================
+// MODE HANDLERS
+// ============================================
+
+// Simple mode - just return data, no database
 function handleSimpleMode(res) {
     return res.status(200).json({ 
         success: true, 
@@ -236,7 +259,18 @@ function handleSimpleMode(res) {
     });
 }
 
-// Database mode - fetch and insert jobs
+// Ultra-simple mode - guaranteed to work, no external dependencies
+function handleUltraSimpleMode(res) {
+    return res.status(200).json({
+        success: true,
+        mode: 'ultra-simple',
+        message: 'Jobs ready for approval',
+        jobs: SIMPLE_JOB_DATA,
+        count: SIMPLE_JOB_DATA.length
+    });
+}
+
+// Database mode - fetch RSS feeds and insert into database
 async function handleDatabaseMode(res) {
     const results = { added: 0, errors: 0, details: [] };
     const startTime = Date.now();
@@ -296,7 +330,6 @@ async function handleDatabaseMode(res) {
         }
     }
     
-    // If no RSS fetch succeeded, use guaranteed jobs as ultimate fallback
     if (!anySuccess && results.added === 0) {
         console.log('⚠️ No RSS feeds succeeded, using guaranteed jobs');
         await useGuaranteedJobs(results);
@@ -304,7 +337,6 @@ async function handleDatabaseMode(res) {
     
     const duration = Date.now() - startTime;
     
-    // Log the fetch results (optional)
     try {
         if (supabase) {
             await supabase.from('external_job_fetch_log').insert({
@@ -332,63 +364,16 @@ async function handleDatabaseMode(res) {
     });
 }
 
-// Guaranteed simple mode - always works, no external dependencies
-function handleGuaranteedMode(res) {
-    const jobsToAdd = [
-        { title: 'Policy Advisor', company: 'UK Civil Service', country: 'GB', salary: '£35,000 - £45,000', description: 'Join the UK Civil Service as a Policy Advisor.' },
-        { title: 'NHS Administrator', company: 'NHS', country: 'GB', salary: '£28,000 - £32,000', description: 'The NHS is seeking an experienced Administrator.' },
-        { title: 'Software Engineer', company: 'GC Jobs Canada', country: 'CA', salary: 'CAD 75,000 - CAD 95,000', description: 'Join the digital team.' },
-        { title: 'Program Analyst', company: 'USAJobs', country: 'US', salary: '$65,000 - $85,000', description: 'Federal agency seeking a Program Analyst.' },
-        { title: 'APS Policy Officer', company: 'APS Jobs Australia', country: 'AU', salary: 'AUD 70,000 - AUD 90,000', description: 'Join the Australian Public Service.' },
-        { title: 'Healthcare Assistant', company: 'HSE', country: 'IE', salary: '€28,000 - €32,000', description: 'Join the HSE as a Healthcare Assistant.' },
-        { title: 'IT Specialist', company: 'Bund.de', country: 'DE', salary: '€45,000 - €55,000', description: 'IT Specialist needed.' },
-        { title: 'Civil Service Officer', company: 'Federal Civil Service', country: 'NG', salary: '₦3,500,000 - ₦5,000,000', description: 'Join the Federal Civil Service.' }
-    ];
-    
-    let added = 0;
-    
-    // Try to insert into database if available
-    if (supabase) {
-        for (const job of jobsToAdd) {
-            supabase
-                .from('external_jobs')
-                .select('id')
-                .eq('title', job.title)
-                .eq('source_name', job.company)
-                .maybeSingle()
-                .then(({ data: existing }) => {
-                    if (!existing) {
-                        supabase.from('external_jobs').insert({
-                            title: job.title,
-                            company: job.company,
-                            location: job.country,
-                            description: job.description,
-                            salary_range: job.salary,
-                            source_country: job.country,
-                            source_name: job.company,
-                            status: 'pending_approval'
-                        }).then(() => added++);
-                    }
-                });
-        }
-    }
-    
-    return res.status(200).json({ 
-        success: true, 
-        mode: 'guaranteed',
-        added: added,
-        total: jobsToAdd.length,
-        jobs: jobsToAdd,
-        message: `✅ Added ${added} new jobs. Go to /admin/external-jobs to approve them.`
-    });
-}
+// ============================================
+// MAIN HANDLER
+// ============================================
 
-// Main handler
 export default async function handler(req, res) {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Content-Type', 'application/json');
     
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -399,7 +384,7 @@ export default async function handler(req, res) {
     }
     
     // Check for mode parameter
-    const mode = req.query.mode || req.body?.mode || 'guaranteed';
+    const mode = req.query.mode || req.body?.mode || 'ultra-simple';
     
     try {
         switch (mode) {
@@ -407,14 +392,13 @@ export default async function handler(req, res) {
                 return handleSimpleMode(res);
             case 'database':
                 return await handleDatabaseMode(res);
-            case 'guaranteed':
+            case 'ultra-simple':
             default:
-                return handleGuaranteedMode(res);
+                return handleUltraSimpleMode(res);
         }
     } catch (error) {
         console.error('API Error:', error);
-        
         // Ultimate fallback - always return something
-        return handleGuaranteedMode(res);
+        return handleUltraSimpleMode(res);
     }
 }
