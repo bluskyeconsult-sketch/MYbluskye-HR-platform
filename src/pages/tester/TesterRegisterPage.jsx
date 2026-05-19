@@ -1,5 +1,6 @@
 // src/pages/tester/TesterRegisterPage.jsx
 // COMPLETE TESTER REGISTRATION PAGE - Master invite code system with usage tracking
+// Features: Master invite code (TESTER2026), usage tracking, admin panel, password strength, email validation
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -256,7 +257,9 @@ export default function TesterRegisterPage() {
                     is_tester: true,
                     tester_expires_at: testerExpiry.toISOString(),
                     tier: 'free',
-                    full_name: formData.full_name
+                    full_name: formData.full_name,
+                    country_code: 'GB',
+                    updated_at: new Date().toISOString()
                 })
                 .eq('id', authData.user.id);
             
