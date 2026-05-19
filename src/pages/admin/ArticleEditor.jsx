@@ -1,10 +1,16 @@
 // src/pages/admin/ArticleEditor.jsx
-// COMPLETE ARTICLE EDITOR - With AI generation, markdown support, and SEO optimization
+// COMPLETE ARTICLE EDITOR - With AI generation, markdown support, SEO optimization, and content improvement
+// Features: AI article generation, AI content improvement, SEO title generation, markdown preview, tags, categories
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
-import { Save, Eye, Send, X, Plus, Trash2, Sparkles, Loader2, Copy, Check, RefreshCw, FileText, Tag, Calendar, User } from 'lucide-react';
+import { 
+    Save, Eye, Send, X, Plus, Trash2, Sparkles, Loader2, 
+    Copy, Check, RefreshCw, FileText, Tag, Calendar, User, 
+    Edit, Clock, Wand2, Globe, Hash, Image as ImageIcon, 
+    AlertCircle, CheckCircle
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -34,11 +40,13 @@ export default function ArticleEditor() {
     const [saving, setSaving] = useState(false);
     const [preview, setPreview] = useState(false);
     const [aiGenerating, setAiGenerating] = useState(false);
+    const [aiImproving, setAiImproving] = useState(false);
     const [aiTopic, setAiTopic] = useState('');
     const [showAIPanel, setShowAIPanel] = useState(false);
     const [copied, setCopied] = useState(false);
     const [wordCount, setWordCount] = useState(0);
     const [readTime, setReadTime] = useState(0);
+    const [notificationSent, setNotificationSent] = useState(false);
 
     useEffect(() => {
         if (id && id !== 'new') {
@@ -48,9 +56,9 @@ export default function ArticleEditor() {
 
     useEffect(() => {
         // Update word count and read time
-        const words = article.content.trim().split(/\s+/).length;
+        const words = article.content.trim().split(/\s+/).filter(w => w.length > 0).length;
         setWordCount(words);
-        setReadTime(Math.max(1, Math.ceil(words / 200))); // 200 words per minute
+        setReadTime(Math.max(1, Math.ceil(words / 200)));
     }, [article.content]);
 
     async function loadArticle() {
@@ -63,6 +71,7 @@ export default function ArticleEditor() {
         
         if (error) {
             console.error('Error loading article:', error);
+            alert('Error loading article: ' + error.message);
         } else if (data) {
             setArticle(data);
         }
@@ -105,7 +114,6 @@ export default function ArticleEditor() {
             
             result = { error };
             if (!error && data) {
-                // Update URL with new ID
                 navigate(`/admin/articles/${data[0].id}`, { replace: true });
             }
         }
@@ -113,11 +121,11 @@ export default function ArticleEditor() {
         if (result.error) {
             alert('Error saving article: ' + result.error.message);
         } else {
-            const message = publish ? 'Article published successfully!' : 'Article saved as draft';
+            const message = publish ? '✅ Article published successfully!' : '✅ Article saved as draft';
             alert(message);
             
-            if (publish && article.send_notification) {
-                // Trigger notification sending
+            if (publish && article.send_notification && !notificationSent) {
+                setNotificationSent(true);
                 await sendNotification(articleData);
             }
             
@@ -128,19 +136,22 @@ export default function ArticleEditor() {
 
     async function sendNotification(articleData) {
         try {
-            await supabase.functions.invoke('send-article-notification', {
+            const { error } = await supabase.functions.invoke('send-article-notification', {
                 body: {
-                    articleId: id,
+                    articleId: id || articleData.id,
                     title: articleData.title,
                     excerpt: articleData.excerpt,
                     slug: articleData.slug
                 }
             });
+            if (error) throw error;
+            console.log('Notification sent successfully');
         } catch (error) {
             console.error('Failed to send notifications:', error);
         }
     }
 
+    // AI: Generate Article
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
@@ -149,7 +160,6 @@ export default function ArticleEditor() {
         
         setAiGenerating(true);
         try {
-            // Call AI service to generate content
             const response = await fetch('/api/ai/generate-article', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -169,27 +179,28 @@ export default function ArticleEditor() {
                     content: data.content,
                     excerpt: data.excerpt || data.content.substring(0, 160)
                 });
-                alert('Article generated successfully!');
+                alert('✅ Article generated successfully!');
                 setShowAIPanel(false);
                 setAiTopic('');
             } else {
-                throw new Error(data.error);
+                throw new Error(data.error || 'Generation failed');
             }
         } catch (error) {
             console.error('AI generation error:', error);
-            alert('Failed to generate article: ' + error.message);
+            alert('❌ Failed to generate article: ' + error.message);
         } finally {
             setAiGenerating(false);
         }
     }
 
+    // AI: Improve Content
     async function handleImproveContent() {
         if (!article.content.trim()) {
-            alert('Please write some content first');
+            alert('Please add some content first');
             return;
         }
         
-        setAiGenerating(true);
+        setAiImproving(true);
         try {
             const response = await fetch('/api/ai/improve-article', {
                 method: 'POST',
@@ -204,21 +215,26 @@ export default function ArticleEditor() {
             
             if (data.success) {
                 setArticle({ ...article, content: data.content });
-                alert('Content improved!');
+                alert('✅ Content improved successfully!');
             } else {
-                throw new Error(data.error);
+                throw new Error(data.error || 'Improvement failed');
             }
         } catch (error) {
             console.error('AI improvement error:', error);
-            alert('Failed to improve content: ' + error.message);
+            alert('❌ Failed to improve content: ' + error.message);
         } finally {
-            setAiGenerating(false);
+            setAiImproving(false);
         }
     }
 
+    // AI: Generate SEO Title
     async function generateSEOTitle() {
-        if (!article.title) return;
+        if (!article.title) {
+            alert('Please enter a title first');
+            return;
+        }
         
+        setAiGenerating(true);
         try {
             const response = await fetch('/api/ai/generate-seo-title', {
                 method: 'POST',
@@ -227,15 +243,22 @@ export default function ArticleEditor() {
             });
             
             const data = await response.json();
-            if (data.success) {
+            if (data.success && data.seo_title) {
                 setArticle({ ...article, seo_title: data.seo_title });
+                alert('✅ SEO title generated!');
+            } else {
+                throw new Error(data.error || 'Generation failed');
             }
         } catch (error) {
             console.error('SEO title generation error:', error);
+            alert('❌ Failed to generate SEO title: ' + error.message);
+        } finally {
+            setAiGenerating(false);
         }
     }
 
     function copyToClipboard(text) {
+        if (!text) return;
         navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -262,7 +285,9 @@ export default function ArticleEditor() {
         'Remote Work',
         'Diversity & Inclusion',
         'Leadership',
-        'Recruitment'
+        'Recruitment',
+        'Productivity',
+        'Wellness'
     ];
 
     if (loading) {
@@ -272,6 +297,8 @@ export default function ArticleEditor() {
             </div>
         );
     }
+
+    const isAiLoading = aiGenerating || aiImproving;
 
     return (
         <div className="min-h-screen bg-slate-950">
@@ -338,7 +365,7 @@ export default function ArticleEditor() {
                                 <Sparkles className="w-4 h-4 text-purple-400" />
                                 AI Content Assistant
                             </h3>
-                            <button onClick={() => setShowAIPanel(false)} className="text-slate-400 hover:text-white">
+                            <button onClick={() => setShowAIPanel(false)} className="text-slate-400 hover:text-white transition">
                                 <X className="w-4 h-4" />
                             </button>
                         </div>
@@ -351,27 +378,39 @@ export default function ArticleEditor() {
                                         value={aiTopic}
                                         onChange={(e) => setAiTopic(e.target.value)}
                                         placeholder="e.g., Future of Remote Work in 2024"
-                                        className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                                        className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                     <button
                                         onClick={handleAIGenerate}
-                                        disabled={aiGenerating}
+                                        disabled={isAiLoading}
                                         className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition disabled:opacity-50"
+                                        title="Generate full article"
                                     >
-                                        {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                        {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                                     </button>
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-sm text-slate-300 mb-2">Improve Existing Content</label>
-                                <button
-                                    onClick={handleImproveContent}
-                                    disabled={aiGenerating || !article.content}
-                                    className="w-full px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    <RefreshCw className="w-4 h-4" />
-                                    Improve Clarity & Grammar
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleImproveContent}
+                                        disabled={isAiLoading || !article.content}
+                                        className="flex-1 px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        {aiImproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                        Improve Clarity & Grammar
+                                    </button>
+                                    <button
+                                        onClick={generateSEOTitle}
+                                        disabled={isAiLoading || !article.title}
+                                        className="px-3 py-2 bg-emerald-600/20 text-emerald-400 rounded-lg hover:bg-emerald-600/30 transition disabled:opacity-50 flex items-center gap-1 text-sm"
+                                        title="Generate SEO Title"
+                                    >
+                                        <Globe className="w-4 h-4" />
+                                        SEO
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -391,7 +430,7 @@ export default function ArticleEditor() {
                                     slug: generateSlug(e.target.value),
                                     seo_title: e.target.value
                                 })}
-                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500 text-lg"
+                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg"
                                 placeholder="Article title..."
                             />
                         </div>
@@ -405,12 +444,13 @@ export default function ArticleEditor() {
                                         type="text"
                                         value={article.slug}
                                         onChange={(e) => setArticle({ ...article, slug: e.target.value })}
-                                        className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500 font-mono text-sm"
+                                        className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono text-sm"
                                         placeholder="url-friendly-title"
                                     />
                                     <button
                                         onClick={() => copyToClipboard(article.slug)}
-                                        className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700"
+                                        className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition"
+                                        title="Copy slug"
                                     >
                                         {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                                     </button>
@@ -423,12 +463,13 @@ export default function ArticleEditor() {
                                         type="text"
                                         value={article.seo_title}
                                         onChange={(e) => setArticle({ ...article, seo_title: e.target.value })}
-                                        className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500"
+                                        className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                                         placeholder="SEO optimized title"
                                     />
                                     <button
                                         onClick={generateSEOTitle}
-                                        className="px-3 py-2 bg-purple-600/20 text-purple-400 rounded-lg hover:bg-purple-600/30"
+                                        disabled={isAiLoading || !article.title}
+                                        className="px-3 py-2 bg-purple-600/20 text-purple-400 rounded-lg hover:bg-purple-600/30 transition disabled:opacity-50"
                                         title="Generate SEO Title"
                                     >
                                         <Sparkles className="w-4 h-4" />
@@ -446,7 +487,7 @@ export default function ArticleEditor() {
                                 rows={2}
                                 value={article.excerpt}
                                 onChange={(e) => setArticle({ ...article, excerpt: e.target.value.slice(0, 160) })}
-                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500"
+                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 placeholder="Brief summary of the article..."
                             />
                         </div>
@@ -458,7 +499,7 @@ export default function ArticleEditor() {
                                 <select
                                     value={article.category}
                                     onChange={(e) => setArticle({ ...article, category: e.target.value })}
-                                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500"
+                                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 >
                                     <option value="">Select category</option>
                                     {categories.map(cat => (
@@ -472,7 +513,7 @@ export default function ArticleEditor() {
                                     type="text"
                                     value={article.author}
                                     onChange={(e) => setArticle({ ...article, author: e.target.value })}
-                                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500"
+                                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 />
                             </div>
                         </div>
@@ -486,7 +527,7 @@ export default function ArticleEditor() {
                                     value={tagInput}
                                     onChange={(e) => setTagInput(e.target.value)}
                                     onKeyPress={(e) => e.key === 'Enter' && addTag()}
-                                    className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                                    className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                                     placeholder="Add tag..."
                                 />
                                 <button
@@ -499,8 +540,9 @@ export default function ArticleEditor() {
                             <div className="flex flex-wrap gap-2">
                                 {article.tags.map(tag => (
                                     <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-full text-sm text-slate-300">
+                                        <Hash className="w-3 h-3" />
                                         {tag}
-                                        <button onClick={() => removeTag(tag)} className="hover:text-red-400">
+                                        <button onClick={() => removeTag(tag)} className="hover:text-red-400 transition">
                                             <X className="w-3 h-3" />
                                         </button>
                                     </span>
@@ -511,13 +553,24 @@ export default function ArticleEditor() {
                         {/* Featured Image URL */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Featured Image URL</label>
-                            <input
-                                type="text"
-                                value={article.featured_image}
-                                onChange={(e) => setArticle({ ...article, featured_image: e.target.value })}
-                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-primary-500"
-                                placeholder="https://example.com/image.jpg"
-                            />
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={article.featured_image}
+                                    onChange={(e) => setArticle({ ...article, featured_image: e.target.value })}
+                                    className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    placeholder="https://example.com/image.jpg"
+                                />
+                                {article.featured_image && (
+                                    <button
+                                        onClick={() => window.open(article.featured_image, '_blank')}
+                                        className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition"
+                                        title="Preview image"
+                                    >
+                                        <ImageIcon className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Content */}
@@ -529,16 +582,17 @@ export default function ArticleEditor() {
                                 rows={15}
                                 value={article.content}
                                 onChange={(e) => setArticle({ ...article, content: e.target.value })}
-                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-primary-500"
+                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 placeholder="Write your article content here... Use markdown for formatting."
                             />
-                            <div className="mt-2 text-right">
+                            <div className="mt-2 flex justify-end gap-2">
                                 <button
                                     onClick={handleImproveContent}
-                                    disabled={aiGenerating || !article.content}
-                                    className="text-xs text-purple-400 hover:text-purple-300 transition"
+                                    disabled={isAiLoading || !article.content}
+                                    className="text-xs text-purple-400 hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-1"
                                 >
-                                    ✨ Improve with AI
+                                    {aiImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                    Improve with AI
                                 </button>
                             </div>
                         </div>
@@ -552,7 +606,7 @@ export default function ArticleEditor() {
                                 onChange={(e) => setArticle({ ...article, send_notification: e.target.checked })}
                                 className="w-4 h-4 rounded border-slate-600 text-primary-500 focus:ring-primary-500"
                             />
-                            <label htmlFor="send_notification" className="text-slate-300">
+                            <label htmlFor="send_notification" className="text-slate-300 text-sm">
                                 Send email notification to subscribers when published
                             </label>
                         </div>
@@ -562,8 +616,8 @@ export default function ArticleEditor() {
                         {article.featured_image && (
                             <img src={article.featured_image} alt={article.title} className="rounded-xl mb-6 w-full" />
                         )}
-                        <h1>{article.title}</h1>
-                        <div className="flex items-center gap-4 text-sm text-slate-400 mb-6 pb-4 border-b border-slate-800">
+                        <h1 className="text-3xl font-bold">{article.title}</h1>
+                        <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400 mb-6 pb-4 border-b border-slate-800">
                             <span className="flex items-center gap-1">
                                 <User className="w-3 h-3" /> {article.author}
                             </span>
@@ -573,9 +627,14 @@ export default function ArticleEditor() {
                             <span className="flex items-center gap-1">
                                 <Clock className="w-3 h-3" /> {readTime} min read
                             </span>
+                            {article.category && (
+                                <span className="flex items-center gap-1">
+                                    <Tag className="w-3 h-3" /> {article.category}
+                                </span>
+                            )}
                         </div>
                         <div className="whitespace-pre-wrap">
-                            <ReactMarkdown>{article.content}</ReactMarkdown>
+                            <ReactMarkdown>{article.content || '*No content yet*'}</ReactMarkdown>
                         </div>
                     </div>
                 )}
@@ -583,6 +642,3 @@ export default function ArticleEditor() {
         </div>
     );
 }
-
-// Import missing icons
-import { Edit, Clock } from 'lucide-react';
