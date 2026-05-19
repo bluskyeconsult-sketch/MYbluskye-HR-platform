@@ -1,6 +1,6 @@
 // src/pages/admin/ArticleEditor.jsx
-// COMPLETE ARTICLE EDITOR - With AI generation, markdown support, SEO optimization, and content improvement
-// Features: AI article generation, AI content improvement, SEO title generation, markdown preview, tags, categories
+// COMPLETE ARTICLE EDITOR - With AI generation, markdown support, SEO optimization, content improvement, and fallback handling
+// Features: AI article generation, AI content improvement, SEO title generation, markdown preview, tags, categories, fallback improvements
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,13 +9,92 @@ import {
     Save, Eye, Send, X, Plus, Trash2, Sparkles, Loader2, 
     Copy, Check, RefreshCw, FileText, Tag, Calendar, User, 
     Edit, Clock, Wand2, Globe, Hash, Image as ImageIcon, 
-    AlertCircle, CheckCircle
+    AlertCircle, CheckCircle, WifiOff
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// ============================================
+// FALLBACK FUNCTIONS (When AI API is unavailable)
+// ============================================
+
+function fallbackImproveContent(text) {
+    if (!text || text.trim().length === 0) return text;
+    
+    let improved = text;
+    
+    // 1. Capitalize first letter of sentences
+    improved = improved.replace(/([.!?])\s*([a-z])/g, (match, p1, p2) => `${p1} ${p2.toUpperCase()}`);
+    improved = improved.charAt(0).toUpperCase() + improved.slice(1);
+    
+    // 2. Fix multiple spaces
+    improved = improved.replace(/\s+/g, ' ');
+    
+    // 3. Fix spaces before punctuation
+    improved = improved.replace(/\s+([.,!?:;])/g, '$1');
+    
+    // 4. Add paragraph breaks for long text
+    if (improved.length > 500 && !improved.includes('\n\n')) {
+        const sentences = improved.split('. ');
+        if (sentences.length > 3) {
+            const midPoint = Math.floor(sentences.length / 2);
+            improved = sentences.slice(0, midPoint).join('. ') + '.\n\n' + sentences.slice(midPoint).join('. ');
+        }
+    }
+    
+    // 5. Fix common typos
+    const commonTypos = {
+        'teh': 'the',
+        'adn': 'and',
+        'wih': 'with',
+        'thier': 'their',
+        'recieve': 'receive',
+        'acheive': 'achieve'
+    };
+    
+    for (const [wrong, correct] of Object.entries(commonTypos)) {
+        improved = improved.replace(new RegExp(wrong, 'gi'), correct);
+    }
+    
+    return improved;
+}
+
+function fallbackGenerateSEOTitle(title) {
+    if (!title) return '';
+    
+    // Remove special characters and trim
+    let seoTitle = title.replace(/[^\w\s]/g, '').trim();
+    
+    // Limit to 60 characters
+    if (seoTitle.length > 60) {
+        seoTitle = seoTitle.substring(0, 57) + '...';
+    }
+    
+    return seoTitle;
+}
+
+function fallbackGenerateArticle(topic) {
+    const templates = {
+        default: `# ${topic}\n\n## Introduction\n\n${topic} is becoming increasingly important in today's fast-paced environment. This article explores the key aspects, benefits, and practical applications.\n\n## Key Benefits\n\n- **Increased efficiency**: Streamline processes and save time\n- **Better outcomes**: Achieve superior results with proven methods\n- **Cost effectiveness**: Reduce expenses while maintaining quality\n\n## Implementation Steps\n\n1. Assess your current situation\n2. Identify opportunities for improvement\n3. Develop a strategic plan\n4. Execute with precision\n5. Monitor and adjust as needed\n\n## Best Practices\n\n### Do's\n- Start with clear objectives\n- Engage stakeholders early\n- Measure progress regularly\n\n### Don'ts\n- Rush the planning phase\n- Ignore feedback from users\n- Overlook training requirements\n\n## Conclusion\n\n${topic} offers tremendous opportunities for those willing to embrace change and innovation. Start your journey today!`,
+        
+        technology: `# ${topic}\n\n## The Evolution of ${topic}\n\nThe technology landscape has transformed dramatically over the past decade, with ${topic} emerging as a game-changer.\n\n## Key Trends in ${topic}\n\n- **Artificial Intelligence Integration**: AI is revolutionizing how we approach ${topic.toLowerCase()}\n- **Cloud Computing**: Scalable solutions for modern challenges\n- **Data-Driven Decisions**: Leveraging analytics for better outcomes\n\n## Future Outlook\n\nThe future of ${topic} looks promising, with continued innovation and adoption expected across industries.\n\n## Getting Started\n\n1. Research available tools and platforms\n2. Start with a pilot project\n3. Scale based on results\n4. Continuously optimize your approach\n\n## Conclusion\n\n${topic} represents the next frontier of digital transformation. Stay ahead of the curve by embracing these technologies today.`,
+        
+        remote: `# ${topic}\n\n## The Rise of ${topic}\n\nRemote work has revolutionized how we think about productivity, work-life balance, and organizational culture.\n\n## Benefits of ${topic}\n\n- **Flexible schedules**: Work when you're most productive\n- **Reduced commute**: Save time and reduce stress\n- **Global talent pool**: Access the best talent anywhere\n\n## Challenges and Solutions\n\n### Communication\nUse tools like Slack, Zoom, and Teams to stay connected\n\n### Collaboration\nImplement project management platforms like Asana or Trello\n\n### Culture\nBuild virtual team-building activities and regular check-ins\n\n## Best Practices for Success\n\n1. Establish clear communication protocols\n2. Set measurable goals and KPIs\n3. Provide necessary tools and equipment\n4. Schedule regular team meetings\n5. Recognize and celebrate achievements\n\n## Conclusion\n\n${topic} is here to stay. Organizations that adapt effectively will thrive in this new era of work.`
+    };
+    
+    const topicLower = topic.toLowerCase();
+    
+    if (topicLower.includes('tech') || topicLower.includes('ai') || topicLower.includes('software')) {
+        return templates.technology;
+    } else if (topicLower.includes('remote') || topicLower.includes('work from home') || topicLower.includes('distributed')) {
+        return templates.remote;
+    }
+    
+    return templates.default;
+}
 
 export default function ArticleEditor() {
     const { id } = useParams();
@@ -47,6 +126,7 @@ export default function ArticleEditor() {
     const [wordCount, setWordCount] = useState(0);
     const [readTime, setReadTime] = useState(0);
     const [notificationSent, setNotificationSent] = useState(false);
+    const [aiFallbackUsed, setAiFallbackUsed] = useState(false);
 
     useEffect(() => {
         if (id && id !== 'new') {
@@ -60,6 +140,14 @@ export default function ArticleEditor() {
         setWordCount(words);
         setReadTime(Math.max(1, Math.ceil(words / 200)));
     }, [article.content]);
+
+    // Reset fallback flag after 3 seconds
+    useEffect(() => {
+        if (aiFallbackUsed) {
+            const timer = setTimeout(() => setAiFallbackUsed(false), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [aiFallbackUsed]);
 
     async function loadArticle() {
         setLoading(true);
@@ -151,7 +239,7 @@ export default function ArticleEditor() {
         }
     }
 
-    // AI: Generate Article
+    // AI: Generate Article (with fallback)
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
@@ -159,6 +247,8 @@ export default function ArticleEditor() {
         }
         
         setAiGenerating(true);
+        setAiFallbackUsed(false);
+        
         try {
             const response = await fetch('/api/ai/generate-article', {
                 method: 'POST',
@@ -169,6 +259,10 @@ export default function ArticleEditor() {
                     length: 'medium'
                 })
             });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
             
             const data = await response.json();
             
@@ -187,13 +281,24 @@ export default function ArticleEditor() {
             }
         } catch (error) {
             console.error('AI generation error:', error);
-            alert('❌ Failed to generate article: ' + error.message);
+            // Use fallback
+            const fallbackContent = fallbackGenerateArticle(aiTopic);
+            setArticle({
+                ...article,
+                title: aiTopic,
+                content: fallbackContent,
+                excerpt: fallbackContent.substring(0, 160)
+            });
+            setAiFallbackUsed(true);
+            alert('⚠️ AI service unavailable. Used template-based generation instead.');
+            setShowAIPanel(false);
+            setAiTopic('');
         } finally {
             setAiGenerating(false);
         }
     }
 
-    // AI: Improve Content
+    // AI: Improve Content (with fallback)
     async function handleImproveContent() {
         if (!article.content.trim()) {
             alert('Please add some content first');
@@ -201,6 +306,8 @@ export default function ArticleEditor() {
         }
         
         setAiImproving(true);
+        setAiFallbackUsed(false);
+        
         try {
             const response = await fetch('/api/ai/improve-article', {
                 method: 'POST',
@@ -210,6 +317,10 @@ export default function ArticleEditor() {
                     improvement_type: 'clarity'
                 })
             });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
             
             const data = await response.json();
             
@@ -221,13 +332,17 @@ export default function ArticleEditor() {
             }
         } catch (error) {
             console.error('AI improvement error:', error);
-            alert('❌ Failed to improve content: ' + error.message);
+            // Use fallback
+            const improvedContent = fallbackImproveContent(article.content);
+            setArticle({ ...article, content: improvedContent });
+            setAiFallbackUsed(true);
+            alert('⚠️ AI service unavailable. Used basic text improvement instead.');
         } finally {
             setAiImproving(false);
         }
     }
 
-    // AI: Generate SEO Title
+    // AI: Generate SEO Title (with fallback)
     async function generateSEOTitle() {
         if (!article.title) {
             alert('Please enter a title first');
@@ -235,12 +350,18 @@ export default function ArticleEditor() {
         }
         
         setAiGenerating(true);
+        setAiFallbackUsed(false);
+        
         try {
             const response = await fetch('/api/ai/generate-seo-title', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title: article.title })
             });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
             
             const data = await response.json();
             if (data.success && data.seo_title) {
@@ -251,7 +372,11 @@ export default function ArticleEditor() {
             }
         } catch (error) {
             console.error('SEO title generation error:', error);
-            alert('❌ Failed to generate SEO title: ' + error.message);
+            // Use fallback
+            const fallbackTitle = fallbackGenerateSEOTitle(article.title);
+            setArticle({ ...article, seo_title: fallbackTitle });
+            setAiFallbackUsed(true);
+            alert('⚠️ AI service unavailable. Used basic title optimization instead.');
         } finally {
             setAiGenerating(false);
         }
@@ -356,6 +481,16 @@ export default function ArticleEditor() {
                         </button>
                     </div>
                 </div>
+
+                {/* AI Fallback Warning Banner */}
+                {aiFallbackUsed && (
+                    <div className="mb-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
+                        <WifiOff className="w-4 h-4 text-amber-400" />
+                        <p className="text-amber-400 text-sm">
+                            ⚠️ AI service is currently unavailable. Using fallback mode with basic improvements.
+                        </p>
+                    </div>
+                )}
 
                 {/* AI Panel */}
                 {showAIPanel && !preview && (
