@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
-    Bot, Bell, Briefcase, BookOpen, User, Settings, 
+    Bot, Bell, Briefcase, BookOpen, User, 
     FileText, Award, TrendingUp, Loader2, AlertCircle,
     CheckCircle, Clock, Star, Users, MessageCircle
 } from 'lucide-react';
@@ -63,7 +63,7 @@ export default function UserDashboard() {
             .insert({
                 id: userId,
                 email: userEmail,
-                user_type: 'registered',
+                user_type: 'job_seeker',
                 tier: 'free',
                 country_code: 'GB',
                 created_at: new Date().toISOString(),
@@ -126,7 +126,7 @@ export default function UserDashboard() {
                     const { data } = await supabase
                         .from('engagements')
                         .select('id')
-                        .eq('employer_id', user.id)
+                        .eq('user_id', user.id)
                         .eq('status', 'active');
                     return data?.length || 0;
                 }, 2, 0),
@@ -292,7 +292,7 @@ export default function UserDashboard() {
                     </div>
                 </div>
 
-                {/* Stats Cards - Row 2 (if applicable) */}
+                {/* Stats Cards - Row 2 (conditional) */}
                 {(stats.activeEngagements > 0 || stats.enrolledCoursesCount > 0) && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                         {stats.activeEngagements > 0 && (
