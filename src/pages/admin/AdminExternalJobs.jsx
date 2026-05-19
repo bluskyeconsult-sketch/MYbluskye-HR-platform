@@ -1,12 +1,13 @@
 // src/pages/admin/AdminExternalJobs.jsx
-// COMPLETE ADMIN EXTERNAL JOBS PAGE
+// COMPLETE ADMIN EXTERNAL JOBS PAGE - With server-side fetch and batch approval
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
     Briefcase, CheckCircle, XCircle, Eye, RefreshCw, 
     AlertCircle, ExternalLink, Loader2, Clock, MapPin, 
-    DollarSign, Building2, Database, Wifi, Download
+    DollarSign, Building2, Database, Wifi, Download,
+    Globe, Zap, Shield, TrendingUp
 } from 'lucide-react';
 import { 
     getPendingExternalJobs, 
@@ -29,15 +30,36 @@ export default function AdminExternalJobs() {
     const [batchProcessing, setBatchProcessing] = useState(false);
     const [fetchResult, setFetchResult] = useState(null);
     const [user, setUser] = useState(null);
+    const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
 
     useEffect(() => {
         getUser();
         loadPendingJobs();
+        loadStats();
     }, []);
 
     async function getUser() {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
+    }
+
+    async function loadStats() {
+        const { count: pending } = await supabase
+            .from('external_jobs')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_approval');
+        
+        const { count: approved } = await supabase
+            .from('external_jobs')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'approved');
+        
+        const { count: rejected } = await supabase
+            .from('external_jobs')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'rejected');
+        
+        setStats({ pending: pending || 0, approved: approved || 0, rejected: rejected || 0 });
     }
 
     async function loadPendingJobs() {
@@ -46,6 +68,7 @@ export default function AdminExternalJobs() {
             const data = await getPendingExternalJobs();
             setJobs(data);
             setFetchResult(null);
+            await loadStats();
         } catch (error) {
             console.error('Error loading pending jobs:', error);
             alert('Error loading pending jobs: ' + error.message);
@@ -60,11 +83,31 @@ export default function AdminExternalJobs() {
         try {
             const result = await fetchExternalJobs();
             setFetchResult(result);
-            alert(`Job fetch completed!\nAdded: ${result.totalAdded}\nExisting: ${result.results?.filter(r => r.status === 'exists').length || 0}\nErrors: ${result.results?.filter(r => r.status === 'error').length || 0}`);
+            alert(`✅ Job fetch completed!\nAdded: ${result.totalAdded}\nExisting: ${result.results?.filter(r => r.status === 'exists').length || 0}\nErrors: ${result.results?.filter(r => r.status === 'error').length || 0}`);
             await loadPendingJobs();
         } catch (error) {
             console.error('Fetch error:', error);
-            alert('Error fetching jobs: ' + error.message);
+            alert('❌ Error fetching jobs: ' + error.message);
+        } finally {
+            setFetching(false);
+        }
+    }
+
+    async function handleServerFetch() {
+        setFetching(true);
+        setFetchResult(null);
+        try {
+            const response = await fetch('/api/fetch-jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            setFetchResult({ success: true, totalAdded: data.fetched || 0 });
+            alert(`✅ Server fetch completed!\nFetched: ${data.fetched || 0} new jobs`);
+            await loadPendingJobs();
+        } catch (error) {
+            console.error('Server fetch error:', error);
+            alert('❌ Server fetch failed: ' + error.message);
         } finally {
             setFetching(false);
         }
@@ -145,7 +188,7 @@ export default function AdminExternalJobs() {
 
     function getCountryFlag(countryCode) {
         const flags = {
-            GB: '🇬🇧', NG: '🇳🇬', IE: '🇮🇪', CA: '🇨🇦', US: '🇺🇸', DE: '🇩🇪', AU: '🇦🇺'
+            GB: '🇬🇧', NG: '🇳🇬', IE: '🇮🇪', CA: '🇨🇦', US: '🇺🇸', DE: '🇩🇪', AU: '🇦🇺', FR: '🇫🇷', ES: '🇪🇸', IT: '🇮🇹'
         };
         return flags[countryCode] || '🌍';
     }
@@ -187,17 +230,27 @@ export default function AdminExternalJobs() {
                             External Jobs Approval
                         </h1>
                         <p className="text-slate-400">
-                            Review and approve jobs from authoritative government sources across 7 countries
+                            Review and approve jobs from authoritative government sources across 7+ countries
                         </p>
                     </div>
-                    <div className="flex gap-2 mt-4 sm:mt-0">
+                    <div className="flex gap-2 mt-4 sm:mt-0 flex-wrap">
                         <button
                             onClick={handleFetchJobs}
                             disabled={fetching}
-                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Fetch from RSS feeds"
                         >
-                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                            {fetching ? 'Fetching...' : 'Fetch New Jobs'}
+                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                            {fetching ? 'Fetching...' : 'Fetch RSS'}
+                        </button>
+                        <button
+                            onClick={handleServerFetch}
+                            disabled={fetching}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            title="Fetch from server API"
+                        >
+                            {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                            {fetching ? 'Fetching...' : 'Fetch Live Jobs'}
                         </button>
                         <button
                             onClick={handleBatchApprove}
@@ -211,19 +264,19 @@ export default function AdminExternalJobs() {
                 </div>
 
                 {/* Fetch Result Banner */}
-                {fetchResult && (
-                    <div className="mb-6 p-4 bg-primary-500/10 border border-primary-500/20 rounded-lg">
-                        <p className="text-primary-400">✅ Fetch completed: {fetchResult.totalAdded} new jobs added</p>
+                {fetchResult && fetchResult.success && (
+                    <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                        <p className="text-emerald-400">✅ Fetch completed: {fetchResult.totalAdded} new jobs added</p>
                     </div>
                 )}
 
                 {/* Stats Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center gap-3">
                             <Clock className="w-6 h-6 text-amber-400" />
                             <div>
-                                <div className="text-2xl font-bold text-white">{jobs.length}</div>
+                                <div className="text-2xl font-bold text-white">{stats.pending}</div>
                                 <div className="text-sm text-slate-400">Pending Approval</div>
                             </div>
                         </div>
@@ -232,7 +285,7 @@ export default function AdminExternalJobs() {
                         <div className="flex items-center gap-3">
                             <Building2 className="w-6 h-6 text-primary-400" />
                             <div>
-                                <div className="text-2xl font-bold text-white">7</div>
+                                <div className="text-2xl font-bold text-white">7+</div>
                                 <div className="text-sm text-slate-400">Countries</div>
                             </div>
                         </div>
@@ -241,8 +294,17 @@ export default function AdminExternalJobs() {
                         <div className="flex items-center gap-3">
                             <CheckCircle className="w-6 h-6 text-emerald-400" />
                             <div>
-                                <div className="text-2xl font-bold text-white">Authoritative</div>
-                                <div className="text-sm text-slate-400">Government Sources</div>
+                                <div className="text-2xl font-bold text-white">{stats.approved}</div>
+                                <div className="text-sm text-slate-400">Approved</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center gap-3">
+                            <XCircle className="w-6 h-6 text-red-400" />
+                            <div>
+                                <div className="text-2xl font-bold text-white">{stats.rejected}</div>
+                                <div className="text-sm text-slate-400">Rejected</div>
                             </div>
                         </div>
                     </div>
@@ -254,13 +316,22 @@ export default function AdminExternalJobs() {
                         <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
                         <p className="text-slate-400">All external jobs have been reviewed.</p>
-                        <button
-                            onClick={handleFetchJobs}
-                            disabled={fetching}
-                            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                        >
-                            Fetch New Jobs
-                        </button>
+                        <div className="mt-4 flex gap-3 justify-center">
+                            <button
+                                onClick={handleFetchJobs}
+                                disabled={fetching}
+                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                            >
+                                Fetch RSS Jobs
+                            </button>
+                            <button
+                                onClick={handleServerFetch}
+                                disabled={fetching}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                            >
+                                Fetch Live Jobs
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -272,6 +343,11 @@ export default function AdminExternalJobs() {
                                             <span className="text-2xl">{getCountryFlag(job.source_country)}</span>
                                             <h3 className="text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
+                                            {job.sponsorship_eligible && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 flex items-center gap-1">
+                                                    <Shield className="w-3 h-3" /> Sponsorship Available
+                                                </span>
+                                            )}
                                         </div>
                                         
                                         <p className="text-primary-400 text-sm mb-2 flex items-center gap-1">
@@ -297,25 +373,41 @@ export default function AdminExternalJobs() {
                                     </div>
                                     
                                     <div className="flex flex-row md:flex-col gap-2">
-                                        <button onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)} className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1">
+                                        <button 
+                                            onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)} 
+                                            className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition"
+                                        >
                                             <Eye className="w-3 h-3" /> Preview
                                         </button>
-                                        <button onClick={() => handleApprove(job.id)} disabled={processingId === job.id} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors text-sm flex items-center gap-1 disabled:opacity-50">
+                                        <button 
+                                            onClick={() => handleApprove(job.id)} 
+                                            disabled={processingId === job.id} 
+                                            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors text-sm flex items-center gap-1 disabled:opacity-50"
+                                        >
                                             {processingId === job.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                                             Approve
                                         </button>
-                                        <button onClick={() => openRejectModal(job)} className="px-3 py-1.5 bg-red-600/70 text-white rounded-lg hover:bg-red-600 transition-colors text-sm flex items-center gap-1">
+                                        <button 
+                                            onClick={() => openRejectModal(job)} 
+                                            className="px-3 py-1.5 bg-red-600/70 text-white rounded-lg hover:bg-red-600 transition-colors text-sm flex items-center gap-1"
+                                        >
                                             <XCircle className="w-3 h-3" /> Reject
                                         </button>
                                     </div>
                                 </div>
                                 
+                                {/* Expanded Preview */}
                                 {selectedJob?.id === job.id && job.description && (
                                     <div className="mt-4 pt-4 border-t border-slate-800">
                                         <h4 className="text-white font-semibold mb-2">Full Description</h4>
-                                        <div className="text-slate-400 text-sm" dangerouslySetInnerHTML={{ __html: job.description }} />
+                                        <div className="text-slate-400 text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: job.description }} />
                                         {job.external_apply_url && (
-                                            <a href={job.external_apply_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-3 text-primary-400 text-sm hover:underline">
+                                            <a 
+                                                href={job.external_apply_url} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="inline-flex items-center gap-1 mt-3 text-primary-400 text-sm hover:underline"
+                                            >
                                                 <ExternalLink className="w-3 h-3" /> View on source website
                                             </a>
                                         )}
@@ -335,12 +427,28 @@ export default function AdminExternalJobs() {
                                 <h2 className="text-xl font-bold text-white">Reject Job</h2>
                             </div>
                             <p className="text-slate-400 mb-4">Rejecting: <span className="text-white font-medium">{selectedJob.title}</span></p>
-                            <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason for rejection (required)..." rows={3} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 mb-4" />
+                            <textarea 
+                                value={rejectReason} 
+                                onChange={(e) => setRejectReason(e.target.value)} 
+                                placeholder="Reason for rejection (required)..." 
+                                rows={3} 
+                                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 mb-4" 
+                            />
                             <div className="flex gap-3">
-                                <button onClick={() => handleReject(selectedJob.id)} disabled={rejectingId === selectedJob.id} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                                    {rejectingId === selectedJob.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />} Confirm Reject
+                                <button 
+                                    onClick={() => handleReject(selectedJob.id)} 
+                                    disabled={rejectingId === selectedJob.id} 
+                                    className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {rejectingId === selectedJob.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />} 
+                                    Confirm Reject
                                 </button>
-                                <button onClick={() => { setShowRejectModal(false); setSelectedJob(null); setRejectReason(''); }} className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">Cancel</button>
+                                <button 
+                                    onClick={() => { setShowRejectModal(false); setSelectedJob(null); setRejectReason(''); }} 
+                                    className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800"
+                                >
+                                    Cancel
+                                </button>
                             </div>
                         </div>
                     </div>
