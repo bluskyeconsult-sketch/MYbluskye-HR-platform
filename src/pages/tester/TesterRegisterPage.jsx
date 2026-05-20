@@ -1,6 +1,6 @@
 // src/pages/tester/TesterRegisterPage.jsx
 // COMPLETE TESTER REGISTRATION PAGE - Master invite code system with usage tracking
-// Features: Master invite code (TESTER2026), usage tracking, admin panel, password strength, email validation
+// Features: Master invite code (TESTER2026), usage tracking, admin panel, password strength, email validation, proper flow
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -36,6 +36,8 @@ export default function TesterRegisterPage() {
     const [copied, setCopied] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
     const [requireInviteCode, setRequireInviteCode] = useState(true);
+    const [validatingCode, setValidatingCode] = useState(false);
+    const [codeValid, setCodeValid] = useState(false);
 
     // Check admin status and load settings
     useEffect(() => {
@@ -100,6 +102,55 @@ export default function TesterRegisterPage() {
         }
     }
 
+    // Step 1: Validate invite code FIRST (before any auth)
+    async function validateInviteCode() {
+        if (!formData.invite_code.trim()) {
+            setError('Invite code is required for tester registration');
+            return false;
+        }
+        
+        setValidatingCode(true);
+        setError('');
+        
+        const upperCode = formData.invite_code.toUpperCase().trim();
+        
+        if (upperCode !== MASTER_INVITE_CODE.CODE) {
+            setValidatingCode(false);
+            setError('Invalid invite code');
+            setCodeValid(false);
+            return false;
+        }
+        
+        try {
+            const { data, error } = await supabase
+                .from('tester_invites')
+                .select('used_count, max_uses')
+                .eq('code', MASTER_INVITE_CODE.CODE)
+                .single();
+            
+            setValidatingCode(false);
+            
+            if (error) {
+                setCodeValid(true);
+                return true;
+            }
+            
+            if (data.used_count >= (data.max_uses || MASTER_INVITE_CODE.MAX_USES)) {
+                setError('Invite code has reached maximum usage limit');
+                setCodeValid(false);
+                return false;
+            }
+            
+            setCodeValid(true);
+            return true;
+        } catch (err) {
+            setValidatingCode(false);
+            setError('Error validating invite code');
+            setCodeValid(false);
+            return false;
+        }
+    }
+
     // Password validation
     const validatePassword = useCallback((password) => {
         let strength = 0;
@@ -117,47 +168,16 @@ export default function TesterRegisterPage() {
         return emailRegex.test(email);
     }, []);
 
-    // Validate master invite code
-    const validateMasterInviteCode = useCallback(async (code) => {
-        const upperCode = code.toUpperCase().trim();
-        
-        if (upperCode !== MASTER_INVITE_CODE.CODE) {
-            return { valid: false, message: 'Invalid invite code' };
-        }
-
-        try {
-            const { data, error } = await supabase
-                .from('tester_invites')
-                .select('used_count, max_uses')
-                .eq('code', MASTER_INVITE_CODE.CODE)
-                .single();
-
-            if (error) return { valid: true, isMaster: true };
-
-            if (data.used_count >= (data.max_uses || MASTER_INVITE_CODE.MAX_USES)) {
-                return { valid: false, message: 'Invite code has reached maximum usage limit' };
-            }
-
-            return { valid: true, isMaster: true, currentUses: data.used_count };
-        } catch (err) {
-            console.error('Error validating invite code:', err);
-            return { valid: true, isMaster: true };
-        }
-    }, []);
-
     // Increment invite usage
     const incrementInviteUsage = useCallback(async () => {
         if (!inviteCodeStats) return;
         
         setInviteCodeStats(prev => prev ? { ...prev, used_count: prev.used_count + 1 } : prev);
         
-        supabase
+        await supabase
             .from('tester_invites')
             .update({ used_count: (inviteCodeStats.used_count || 0) + 1 })
-            .eq('code', MASTER_INVITE_CODE.CODE)
-            .then(({ error }) => {
-                if (error) console.error('Error updating usage count:', error);
-            });
+            .eq('code', MASTER_INVITE_CODE.CODE);
     }, [inviteCodeStats]);
 
     // Reset invite code usage (admin only)
@@ -195,6 +215,10 @@ export default function TesterRegisterPage() {
         e.preventDefault();
         setError('');
         
+        // First, validate the invite code
+        const isValid = await validateInviteCode();
+        if (!isValid) return;
+        
         if (!validateEmail(formData.email)) {
             setError('Please enter a valid email address');
             return;
@@ -218,16 +242,8 @@ export default function TesterRegisterPage() {
         setLoading(true);
         
         try {
-            // Validate invite code
-            if (requireInviteCode && formData.invite_code) {
-                const validation = await validateMasterInviteCode(formData.invite_code);
-                if (!validation.valid) {
-                    setError(validation.message);
-                    setLoading(false);
-                    return;
-                }
-                await incrementInviteUsage();
-            }
+            // Increment usage counter
+            await incrementInviteUsage();
             
             // Register user
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -283,7 +299,7 @@ export default function TesterRegisterPage() {
         } finally {
             setLoading(false);
         }
-    }, [formData, requireInviteCode, validateEmail, validatePassword, validateMasterInviteCode, incrementInviteUsage, navigate]);
+    }, [formData, requireInviteCode, validateEmail, validatePassword, incrementInviteUsage, navigate]);
 
     // Password strength text
     const passwordStrengthText = useMemo(() => {
@@ -384,14 +400,25 @@ export default function TesterRegisterPage() {
                                 <label className="block text-sm text-slate-400 mb-1">
                                     Invite Code <span className="text-red-400">*</span>
                                 </label>
-                                <input
-                                    type="text"
-                                    value={formData.invite_code}
-                                    onChange={(e) => setFormData({...formData, invite_code: e.target.value.toUpperCase()})}
-                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="TESTER2026"
-                                    required={requireInviteCode}
-                                />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={formData.invite_code}
+                                        onChange={(e) => setFormData({...formData, invite_code: e.target.value.toUpperCase()})}
+                                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        placeholder="TESTER2026"
+                                        required={requireInviteCode}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={validateInviteCode}
+                                        disabled={validatingCode}
+                                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50"
+                                    >
+                                        {validatingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Check'}
+                                    </button>
+                                </div>
+                                {codeValid && <p className="text-xs text-emerald-400 mt-1">✓ Valid invite code</p>}
                             </div>
                         )}
 
@@ -502,8 +529,8 @@ export default function TesterRegisterPage() {
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading}
-                            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                            disabled={loading || (requireInviteCode && !codeValid)}
+                            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
                             {loading ? 'Registering...' : 'Register as Tester'}
