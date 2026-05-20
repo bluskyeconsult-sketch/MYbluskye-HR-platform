@@ -1,20 +1,23 @@
 // src/pages/admin/AdminDashboard.jsx
-// COMPLETE ADMIN DASHBOARD - All routes working with Super Admin unlimited access
+// COMPLETE ADMIN DASHBOARD - Stats dashboard + sidebar navigation + unlimited access
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { 
-    Users, Briefcase, BookOpen, ClipboardList, Bot, Mail, 
-    Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
-    Clock, CheckCircle, XCircle, AlertCircle, Activity,
-    Server, HardDrive, Eye, Ban, Flag, Calendar, UserPlus,
-    FileText, ShoppingBag, Gift, Heart, Bell, Zap, Globe, Award
+    LayoutDashboard, Users, Briefcase, Flag, FileText, 
+    BookOpen, ClipboardList, Bot, Mail, Database, Sparkles,
+    Shield, Settings, LogOut, Menu, X, Bell, Activity,
+    BarChart3, Server, HardDrive, Globe, ShoppingBag, Gift,
+    Award, CheckCircle, Clock, AlertCircle, TrendingUp,
+    Calendar, UserPlus, Eye, Zap, Wifi, Download
 } from 'lucide-react';
 
 export default function AdminDashboard() {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalJobs: 0,
@@ -25,7 +28,8 @@ export default function AdminDashboard() {
         pendingReports: 0,
         systemHealth: 'healthy'
     });
-    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+    const location = useLocation();
 
     useEffect(() => {
         checkAdminAndLoadStats();
@@ -34,11 +38,10 @@ export default function AdminDashboard() {
     async function checkAdminAndLoadStats() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-            window.location.href = '/admin-login';
+            navigate('/admin-login');
             return;
         }
         
-        // Get user profile
         const { data: profileData } = await supabase
             .from('profiles')
             .select('*')
@@ -48,51 +51,65 @@ export default function AdminDashboard() {
         setUser(user);
         setProfile(profileData);
         
-        // Check if user is admin (supports both profile-based and legacy email check)
         const isAuthorized = profileData?.user_type === 'admin' || 
                             profileData?.user_type === 'super_admin' || 
                             user.email === 'bluskyeconsult@gmail.com';
         
         if (!isAuthorized) {
-            window.location.href = '/dashboard';
+            navigate('/');
             return;
         }
         
         // Load stats
-        const { count: userCount } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true });
-        
-        const { count: jobCount } = await supabase
-            .from('jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_active', true);
-        
-        const { count: pendingJobs } = await supabase
-            .from('external_jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'pending_approval');
-        
-        const { count: pendingReports } = await supabase
-            .from('fraud_reports')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'pending');
+        const [userCount, jobCount, pendingJobs, pendingReports] = await Promise.all([
+            supabase.from('profiles').select('*', { count: 'exact', head: true }),
+            supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
+            supabase.from('external_jobs').select('*', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+            supabase.from('fraud_reports').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+        ]);
         
         setStats({
-            totalUsers: userCount || 0,
-            totalJobs: jobCount || 0,
+            totalUsers: userCount.count || 0,
+            totalJobs: jobCount.count || 0,
             totalCourses: 1,
             totalAssessments: 7,
             totalVAs: 24,
-            pendingJobs: pendingJobs || 0,
-            pendingReports: pendingReports || 0,
+            pendingJobs: pendingJobs.count || 0,
+            pendingReports: pendingReports.count || 0,
             systemHealth: 'healthy'
         });
         
         setLoading(false);
     }
 
+    async function handleLogout() {
+        await supabase.auth.signOut();
+        navigate('/admin-login');
+    }
+
     const isSuperAdmin = profile?.user_type === 'super_admin' || user?.email === 'bluskyeconsult@gmail.com';
+
+    const menuItems = [
+        { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
+        { id: 'users', name: 'User Management', icon: Users, path: '/admin/users' },
+        { id: 'jobs', name: 'Job Management', icon: Briefcase, path: '/admin/jobs' },
+        { id: 'external-jobs', name: 'External Jobs', icon: Globe, path: '/admin/external-jobs' },
+        { id: 'fraud', name: 'Fraud Reports', icon: Flag, path: '/admin/fraud-reports' },
+        { id: 'articles', name: 'Articles', icon: FileText, path: '/admin/articles' },
+        { id: 'books', name: 'Books', icon: BookOpen, path: '/admin/books' },
+        { id: 'assessments', name: 'Assessments', icon: ClipboardList, path: '/admin/assessments' },
+        { id: 'virtual-assistants', name: 'Virtual Assistants', icon: Bot, path: '/admin/virtual-assistants' },
+        { id: 'newsletter', name: 'Newsletter', icon: Mail, path: '/admin/newsletter' },
+        { id: 'knowledge-sources', name: 'AI Knowledge', icon: Database, path: '/admin/knowledge-sources' },
+        { id: 'ai-course-builder', name: 'AI Course Builder', icon: Sparkles, path: '/admin/ai-course-builder' },
+        { id: 'health', name: 'System Health', icon: Activity, path: '/admin/health' },
+        { id: 'security', name: 'Security', icon: Shield, path: '/admin/security' },
+        { id: 'analytics', name: 'Analytics', icon: BarChart3, path: '/admin/analytics' },
+        { id: 'testing-mode', name: 'Testing Mode', icon: Settings, path: '/admin/testing-mode' },
+        { id: 'tester-invites', name: 'Tester Invites', icon: UserPlus, path: '/admin/tester-invites' },
+    ];
+
+    const currentPage = menuItems.find(item => item.path === location.pathname)?.name || 'Dashboard';
 
     if (loading) {
         return (
@@ -103,251 +120,196 @@ export default function AdminDashboard() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 py-8">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                
-                {/* Welcome Header with Unlimited Badge */}
-                <div className="flex justify-between items-center mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
-                        <p className="text-slate-400">Welcome back, {user?.email}</p>
-                    </div>
-                    {isSuperAdmin && (
-                        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-                            <Award className="w-5 h-5 text-emerald-400" />
-                            <span className="text-emerald-400 font-semibold">Super Admin • Unlimited Access</span>
-                        </div>
+        <div className="min-h-screen bg-slate-950">
+            {/* Mobile Menu Button */}
+            <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-white shadow-lg"
+            >
+                {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+
+            {/* Sidebar */}
+            <div className={`fixed left-0 top-0 h-full bg-slate-900 border-r border-slate-800 transition-all duration-300 z-40 ${sidebarOpen ? 'w-64' : 'w-0 lg:w-20'} overflow-hidden shadow-xl`}>
+                <div className="p-4 border-b border-slate-800">
+                    <h2 className={`text-lg font-bold text-white ${!sidebarOpen && 'lg:hidden'}`}>Admin Panel</h2>
+                    {isSuperAdmin && sidebarOpen && (
+                        <span className="text-xs text-emerald-400 mt-1 block">Super Admin</span>
                     )}
                 </div>
+                
+                <nav className="p-2 space-y-1 overflow-y-auto h-[calc(100%-120px)]">
+                    {menuItems.map((item) => (
+                        <Link
+                            key={item.id}
+                            to={item.path}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-lg transition ${
+                                location.pathname === item.path
+                                    ? 'bg-primary-600 text-white'
+                                    : 'text-slate-300 hover:bg-slate-800'
+                            }`}
+                        >
+                            <item.icon className="w-5 h-5 flex-shrink-0" />
+                            <span className={`text-sm ${!sidebarOpen && 'lg:hidden'}`}>{item.name}</span>
+                        </Link>
+                    ))}
+                </nav>
 
-                {/* System Health Banner */}
-                <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
-                    <CheckCircle className="w-5 h-5 text-emerald-400" />
-                    <div>
-                        <p className="text-white font-semibold">System Status: Operational</p>
-                        <p className="text-slate-400 text-sm">All systems are running normally</p>
-                    </div>
-                    <Link to="/admin/health" className="ml-auto text-primary-400 text-sm hover:underline">View Details →</Link>
+                <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-900">
+                    <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-red-400 hover:bg-red-500/10 transition"
+                    >
+                        <LogOut className="w-5 h-5" />
+                        <span className={`text-sm ${!sidebarOpen && 'lg:hidden'}`}>Logout</span>
+                    </button>
                 </div>
+            </div>
 
-                {/* Unlimited Access Card - Super Admin Only */}
-                {isSuperAdmin && (
-                    <div className="mb-6 p-4 bg-gradient-to-r from-primary-900/30 to-sky-900/30 border border-primary-500/30 rounded-xl">
-                        <div className="flex items-center gap-4 flex-wrap">
-                            <Shield className="w-10 h-10 text-primary-400" />
-                            <div>
-                                <h3 className="text-white font-bold text-lg">Unlimited Access Granted</h3>
-                                <p className="text-slate-300 text-sm">As a Super Admin, you have unlimited access to all features:</p>
+            {/* Main Content */}
+            <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
+                {/* Header */}
+                <div className="bg-slate-900/50 border-b border-slate-800 sticky top-0 z-30 backdrop-blur-sm">
+                    <div className="px-6 py-4 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-xl font-bold text-white">{currentPage}</h1>
+                            <p className="text-slate-400 text-sm">Welcome back, {user?.email}</p>
+                        </div>
+                        {isSuperAdmin && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                                <Award className="w-4 h-4 text-emerald-400" />
+                                <span className="text-emerald-400 text-xs font-semibold">Super Admin</span>
                             </div>
-                            <div className="flex flex-wrap gap-3 ml-auto">
-                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Chat</span>
-                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited VA Tasks</span>
-                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Applications</span>
-                                <span className="px-3 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Unlimited Assessments</span>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Stats Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center justify-between">
-                            <div><p className="text-slate-400 text-sm">Total Users</p><p className="text-2xl font-bold text-white">{stats.totalUsers}</p></div>
-                            <Users className="w-8 h-8 text-primary-400 opacity-50" />
-                        </div>
-                        <Link to="/admin/users" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage Users →</Link>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center justify-between">
-                            <div><p className="text-slate-400 text-sm">Active Jobs</p><p className="text-2xl font-bold text-white">{stats.totalJobs}</p></div>
-                            <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
-                        </div>
-                        <Link to="/admin/jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage Jobs →</Link>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center justify-between">
-                            <div><p className="text-slate-400 text-sm">Pending Approvals</p><p className="text-2xl font-bold text-amber-400">{stats.pendingJobs + stats.pendingReports}</p></div>
-                            <Clock className="w-8 h-8 text-amber-400 opacity-50" />
-                        </div>
-                        <Link to="/admin/external-jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Review Jobs →</Link>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center justify-between">
-                            <div><p className="text-slate-400 text-sm">Virtual Assistants</p><p className="text-2xl font-bold text-white">{stats.totalVAs}</p></div>
-                            <Bot className="w-8 h-8 text-purple-400 opacity-50" />
-                        </div>
-                        <Link to="/admin/virtual-assistants" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage VAs →</Link>
+                        )}
                     </div>
                 </div>
 
-                {/* Second Row Stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center gap-3">
-                            <BookOpen className="w-8 h-8 text-primary-400 opacity-50" />
-                            <div><p className="text-slate-400 text-sm">Courses</p><p className="text-xl font-bold text-white">{stats.totalCourses}</p></div>
+                <div className="p-6">
+                    {/* System Health Banner */}
+                    <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
+                        <CheckCircle className="w-5 h-5 text-emerald-400" />
+                        <div>
+                            <p className="text-white font-semibold">System Status: Operational</p>
+                            <p className="text-slate-400 text-sm">All systems are running normally</p>
                         </div>
-                        <Link to="/admin/ai-course-builder" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Create Course →</Link>
+                        <Link to="/admin/health" className="ml-auto text-primary-400 text-sm hover:underline">View Details →</Link>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center gap-3">
-                            <ClipboardList className="w-8 h-8 text-primary-400 opacity-50" />
-                            <div><p className="text-slate-400 text-sm">Assessments</p><p className="text-xl font-bold text-white">{stats.totalAssessments}</p></div>
-                        </div>
-                        <Link to="/admin/assessments" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage Assessments →</Link>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center gap-3">
-                            <Shield className="w-8 h-8 text-primary-400 opacity-50" />
-                            <div><p className="text-slate-400 text-sm">Fraud Reports</p><p className="text-xl font-bold text-white">{stats.pendingReports}</p></div>
-                        </div>
-                        <Link to="/admin/fraud-reports" className="text-xs text-primary-400 hover:underline mt-2 inline-block">View Reports →</Link>
-                    </div>
-                </div>
 
-                {/* MAIN ADMIN SECTIONS - All Working Routes (from first version) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    
-                    {/* LEFT COLUMN: Core Management */}
-                    <div className="space-y-6">
-                        {/* User Management */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                <Users className="w-4 h-4 text-primary-400" />
-                                User Management
-                            </h3>
-                            <div className="space-y-2">
-                                <Link to="/admin/users" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">👥 Manage Users</p>
-                                    <p className="text-slate-400 text-sm">View, edit, suspend, and activate user accounts</p>
-                                </Link>
-                                <Link to="/admin/tester-feedback" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📝 Tester Feedback</p>
-                                    <p className="text-slate-400 text-sm">Review feedback from testers</p>
-                                </Link>
-                                <Link to="/admin/tester-invites" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🎟️ Tester Invites</p>
-                                    <p className="text-slate-400 text-sm">Generate invite codes for testers</p>
-                                </Link>
-                                <Link to="/admin/testing-mode" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🧪 Testing Mode</p>
-                                    <p className="text-slate-400 text-sm">Enable/disable tester registration</p>
-                                </Link>
+                    {/* Unlimited Access Card - Super Admin Only */}
+                    {isSuperAdmin && (
+                        <div className="mb-6 p-4 bg-gradient-to-r from-primary-900/30 to-sky-900/30 border border-primary-500/30 rounded-xl">
+                            <div className="flex items-center gap-4 flex-wrap">
+                                <Shield className="w-10 h-10 text-primary-400" />
+                                <div>
+                                    <h3 className="text-white font-bold text-lg">Unlimited Access Granted</h3>
+                                    <p className="text-slate-300 text-sm">As a Super Admin, you have unlimited access to all features</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2 ml-auto">
+                                    <span className="px-2 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Chat</span>
+                                    <span className="px-2 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ VA Tasks</span>
+                                    <span className="px-2 py-1 bg-slate-800 rounded-full text-xs text-emerald-400">♾️ Assessments</span>
+                                </div>
                             </div>
                         </div>
+                    )}
 
-                        {/* Job Management */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                <Briefcase className="w-4 h-4 text-primary-400" />
-                                Job Management
-                            </h3>
-                            <div className="space-y-2">
-                                <Link to="/admin/jobs" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📋 Manage Jobs</p>
-                                    <p className="text-slate-400 text-sm">View, edit, approve, or remove job listings</p>
-                                </Link>
-                                <Link to="/admin/external-jobs" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🌐 External Jobs</p>
-                                    <p className="text-slate-400 text-sm">Fetch and approve jobs from external sources</p>
-                                </Link>
-                                <Link to="/admin/skills" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">⭐ Skill Verification</p>
-                                    <p className="text-slate-400 text-sm">Review and verify user skills</p>
-                                </Link>
+                    {/* Stats Cards - Row 1 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Total Users</p><p className="text-2xl font-bold text-white">{stats.totalUsers}</p></div>
+                                <Users className="w-8 h-8 text-primary-400 opacity-50" />
                             </div>
+                            <Link to="/admin/users" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Active Jobs</p><p className="text-2xl font-bold text-white">{stats.totalJobs}</p></div>
+                                <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
+                            </div>
+                            <Link to="/admin/jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Pending Approvals</p><p className="text-2xl font-bold text-amber-400">{stats.pendingJobs + stats.pendingReports}</p></div>
+                                <Clock className="w-8 h-8 text-amber-400 opacity-50" />
+                            </div>
+                            <Link to="/admin/external-jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Review →</Link>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Virtual Assistants</p><p className="text-2xl font-bold text-white">{stats.totalVAs}</p></div>
+                                <Bot className="w-8 h-8 text-purple-400 opacity-50" />
+                            </div>
+                            <Link to="/admin/virtual-assistants" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Content & System */}
-                    <div className="space-y-6">
-                        {/* Content Management */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                <BookOpen className="w-4 h-4 text-primary-400" />
-                                Content Management
-                            </h3>
-                            <div className="space-y-2">
-                                <Link to="/admin/articles" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📰 Manage Articles</p>
-                                    <p className="text-slate-400 text-sm">Create, edit, and publish articles</p>
-                                </Link>
-                                <Link to="/admin/books" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📚 Manage Books</p>
-                                    <p className="text-slate-400 text-sm">Add, edit, or remove books from library</p>
-                                </Link>
-                                <Link to="/admin/assessments" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📊 Manage Assessments</p>
-                                    <p className="text-slate-400 text-sm">Create and edit assessments with AI</p>
-                                </Link>
-                                <Link to="/admin/newsletter" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📧 Newsletter Manager</p>
-                                    <p className="text-slate-400 text-sm">Create and send newsletters</p>
-                                </Link>
+                    {/* Stats Cards - Row 2 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center gap-3">
+                                <BookOpen className="w-8 h-8 text-primary-400 opacity-50" />
+                                <div><p className="text-slate-400 text-sm">Courses</p><p className="text-xl font-bold text-white">{stats.totalCourses}</p></div>
                             </div>
+                            <Link to="/admin/ai-course-builder" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Create Course →</Link>
                         </div>
-
-                        {/* System & Configuration */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                <Settings className="w-4 h-4 text-primary-400" />
-                                System & Monitoring
-                            </h3>
-                            <div className="space-y-2">
-                                <Link to="/admin/health" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🩺 System Health</p>
-                                    <p className="text-slate-400 text-sm">Real-time system monitoring and diagnostics</p>
-                                </Link>
-                                <Link to="/admin/security" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🔒 Security Dashboard</p>
-                                    <p className="text-slate-400 text-sm">Monitor security events and block IPs</p>
-                                </Link>
-                                <Link to="/admin/analytics" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📈 Analytics Dashboard</p>
-                                    <p className="text-slate-400 text-sm">Visitor stats, growth metrics, and analytics</p>
-                                </Link>
-                                <Link to="/admin/knowledge-sources" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">🧠 AI Knowledge Sources</p>
-                                    <p className="text-slate-400 text-sm">Manage external sources for AI Chat</p>
-                                </Link>
-                                <Link to="/admin/email-test" className="block p-2 rounded-lg hover:bg-slate-800 transition">
-                                    <p className="text-white">📧 Email Test</p>
-                                    <p className="text-slate-400 text-sm">Test email configuration</p>
-                                </Link>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center gap-3">
+                                <ClipboardList className="w-8 h-8 text-primary-400 opacity-50" />
+                                <div><p className="text-slate-400 text-sm">Assessments</p><p className="text-xl font-bold text-white">{stats.totalAssessments}</p></div>
                             </div>
+                            <Link to="/admin/assessments" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center gap-3">
+                                <Shield className="w-8 h-8 text-primary-400 opacity-50" />
+                                <div><p className="text-slate-400 text-sm">Fraud Reports</p><p className="text-xl font-bold text-white">{stats.pendingReports}</p></div>
+                            </div>
+                            <Link to="/admin/fraud-reports" className="text-xs text-primary-400 hover:underline mt-2 inline-block">View →</Link>
                         </div>
                     </div>
-                </div>
 
-                {/* Quick Actions Row */}
-                <div className="mt-6">
-                    <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <Link to="/admin/ai-course-builder" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <Sparkles className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">AI Course</span>
-                        </Link>
-                        <Link to="/admin/virtual-assistants" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <Bot className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">VAs</span>
-                        </Link>
-                        <Link to="/admin/assessments" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <ClipboardList className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">Assessments</span>
-                        </Link>
-                        <Link to="/admin/external-jobs" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <Globe className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">External Jobs</span>
-                        </Link>
-                        <Link to="/admin/fraud-reports" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <Shield className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">Fraud Reports</span>
-                        </Link>
-                        <Link to="/admin/knowledge-sources" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                            <Database className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                            <span className="text-white text-xs">AI Sources</span>
-                        </Link>
+                    {/* Quick Actions */}
+                    <div className="mt-4">
+                        <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-primary-400" />
+                            Quick Actions
+                        </h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                            <Link to="/admin/ai-course-builder" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Sparkles className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">AI Course</span>
+                            </Link>
+                            <Link to="/admin/virtual-assistants" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Bot className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">VAs</span>
+                            </Link>
+                            <Link to="/admin/assessments" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <ClipboardList className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Assessments</span>
+                            </Link>
+                            <Link to="/admin/external-jobs" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Globe className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Ext Jobs</span>
+                            </Link>
+                            <Link to="/admin/fraud-reports" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Shield className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Fraud</span>
+                            </Link>
+                            <Link to="/admin/knowledge-sources" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Database className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">AI Sources</span>
+                            </Link>
+                            <Link to="/admin/health" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Activity className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Health</span>
+                            </Link>
+                            <Link to="/admin/analytics" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <BarChart3 className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Analytics</span>
+                            </Link>
+                        </div>
                     </div>
                 </div>
             </div>
