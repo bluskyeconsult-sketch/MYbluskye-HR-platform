@@ -1,10 +1,13 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE FIXED ASSESSMENTS PAGE - No localeCompare errors
+// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, and user results tracking
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Brain, Clock, TrendingUp, Award, Search, Loader2, AlertCircle, Star, Users, FileText } from 'lucide-react';
+import { 
+    Brain, Clock, TrendingUp, Award, Search, Loader2, 
+    AlertCircle, Star, Users, FileText, CheckCircle, Filter
+} from 'lucide-react';
 
 export default function AssessmentsPage() {
     const [assessments, setAssessments] = useState([]);
@@ -16,14 +19,14 @@ export default function AssessmentsPage() {
     const [userResults, setUserResults] = useState({});
 
     const categories = [
-        { id: 'all', name: 'All Assessments' },
-        { id: 'personality', name: 'Personality' },
-        { id: 'emotional_intelligence', name: 'EQ' },
-        { id: 'leadership', name: 'Leadership' },
-        { id: 'communication', name: 'Communication' },
-        { id: 'problem_solving', name: 'Problem Solving' },
-        { id: 'team_collaboration', name: 'Team' },
-        { id: 'career_aptitude', name: 'Career' }
+        { id: 'all', name: 'All Assessments', icon: Brain },
+        { id: 'personality', name: 'Personality', icon: Star },
+        { id: 'emotional_intelligence', name: 'EQ', icon: Brain },
+        { id: 'leadership', name: 'Leadership', icon: Users },
+        { id: 'communication', name: 'Communication', icon: FileText },
+        { id: 'problem_solving', name: 'Problem Solving', icon: Brain },
+        { id: 'team_collaboration', name: 'Team', icon: Users },
+        { id: 'career_aptitude', name: 'Career', icon: TrendingUp }
     ];
 
     useEffect(() => {
@@ -46,7 +49,7 @@ export default function AssessmentsPage() {
             
             if (error) throw error;
             
-            // SAFE: Filter out any undefined or null assessments
+            // Safe filtering - ensure valid data
             const safeData = (data || []).filter(a => a && a.id && a.title);
             setAssessments(safeData);
             setFilteredAssessments(safeData);
@@ -67,7 +70,7 @@ export default function AssessmentsPage() {
         try {
             const { data, error } = await supabase
                 .from('user_assessments')
-                .select('assessment_id, score, percentage, completed_at')
+                .select('assessment_id, score, percentage, completed_at, performance_level')
                 .eq('user_id', user.id)
                 .eq('status', 'completed');
             
@@ -77,7 +80,8 @@ export default function AssessmentsPage() {
                     resultsMap[r.assessment_id] = {
                         score: r.score,
                         percentage: r.percentage,
-                        completed_at: r.completed_at
+                        completed_at: r.completed_at,
+                        performance_level: r.performance_level
                     };
                 });
                 setUserResults(resultsMap);
@@ -104,7 +108,7 @@ export default function AssessmentsPage() {
             filtered = filtered.filter(a => a.assessment_type === selectedCategory);
         }
         
-        // SAFE SORT: Handle undefined titles properly
+        // Safe sort with fallback
         filtered.sort((a, b) => {
             const titleA = a?.title || '';
             const titleB = b?.title || '';
@@ -128,16 +132,23 @@ export default function AssessmentsPage() {
     }
 
     function getCategoryIcon(type) {
-        switch(type) {
-            case 'personality': return Brain;
-            case 'emotional_intelligence': return Star;
-            case 'leadership': return Users;
-            case 'communication': return FileText;
-            case 'problem_solving': return Brain;
-            case 'team_collaboration': return Users;
-            case 'career_aptitude': return TrendingUp;
-            default: return Award;
-        }
+        const icons = {
+            personality: Brain,
+            emotional_intelligence: Star,
+            leadership: Users,
+            communication: FileText,
+            problem_solving: Brain,
+            team_collaboration: Users,
+            career_aptitude: TrendingUp
+        };
+        return icons[type] || Award;
+    }
+
+    function getPerformanceBadge(percentage) {
+        if (percentage >= 80) return { label: 'Excellent', color: 'bg-emerald-500/20 text-emerald-400' };
+        if (percentage >= 60) return { label: 'Good', color: 'bg-blue-500/20 text-blue-400' };
+        if (percentage >= 40) return { label: 'Average', color: 'bg-amber-500/20 text-amber-400' };
+        return { label: 'Needs Improvement', color: 'bg-red-500/20 text-red-400' };
     }
 
     if (loading) {
@@ -151,13 +162,18 @@ export default function AssessmentsPage() {
     if (error) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-                <div className="text-center">
+                <div className="text-center max-w-md">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                    <h1 className="text-2xl font-bold text-white mb-2">Something went wrong</h1>
+                    <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Assessments</h1>
                     <p className="text-slate-400 mb-6">{error}</p>
-                    <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                        Refresh Page
-                    </button>
+                    <div className="flex gap-3 justify-center">
+                        <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                            Try Again
+                        </button>
+                        <Link to="/" className="px-6 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">
+                            Go Home
+                        </Link>
+                    </div>
                 </div>
             </div>
         );
@@ -188,21 +204,22 @@ export default function AssessmentsPage() {
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search assessments..."
-                            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                            placeholder="Search assessments by title or description..."
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                         />
                     </div>
-                    <div className="flex gap-2 overflow-x-auto pb-2">
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
                         {categories.map(cat => (
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id)}
-                                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
                                     selectedCategory === cat.id
                                         ? 'bg-primary-600 text-white'
                                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                                 }`}
                             >
+                                <cat.icon className="w-4 h-4" />
                                 {cat.name}
                             </button>
                         ))}
@@ -210,10 +227,19 @@ export default function AssessmentsPage() {
                 </div>
 
                 {/* Results Count */}
-                <div className="mb-4">
+                <div className="mb-4 flex justify-between items-center">
                     <p className="text-slate-400 text-sm">
-                        Showing {filteredAssessments.length} of {assessments.length} assessments
+                        Showing <span className="text-white font-medium">{filteredAssessments.length}</span> of{' '}
+                        <span className="text-white font-medium">{assessments.length}</span> assessments
                     </p>
+                    {searchQuery && (
+                        <button
+                            onClick={() => setSearchQuery('')}
+                            className="text-sm text-primary-400 hover:text-primary-300 transition"
+                        >
+                            Clear search
+                        </button>
+                    )}
                 </div>
 
                 {/* Assessments Grid */}
@@ -224,31 +250,48 @@ export default function AssessmentsPage() {
                         <p className="text-slate-400">
                             {assessments.length === 0 
                                 ? 'No assessments are currently available. Please check back soon.'
-                                : 'No assessments match your search criteria.'}
+                                : `No assessments match "${searchQuery}" or the selected category.`}
                         </p>
+                        {(searchQuery || selectedCategory !== 'all') && (
+                            <button
+                                onClick={() => {
+                                    setSearchQuery('');
+                                    setSelectedCategory('all');
+                                }}
+                                className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
+                            >
+                                Clear Filters
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredAssessments.map(assessment => {
                             const Icon = getCategoryIcon(assessment.assessment_type);
                             const userResult = userResults[assessment.id];
+                            const performanceBadge = userResult ? getPerformanceBadge(userResult.percentage) : null;
                             
                             return (
-                                <div key={assessment.id} className={`bg-gradient-to-br ${getCategoryColor(assessment.assessment_type)} border rounded-xl p-6 hover:-translate-y-1 transition-all duration-300`}>
+                                <div 
+                                    key={assessment.id} 
+                                    className={`bg-gradient-to-br ${getCategoryColor(assessment.assessment_type)} border rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 group`}
+                                >
                                     <div className="flex items-start justify-between mb-4">
-                                        <div className="w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center">
+                                        <div className="w-12 h-12 rounded-xl bg-primary-500/20 flex items-center justify-center group-hover:scale-110 transition">
                                             <Icon className="w-6 h-6 text-primary-400" />
                                         </div>
                                         {userResult && (
                                             <div className="text-right">
-                                                <span className="text-xs text-emerald-400">Completed</span>
-                                                <p className="text-sm font-bold text-white">{userResult.percentage}%</p>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full ${performanceBadge.color}`}>
+                                                    {performanceBadge.label}
+                                                </span>
+                                                <p className="text-lg font-bold text-white mt-1">{userResult.percentage}%</p>
                                             </div>
                                         )}
                                     </div>
                                     
-                                    <h3 className="text-xl font-bold text-white mb-2">{assessment.title}</h3>
-                                    <p className="text-slate-400 text-sm mb-4">{assessment.description}</p>
+                                    <h3 className="text-xl font-bold text-white mb-2 line-clamp-1">{assessment.title}</h3>
+                                    <p className="text-slate-400 text-sm mb-4 line-clamp-2">{assessment.description}</p>
                                     
                                     <div className="flex items-center justify-between mb-4">
                                         <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -262,7 +305,7 @@ export default function AssessmentsPage() {
                                     </div>
                                     
                                     <Link to={`/assessments/${assessment.id}`}>
-                                        <button className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
+                                        <button className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition group-hover:shadow-lg group-hover:shadow-primary-500/20">
                                             {userResult ? 'Retake Assessment →' : 'Start Assessment →'}
                                         </button>
                                     </Link>
