@@ -1,10 +1,10 @@
 // src/pages/AdminLogin.jsx
-// COMPLETE WORKING ADMIN LOGIN PAGE - With improved error handling and security
+// COMPLETE WORKING ADMIN LOGIN PAGE - With improved error handling, security, and session management
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
 
 export default function AdminLogin() {
     const [email, setEmail] = useState('');
@@ -13,11 +13,26 @@ export default function AdminLogin() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [redirecting, setRedirecting] = useState(false);
+    const [loginAttempts, setLoginAttempts] = useState(0);
+    const [isLocked, setIsLocked] = useState(false);
     const navigate = useNavigate();
 
     // Check if already logged in as admin
     useEffect(() => {
         checkExistingSession();
+        // Load login attempts from localStorage
+        const attempts = localStorage.getItem('admin_login_attempts');
+        if (attempts) {
+            setLoginAttempts(parseInt(attempts));
+            if (parseInt(attempts) >= 5) {
+                setIsLocked(true);
+                setTimeout(() => {
+                    localStorage.removeItem('admin_login_attempts');
+                    setLoginAttempts(0);
+                    setIsLocked(false);
+                }, 15 * 60 * 1000); // 15 minute lockout
+            }
+        }
     }, []);
 
     async function checkExistingSession() {
@@ -40,10 +55,33 @@ export default function AdminLogin() {
         }
     }
 
+    function recordFailedAttempt() {
+        const newAttempts = loginAttempts + 1;
+        setLoginAttempts(newAttempts);
+        localStorage.setItem('admin_login_attempts', newAttempts.toString());
+        
+        if (newAttempts >= 5) {
+            setIsLocked(true);
+            setTimeout(() => {
+                localStorage.removeItem('admin_login_attempts');
+                setLoginAttempts(0);
+                setIsLocked(false);
+            }, 15 * 60 * 1000);
+            setError('Too many failed attempts. Please try again in 15 minutes.');
+        }
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
         setError('');
+
+        // Check if locked
+        if (isLocked) {
+            setError('Account temporarily locked due to multiple failed attempts. Please try again later.');
+            setLoading(false);
+            return;
+        }
 
         // Basic validation
         if (!email.trim()) {
@@ -58,6 +96,14 @@ export default function AdminLogin() {
             return;
         }
 
+        // Email format validation
+        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+        if (!emailRegex.test(email.trim())) {
+            setError('Please enter a valid email address');
+            setLoading(false);
+            return;
+        }
+
         try {
             // Attempt sign in
             const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -66,6 +112,7 @@ export default function AdminLogin() {
             });
 
             if (signInError) {
+                recordFailedAttempt();
                 if (signInError.message === 'Invalid login credentials') {
                     throw new Error('Invalid email or password');
                 }
@@ -73,6 +120,7 @@ export default function AdminLogin() {
             }
 
             if (!data.user) {
+                recordFailedAttempt();
                 throw new Error('Login failed. Please try again.');
             }
 
@@ -93,17 +141,22 @@ export default function AdminLogin() {
                                 data.user.email === 'bluskyeconsult@gmail.com';
 
             if (!isAuthorized) {
+                recordFailedAttempt();
                 setError('Access denied. Admin privileges required.');
                 await supabase.auth.signOut();
                 setLoading(false);
                 return;
             }
 
-            // Successful login - show brief success and redirect
+            // Reset login attempts on successful login
+            localStorage.removeItem('admin_login_attempts');
+            setLoginAttempts(0);
+
+            // Successful login - redirect
             setRedirecting(true);
             setTimeout(() => {
                 navigate('/admin/dashboard');
-            }, 500);
+            }, 800);
 
         } catch (err) {
             console.error('Admin login error:', err);
@@ -122,16 +175,16 @@ export default function AdminLogin() {
                 <div className="mb-6">
                     <Link 
                         to="/" 
-                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition text-sm"
+                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition text-sm group"
                     >
-                        <ArrowLeft className="w-4 h-4" />
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition" />
                         Back to Home
                     </Link>
                 </div>
 
                 {/* Header */}
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
+                    <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 animate-pulse">
                         <Shield className="w-8 h-8 text-white" />
                     </div>
                     <h1 className="text-2xl font-bold text-white">Admin Login</h1>
@@ -139,7 +192,7 @@ export default function AdminLogin() {
                 </div>
 
                 {/* Login Form */}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Email Field */}
                         <div>
@@ -155,7 +208,7 @@ export default function AdminLogin() {
                                     className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
                                     placeholder="admin@bluskyeconsult.com"
                                     required
-                                    disabled={loading || redirecting}
+                                    disabled={loading || redirecting || isLocked}
                                     autoComplete="email"
                                 />
                             </div>
@@ -175,7 +228,7 @@ export default function AdminLogin() {
                                     className="w-full pl-10 pr-10 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
                                     placeholder="••••••••"
                                     required
-                                    disabled={loading || redirecting}
+                                    disabled={loading || redirecting || isLocked}
                                     autoComplete="current-password"
                                 />
                                 <button
@@ -183,14 +236,25 @@ export default function AdminLogin() {
                                     onClick={() => setShowPassword(!showPassword)}
                                     className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
                                     tabIndex={-1}
+                                    disabled={isLocked}
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
                         </div>
 
+                        {/* Locked Warning */}
+                        {isLocked && (
+                            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-400" />
+                                <p className="text-amber-400 text-sm">
+                                    Too many failed attempts. Please try again in 15 minutes.
+                                </p>
+                            </div>
+                        )}
+
                         {/* Error Message */}
-                        {error && (
+                        {error && !isLocked && (
                             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2 animate-shake">
                                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                                 <p className="text-red-400 text-sm">{error}</p>
@@ -201,20 +265,32 @@ export default function AdminLogin() {
                         {redirecting && (
                             <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2">
                                 <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
-                                <p className="text-emerald-400 text-sm">Login successful! Redirecting...</p>
+                                <p className="text-emerald-400 text-sm">Login successful! Redirecting to dashboard...</p>
                             </div>
+                        )}
+
+                        {/* Attempts Warning */}
+                        {loginAttempts > 0 && loginAttempts < 5 && !redirecting && !isLocked && (
+                            <p className="text-xs text-amber-400/70 text-center">
+                                {5 - loginAttempts} attempts remaining before temporary lockout
+                            </p>
                         )}
 
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading || redirecting}
+                            disabled={loading || redirecting || isLocked}
                             className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium shadow-lg shadow-primary-500/20"
                         >
                             {loading ? (
                                 <>
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                     Authenticating...
+                                </>
+                            ) : redirecting ? (
+                                <>
+                                    <CheckCircle className="w-4 h-4" />
+                                    Redirecting...
                                 </>
                             ) : (
                                 <>
@@ -229,7 +305,7 @@ export default function AdminLogin() {
                 {/* Footer Note */}
                 <p className="text-center text-xs text-slate-500 mt-6">
                     Only authorized administrators can access this panel.
-                    Unauthorized access is prohibited.
+                    Unauthorized access is prohibited and will be logged.
                 </p>
             </div>
         </div>
