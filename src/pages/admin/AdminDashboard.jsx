@@ -10,7 +10,7 @@ import {
     Shield, Settings, LogOut, Menu, X, Bell, Activity,
     BarChart3, Server, HardDrive, Globe, ShoppingBag, Gift,
     Award, CheckCircle, Clock, AlertCircle, TrendingUp,
-    Calendar, UserPlus, Eye, Zap, Wifi, Download
+    Calendar, UserPlus, Eye, Zap, Wifi, Download, Loader2
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -36,6 +36,8 @@ export default function AdminDashboard() {
     }, []);
 
     async function checkAdminAndLoadStats() {
+        setLoading(true);
+        
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
             navigate('/admin-login');
@@ -60,7 +62,7 @@ export default function AdminDashboard() {
             return;
         }
         
-        // Load stats
+        // Load stats in parallel
         const [userCount, jobCount, pendingJobs, pendingReports] = await Promise.all([
             supabase.from('profiles').select('*', { count: 'exact', head: true }),
             supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
@@ -114,7 +116,7 @@ export default function AdminDashboard() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <div className="animate-pulse text-slate-400">Loading dashboard...</div>
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
         );
     }
@@ -215,31 +217,31 @@ export default function AdminDashboard() {
 
                     {/* Stats Cards - Row 1 */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                             <div className="flex items-center justify-between">
                                 <div><p className="text-slate-400 text-sm">Total Users</p><p className="text-2xl font-bold text-white">{stats.totalUsers}</p></div>
-                                <Users className="w-8 h-8 text-primary-400 opacity-50" />
+                                <Users className="w-8 h-8 text-primary-400 opacity-50 group-hover:scale-110 transition" />
                             </div>
                             <Link to="/admin/users" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                             <div className="flex items-center justify-between">
                                 <div><p className="text-slate-400 text-sm">Active Jobs</p><p className="text-2xl font-bold text-white">{stats.totalJobs}</p></div>
-                                <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
+                                <Briefcase className="w-8 h-8 text-emerald-400 opacity-50 group-hover:scale-110 transition" />
                             </div>
                             <Link to="/admin/jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                             <div className="flex items-center justify-between">
                                 <div><p className="text-slate-400 text-sm">Pending Approvals</p><p className="text-2xl font-bold text-amber-400">{stats.pendingJobs + stats.pendingReports}</p></div>
-                                <Clock className="w-8 h-8 text-amber-400 opacity-50" />
+                                <Clock className="w-8 h-8 text-amber-400 opacity-50 group-hover:scale-110 transition" />
                             </div>
                             <Link to="/admin/external-jobs" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Review →</Link>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                             <div className="flex items-center justify-between">
                                 <div><p className="text-slate-400 text-sm">Virtual Assistants</p><p className="text-2xl font-bold text-white">{stats.totalVAs}</p></div>
-                                <Bot className="w-8 h-8 text-purple-400 opacity-50" />
+                                <Bot className="w-8 h-8 text-purple-400 opacity-50 group-hover:scale-110 transition" />
                             </div>
                             <Link to="/admin/virtual-assistants" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
                         </div>
@@ -247,21 +249,21 @@ export default function AdminDashboard() {
 
                     {/* Stats Cards - Row 2 */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                             <div className="flex items-center gap-3">
                                 <BookOpen className="w-8 h-8 text-primary-400 opacity-50" />
                                 <div><p className="text-slate-400 text-sm">Courses</p><p className="text-xl font-bold text-white">{stats.totalCourses}</p></div>
                             </div>
                             <Link to="/admin/ai-course-builder" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Create Course →</Link>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                             <div className="flex items-center gap-3">
                                 <ClipboardList className="w-8 h-8 text-primary-400 opacity-50" />
                                 <div><p className="text-slate-400 text-sm">Assessments</p><p className="text-xl font-bold text-white">{stats.totalAssessments}</p></div>
                             </div>
                             <Link to="/admin/assessments" className="text-xs text-primary-400 hover:underline mt-2 inline-block">Manage →</Link>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                             <div className="flex items-center gap-3">
                                 <Shield className="w-8 h-8 text-primary-400 opacity-50" />
                                 <div><p className="text-slate-400 text-sm">Fraud Reports</p><p className="text-xl font-bold text-white">{stats.pendingReports}</p></div>
