@@ -262,14 +262,9 @@ function AppContent() {
         // Track initial page
         trackCurrentPage();
         
-        // Track scroll depth with milestones
+        // Track scroll depth with milestones (only once per milestone)
         let maxScroll = 0;
-        let scrollMilestonesTracked = {
-            25: false,
-            50: false,
-            75: false,
-            90: false
-        };
+        const scrollMilestonesTracked = { 25: false, 50: false, 75: false, 90: false };
         
         const handleScroll = () => {
             const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
@@ -281,7 +276,7 @@ function AppContent() {
                 maxScroll = scrollPercent;
                 updatePageViewMetrics(Math.round(maxScroll), null);
                 
-                // Track milestone scroll events (only once per milestone)
+                // Track milestone scroll events
                 if (maxScroll >= 25 && !scrollMilestonesTracked[25]) {
                     scrollMilestonesTracked[25] = true;
                     trackEvent('scroll_25_percent', { page: location.pathname });
@@ -304,7 +299,6 @@ function AppContent() {
             clickCount++;
             updatePageViewMetrics(null, clickCount);
             
-            // Track specific important clicks
             const target = e.target.closest('a, button, [role="button"]');
             if (target) {
                 const elementType = target.tagName.toLowerCase();
@@ -312,7 +306,7 @@ function AppContent() {
                 const elementHref = target.getAttribute('href') || '';
                 const elementId = target.id || target.getAttribute('data-track-id');
                 
-                // Track important actions (not every click)
+                // Track important actions
                 const isImportant = 
                     elementText.includes('Apply') || 
                     elementText.includes('Sign') ||
@@ -340,12 +334,7 @@ function AppContent() {
         
         // Track time on page milestones
         let timeOnPage = 0;
-        let timeMilestonesTracked = {
-            30: false,
-            60: false,
-            120: false,
-            300: false
-        };
+        const timeMilestonesTracked = { 30: false, 60: false, 120: false, 300: false };
         
         const timeInterval = setInterval(() => {
             timeOnPage += 30;
