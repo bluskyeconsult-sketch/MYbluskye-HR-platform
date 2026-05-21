@@ -1,5 +1,5 @@
 // src/services/analyticsTrackingService.js
-// FIXED - Removes external API calls, handles missing tables gracefully
+// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking
 
 import { supabase } from '../lib/supabase';
 
@@ -16,7 +16,8 @@ const STORAGE_KEYS = {
 const CONFIG = {
     SESSION_TIMEOUT: 30 * 60 * 1000, // 30 minutes
     KEEP_ALIVE_INTERVAL: 5 * 60 * 1000, // 5 minutes
-    ANALYTICS_ENABLED: true // Can be disabled if needed
+    MAX_RETRIES: 2,
+    RETRY_DELAY: 1000
 };
 
 // State management
@@ -28,6 +29,7 @@ let keepAliveInterval = null;
 let isInitialized = false;
 let initPromise = null;
 let analyticsEnabled = true;
+let tablesExistChecked = false;
 
 // ============================================
 // HELPER FUNCTIONS
@@ -64,34 +66,6 @@ async function getUser() {
     } catch {
         return null;
     }
-}
-
-// REMOVED: External geolocation API calls (causing CORS/rate limit issues)
-// Using browser's built-in location as fallback (user consent required)
-function getBrowserLocation() {
-    return new Promise((resolve) => {
-        if (!navigator.geolocation) {
-            resolve({ country_code: 'unknown', country_name: 'Unknown', city: 'Unknown' });
-            return;
-        }
-        
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                // Use reverse geocoding only if needed - skip for now
-                resolve({ 
-                    country_code: 'unknown', 
-                    country_name: 'Unknown', 
-                    city: 'Unknown',
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude
-                });
-            },
-            () => {
-                resolve({ country_code: 'unknown', country_name: 'Unknown', city: 'Unknown' });
-            },
-            { timeout: 3000 }
-        );
-    });
 }
 
 function getDeviceInfo() {
@@ -131,28 +105,57 @@ function getDeviceInfo() {
     };
 }
 
-// Check if analytics tables exist (graceful degradation)
-async function checkAnalyticsTables() {
-    if (!analyticsEnabled) return false;
+// Safe API call wrapper - handles 403 errors gracefully
+async function safeAnalyticsCall(callback, fallbackValue = null, retries = 0) {
+    if (!analyticsEnabled) return fallbackValue;
     
     try {
-        // Test if sessions table exists
+        const result = await callback();
+        return result;
+    } catch (error) {
+        // Don't log 403/404 errors heavily - they're expected without proper RLS/tables
+        if (error?.status === 403 || error?.status === 404 || error?.code === '42P01') {
+            if (retries === 0) {
+                console.debug('Analytics unavailable (tables/RLS):', error.message);
+                analyticsEnabled = false;
+            }
+            return fallbackValue;
+        }
+        
+        // Retry on network errors
+        if (retries < CONFIG.MAX_RETRIES && (error.message === 'Failed to fetch' || error.name === 'NetworkError')) {
+            await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+            return safeAnalyticsCall(callback, fallbackValue, retries + 1);
+        }
+        
+        // Only log non-expected errors
+        if (error?.status !== 403 && error?.status !== 404) {
+            console.debug('Analytics error:', error.message);
+        }
+        return fallbackValue;
+    }
+}
+
+// Check if analytics tables exist (only once)
+async function checkAnalyticsTables() {
+    if (tablesExistChecked) return analyticsEnabled;
+    tablesExistChecked = true;
+    
+    const result = await safeAnalyticsCall(async () => {
         const { error } = await supabase
             .from('analytics_sessions')
             .select('session_id', { count: 'exact', head: true })
             .limit(1);
         
-        if (error && error.code === '42P01') { // Table doesn't exist
-            console.warn('Analytics tables not found in Supabase. Analytics disabled.');
-            analyticsEnabled = false;
-            return false;
-        }
-        
-        return true;
-    } catch {
-        analyticsEnabled = false;
-        return false;
+        // If error code is 42P01 (table doesn't exist), analytics is disabled
+        return !(error && error.code === '42P01');
+    }, false);
+    
+    analyticsEnabled = result;
+    if (!analyticsEnabled) {
+        console.log('Analytics disabled - tables not found in Supabase');
     }
+    return analyticsEnabled;
 }
 
 // ============================================
@@ -160,14 +163,14 @@ async function checkAnalyticsTables() {
 // ============================================
 
 export async function startSession() {
-    if (!analyticsEnabled) return null;
+    if (!await checkAnalyticsTables()) return null;
     
-    try {
+    return safeAnalyticsCall(async () => {
         const existingSessionId = getCurrentSessionId();
         const user = await getUser();
         const visitorId = getVisitorId();
         
-        // Check if session already exists in database
+        // Check if session already exists
         if (existingSessionId) {
             const { data: existing, error } = await supabase
                 .from('analytics_sessions')
@@ -181,7 +184,7 @@ export async function startSession() {
             }
         }
         
-        // Create new session (skip geolocation to avoid external API calls)
+        // Create new session
         const deviceInfo = getDeviceInfo();
         const newSessionId = generateId('sess_');
         
@@ -211,19 +214,18 @@ export async function startSession() {
         }
         
         return currentSessionId;
-    } catch (error) {
-        console.warn('Session start error (non-critical):', error.message);
-        return null;
-    }
+    }, null);
 }
 
 export async function endSession() {
-    if (!analyticsEnabled || (!currentSessionId && !getCurrentSessionId())) return;
+    if (!analyticsEnabled) return;
     
     const sessionId = currentSessionId || getCurrentSessionId();
+    if (!sessionId) return;
+    
     const startTime = sessionStartTime || parseInt(sessionStorage.getItem(STORAGE_KEYS.SESSION_START) || Date.now().toString());
     
-    try {
+    await safeAnalyticsCall(async () => {
         const duration = Math.floor((Date.now() - startTime) / 1000);
         
         await supabase
@@ -245,24 +247,21 @@ export async function endSession() {
             clearInterval(keepAliveInterval);
             keepAliveInterval = null;
         }
-    } catch (error) {
-        console.warn('Session end error:', error.message);
-    }
+    });
 }
 
 export async function keepAlive() {
-    if (!analyticsEnabled || (!currentSessionId && !getCurrentSessionId())) return;
+    if (!analyticsEnabled) return;
     
     const sessionId = currentSessionId || getCurrentSessionId();
+    if (!sessionId) return;
     
-    try {
+    await safeAnalyticsCall(async () => {
         await supabase
             .from('analytics_sessions')
             .update({ last_activity: new Date().toISOString() })
             .eq('session_id', sessionId);
-    } catch (error) {
-        // Silently fail - not critical
-    }
+    });
 }
 
 // ============================================
@@ -272,7 +271,7 @@ export async function keepAlive() {
 export async function trackPageView(pagePath, pageTitle) {
     if (!analyticsEnabled) return;
     
-    try {
+    await safeAnalyticsCall(async () => {
         let sessionId = getCurrentSessionId();
         if (!sessionId) {
             sessionId = await startSession();
@@ -283,7 +282,7 @@ export async function trackPageView(pagePath, pageTitle) {
         const deviceInfo = getDeviceInfo();
         
         // Record new page view
-        const { error } = await supabase
+        await supabase
             .from('analytics_page_views')
             .insert({
                 session_id: sessionId,
@@ -299,38 +298,32 @@ export async function trackPageView(pagePath, pageTitle) {
                 created_at: new Date().toISOString()
             });
         
-        // Update session page count (silent fail if error)
-        if (!error) {
-            const { data: session } = await supabase
-                .from('analytics_sessions')
-                .select('page_count')
-                .eq('session_id', sessionId)
-                .single();
-            
-            await supabase
-                .from('analytics_sessions')
-                .update({ 
-                    page_count: (session?.page_count || 0) + 1,
-                    last_page: pagePath,
-                    last_activity: new Date().toISOString()
-                })
-                .eq('session_id', sessionId);
-        }
+        // Update session page count
+        const { data: session } = await supabase
+            .from('analytics_sessions')
+            .select('page_count')
+            .eq('session_id', sessionId)
+            .single();
+        
+        await supabase
+            .from('analytics_sessions')
+            .update({ 
+                page_count: (session?.page_count || 0) + 1,
+                last_page: pagePath,
+                last_activity: new Date().toISOString()
+            })
+            .eq('session_id', sessionId);
         
         // Reset tracking for new page
         pageViewStartTime = Date.now();
         currentPagePath = pagePath;
-        
-    } catch (error) {
-        // Silent fail - analytics shouldn't break the app
-        console.warn('Page view tracking error:', error.message);
-    }
+    });
 }
 
 export async function updatePageViewMetrics(scrollDepth = null, clickCount = null) {
     if (!analyticsEnabled || !currentPagePath || !currentSessionId) return;
     
-    try {
+    await safeAnalyticsCall(async () => {
         const timeOnPage = Math.floor((Date.now() - (pageViewStartTime || Date.now())) / 1000);
         
         await supabase
@@ -342,9 +335,7 @@ export async function updatePageViewMetrics(scrollDepth = null, clickCount = nul
             })
             .eq('session_id', currentSessionId)
             .eq('page_path', currentPagePath);
-    } catch (error) {
-        console.warn('Failed to update page metrics:', error.message);
-    }
+    });
 }
 
 // ============================================
@@ -354,7 +345,7 @@ export async function updatePageViewMetrics(scrollDepth = null, clickCount = nul
 export async function trackEvent(eventType, eventData = {}, pagePath = null) {
     if (!analyticsEnabled) return;
     
-    try {
+    await safeAnalyticsCall(async () => {
         let sessionId = getCurrentSessionId();
         if (!sessionId) {
             sessionId = await startSession();
@@ -373,12 +364,13 @@ export async function trackEvent(eventType, eventData = {}, pagePath = null) {
                 page_path: pagePath || window.location.pathname,
                 created_at: new Date().toISOString()
             });
-    } catch (error) {
-        console.warn('Event tracking error:', error.message);
-    }
+    });
 }
 
-// Convenience event tracking functions
+// ============================================
+// CONVENIENCE EVENT FUNCTIONS
+// ============================================
+
 export function trackJobSearch(query, filters = {}, resultsCount = null) {
     return trackEvent('job_search', { query, filters, results_count: resultsCount });
 }
@@ -407,6 +399,59 @@ export function trackAssessmentComplete(assessmentId, type, score) {
     return trackEvent('assessment_complete', { assessment_id: assessmentId, type, score });
 }
 
+export function trackNewsletterSignup(email, source) {
+    return trackEvent('newsletter_signup', { source });
+}
+
+// ============================================
+// ANALYTICS QUERIES (Admin)
+// ============================================
+
+export async function getVisitorAnalytics(days = 30) {
+    if (!await checkAnalyticsTables()) return [];
+    
+    return safeAnalyticsCall(async () => {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        const [sessions, pageViews, events] = await Promise.all([
+            supabase.from('analytics_sessions').select('*').gte('start_time', cutoff),
+            supabase.from('analytics_page_views').select('*').gte('created_at', cutoff),
+            supabase.from('analytics_events').select('*').gte('created_at', cutoff)
+        ]);
+        
+        const sessionsData = sessions.data || [];
+        const pageViewsData = pageViews.data || [];
+        const eventsData = events.data || [];
+        
+        const uniqueVisitors = new Set(sessionsData.map(s => s.visitor_id || s.user_id)).size;
+        const totalSessions = sessionsData.length;
+        
+        return {
+            summary: {
+                unique_visitors: uniqueVisitors,
+                total_sessions: totalSessions,
+                total_page_views: pageViewsData.length,
+                total_events: eventsData.length,
+                avg_session_duration: sessionsData.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / (totalSessions || 1) / 60
+            },
+            top_pages: Object.entries(
+                pageViewsData.reduce((acc, p) => {
+                    acc[p.page_path] = (acc[p.page_path] || 0) + 1;
+                    return acc;
+                }, {})
+            ).map(([path, views]) => ({ path, views }))
+            .sort((a, b) => b.views - a.views)
+            .slice(0, 10),
+            event_types: Object.entries(
+                eventsData.reduce((acc, e) => {
+                    acc[e.event_type] = (acc[e.event_type] || 0) + 1;
+                    return acc;
+                }, {})
+            )
+        };
+    }, []);
+}
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -417,30 +462,28 @@ export async function initAnalytics() {
     
     initPromise = (async () => {
         try {
-            // Check if analytics tables exist
             await checkAnalyticsTables();
             
             if (!analyticsEnabled) {
-                console.log('Analytics disabled - tables not found in Supabase');
+                console.log('Analytics disabled - tables not found');
                 return;
             }
             
             await startSession();
-            
-            // Track initial page view
             await trackPageView(window.location.pathname, document.title);
             
-            // Track scroll depth (simple implementation)
+            // Scroll depth tracking
             let maxScroll = 0;
             const handleScroll = () => {
-                const scrollPercent = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+                const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+                const scrollPercent = scrollHeight > 0 ? (window.scrollY / scrollHeight) * 100 : 0;
                 if (scrollPercent > maxScroll && scrollPercent % 25 < 5) {
                     maxScroll = scrollPercent;
                     updatePageViewMetrics(Math.floor(maxScroll), null);
                 }
             };
             
-            // Track click count
+            // Click tracking
             let clickCount = 0;
             const handleClick = () => {
                 clickCount++;
@@ -450,19 +493,19 @@ export async function initAnalytics() {
             window.addEventListener('scroll', handleScroll);
             document.addEventListener('click', handleClick);
             
-            // Set up page visibility tracking
-            document.addEventListener('visibilitychange', async () => {
+            // Page visibility
+            document.addEventListener('visibilitychange', () => {
                 if (document.hidden) {
-                    await updatePageViewMetrics();
+                    updatePageViewMetrics();
                 } else {
                     pageViewStartTime = Date.now();
                 }
             });
             
-            // Set up beforeunload to end session
-            window.addEventListener('beforeunload', async () => {
-                await updatePageViewMetrics();
-                await endSession();
+            // Session end on page unload
+            window.addEventListener('beforeunload', () => {
+                updatePageViewMetrics();
+                endSession();
             });
             
             // Periodic keep-alive
@@ -471,7 +514,7 @@ export async function initAnalytics() {
             isInitialized = true;
             console.log('Analytics initialized');
         } catch (error) {
-            console.warn('Analytics initialization failed:', error.message);
+            console.warn('Analytics initialization failed:', error?.message);
             analyticsEnabled = false;
         }
     })();
@@ -480,22 +523,16 @@ export async function initAnalytics() {
 }
 
 // ============================================
-// SQL to create missing tables (run in Supabase SQL editor)
+// SQL SCHEMA (Run in Supabase SQL editor)
 // ============================================
 
 export const createAnalyticsTablesSQL = `
 -- Create analytics_sessions table
 CREATE TABLE IF NOT EXISTS analytics_sessions (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     session_id TEXT UNIQUE NOT NULL,
     visitor_id TEXT,
-    user_id UUID REFERENCES auth.users(id),
-    ip_address TEXT,
-    country_code TEXT,
-    country_name TEXT,
-    city TEXT,
-    latitude FLOAT,
-    longitude FLOAT,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     device_type TEXT,
     browser TEXT,
     os TEXT,
@@ -503,7 +540,7 @@ CREATE TABLE IF NOT EXISTS analytics_sessions (
     language TEXT,
     referrer TEXT,
     landing_page TEXT,
-    start_time TIMESTAMPTZ,
+    start_time TIMESTAMPTZ DEFAULT NOW(),
     end_time TIMESTAMPTZ,
     duration_seconds INTEGER,
     page_count INTEGER DEFAULT 1,
@@ -514,17 +551,13 @@ CREATE TABLE IF NOT EXISTS analytics_sessions (
 
 -- Create analytics_page_views table
 CREATE TABLE IF NOT EXISTS analytics_page_views (
-    id SERIAL PRIMARY KEY,
-    session_id TEXT REFERENCES analytics_sessions(session_id),
-    user_id UUID REFERENCES auth.users(id),
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT REFERENCES analytics_sessions(session_id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     page_path TEXT,
     page_title TEXT,
     referrer TEXT,
     user_agent TEXT,
-    ip_address TEXT,
-    country_code TEXT,
-    country_name TEXT,
-    city TEXT,
     device_type TEXT,
     browser TEXT,
     os TEXT,
@@ -537,21 +570,22 @@ CREATE TABLE IF NOT EXISTS analytics_page_views (
 
 -- Create analytics_events table
 CREATE TABLE IF NOT EXISTS analytics_events (
-    id SERIAL PRIMARY KEY,
-    session_id TEXT REFERENCES analytics_sessions(session_id),
-    user_id UUID REFERENCES auth.users(id),
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT REFERENCES analytics_sessions(session_id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     event_type TEXT,
     event_data JSONB,
     page_path TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes for better performance
+-- Create indexes
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_session_id ON analytics_sessions(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_user_id ON analytics_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_start_time ON analytics_sessions(start_time);
 CREATE INDEX IF NOT EXISTS idx_analytics_page_views_session_id ON analytics_page_views(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_page_views_created_at ON analytics_page_views(created_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_page_views_page_path ON analytics_page_views(page_path);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_session_id ON analytics_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_event_type ON analytics_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events(created_at);
@@ -565,6 +599,7 @@ export default {
     initAnalytics,
     startSession,
     endSession,
+    keepAlive,
     trackPageView,
     updatePageViewMetrics,
     trackEvent,
@@ -575,5 +610,7 @@ export default {
     trackCourseComplete,
     trackAssessmentStart,
     trackAssessmentComplete,
+    trackNewsletterSignup,
+    getVisitorAnalytics,
     createAnalyticsTablesSQL
 };
