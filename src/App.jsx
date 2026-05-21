@@ -1,5 +1,5 @@
 // src/App.jsx
-// OPTIMIZED WORKING VERSION - With Lazy Loading, Animations, and ErrorBoundary
+// OPTIMIZED WORKING VERSION - With Lazy Loading, Animations, ErrorBoundary, and Complete Routes
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense } from 'react';
@@ -44,6 +44,11 @@ const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 
 // ============================================
+// LAZY LOADED BLOG PAGE (NEW)
+// ============================================
+const BlogPage = lazy(() => import('./pages/BlogPage'));
+
+// ============================================
 // LAZY LOADED AUTH PAGES
 // ============================================
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
@@ -63,6 +68,12 @@ const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
+
+// ============================================
+// LAZY LOADED EMPLOYER PAGES (NEW)
+// ============================================
+const PostJob = lazy(() => import('./pages/employer/PostJob'));
+const ManageJobs = lazy(() => import('./pages/employer/ManageJobs'));
 
 // ============================================
 // LAZY LOADED TESTER PAGES
@@ -208,6 +219,9 @@ function AppContent() {
                                     <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                                     <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
 
+                                    {/* Blog Route - NEW */}
+                                    <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
+
                                     {/* Assessment Routes */}
                                     <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
                                     <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
@@ -236,6 +250,10 @@ function AppContent() {
                                     <Route path="/workforce/setup" element={<AnimatedPage><WorkforceOnboarding /></AnimatedPage>} />
                                     <Route path="/workforce/proposals" element={<AnimatedPage><ProposalsList /></AnimatedPage>} />
                                     <Route path="/workforce/engagements" element={<AnimatedPage><EngagementsDashboard /></AnimatedPage>} />
+
+                                    {/* Employer Routes - NEW */}
+                                    <Route path="/post-job" element={<AnimatedPage><PostJob /></AnimatedPage>} />
+                                    <Route path="/manage-jobs" element={<AnimatedPage><ManageJobs /></AnimatedPage>} />
 
                                     {/* Tester Routes */}
                                     <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
