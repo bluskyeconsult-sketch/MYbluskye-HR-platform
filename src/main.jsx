@@ -1,6 +1,5 @@
 // src/main.jsx
-// COMPLETE ENTRY POINT - With Error Boundary, Performance Monitoring, and Supabase Connection Check
-// No external dependencies - web-vitals removed to prevent build failures
+// OPTIMIZED ENTRY POINT - Clean, fast, and error-free
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -13,135 +12,64 @@ import { supabase } from './lib/supabase';
 // CONFIGURATION
 // ============================================
 
-// Environment checks
 const isDevelopment = import.meta.env.DEV;
 const isProduction = import.meta.env.PROD;
 
 // ============================================
-// PERFORMANCE MONITORING (No external dependencies)
+// SIMPLE PERFORMANCE METRICS
 // ============================================
 
-// Measure initial page load time
-const pageLoadStartTime = performance.now();
+const startTime = performance.now();
 
-// Function to report performance metrics
-const reportPerformanceMetrics = () => {
-    const loadTime = performance.now() - pageLoadStartTime;
-    console.log(`📊 Page load time: ${loadTime.toFixed(2)}ms`);
+function reportLoadTime() {
+    const loadTime = performance.now() - startTime;
+    console.log(`✅ App loaded in ${loadTime.toFixed(0)}ms`);
     
-    // Get navigation timing data (works without external libs)
+    // Get basic navigation timing
     if (performance.getEntriesByType) {
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        if (navigationEntry) {
-            console.log('📊 Performance metrics:', {
-                'DNS lookup': `${(navigationEntry.domainLookupEnd - navigationEntry.domainLookupStart).toFixed(0)}ms`,
-                'TCP connection': `${(navigationEntry.connectEnd - navigationEntry.connectStart).toFixed(0)}ms`,
-                'Request time': `${(navigationEntry.responseStart - navigationEntry.requestStart).toFixed(0)}ms`,
-                'DOM parsing': `${(navigationEntry.domInteractive - navigationEntry.responseEnd).toFixed(0)}ms`,
-                'Page load': `${(navigationEntry.loadEventEnd - navigationEntry.startTime).toFixed(0)}ms`
-            });
+        const nav = performance.getEntriesByType('navigation')[0];
+        if (nav) {
+            console.log(`📊 DNS: ${(nav.domainLookupEnd - nav.domainLookupStart).toFixed(0)}ms | ` +
+                       `Load: ${(nav.loadEventEnd - nav.startTime).toFixed(0)}ms`);
         }
     }
-    
-    // Measure First Paint and First Contentful Paint (if available)
-    if (performance.getEntriesByType('paint')) {
-        const paintEntries = performance.getEntriesByType('paint');
-        paintEntries.forEach(entry => {
-            console.log(`📊 ${entry.name}: ${entry.startTime.toFixed(0)}ms`);
-        });
-    }
-};
-
-// Simple Web Vitals measurement (no external dependencies)
-const measureWebVitals = () => {
-    if (!isProduction) return;
-    
-    // Measure Largest Contentful Paint (LCP)
-    try {
-        const lcpObserver = new PerformanceObserver((list) => {
-            const entries = list.getEntries();
-            const lastEntry = entries[entries.length - 1];
-            console.log(`🔍 LCP: ${lastEntry.startTime.toFixed(0)}ms`);
-        });
-        lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
-    } catch (e) {
-        console.debug('LCP observer not supported');
-    }
-    
-    // Measure First Input Delay (FID)
-    try {
-        const fidObserver = new PerformanceObserver((list) => {
-            const firstInput = list.getEntries()[0];
-            if (firstInput) {
-                console.log(`🔍 FID: ${firstInput.processingStart - firstInput.startTime}ms`);
-            }
-        });
-        fidObserver.observe({ type: 'first-input', buffered: true });
-    } catch (e) {
-        console.debug('FID observer not supported');
-    }
-    
-    // Measure Cumulative Layout Shift (CLS)
-    try {
-        let clsValue = 0;
-        const clsObserver = new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-                if (!entry.hadRecentInput) {
-                    clsValue += entry.value;
-                }
-            }
-            console.log(`🔍 CLS: ${clsValue.toFixed(3)}`);
-        });
-        clsObserver.observe({ type: 'layout-shift', buffered: true });
-    } catch (e) {
-        console.debug('CLS observer not supported');
-    }
-};
+}
 
 // ============================================
-// SUPABASE CONNECTION VERIFICATION
+// SUPABASE CONNECTION CHECK (Non-blocking)
 // ============================================
 
-async function verifySupabaseConnection() {
+async function checkSupabase() {
     try {
-        const startTime = performance.now();
-        const { data, error } = await supabase.auth.getSession();
-        const duration = performance.now() - startTime;
+        const start = performance.now();
+        const { error } = await supabase.auth.getSession();
+        const duration = performance.now() - start;
         
         if (error) {
-            console.error('❌ Supabase connection error:', error.message);
-            console.warn('⚠️ Some features may not work correctly');
+            console.warn('⚠️ Supabase:', error.message);
             return false;
         }
         
         console.log(`✅ Supabase connected (${duration.toFixed(0)}ms)`);
-        
-        // Check if user is already logged in
-        if (data?.session?.user) {
-            console.log(`👤 User session found: ${data.session.user.email}`);
-        }
-        
         return true;
     } catch (err) {
-        console.error('❌ Supabase connection failed:', err.message);
+        console.warn('⚠️ Supabase unavailable:', err.message);
         return false;
     }
 }
 
 // ============================================
-// SERVICE WORKER CLEANUP (Prevents caching issues)
+// CLEANUP SERVICE WORKERS
 // ============================================
 
-async function clearServiceWorkers() {
+async function cleanupServiceWorkers() {
     if ('serviceWorker' in navigator) {
-        try {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            for (const registration of registrations) {
-                await registration.unregister();
-                console.log('✅ Service worker unregistered');
-            }
-        } catch (err) {
-            console.debug('Service worker cleanup error:', err);
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+            await registration.unregister();
+        }
+        if (registrations.length > 0) {
+            console.log('✅ Service workers cleaned up');
         }
     }
 }
@@ -150,102 +78,97 @@ async function clearServiceWorkers() {
 // GLOBAL ERROR HANDLING
 // ============================================
 
-// Handle uncaught promise rejections
-window.addEventListener('unhandledrejection', (event) => {
-    console.error('❌ Unhandled Promise Rejection:', event.reason);
-    
-    // Optional: Send to error tracking service in production
-    if (isProduction) {
-        // You can send to Sentry or custom API
-        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.reason }) })
-        //     .catch(() => {});
+window.addEventListener('error', (event) => {
+    console.error('❌ Error:', event.error?.message || event.message);
+    // Don't show errors to users in production
+    if (isDevelopment) {
+        const root = document.getElementById('root');
+        if (root && !root.innerHTML.includes('error')) {
+            // Only show in development
+            // root.innerHTML = `<div style="padding:20px;color:red;">Error: ${event.error?.message}</div>`;
+        }
     }
 });
 
-// Handle global JavaScript errors
-window.addEventListener('error', (event) => {
-    console.error('❌ Global Error:', event.error || event.message);
-    
-    // Optional: Send to error tracking service in production
-    if (isProduction) {
-        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.error }) })
-        //     .catch(() => {});
-    }
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('❌ Unhandled Promise:', event.reason);
 });
 
 // ============================================
-// LOAD COMPLETE EVENT
+// LOAD EVENT
 // ============================================
 
 window.addEventListener('load', () => {
-    reportPerformanceMetrics();
-    measureWebVitals();
-    console.log('🚀 Application fully loaded');
+    reportLoadTime();
+    console.log('🚀 Application ready');
     
-    // Report initial connection status
-    if (navigator.onLine) {
-        console.log('🌐 Online');
-    } else {
-        console.warn('⚠️ Offline - some features may be limited');
+    if (!navigator.onLine) {
+        console.warn('⚠️ Offline mode');
     }
 });
 
-// Handle online/offline events
-window.addEventListener('online', () => console.log('🌐 Back online'));
-window.addEventListener('offline', () => console.warn('⚠️ Offline mode'));
-
 // ============================================
-// INITIALIZE APPLICATION
+// INITIALIZE APP
 // ============================================
 
-// Clear service workers (prevents caching issues)
-clearServiceWorkers();
-
-// Verify Supabase connection (non-blocking)
-verifySupabaseConnection();
-
-// NOTE: Do NOT call initAnalytics() here or in App.jsx
-// The useAnalytics hook in App.jsx handles page view tracking automatically
-// If you see an error about initAnalytics, comment it out
-
-// Create root and render app
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
-    throw new Error('Root element not found. Make sure your HTML has a <div id="root"></div>');
+    console.error('❌ Root element missing!');
+    document.body.innerHTML = `
+        <div style="padding: 40px; text-align: center; font-family: sans-serif;">
+            <h1>Configuration Error</h1>
+            <p>Root element not found. Please check your HTML file.</p>
+        </div>
+    `;
+} else {
+    // Non-blocking initialization
+    cleanupServiceWorkers().catch(() => {});
+    checkSupabase().catch(() => {});
+    
+    // Render app
+    try {
+        ReactDOM.createRoot(rootElement).render(
+            <React.StrictMode>
+                <ErrorBoundary>
+                    <App />
+                </ErrorBoundary>
+            </React.StrictMode>
+        );
+        console.log('🎯 App rendered successfully');
+    } catch (error) {
+        console.error('❌ Render failed:', error);
+        rootElement.innerHTML = `
+            <div style="padding: 40px; text-align: center; font-family: sans-serif; background: #0f172a; min-height: 100vh; color: white;">
+                <h1 style="color: #ef4444;">Failed to Load Application</h1>
+                <p>${error.message}</p>
+                <button onclick="location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">
+                    Refresh Page
+                </button>
+            </div>
+        `;
+    }
 }
 
-ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-        <ErrorBoundary>
-            <App />
-        </ErrorBoundary>
-    </React.StrictMode>
-);
-
 // ============================================
-// HOT MODULE REPLACEMENT (Development only)
+// HOT MODULE REPLACEMENT (Development)
 // ============================================
 
 if (isDevelopment && import.meta.hot) {
     import.meta.hot.accept();
-    console.log('🔥 HMR enabled');
+    console.log('🔥 HMR active');
 }
 
 // ============================================
-// EXPORT FOR TESTING (Optional)
+// DEBUG TOOLS (Development only)
 // ============================================
 
-// Export for testing purposes
 if (isDevelopment) {
-    window.__APP_STATE__ = {
+    window.__APP_DEBUG__ = {
         version: '1.0.0',
         env: import.meta.env.MODE,
-        supabaseConnected: false
+        checkSupabase,
+        reload: () => window.location.reload()
     };
-    
-    // Update state after connection
-    verifySupabaseConnection().then(connected => {
-        window.__APP_STATE__.supabaseConnected = connected;
-    });
+    console.log('🐛 Debug tools available: window.__APP_DEBUG__');
 }
