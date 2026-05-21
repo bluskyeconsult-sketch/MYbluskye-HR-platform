@@ -1,12 +1,21 @@
 // src/services/rssJobService.js
 // COMPLETE RSS JOB FETCHING SERVICE
-// Merged: Government feeds + Commercial feeds + Jobicy API + Remotive + Findwork + Adzuna
+// Features: Government feeds + Commercial feeds + Jobicy API + Remotive + Findwork + Adzuna
 // Features: Sponsorship detection, job type detection, duplicate handling, search, suggestions, stats
 
 import { supabase } from '../lib/supabase';
 
 // ============================================
-// CONFIGURATION - ALL JOB SOURCES (Government + Commercial + APIs)
+// CONSTANTS & CONFIGURATION
+// ============================================
+
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+const REQUEST_TIMEOUT = 15000;
+const MAX_JOBS_PER_SOURCE = 50;
+const BATCH_SIZE = 25;
+
+// ============================================
+// RSS FEEDS CONFIGURATION
 // ============================================
 
 const RSS_FEEDS = {
@@ -150,7 +159,6 @@ const RSS_FEEDS = {
 // ============================================
 
 const API_SOURCES = {
-    // Jobicy - Free, no API key required
     JOBICY: {
         name: 'Jobicy Remote Jobs',
         country: 'Global',
@@ -178,7 +186,6 @@ const API_SOURCES = {
         }
     },
     
-    // Remotive - Free, no API key required
     REMOTIVE: {
         name: 'Remotive Remote Jobs',
         country: 'Global',
@@ -204,13 +211,12 @@ const API_SOURCES = {
         }
     },
     
-    // Findwork - Requires free API key
     FINDWORK: {
         name: 'Findwork Jobs',
         country: 'Global',
         url: 'https://findwork.dev/api/jobs/',
         type: 'api',
-        is_active: false,  // Set to true after adding API key
+        is_active: false,
         requires_key: true,
         api_key_env: 'VITE_FINDWORK_API_KEY',
         parseFunction: (data) => {
@@ -232,13 +238,12 @@ const API_SOURCES = {
         }
     },
     
-    // Adzuna - Requires free API key
     ADZUNA: {
         name: 'Adzuna Jobs',
         country: 'GB',
         url: 'https://api.adzuna.com/v1/api/jobs/gb/search/1',
         type: 'api',
-        is_active: false,  // Set to true after adding API key
+        is_active: false,
         requires_key: true,
         api_app_id_env: 'VITE_ADZUNA_APP_ID',
         api_key_env: 'VITE_ADZUNA_API_KEY',
@@ -273,12 +278,22 @@ function mapJobType(jobType) {
     
     const type = jobType.toLowerCase();
     
-    if (type.includes('full')) return 'full_time';
-    if (type.includes('part')) return 'part_time';
-    if (type.includes('contract')) return 'contract';
-    if (type.includes('free')) return 'freelance';
-    if (type.includes('remote')) return 'remote';
-    if (type.includes('hybrid')) return 'hybrid';
+    const typeMap = {
+        'full': 'full_time',
+        'full-time': 'full_time',
+        'fulltime': 'full_time',
+        'part': 'part_time',
+        'part-time': 'part_time',
+        'parttime': 'part_time',
+        'contract': 'contract',
+        'freelance': 'freelance',
+        'remote': 'remote',
+        'hybrid': 'hybrid'
+    };
+    
+    for (const [key, value] of Object.entries(typeMap)) {
+        if (type.includes(key)) return value;
+    }
     
     return 'full_time';
 }
@@ -286,28 +301,26 @@ function mapJobType(jobType) {
 function detectJobType(title, description) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
-    if (text.includes('remote') || text.includes('work from home') || text.includes('wfh') || text.includes('telework')) {
-        return 'remote';
+    const typePatterns = [
+        { pattern: /remote|work from home|wfh|telework/, type: 'remote' },
+        { pattern: /part time|part-time|parttime|pt/, type: 'part_time' },
+        { pattern: /contract|fixed term|temporary|temp/, type: 'contract' },
+        { pattern: /freelance|freelancer|gig/, type: 'freelance' },
+        { pattern: /hybrid|mix of office|home and office/, type: 'hybrid' }
+    ];
+    
+    for (const { pattern, type } of typePatterns) {
+        if (pattern.test(text)) return type;
     }
-    if (text.includes('part time') || text.includes('part-time') || text.includes('parttime') || text.includes('pt')) {
-        return 'part_time';
-    }
-    if (text.includes('contract') || text.includes('fixed term') || text.includes('temporary') || text.includes('temp')) {
-        return 'contract';
-    }
-    if (text.includes('freelance') || text.includes('freelancer') || text.includes('gig')) {
-        return 'freelance';
-    }
-    if (text.includes('hybrid') || text.includes('mix of office') || text.includes('home and office')) {
-        return 'hybrid';
-    }
+    
     return 'full_time';
 }
 
-function detectSponsorshipEligibility(title, description, sourceConfig) {
+function detectSponsorshipEligibility(title, description, sourceConfig = null) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
-    if (sourceConfig.sponsorship_keywords) {
+    // Check source-specific keywords first
+    if (sourceConfig?.sponsorship_keywords) {
         for (const keyword of sourceConfig.sponsorship_keywords) {
             if (text.includes(keyword.toLowerCase())) {
                 return { eligible: true, keyword: keyword, type: 'explicit' };
@@ -315,10 +328,11 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
         }
     }
     
+    // Check general sponsorship keywords
     const generalKeywords = [
-        'visa sponsorship', 'work visa', 'skilled worker', 'tier 2', 
+        'visa sponsorship', 'work visa', 'skilled worker', 'tier 2', 'tier 5',
         'certificate of sponsorship', 'sponsorship available', 'visa assistance',
-        'relocation support', 'work permit', 'immigration support'
+        'relocation support', 'work permit', 'immigration support', 'sponsorship provided'
     ];
     
     for (const keyword of generalKeywords) {
@@ -331,94 +345,59 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
 }
 
 function extractSalary(text) {
-    const patterns = [
-        /£([\d,]+)(?:\s*-\s*£([\d,]+))?/i,
-        /€([\d,]+)(?:\s*-\s*€([\d,]+))?/i,
-        /\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i,
-        /CAD\s*([\d,]+)(?:\s*-\s*([\d,]+))?/i,
-        /AUD\s*([\d,]+)(?:\s*-\s*([\d,]+))?/i
+    if (!text) return null;
+    
+    const currencyPatterns = [
+        { pattern: /£([\d,]+)(?:\s*-\s*£?([\d,]+))?/i, symbol: '£' },
+        { pattern: /€([\d,]+)(?:\s*-\s*€?([\d,]+))?/i, symbol: '€' },
+        { pattern: /\$([\d,]+)(?:\s*-\s*\$?([\d,]+))?/i, symbol: '$' },
+        { pattern: /CAD\s*([\d,]+)(?:\s*-\s*([\d,]+))?/i, symbol: 'CAD' },
+        { pattern: /AUD\s*([\d,]+)(?:\s*-\s*([\d,]+))?/i, symbol: 'AUD' }
     ];
     
-    for (const pattern of patterns) {
+    for (const { pattern, symbol } of currencyPatterns) {
         const match = text.match(pattern);
         if (match) {
-            if (match[2]) return `${match[1]} - ${match[2]}`;
-            return match[1];
+            const min = match[1].replace(/,/g, '');
+            if (match[2]) {
+                const max = match[2].replace(/,/g, '');
+                return { range: `${symbol}${min} - ${symbol}${max}`, min: parseInt(min), max: parseInt(max) };
+            }
+            return { range: `${symbol}${min}`, min: parseInt(min), max: null };
         }
     }
+    
     return null;
 }
 
-// ============================================
-// API FETCHING
-// ============================================
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-async function fetchFromAPI(source) {
-    try {
-        let url = source.url;
-        
-        // Add API keys for Adzuna if needed
-        if (source.requires_key && source.name === 'Adzuna') {
-            const appId = import.meta.env.VITE_ADZUNA_APP_ID;
-            const apiKey = import.meta.env.VITE_ADZUNA_API_KEY;
-            if (!appId || !apiKey) {
-                console.warn(`${source.name} API credentials not configured`);
-                return [];
-            }
-            url = `${source.url}?app_id=${appId}&app_key=${apiKey}&results_per_page=20`;
-        }
-        
-        // Add API key for Findwork if needed
-        const options = {
-            headers: {
-                'User-Agent': 'ODUSBABA/1.0'
-            }
-        };
-        
-        if (source.name === 'Findwork') {
-            const apiKey = import.meta.env.VITE_FINDWORK_API_KEY;
-            if (!apiKey) {
-                console.warn(`${source.name} API key not configured`);
-                return [];
-            }
-            options.headers['Authorization'] = `Token ${apiKey}`;
-        }
-        
-        const response = await fetch(url, options);
-        
-        if (!response.ok) {
-            console.warn(`API error for ${source.name}: ${response.status}`);
-            return [];
-        }
-        
-        const data = await response.json();
-        
-        if (source.parseFunction) {
-            return source.parseFunction(data);
-        }
-        
-        return [];
-    } catch (error) {
-        console.error(`Error fetching from ${source.name}:`, error);
-        return [];
-    }
+function createTimeoutPromise(timeoutMs) {
+    return new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
 }
 
 // ============================================
-// RSS PARSE FUNCTION (with CORS proxy)
+// RSS PARSING
 // ============================================
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
     try {
-        // Use CORS proxy for government feeds that block direct access
-        const isGovernmentFeed = feedUrl.includes('.gov');
-        const finalUrl = isGovernmentFeed 
-            ? `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`
-            : feedUrl;
+        // Use CORS proxy for all feeds to avoid CORS issues
+        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(feedUrl)}`;
         
-        const response = await fetch(finalUrl, {
-            headers: { 'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)' }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+        
+        const response = await fetch(proxyUrl, {
+            headers: { 'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)' },
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
             console.warn(`Failed to fetch RSS: ${feedUrl} - Status: ${response.status}`);
@@ -427,7 +406,7 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         
         const text = await response.text();
         
-        // Parse XML - works in browser
+        // Parse XML in browser environment
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, 'text/xml');
         
@@ -440,31 +419,19 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         const jobs = [];
         
         for (const item of items) {
-            const title = item.querySelector('title')?.textContent || '';
-            const description = item.querySelector('description')?.textContent || '';
-            const link = item.querySelector('link')?.textContent || '';
+            const title = item.querySelector('title')?.textContent?.trim() || '';
+            const description = item.querySelector('description')?.textContent?.trim() || '';
+            const link = item.querySelector('link')?.textContent?.trim() || '';
             const pubDate = item.querySelector('pubDate')?.textContent;
             
             if (!title || !link) continue;
             
-            // Extract salary
-            let salaryRange = null;
-            let salaryMin = null;
-            let salaryMax = null;
+            // Extract salary information
+            const salary = extractSalary(description);
             
-            const salaryMatch = description.match(/£([\d,]+)(?:\s*-\s*£([\d,]+))?/i) ||
-                              description.match(/€([\d,]+)(?:\s*-\s*€([\d,]+))?/i) ||
-                              description.match(/\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i);
-            
-            if (salaryMatch) {
-                salaryRange = `${salaryMatch[1]}${salaryMatch[2] ? ` - ${salaryMatch[2]}` : ''}`;
-                salaryMin = parseInt(salaryMatch[1].replace(/,/g, ''));
-                if (salaryMatch[2]) salaryMax = parseInt(salaryMatch[2].replace(/,/g, ''));
-            }
-            
-            // Extract location
+            // Extract location from description
             let location = '';
-            const locationMatch = description.match(/(?:Location|based in|located in):?\s*([A-Za-z\s,]+)/i);
+            const locationMatch = description.match(/(?:Location|based in|located in|Location:)\s*([A-Za-z\s,]+)/i);
             if (locationMatch) location = locationMatch[1].trim();
             
             const jobType = detectJobType(title, description);
@@ -473,10 +440,10 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
                 title: title.substring(0, 200),
                 description: description.substring(0, 1000),
                 external_url: link,
-                salary_range: salaryRange,
-                salary_min: salaryMin,
-                salary_max: salaryMax,
-                location: location,
+                salary_range: salary?.range || null,
+                salary_min: salary?.min || null,
+                salary_max: salary?.max || null,
+                location: location || sourceCountry,
                 posted_date: pubDate,
                 source_name: sourceName,
                 source_country: sourceCountry,
@@ -484,7 +451,7 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
             });
         }
         
-        return jobs;
+        return jobs.slice(0, MAX_JOBS_PER_SOURCE);
     } catch (error) {
         console.error(`Error parsing RSS feed ${feedUrl}:`, error);
         return [];
@@ -492,41 +459,86 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
 }
 
 // ============================================
-// MAIN FETCH FUNCTION (RSS + APIs + Deduplication)
+// API FETCHING
 // ============================================
 
-export async function fetchExternalJobs(forceRefresh = false) {
-    const allJobs = [];
-    const results = [];
-    
-    if (forceRefresh) {
-        await supabase.from('external_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        console.log('🔄 Force refresh: Cleared existing external jobs');
-    }
-    
-    // 1. Fetch from RSS feeds
-    for (const [key, source] of Object.entries(RSS_FEEDS)) {
-        if (!source.is_active) continue;
+async function fetchFromAPI(source) {
+    try {
+        let url = source.url;
+        const headers = { 'User-Agent': 'ODUSBABA/1.0' };
         
-        console.log(`🔍 Fetching jobs from ${source.name}...`);
-        const jobs = await parseRSSFeed(source.url, source.name, source.country);
-        
-        for (const job of jobs) {
-            const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
-            
-            const { data: existing } = await supabase
-                .from('external_jobs')
-                .select('id')
-                .eq('title', job.title.substring(0, 150))
-                .eq('source_name', job.source_name)
-                .maybeSingle();
-            
-            if (existing) {
-                results.push({ source: source.name, job: job.title, status: 'exists' });
-                continue;
+        // Handle API keys for different sources
+        if (source.requires_key) {
+            if (source.name === 'Adzuna') {
+                const appId = import.meta.env.VITE_ADZUNA_APP_ID;
+                const apiKey = import.meta.env.VITE_ADZUNA_API_KEY;
+                if (!appId || !apiKey) {
+                    console.warn(`${source.name} API credentials not configured`);
+                    return [];
+                }
+                url = `${source.url}?app_id=${appId}&app_key=${apiKey}&results_per_page=20`;
             }
             
-            const { error } = await supabase.from('external_jobs').insert({
+            if (source.name === 'Findwork') {
+                const apiKey = import.meta.env.VITE_FINDWORK_API_KEY;
+                if (!apiKey) {
+                    console.warn(`${source.name} API key not configured`);
+                    return [];
+                }
+                headers['Authorization'] = `Token ${apiKey}`;
+            }
+        }
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+        
+        const response = await fetch(url, { 
+            headers, 
+            signal: controller.signal 
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            console.warn(`API error for ${source.name}: ${response.status}`);
+            return [];
+        }
+        
+        const data = await response.json();
+        
+        if (source.parseFunction && typeof source.parseFunction === 'function') {
+            return source.parseFunction(data);
+        }
+        
+        return [];
+    } catch (error) {
+        console.error(`Error fetching from ${source.name}:`, error);
+        return [];
+    }
+}
+
+// ============================================
+// DATABASE OPERATIONS
+// ============================================
+
+async function saveJobToDatabase(job, sponsorship) {
+    try {
+        // Check for duplicate
+        const { data: existing } = await supabase
+            .from('external_jobs')
+            .select('id')
+            .eq('title', job.title.substring(0, 150))
+            .eq('source_name', job.source_name)
+            .maybeSingle();
+        
+        if (existing) {
+            return { status: 'exists', id: existing.id };
+        }
+        
+        // Insert new job
+        const { data, error } = await supabase
+            .from('external_jobs')
+            .insert({
                 title: job.title,
                 company: job.source_name,
                 location: job.location || job.source_country,
@@ -542,141 +554,219 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 status: 'pending_approval',
                 created_at: new Date().toISOString(),
                 published_at: job.posted_date
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        
+        return { status: 'added', id: data.id, job: data };
+    } catch (error) {
+        console.error('Error saving job to database:', error);
+        return { status: 'error', error: error.message };
+    }
+}
+
+async function logFetchResults(sourceName, jobsFetched, jobsNew, details) {
+    try {
+        await supabase
+            .from('external_job_fetch_log')
+            .insert({
+                source_name: sourceName,
+                fetch_status: jobsNew > 0 ? 'success' : 'no_new_jobs',
+                jobs_fetched: jobsFetched,
+                jobs_new: jobsNew,
+                details: details,
+                created_at: new Date().toISOString()
             });
-            
-            if (!error) {
-                allJobs.push(job);
-                results.push({ source: source.name, job: job.title, status: 'added', job_type: job.job_type });
-            } else {
-                results.push({ source: source.name, job: job.title, status: 'error', error: error.message });
-            }
+    } catch (err) {
+        console.warn('Log insert failed (table may not exist):', err.message);
+    }
+}
+
+// ============================================
+// MAIN FETCH FUNCTION
+// ============================================
+
+export async function fetchExternalJobs(forceRefresh = false) {
+    const allJobs = [];
+    const results = [];
+    
+    if (forceRefresh) {
+        const { error } = await supabase
+            .from('external_jobs')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+        
+        if (error) {
+            console.error('Error clearing external jobs:', error);
+        } else {
+            console.log('🔄 Force refresh: Cleared existing external jobs');
         }
     }
     
-    // 2. Fetch from API sources
+    // Fetch from RSS feeds sequentially to avoid rate limiting
+    for (const [key, source] of Object.entries(RSS_FEEDS)) {
+        if (!source.is_active) continue;
+        
+        console.log(`🔍 Fetching jobs from ${source.name}...`);
+        
+        try {
+            const jobs = await parseRSSFeed(source.url, source.name, source.country);
+            const sourceResults = [];
+            
+            for (const job of jobs) {
+                const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
+                const saveResult = await saveJobToDatabase(job, sponsorship);
+                
+                sourceResults.push({
+                    job: job.title,
+                    status: saveResult.status
+                });
+                
+                if (saveResult.status === 'added') {
+                    allJobs.push(job);
+                }
+            }
+            
+            results.push({
+                source: source.name,
+                jobsFound: jobs.length,
+                jobsAdded: sourceResults.filter(r => r.status === 'added').length,
+                details: sourceResults.slice(0, 10) // Limit details
+            });
+            
+            // Add delay between requests to be respectful
+            await delay(1000);
+            
+        } catch (error) {
+            console.error(`Error processing ${source.name}:`, error);
+            results.push({
+                source: source.name,
+                error: error.message,
+                jobsFound: 0,
+                jobsAdded: 0
+            });
+        }
+    }
+    
+    // Fetch from API sources
     for (const [key, source] of Object.entries(API_SOURCES)) {
         if (!source.is_active) continue;
         
         console.log(`🔍 Fetching jobs from ${source.name}...`);
-        const jobs = await fetchFromAPI(source);
         
-        for (const job of jobs) {
-            const { data: existing } = await supabase
-                .from('external_jobs')
-                .select('id')
-                .eq('title', job.title)
-                .eq('company', job.company)
-                .maybeSingle();
+        try {
+            const jobs = await fetchFromAPI(source);
+            const sourceResults = [];
             
-            if (!existing) {
-                const { error } = await supabase.from('external_jobs').insert({
-                    title: job.title,
-                    company: job.company,
-                    location: job.location,
-                    description: job.description,
-                    salary_range: job.salary_range,
-                    salary_min: job.salary_min,
-                    salary_max: job.salary_max,
-                    job_type: job.job_type || 'full_time',
-                    external_apply_url: job.link,
-                    source_country: job.source_country || 'Global',
-                    source_name: job.source_name,
-                    status: 'pending_approval',
-                    created_at: new Date().toISOString()
+            for (const job of jobs) {
+                const sponsorship = detectSponsorshipEligibility(job.title, job.description);
+                const saveResult = await saveJobToDatabase(job, sponsorship);
+                
+                sourceResults.push({
+                    job: job.title,
+                    status: saveResult.status
                 });
                 
-                if (!error) {
+                if (saveResult.status === 'added') {
                     allJobs.push(job);
-                    results.push({ source: job.source_name, job: job.title, status: 'added' });
-                } else {
-                    results.push({ source: job.source_name, job: job.title, status: 'error', error: error.message });
                 }
-            } else {
-                results.push({ source: job.source_name, job: job.title, status: 'exists' });
             }
+            
+            results.push({
+                source: source.name,
+                jobsFound: jobs.length,
+                jobsAdded: sourceResults.filter(r => r.status === 'added').length,
+                details: sourceResults.slice(0, 10)
+            });
+            
+            await delay(1000);
+            
+        } catch (error) {
+            console.error(`Error processing ${source.name}:`, error);
+            results.push({
+                source: source.name,
+                error: error.message,
+                jobsFound: 0,
+                jobsAdded: 0
+            });
         }
     }
     
-    // Log fetch results
-    try {
-        await supabase.from('external_job_fetch_log').insert({
-            source_name: 'all_sources',
-            fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
-            jobs_fetched: allJobs.length,
-            jobs_new: allJobs.length,
-            details: results,
-            created_at: new Date().toISOString()
-        });
-    } catch (err) {
-        console.warn('Log insert failed (table may not exist):', err.message);
-    }
+    // Log overall results
+    await logFetchResults('all_sources', allJobs.length, allJobs.length, results);
     
     console.log(`📊 Fetch complete: ${allJobs.length} new jobs added`);
-    return { jobs: allJobs, results, totalAdded: allJobs.length };
+    
+    return {
+        jobs: allJobs,
+        results,
+        totalAdded: allJobs.length,
+        summary: results.map(r => `${r.source}: ${r.jobsAdded} new jobs`).join(', ')
+    };
 }
 
 // ============================================
 // EXTERNAL JOB MANAGEMENT (Admin functions)
 // ============================================
 
-export async function getPendingExternalJobs() {
+export async function getExternalJobsByStatus(status) {
+    const validStatuses = ['pending_approval', 'approved', 'rejected'];
+    const queryStatus = validStatuses.includes(status) ? status : 'pending_approval';
+    
     const { data, error } = await supabase
         .from('external_jobs')
         .select('*')
-        .eq('status', 'pending_approval')
+        .eq('status', queryStatus)
         .order('created_at', { ascending: false });
     
     if (error) throw error;
     return data || [];
 }
 
+export async function getPendingExternalJobs() {
+    return getExternalJobsByStatus('pending_approval');
+}
+
 export async function getApprovedExternalJobs() {
-    const { data, error } = await supabase
-        .from('external_jobs')
-        .select('*')
-        .eq('status', 'approved')
-        .order('reviewed_at', { ascending: false });
-    
-    if (error) throw error;
-    return data || [];
+    return getExternalJobsByStatus('approved');
 }
 
 export async function getRejectedExternalJobs() {
-    const { data, error } = await supabase
-        .from('external_jobs')
-        .select('*')
-        .eq('status', 'rejected')
-        .order('reviewed_at', { ascending: false });
-    
-    if (error) throw error;
-    return data || [];
+    return getExternalJobsByStatus('rejected');
 }
 
 export async function getExternalJobsStats() {
-    const { count: pending } = await supabase
-        .from('external_jobs')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending_approval');
-    
-    const { count: approved } = await supabase
-        .from('external_jobs')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'approved');
-    
-    const { count: rejected } = await supabase
-        .from('external_jobs')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'rejected');
-    
-    return {
-        pending: pending || 0,
-        approved: approved || 0,
-        rejected: rejected || 0,
-        total: (pending || 0) + (approved || 0) + (rejected || 0)
+    const stats = {
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        total: 0,
+        bySource: {}
     };
+    
+    const { data, error } = await supabase
+        .from('external_jobs')
+        .select('status, source_name');
+    
+    if (error) throw error;
+    
+    for (const job of data || []) {
+        stats[job.status] = (stats[job.status] || 0) + 1;
+        stats.total++;
+        
+        if (!stats.bySource[job.source_name]) {
+            stats.bySource[job.source_name] = { pending: 0, approved: 0, rejected: 0 };
+        }
+        stats.bySource[job.source_name][job.status] = (stats.bySource[job.source_name][job.status] || 0) + 1;
+    }
+    
+    return stats;
 }
 
 export async function approveExternalJob(jobId) {
+    // Get the external job
     const { data: externalJob, error: fetchError } = await supabase
         .from('external_jobs')
         .select('*')
@@ -690,6 +780,7 @@ export async function approveExternalJob(jobId) {
     if (jobType === 'full-time') jobType = 'full_time';
     if (jobType === 'part-time') jobType = 'part_time';
     
+    // Insert into main jobs table
     const { data: newJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
@@ -715,9 +806,14 @@ export async function approveExternalJob(jobId) {
     
     if (insertError) throw insertError;
     
+    // Update external job status
     await supabase
         .from('external_jobs')
-        .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+        .update({ 
+            status: 'approved', 
+            reviewed_at: new Date().toISOString(), 
+            approved_job_id: newJob.id 
+        })
         .eq('id', jobId);
     
     return { success: true, jobId: newJob.id };
@@ -726,21 +822,29 @@ export async function approveExternalJob(jobId) {
 export async function rejectExternalJob(jobId, reason = null) {
     const { error } = await supabase
         .from('external_jobs')
-        .update({ status: 'rejected', reviewed_at: new Date().toISOString(), rejection_reason: reason })
+        .update({ 
+            status: 'rejected', 
+            reviewed_at: new Date().toISOString(), 
+            rejection_reason: reason 
+        })
         .eq('id', jobId);
     
     if (error) throw error;
     return { success: true };
 }
 
-export async function batchApproveExternalJobs() {
+export async function batchApproveExternalJobs(limit = 50) {
     const { data: pendingJobs, error } = await supabase
         .from('external_jobs')
         .select('id')
-        .eq('status', 'pending_approval');
+        .eq('status', 'pending_approval')
+        .limit(limit);
     
     if (error) throw error;
-    if (!pendingJobs?.length) return { total: 0, approved: 0, failed: 0 };
+    
+    if (!pendingJobs?.length) {
+        return { total: 0, approved: 0, failed: 0, message: 'No pending jobs to approve' };
+    }
     
     const results = { total: pendingJobs.length, approved: 0, failed: 0, errors: [] };
     
@@ -752,6 +856,9 @@ export async function batchApproveExternalJobs() {
             results.failed++;
             results.errors.push({ jobId: job.id, error: err.message });
         }
+        
+        // Small delay between approvals
+        await delay(500);
     }
     
     return results;
@@ -792,12 +899,11 @@ export async function loadJobsFromSQL() {
 
 export async function searchLiveJobs(query, filters = {}) {
     const allJobs = [];
-    const sourcesToSearch = Object.entries(RSS_FEEDS).filter(([_, config]) => config.is_active);
+    const sourcesToSearch = Object.entries(RSS_FEEDS)
+        .filter(([_, config]) => config.is_active)
+        .filter(([_, config]) => !filters.country || config.country === filters.country);
     
-    if (filters.country) {
-        sourcesToSearch.filter(([_, config]) => config.country === filters.country);
-    }
-    
+    // Fetch from multiple sources in parallel with limit
     const fetchPromises = sourcesToSearch.map(async ([_, config]) => {
         const jobs = await parseRSSFeed(config.url, config.name, config.country);
         return { config, jobs };
@@ -818,12 +924,15 @@ export async function searchLiveJobs(query, filters = {}) {
                 source_country: config.country,
                 job_type: job.job_type,
                 sponsorship_eligible: sponsorship.eligible,
-                sponsorship_keyword: sponsorship.keyword
+                sponsorship_keyword: sponsorship.keyword,
+                posted_date: job.posted_date
             });
         }
     }
     
+    // Apply filters
     let filteredJobs = allJobs;
+    
     if (query) {
         const q = query.toLowerCase();
         filteredJobs = filteredJobs.filter(job => 
@@ -831,46 +940,96 @@ export async function searchLiveJobs(query, filters = {}) {
             (job.description && job.description.toLowerCase().includes(q))
         );
     }
+    
     if (filters.sponsorshipOnly) {
         filteredJobs = filteredJobs.filter(job => job.sponsorship_eligible === true);
     }
+    
     if (filters.jobType) {
         filteredJobs = filteredJobs.filter(job => job.job_type === filters.jobType);
     }
+    
+    if (filters.sourceCountry) {
+        filteredJobs = filteredJobs.filter(job => job.source_country === filters.sourceCountry);
+    }
+    
+    // Sort by date (newest first)
+    filteredJobs.sort((a, b) => {
+        if (!a.posted_date) return 1;
+        if (!b.posted_date) return -1;
+        return new Date(b.posted_date) - new Date(a.posted_date);
+    });
     
     return filteredJobs.slice(0, filters.limit || 20);
 }
 
 export async function getJobSuggestions(userQuery) {
     const q = userQuery.toLowerCase();
+    
+    // Determine filters based on query intent
     const filters = {
-        country: q.includes('uk') ? 'GB' : q.includes('canada') ? 'CA' : q.includes('us') ? 'US' : null,
-        sponsorshipOnly: q.includes('sponsorship') || q.includes('visa'),
+        country: null,
+        sponsorshipOnly: false,
         limit: 15
     };
     
+    // Country detection
+    if (q.includes('uk') || q.includes('united kingdom') || q.includes('britain')) {
+        filters.country = 'GB';
+    } else if (q.includes('canada') || q.includes('canadian')) {
+        filters.country = 'CA';
+    } else if (q.includes('us') || q.includes('usa') || q.includes('united states')) {
+        filters.country = 'US';
+    } else if (q.includes('australia')) {
+        filters.country = 'AU';
+    } else if (q.includes('ireland')) {
+        filters.country = 'IE';
+    } else if (q.includes('germany')) {
+        filters.country = 'DE';
+    }
+    
+    // Sponsorship detection
+    if (q.includes('sponsorship') || q.includes('visa') || q.includes('work permit')) {
+        filters.sponsorshipOnly = true;
+    }
+    
     const jobs = await searchLiveJobs(userQuery, filters);
-    return { jobs, filters, total: jobs.length };
+    
+    return {
+        jobs,
+        filters,
+        total: jobs.length,
+        query: userQuery,
+        suggestions: jobs.slice(0, 5).map(job => job.title)
+    };
 }
 
 // ============================================
-// TEST CONNECTIONS
+// CONNECTION TESTING
 // ============================================
 
 export async function testRSSConnection() {
     const results = [];
+    
     for (const [_, source] of Object.entries(RSS_FEEDS)) {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
             const response = await fetch(source.url, { 
                 headers: { 'User-Agent': 'ODUSBABA-Job-Fetcher/1.0' },
-                signal: AbortSignal.timeout(10000)
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
+            
             results.push({ 
                 source: source.name, 
                 url: source.url, 
                 status: response.status, 
                 ok: response.ok, 
-                country: source.country 
+                country: source.country,
+                message: response.ok ? 'Connected successfully' : `HTTP ${response.status}`
             });
         } catch (error) {
             results.push({ 
@@ -878,12 +1037,76 @@ export async function testRSSConnection() {
                 url: source.url, 
                 status: 'error', 
                 error: error.message, 
-                country: source.country 
+                country: source.country,
+                message: error.message
             });
         }
     }
+    
     return results;
 }
 
-// Export all feeds configuration for external use
+export async function testAPIConnection() {
+    const results = [];
+    
+    for (const [_, source] of Object.entries(API_SOURCES)) {
+        if (!source.is_active) {
+            results.push({
+                source: source.name,
+                status: 'inactive',
+                message: 'Source is inactive - enable to test'
+            });
+            continue;
+        }
+        
+        try {
+            const startTime = Date.now();
+            const jobs = await fetchFromAPI(source);
+            const duration = Date.now() - startTime;
+            
+            results.push({
+                source: source.name,
+                status: 'success',
+                jobsFound: jobs.length,
+                responseTime: `${duration}ms`,
+                message: `Found ${jobs.length} jobs`
+            });
+        } catch (error) {
+            results.push({
+                source: source.name,
+                status: 'error',
+                error: error.message,
+                message: `Failed: ${error.message}`
+            });
+        }
+    }
+    
+    return results;
+}
+
+// ============================================
+// EXPORTS
+// ============================================
+
+// Export configurations
 export { RSS_FEEDS, API_SOURCES };
+
+// Export main functions
+export default {
+    fetchExternalJobs,
+    getExternalJobsByStatus,
+    getPendingExternalJobs,
+    getApprovedExternalJobs,
+    getRejectedExternalJobs,
+    getExternalJobsStats,
+    approveExternalJob,
+    rejectExternalJob,
+    batchApproveExternalJobs,
+    loadJobsFromSQL,
+    searchLiveJobs,
+    getJobSuggestions,
+    testRSSConnection,
+    testAPIConnection,
+    RSS_FEEDS,
+    API_SOURCES
+};
