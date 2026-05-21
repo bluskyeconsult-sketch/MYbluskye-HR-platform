@@ -1,5 +1,5 @@
 // src/App.jsx
-// OPTIMIZED WORKING VERSION - Clean, fast, and reliable
+// OPTIMIZED WORKING VERSION - With ErrorBoundary wrapper
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
