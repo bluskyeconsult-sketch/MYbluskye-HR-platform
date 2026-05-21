@@ -1,5 +1,6 @@
 // src/main.jsx
 // COMPLETE ENTRY POINT - With Error Boundary, Performance Monitoring, and Supabase Connection Check
+// No external dependencies - web-vitals removed to prevent build failures
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -17,7 +18,7 @@ const isDevelopment = import.meta.env.DEV;
 const isProduction = import.meta.env.PROD;
 
 // ============================================
-// PERFORMANCE MONITORING
+// PERFORMANCE MONITORING (No external dependencies)
 // ============================================
 
 // Measure initial page load time
@@ -28,58 +29,62 @@ const reportPerformanceMetrics = () => {
     const loadTime = performance.now() - pageLoadStartTime;
     console.log(`📊 Page load time: ${loadTime.toFixed(2)}ms`);
     
-    // Get navigation timing data
+    // Get navigation timing data (works without external libs)
     if (performance.getEntriesByType) {
         const navigationEntry = performance.getEntriesByType('navigation')[0];
         if (navigationEntry) {
             console.log('📊 Performance metrics:', {
-                'DNS lookup': `${navigationEntry.domainLookupEnd - navigationEntry.domainLookupStart}ms`,
-                'TCP connection': `${navigationEntry.connectEnd - navigationEntry.connectStart}ms`,
-                'Request time': `${navigationEntry.responseStart - navigationEntry.requestStart}ms`,
-                'DOM parsing': `${navigationEntry.domInteractive - navigationEntry.responseEnd}ms`,
-                'Page load': `${navigationEntry.loadEventEnd - navigationEntry.startTime}ms`
+                'DNS lookup': `${(navigationEntry.domainLookupEnd - navigationEntry.domainLookupStart).toFixed(0)}ms`,
+                'TCP connection': `${(navigationEntry.connectEnd - navigationEntry.connectStart).toFixed(0)}ms`,
+                'Request time': `${(navigationEntry.responseStart - navigationEntry.requestStart).toFixed(0)}ms`,
+                'DOM parsing': `${(navigationEntry.domInteractive - navigationEntry.responseEnd).toFixed(0)}ms`,
+                'Page load': `${(navigationEntry.loadEventEnd - navigationEntry.startTime).toFixed(0)}ms`
             });
         }
     }
-};
-
-// Report Core Web Vitals (production only)
-const reportWebVitals = (metric) => {
-    if (isProduction) {
-        console.log(`🔍 Web Vital - ${metric.name}: ${metric.value}`);
-        
-        // Optional: Send to analytics service
-        // You can send to Google Analytics, Plausible, or your own API
-        /*
-        fetch('/api/metrics/web-vitals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: metric.name,
-                value: metric.value,
-                rating: metric.rating,
-                delta: metric.delta,
-                id: metric.id,
-                url: window.location.href
-            })
-        }).catch(console.debug);
-        */
+    
+    // Measure First Paint and First Contentful Paint (if available)
+    if (performance.getEntriesByType('paint')) {
+        const paintEntries = performance.getEntriesByType('paint');
+        paintEntries.forEach(entry => {
+            console.log(`📊 ${entry.name}: ${entry.startTime.toFixed(0)}ms`);
+        });
     }
 };
 
-// Lazy load web-vitals only in production
-if (isProduction) {
-    import('web-vitals').then(({ onCLS, onFID, onLCP, onTTFB, onINP }) => {
-        onCLS(reportWebVitals);
-        onFID(reportWebVitals);
-        onLCP(reportWebVitals);
-        onTTFB(reportWebVitals);
-        onINP(reportWebVitals);
-        console.log('✅ Web Vitals monitoring enabled');
-    }).catch(err => {
-        console.debug('Web Vitals not loaded:', err);
+// Simple Web Vitals measurement (no external dependencies)
+const measureWebVitals = () => {
+    if (!isProduction) return;
+    
+    // Measure Largest Contentful Paint (LCP)
+    const lcpObserver = new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        const lastEntry = entries[entries.length - 1];
+        console.log(`🔍 LCP: ${lastEntry.startTime.toFixed(0)}ms`);
     });
-}
+    lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
+    
+    // Measure First Input Delay (FID)
+    const fidObserver = new PerformanceObserver((list) => {
+        const firstInput = list.getEntries()[0];
+        if (firstInput) {
+            console.log(`🔍 FID: ${firstInput.processingStart - firstInput.startTime}ms`);
+        }
+    });
+    fidObserver.observe({ type: 'first-input', buffered: true });
+    
+    // Measure Cumulative Layout Shift (CLS)
+    let clsValue = 0;
+    const clsObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+            if (!entry.hadRecentInput) {
+                clsValue += entry.value;
+            }
+        }
+        console.log(`🔍 CLS: ${clsValue.toFixed(3)}`);
+    });
+    clsObserver.observe({ type: 'layout-shift', buffered: true });
+};
 
 // ============================================
 // SUPABASE CONNECTION VERIFICATION
@@ -93,13 +98,13 @@ async function verifySupabaseConnection() {
         
         if (error) {
             console.error('❌ Supabase connection error:', error.message);
-            console.warn('Some features may not work correctly');
+            console.warn('⚠️ Some features may not work correctly');
             return false;
         }
         
         console.log(`✅ Supabase connected (${duration.toFixed(0)}ms)`);
         
-        // Optional: Check if user is already logged in
+        // Check if user is already logged in
         if (data?.session?.user) {
             console.log(`👤 User session found: ${data.session.user.email}`);
         }
@@ -112,27 +117,47 @@ async function verifySupabaseConnection() {
 }
 
 // ============================================
+// SERVICE WORKER CLEANUP (Prevents caching issues)
+// ============================================
+
+async function clearServiceWorkers() {
+    if ('serviceWorker' in navigator) {
+        try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.unregister();
+                console.log('✅ Service worker unregistered');
+            }
+        } catch (err) {
+            console.debug('Service worker cleanup error:', err);
+        }
+    }
+}
+
+// ============================================
 // GLOBAL ERROR HANDLING
 // ============================================
 
 // Handle uncaught promise rejections
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('Unhandled Promise Rejection:', event.reason);
+    console.error('❌ Unhandled Promise Rejection:', event.reason);
     
-    // Optional: Send to error tracking service
+    // Optional: Send to error tracking service in production
     if (isProduction) {
         // You can send to Sentry or custom API
-        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.reason }) });
+        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.reason }) })
+        //     .catch(() => {});
     }
 });
 
 // Handle global JavaScript errors
 window.addEventListener('error', (event) => {
-    console.error('Global Error:', event.error);
+    console.error('❌ Global Error:', event.error || event.message);
     
-    // Optional: Send to error tracking service
+    // Optional: Send to error tracking service in production
     if (isProduction) {
-        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.error }) });
+        // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: event.error }) })
+        //     .catch(() => {});
     }
 });
 
@@ -142,12 +167,27 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('load', () => {
     reportPerformanceMetrics();
+    measureWebVitals();
     console.log('🚀 Application fully loaded');
+    
+    // Report initial connection status
+    if (navigator.onLine) {
+        console.log('🌐 Online');
+    } else {
+        console.warn('⚠️ Offline - some features may be limited');
+    }
 });
+
+// Handle online/offline events
+window.addEventListener('online', () => console.log('🌐 Back online'));
+window.addEventListener('offline', () => console.warn('⚠️ Offline mode'));
 
 // ============================================
 // INITIALIZE APPLICATION
 // ============================================
+
+// Clear service workers (prevents caching issues)
+clearServiceWorkers();
 
 // Verify Supabase connection (non-blocking)
 verifySupabaseConnection();
@@ -174,4 +214,22 @@ ReactDOM.createRoot(rootElement).render(
 if (isDevelopment && import.meta.hot) {
     import.meta.hot.accept();
     console.log('🔥 HMR enabled');
+}
+
+// ============================================
+// EXPORT FOR TESTING (Optional)
+// ============================================
+
+// Export for testing purposes
+if (isDevelopment) {
+    window.__APP_STATE__ = {
+        version: '1.0.0',
+        env: import.meta.env.MODE,
+        supabaseConnected: false
+    };
+    
+    // Update state after connection
+    verifySupabaseConnection().then(connected => {
+        window.__APP_STATE__.supabaseConnected = connected;
+    });
 }
