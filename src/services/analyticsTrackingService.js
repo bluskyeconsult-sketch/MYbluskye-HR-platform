@@ -1,7 +1,6 @@
 // src/services/analyticsTrackingService.js
 // COMPLETE & OPTIMIZED - User analytics tracking service
-// Merged: Session management, page views, events, geolocation, device detection
-// Features: Session tracking, page view metrics, scroll depth, click tracking, admin analytics
+// Features: Session management, page views, events, geolocation, device detection, admin analytics
 
 import { supabase } from '../lib/supabase';
 
@@ -16,16 +15,23 @@ const STORAGE_KEYS = {
     PAGE_METRICS_PREFIX: 'analytics_page_metrics_'
 };
 
-const DEBOUNCE_DELAY = 5000; // 5 seconds for metric updates
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const CONFIG = {
+    DEBOUNCE_DELAY: 5000,           // 5 seconds for metric updates
+    SESSION_TIMEOUT: 30 * 60 * 1000, // 30 minutes
+    KEEP_ALIVE_INTERVAL: 5 * 60 * 1000, // 5 minutes
+    GEOLOCATION_TIMEOUT: 3000,      // 3 seconds
+    MAX_BATCH_SIZE: 50
+};
 
-// State management (memory only, not exported)
+// State management (memory only)
 let currentSessionId = null;
 let sessionStartTime = null;
 let currentPagePath = null;
 let pageViewStartTime = null;
 let metricsDebounceTimer = null;
+let keepAliveInterval = null;
 let isInitialized = false;
+let initPromise = null;
 
 // ============================================
 // HELPER FUNCTIONS (Internal)
@@ -65,57 +71,54 @@ async function getUser() {
 }
 
 async function getGeolocation() {
-    try {
-        // Using ipapi.co (free, no API key required, 1000 requests/day)
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        const response = await fetch('https://ipapi.co/json/', {
-            signal: controller.signal,
-            headers: { 'User-Agent': 'ODUSBABA-Analytics/1.0' }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-            const data = await response.json();
-            return {
-                ip: data.ip,
-                country_code: data.country_code,
-                country_name: data.country_name,
-                city: data.city,
-                latitude: data.latitude,
-                longitude: data.longitude,
-                timezone: data.timezone
-            };
-        }
-    } catch (error) {
-        console.warn('Geolocation fetch failed (non-critical):', error.message);
-    }
+    const geoServiceUrls = [
+        'https://ipapi.co/json/',
+        'https://ip-api.com/json/?fields=status,country,countryCode,city,lat,lon,query',
+        'https://api.ipify.org?format=json'
+    ];
     
-    // Fallback - try backup service
-    try {
-        const response = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,city,lat,lon', {
-            signal: AbortSignal.timeout(3000)
-        });
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                return {
-                    ip: data.query,
-                    country_code: data.countryCode,
-                    country_name: data.country,
-                    city: data.city,
-                    latitude: data.lat,
-                    longitude: data.lon
-                };
+    for (const url of geoServiceUrls) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.GEOLOCATION_TIMEOUT);
+            
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: { 'User-Agent': 'ODUSBABA-Analytics/1.0' }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Handle different response formats
+                if (data.country_code || data.country) {
+                    return {
+                        ip: data.ip || data.query,
+                        country_code: data.country_code || data.countryCode,
+                        country_name: data.country_name || data.country,
+                        city: data.city || data.region,
+                        latitude: data.latitude || data.lat,
+                        longitude: data.longitude || data.lon,
+                        timezone: data.timezone
+                    };
+                }
             }
+        } catch (error) {
+            console.warn(`Geo service failed (${url}):`, error.message);
         }
-    } catch {
-        // Silent fallback
     }
     
-    return { country_code: 'unknown', country_name: 'Unknown', city: 'Unknown' };
+    return {
+        ip: null,
+        country_code: 'unknown',
+        country_name: 'Unknown',
+        city: 'Unknown',
+        latitude: null,
+        longitude: null,
+        timezone: null
+    };
 }
 
 function getDeviceInfo() {
@@ -155,8 +158,12 @@ function getDeviceInfo() {
     };
 }
 
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // ============================================
-// SESSION MANAGEMENT (Public)
+// SESSION MANAGEMENT
 // ============================================
 
 export async function startSession() {
@@ -180,8 +187,11 @@ export async function startSession() {
         }
         
         // Create new session
-        const geoData = await getGeolocation();
-        const deviceInfo = getDeviceInfo();
+        const [geoData, deviceInfo] = await Promise.all([
+            getGeolocation(),
+            Promise.resolve(getDeviceInfo())
+        ]);
+        
         const newSessionId = generateId('sess_');
         
         const { error } = await supabase
@@ -204,6 +214,7 @@ export async function startSession() {
                 referrer: document.referrer || 'direct',
                 landing_page: window.location.pathname,
                 start_time: new Date().toISOString(),
+                last_activity: new Date().toISOString(),
                 page_count: 1
             });
         
@@ -222,13 +233,13 @@ export async function startSession() {
 }
 
 export async function endSession() {
-    if (!currentSessionId || !sessionStartTime) {
-        currentSessionId = getCurrentSessionId();
-        if (!currentSessionId) return;
-    }
+    if (!currentSessionId && !getCurrentSessionId()) return;
+    
+    const sessionId = currentSessionId || getCurrentSessionId();
+    const startTime = sessionStartTime || parseInt(sessionStorage.getItem(STORAGE_KEYS.SESSION_START) || Date.now().toString());
     
     try {
-        const duration = Math.floor((Date.now() - (sessionStartTime || Date.now())) / 1000);
+        const duration = Math.floor((Date.now() - startTime) / 1000);
         
         await supabase
             .from('analytics_sessions')
@@ -236,34 +247,42 @@ export async function endSession() {
                 end_time: new Date().toISOString(),
                 duration_seconds: duration
             })
-            .eq('session_id', currentSessionId)
+            .eq('session_id', sessionId)
             .is('end_time', null);
         
-        // Clear session storage on explicit end
+        // Clear session storage
         sessionStorage.removeItem(STORAGE_KEYS.SESSION_ID);
         sessionStorage.removeItem(STORAGE_KEYS.SESSION_START);
         currentSessionId = null;
         sessionStartTime = null;
+        
+        // Clear keep-alive interval
+        if (keepAliveInterval) {
+            clearInterval(keepAliveInterval);
+            keepAliveInterval = null;
+        }
     } catch (error) {
         console.error('Session end error:', error);
     }
 }
 
 export async function keepAlive() {
-    if (!currentSessionId) return;
+    if (!currentSessionId && !getCurrentSessionId()) return;
+    
+    const sessionId = currentSessionId || getCurrentSessionId();
     
     try {
         await supabase
             .from('analytics_sessions')
             .update({ last_activity: new Date().toISOString() })
-            .eq('session_id', currentSessionId);
+            .eq('session_id', sessionId);
     } catch (error) {
         console.warn('Keep alive failed:', error);
     }
 }
 
 // ============================================
-// PAGE VIEW TRACKING (Public)
+// PAGE VIEW TRACKING
 // ============================================
 
 export async function trackPageView(pagePath, pageTitle) {
@@ -287,7 +306,7 @@ export async function trackPageView(pagePath, pageTitle) {
             }
         }
         
-        // Get geolocation (only for first page view of session)
+        // Get geolocation only for first page view of session
         let geoData = null;
         const { count } = await supabase
             .from('analytics_page_views')
@@ -321,12 +340,18 @@ export async function trackPageView(pagePath, pageTitle) {
                 created_at: new Date().toISOString()
             });
         
-        // Update session page count
+        // Update session page count and last page
         if (!error) {
+            const { data: session } = await supabase
+                .from('analytics_sessions')
+                .select('page_count')
+                .eq('session_id', sessionId)
+                .single();
+            
             await supabase
                 .from('analytics_sessions')
                 .update({ 
-                    page_count: supabase.rpc('increment', { x: 1 }),
+                    page_count: (session?.page_count || 0) + 1,
                     last_page: pagePath,
                     last_activity: new Date().toISOString()
                 })
@@ -349,10 +374,12 @@ export async function trackPageView(pagePath, pageTitle) {
 }
 
 export async function updatePageViewMetrics(scrollDepth = null, clickCount = null) {
-    if (!currentPagePath || !currentSessionId) return;
+    if (!currentPagePath || (!currentSessionId && !getCurrentSessionId())) return;
+    
+    const sessionId = currentSessionId || getCurrentSessionId();
+    const metricsKey = `${STORAGE_KEYS.PAGE_METRICS_PREFIX}${sessionId}_${currentPagePath}`;
     
     // Store metrics in sessionStorage
-    const metricsKey = `${STORAGE_KEYS.PAGE_METRICS_PREFIX}${currentSessionId}_${currentPagePath}`;
     let metrics = { scroll_depth: scrollDepth, click_count: clickCount, updated_at: Date.now() };
     
     try {
@@ -384,21 +411,22 @@ export async function updatePageViewMetrics(scrollDepth = null, clickCount = nul
             await supabase
                 .from('analytics_page_views')
                 .update({
-                    scroll_depth: data.scroll_depth,
+                    scroll_depth: Math.min(data.scroll_depth, 100), // Cap at 100%
                     click_count: data.click_count,
                     time_on_page: timeOnPage
                 })
-                .eq('session_id', currentSessionId)
-                .eq('page_path', currentPagePath)
-                .is('scroll_depth', null); // Only update if not already set
+                .eq('session_id', sessionId)
+                .eq('page_path', currentPagePath);
         } catch (error) {
             console.warn('Failed to update page metrics:', error);
+        } finally {
+            sessionStorage.removeItem(metricsKey);
         }
-    }, DEBOUNCE_DELAY);
+    }, CONFIG.DEBOUNCE_DELAY);
 }
 
 // ============================================
-// EVENT TRACKING (Public)
+// EVENT TRACKING
 // ============================================
 
 export async function trackEvent(eventType, eventData = {}, pagePath = null) {
@@ -426,8 +454,8 @@ export async function trackEvent(eventType, eventData = {}, pagePath = null) {
 }
 
 // Convenience event tracking functions
-export function trackJobSearch(query, filters = {}) {
-    return trackEvent('job_search', { query, filters, results_count: null });
+export function trackJobSearch(query, filters = {}, resultsCount = null) {
+    return trackEvent('job_search', { query, filters, results_count: resultsCount });
 }
 
 export function trackJobView(jobId, jobTitle, company) {
@@ -455,23 +483,47 @@ export function trackAssessmentComplete(assessmentId, type, score) {
 }
 
 export function trackChatInteraction(messageLength, responseTime, suggestedProduct = null) {
-    return trackEvent('chat_interaction', { message_length: messageLength, response_time_ms: responseTime, suggested_product: suggestedProduct });
+    return trackEvent('chat_interaction', { 
+        message_length: messageLength, 
+        response_time_ms: responseTime, 
+        suggested_product: suggestedProduct 
+    });
 }
 
-export function trackServiceRequest(requestId, category) {
-    return trackEvent('service_request', { request_id: requestId, category });
+export function trackServiceRequest(requestId, category, amount = null) {
+    return trackEvent('service_request', { request_id: requestId, category, amount });
 }
 
-export function trackProposalSent(requestId, proposalAmount) {
-    return trackEvent('proposal_sent', { request_id: requestId, amount: proposalAmount });
+export function trackProposalSent(requestId, proposalAmount, professionalId) {
+    return trackEvent('proposal_sent', { request_id: requestId, amount: proposalAmount, professional_id: professionalId });
 }
 
-export function trackEngagementStarted(engagementId, type) {
-    return trackEvent('engagement_started', { engagement_id: engagementId, type });
+export function trackEngagementStarted(engagementId, type, parties) {
+    return trackEvent('engagement_started', { engagement_id: engagementId, type, parties });
 }
 
-export function trackEngagementCompleted(engagementId, type, rating) {
-    return trackEvent('engagement_completed', { engagement_id: engagementId, type, rating });
+export function trackEngagementCompleted(engagementId, type, rating, durationDays) {
+    return trackEvent('engagement_completed', { engagement_id: engagementId, type, rating, duration_days: durationDays });
+}
+
+export function trackNewsletterSignup(email, source) {
+    return trackEvent('newsletter_signup', { email_hash: hashEmail(email), source });
+}
+
+export function trackSearchPerformed(searchType, query, resultsCount) {
+    return trackEvent('search_performed', { search_type: searchType, query, results_count: resultsCount });
+}
+
+// Helper for email hashing (privacy)
+function hashEmail(email) {
+    if (!email) return null;
+    // Simple hash for privacy - in production use crypto.subtle
+    let hash = 0;
+    for (let i = 0; i < email.length; i++) {
+        hash = ((hash << 5) - hash) + email.charCodeAt(i);
+        hash |= 0;
+    }
+    return hash.toString();
 }
 
 // ============================================
@@ -481,43 +533,35 @@ export function trackEngagementCompleted(engagementId, type, rating) {
 export async function getVisitorAnalytics(days = 30) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     
-    // Get sessions
-    const { data: sessions } = await supabase
-        .from('analytics_sessions')
-        .select('*')
-        .gte('start_time', cutoff);
+    const [sessionsResult, pageViewsResult, eventsResult] = await Promise.all([
+        supabase.from('analytics_sessions').select('*').gte('start_time', cutoff),
+        supabase.from('analytics_page_views').select('*').gte('created_at', cutoff),
+        supabase.from('analytics_events').select('*').gte('created_at', cutoff)
+    ]);
     
-    // Get page views
-    const { data: pageViews } = await supabase
-        .from('analytics_page_views')
-        .select('*')
-        .gte('created_at', cutoff);
-    
-    // Get events
-    const { data: events } = await supabase
-        .from('analytics_events')
-        .select('*')
-        .gte('created_at', cutoff);
+    const sessions = sessionsResult.data || [];
+    const pageViews = pageViewsResult.data || [];
+    const events = eventsResult.data || [];
     
     // Calculate metrics
-    const uniqueVisitors = new Set(sessions?.map(s => s.visitor_id || s.user_id || s.ip_address)).size;
-    const totalSessions = sessions?.length || 0;
-    const avgSessionDuration = sessions?.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / (totalSessions || 1);
-    const avgMinutes = Math.round(avgSessionDuration / 60);
+    const uniqueVisitors = new Set(sessions.map(s => s.visitor_id || s.user_id || s.ip_address)).size;
+    const totalSessions = sessions.length;
+    const totalDuration = sessions.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
+    const avgSessionDuration = totalSessions > 0 ? Math.round(totalDuration / totalSessions / 60) : 0;
     
-    const singlePageSessions = sessions?.filter(s => (s.page_count || 0) === 1).length || 0;
+    const singlePageSessions = sessions.filter(s => (s.page_count || 0) === 1).length;
     const bounceRate = totalSessions > 0 ? Math.round((singlePageSessions / totalSessions) * 100) : 0;
     
     // Group by country
     const byCountry = {};
-    sessions?.forEach(s => {
+    sessions.forEach(s => {
         const country = s.country_name || s.country_code || 'Unknown';
         byCountry[country] = (byCountry[country] || 0) + 1;
     });
     
     // Group by device
     const byDevice = { desktop: 0, mobile: 0, tablet: 0 };
-    sessions?.forEach(s => {
+    sessions.forEach(s => {
         if (byDevice[s.device_type] !== undefined) byDevice[s.device_type]++;
     });
     
@@ -530,7 +574,7 @@ export async function getVisitorAnalytics(days = 30) {
     
     // Top pages
     const pageCounts = {};
-    pageViews?.forEach(p => {
+    pageViews.forEach(p => {
         pageCounts[p.page_path] = (pageCounts[p.page_path] || 0) + 1;
     });
     const topPages = Object.entries(pageCounts)
@@ -539,7 +583,7 @@ export async function getVisitorAnalytics(days = 30) {
         .slice(0, 10);
     
     // Recent visitors
-    const recentVisitors = sessions?.slice(0, 20).map(s => ({
+    const recentVisitors = sessions.slice(0, 20).map(s => ({
         time: s.start_time,
         country: s.country_name || s.country_code,
         city: s.city,
@@ -547,28 +591,58 @@ export async function getVisitorAnalytics(days = 30) {
         browser: s.browser,
         pages: s.page_count,
         duration: s.duration_seconds
-    })) || [];
+    }));
     
     // Event types breakdown
     const eventTypes = {};
-    events?.forEach(e => {
+    events.forEach(e => {
         eventTypes[e.event_type] = (eventTypes[e.event_type] || 0) + 1;
     });
+    
+    // Time series data (daily)
+    const dailyStats = {};
+    const dateRange = [];
+    for (let i = days; i >= 0; i--) {
+        const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        dateRange.push(date);
+        dailyStats[date] = { visitors: 0, pageViews: 0, events: 0 };
+    }
+    
+    sessions.forEach(s => {
+        const date = s.start_time?.split('T')[0];
+        if (dailyStats[date]) dailyStats[date].visitors++;
+    });
+    
+    pageViews.forEach(p => {
+        const date = p.created_at?.split('T')[0];
+        if (dailyStats[date]) dailyStats[date].pageViews++;
+    });
+    
+    events.forEach(e => {
+        const date = e.created_at?.split('T')[0];
+        if (dailyStats[date]) dailyStats[date].events++;
+    });
+    
+    const timeSeries = dateRange.map(date => ({
+        date,
+        ...dailyStats[date]
+    }));
     
     return {
         summary: {
             unique_visitors: uniqueVisitors,
             total_sessions: totalSessions,
-            avg_session_duration: avgMinutes,
+            avg_session_duration: avgSessionDuration,
             bounce_rate: bounceRate,
-            total_page_views: pageViews?.length || 0,
-            total_events: events?.length || 0
+            total_page_views: pageViews.length,
+            total_events: events.length
         },
         by_country: byCountry,
         by_device: devicePercentages,
         top_pages: topPages,
         recent_visitors: recentVisitors,
-        event_types: eventTypes
+        event_types: eventTypes,
+        time_series: timeSeries
     };
 }
 
@@ -580,91 +654,89 @@ export async function getPageAnalytics(days = 30) {
         .select('*')
         .gte('created_at', cutoff);
     
+    if (!pageViews) return [];
+    
     const pageStats = {};
-    pageViews?.forEach(p => {
+    pageViews.forEach(p => {
         if (!pageStats[p.page_path]) {
             pageStats[p.page_path] = {
                 views: 0,
-                avg_time_on_page: 0,
-                avg_scroll_depth: 0,
-                total_clicks: 0
+                total_time: 0,
+                total_scroll: 0,
+                total_clicks: 0,
+                unique_visitors: new Set()
             };
         }
         const stat = pageStats[p.page_path];
         stat.views++;
-        if (p.time_on_page) stat.avg_time_on_page += p.time_on_page;
-        if (p.scroll_depth) stat.avg_scroll_depth += p.scroll_depth;
+        if (p.time_on_page) stat.total_time += p.time_on_page;
+        if (p.scroll_depth) stat.total_scroll += p.scroll_depth;
         if (p.click_count) stat.total_clicks += p.click_count;
+        if (p.user_id) stat.unique_visitors.add(p.user_id);
+        if (p.session_id) stat.unique_visitors.add(p.session_id);
     });
     
     // Calculate averages
-    Object.values(pageStats).forEach(stat => {
-        if (stat.views > 0) {
-            stat.avg_time_on_page = Math.round(stat.avg_time_on_page / stat.views);
-            stat.avg_scroll_depth = Math.round(stat.avg_scroll_depth / stat.views);
-        }
-    });
-    
     return Object.entries(pageStats)
-        .map(([path, stats]) => ({ path, ...stats }))
+        .map(([path, stats]) => ({
+            path,
+            views: stats.views,
+            unique_visitors: stats.unique_visitors.size,
+            avg_time_on_page: stats.views > 0 ? Math.round(stats.total_time / stats.views) : 0,
+            avg_scroll_depth: stats.views > 0 ? Math.round(stats.total_scroll / stats.views) : 0,
+            total_clicks: stats.total_clicks,
+            avg_clicks_per_view: stats.views > 0 ? (stats.total_clicks / stats.views).toFixed(2) : 0
+        }))
         .sort((a, b) => b.views - a.views);
 }
 
 export async function getUserActivity(userId, days = 30) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     
-    const { data: sessions } = await supabase
-        .from('analytics_sessions')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('start_time', cutoff)
-        .order('start_time', { ascending: false });
+    const [sessionsResult, pageViewsResult, eventsResult] = await Promise.all([
+        supabase.from('analytics_sessions').select('*').eq('user_id', userId).gte('start_time', cutoff).order('start_time', { ascending: false }),
+        supabase.from('analytics_page_views').select('*').eq('user_id', userId).gte('created_at', cutoff).order('created_at', { ascending: false }),
+        supabase.from('analytics_events').select('*').eq('user_id', userId).gte('created_at', cutoff).order('created_at', { ascending: false })
+    ]);
     
-    const { data: pageViews } = await supabase
-        .from('analytics_page_views')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('created_at', cutoff)
-        .order('created_at', { ascending: false });
+    const sessions = sessionsResult.data || [];
+    const pageViews = pageViewsResult.data || [];
+    const events = eventsResult.data || [];
     
-    const { data: events } = await supabase
-        .from('analytics_events')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('created_at', cutoff)
-        .order('created_at', { ascending: false });
+    const totalTimeSeconds = sessions.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
     
     return {
         user_id: userId,
         summary: {
-            total_sessions: sessions?.length || 0,
-            total_page_views: pageViews?.length || 0,
-            total_events: events?.length || 0,
-            total_time_spent_minutes: sessions?.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / 60 || 0,
-            last_active: sessions?.[0]?.start_time || null,
-            first_active: sessions?.slice(-1)[0]?.start_time || null
+            total_sessions: sessions.length,
+            total_page_views: pageViews.length,
+            total_events: events.length,
+            total_time_spent_minutes: Math.round(totalTimeSeconds / 60),
+            last_active: sessions[0]?.start_time || null,
+            first_active: sessions[sessions.length - 1]?.start_time || null
         },
-        sessions: sessions?.map(s => ({
+        sessions: sessions.map(s => ({
             id: s.session_id,
             start: s.start_time,
             duration: s.duration_seconds,
             pages: s.page_count,
             device: s.device_type,
-            country: s.country_name
-        })) || [],
-        page_views: pageViews?.map(p => ({
+            country: s.country_name,
+            city: s.city
+        })),
+        page_views: pageViews.map(p => ({
             path: p.page_path,
             title: p.page_title,
             time: p.created_at,
             time_on_page: p.time_on_page,
             scroll_depth: p.scroll_depth
-        })) || [],
-        events: events?.map(e => ({
+        })),
+        events: events.map(e => ({
             type: e.event_type,
             data: e.event_data,
             time: e.created_at,
             page: e.page_path
-        })) || []
+        }))
     };
 }
 
@@ -673,7 +745,7 @@ export async function getActiveUsers() {
     
     const { data: sessions } = await supabase
         .from('analytics_sessions')
-        .select('session_id, user_id, device_type, country_name, city, page_count')
+        .select('session_id, user_id, device_type, country_name, city, page_count, last_page')
         .gte('last_activity', fifteenMinsAgo)
         .is('end_time', null);
     
@@ -683,7 +755,8 @@ export async function getActiveUsers() {
     return {
         count: activeCount,
         unique_users: uniqueUsers,
-        sessions: sessions || []
+        sessions: sessions || [],
+        timestamp: new Date().toISOString()
     };
 }
 
@@ -691,74 +764,58 @@ export async function getConversionFunnel(days = 30) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     
     // Define funnel stages
-    const funnel = {
-        visitor: { count: 0, label: 'Visitors' },
-        job_viewer: { count: 0, label: 'Viewed Jobs' },
-        job_applier: { count: 0, label: 'Applied to Jobs' },
-        course_starter: { count: 0, label: 'Started Course' },
-        course_completer: { count: 0, label: 'Completed Course' }
-    };
+    const stages = [
+        { key: 'visitor', label: 'Visitors', eventType: null },
+        { key: 'job_viewer', label: 'Viewed Jobs', eventType: 'job_view' },
+        { key: 'job_applier', label: 'Applied to Jobs', eventType: 'job_apply' },
+        { key: 'course_starter', label: 'Started Course', eventType: 'course_start' },
+        { key: 'course_completer', label: 'Completed Course', eventType: 'course_complete' },
+        { key: 'assessment_taker', label: 'Took Assessment', eventType: 'assessment_start' }
+    ];
     
-    // Count unique visitors
+    // Get unique visitors
     const { data: sessions } = await supabase
         .from('analytics_sessions')
         .select('visitor_id')
         .gte('start_time', cutoff);
     
-    funnel.visitor.count = new Set(sessions?.map(s => s.visitor_id)).size;
+    const uniqueVisitors = new Set(sessions?.map(s => s.visitor_id)).size;
     
-    // Count job viewers
-    const { data: jobViews } = await supabase
-        .from('analytics_events')
-        .select('user_id')
-        .eq('event_type', 'job_view')
-        .gte('created_at', cutoff);
+    // Get counts for each stage
+    const funnel = [];
+    let previousCount = uniqueVisitors;
     
-    funnel.job_viewer.count = new Set(jobViews?.map(e => e.user_id).filter(Boolean)).size;
+    for (const stage of stages) {
+        let count = previousCount;
+        
+        if (stage.eventType) {
+            const { data: events } = await supabase
+                .from('analytics_events')
+                .select('user_id')
+                .eq('event_type', stage.eventType)
+                .gte('created_at', cutoff);
+            
+            count = new Set(events?.map(e => e.user_id).filter(Boolean)).size;
+        }
+        
+        funnel.push({
+            stage: stage.key,
+            label: stage.label,
+            count: count,
+            conversion_rate: uniqueVisitors > 0 ? Math.round((count / uniqueVisitors) * 100) : 0,
+            drop_off: previousCount - count,
+            drop_off_rate: previousCount > 0 ? Math.round(((previousCount - count) / previousCount) * 100) : 0
+        });
+        
+        previousCount = count;
+    }
     
-    // Count job applicants
-    const { data: jobApps } = await supabase
-        .from('analytics_events')
-        .select('user_id')
-        .eq('event_type', 'job_apply')
-        .gte('created_at', cutoff);
-    
-    funnel.job_applier.count = new Set(jobApps?.map(e => e.user_id).filter(Boolean)).size;
-    
-    // Count course starters
-    const { data: courseStarts } = await supabase
-        .from('analytics_events')
-        .select('user_id')
-        .eq('event_type', 'course_start')
-        .gte('created_at', cutoff);
-    
-    funnel.course_starter.count = new Set(courseStarts?.map(e => e.user_id).filter(Boolean)).size;
-    
-    // Count course completers
-    const { data: courseCompletes } = await supabase
-        .from('analytics_events')
-        .select('user_id')
-        .eq('event_type', 'course_complete')
-        .gte('created_at', cutoff);
-    
-    funnel.course_completer.count = new Set(courseCompletes?.map(e => e.user_id).filter(Boolean)).size;
-    
-    // Calculate conversion rates
-    const stages = Object.entries(funnel).map(([key, data]) => ({
-        stage: key,
-        label: data.label,
-        count: data.count,
-        conversion_rate: funnel.visitor.count > 0 ? Math.round((data.count / funnel.visitor.count) * 100) : 0
-    }));
-    
-    return { funnel: stages, total_visitors: funnel.visitor.count };
+    return { funnel, total_visitors: uniqueVisitors, days };
 }
 
 // ============================================
-// INITIALIZATION (Call once on app load)
+// INITIALIZATION
 // ============================================
-
-let initPromise = null;
 
 export async function initAnalytics() {
     if (isInitialized) return;
@@ -776,7 +833,6 @@ export async function initAnalytics() {
                 if (document.hidden) {
                     await updatePageViewMetrics();
                 } else {
-                    // Page became visible again, restart timing
                     pageViewStartTime = Date.now();
                 }
             });
@@ -787,10 +843,11 @@ export async function initAnalytics() {
                 await endSession();
             });
             
-            // Periodic keep-alive (every 5 minutes)
-            setInterval(() => keepAlive(), 5 * 60 * 1000);
+            // Periodic keep-alive
+            keepAliveInterval = setInterval(() => keepAlive(), CONFIG.KEEP_ALIVE_INTERVAL);
             
             isInitialized = true;
+            console.log('Analytics initialized successfully');
         } catch (error) {
             console.error('Analytics initialization failed:', error);
         }
@@ -807,6 +864,7 @@ export default {
     initAnalytics,
     startSession,
     endSession,
+    keepAlive,
     trackPageView,
     updatePageViewMetrics,
     trackEvent,
@@ -822,6 +880,8 @@ export default {
     trackProposalSent,
     trackEngagementStarted,
     trackEngagementCompleted,
+    trackNewsletterSignup,
+    trackSearchPerformed,
     getVisitorAnalytics,
     getPageAnalytics,
     getUserActivity,
