@@ -1,5 +1,5 @@
 // src/App.jsx
-// COMPLETE APP WITH SCROLL TO TOP, ALL ROUTES, ANALYTICS TRACKING, AND EXTERNAL JOBS MANAGER
+// COMPLETE APP WITH SCROLL TO TOP, ALL ROUTES, ANALYTICS TRACKING, AND ERROR BOUNDARY
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
@@ -95,7 +95,7 @@ const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceM
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
-const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor')); // Added for edit route
+const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
@@ -182,10 +182,9 @@ function NotFoundPage() {
 }
 
 // ============================================
-// OPTIMIZED WRAPPER COMPONENTS
+// WRAPPER COMPONENTS
 // ============================================
 
-// Workforce Onboarding Wrapper
 function WorkforceOnboardingWrapper() {
     const [onboardComplete, setOnboardComplete] = useState(false);
     
@@ -197,21 +196,19 @@ function WorkforceOnboardingWrapper() {
     return <WorkforceOnboarding onComplete={() => setOnboardComplete(true)} />;
 }
 
-// Proposals List Wrapper
 function ProposalsListWrapper() {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     
     useEffect(() => {
-        const loadProfile = async () => {
-            const { data } = await supabase
-                .from('workforce_profiles')
-                .select('id')
-                .single();
-            setProfile(data);
-            setLoading(false);
-        };
-        loadProfile();
+        supabase
+            .from('workforce_profiles')
+            .select('id')
+            .single()
+            .then(({ data }) => {
+                setProfile(data);
+                setLoading(false);
+            });
     }, []);
     
     if (loading) return <PageLoader />;
@@ -220,28 +217,24 @@ function ProposalsListWrapper() {
     return <ProposalsList professionalId={profile.id} />;
 }
 
-// Engagements Dashboard Wrapper
 function EngagementsDashboardWrapper() {
     const [user, setUser] = useState(null);
     const [userType, setUserType] = useState(null);
     const [loading, setLoading] = useState(true);
     
     useEffect(() => {
-        const loadUser = async () => {
-            const { data: { user: authUser } } = await supabase.auth.getUser();
-            setUser(authUser);
-            
-            if (authUser) {
-                const { data: profile } = await supabase
+        supabase.auth.getUser().then(({ data }) => {
+            setUser(data.user);
+            if (data.user) {
+                supabase
                     .from('profiles')
                     .select('user_type')
-                    .eq('id', authUser.id)
-                    .single();
-                setUserType(profile?.user_type);
+                    .eq('id', data.user.id)
+                    .single()
+                    .then(({ data: p }) => setUserType(p?.user_type));
             }
             setLoading(false);
-        };
-        loadUser();
+        });
     }, []);
     
     if (loading) return <PageLoader />;
@@ -251,7 +244,7 @@ function EngagementsDashboardWrapper() {
 }
 
 // ============================================
-// ROUTE CONFIGURATION (for better organization)
+// ROUTE CONFIGURATION
 // ============================================
 
 const publicRoutes = [
@@ -328,10 +321,8 @@ const adminRoutes = [
     { path: "/admin/knowledge-sources", element: <KnowledgeSourceManager /> },
     { path: "/admin/books", element: <ManageBooks /> },
     { path: "/admin/newsletter", element: <NewsletterAdmin /> },
-    // Assessment routes
     { path: "/admin/assessments", element: <AssessmentManager /> },
     { path: "/admin/assessments/:id/edit", element: <AssessmentEditor /> },
-    // Other admin routes
     { path: "/admin/virtual-assistants", element: <VirtualAssistantManager /> },
     { path: "/admin/ai-course-builder", element: <AICourseBuilder /> },
     { path: "/admin/skills", element: <AdminSkills /> },
@@ -351,15 +342,10 @@ const legalRoutes = [
     { path: "/report-fraud", element: <ReportFraudPage /> },
 ];
 
-// Helper to render route group
 const RouteGroup = ({ routes }) => (
     <>
         {routes.map(({ path, element }) => (
-            <Route 
-                key={path} 
-                path={path} 
-                element={<AnimatedPage>{element}</AnimatedPage>} 
-            />
+            <Route key={path} path={path} element={<AnimatedPage>{element}</AnimatedPage>} />
         ))}
     </>
 );
@@ -371,12 +357,8 @@ function AppContent() {
     const [user, setUser] = useState(null);
     const location = useLocation();
     
-    // Use custom analytics hook
     useAnalytics(location);
 
-    // ============================================
-    // AUTH STATE MANAGEMENT
-    // ============================================
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setUser(session?.user || null);
@@ -400,7 +382,7 @@ function AppContent() {
                         <Suspense fallback={<PageLoader />}>
                             <AnimatePresence mode="wait">
                                 <Routes location={location} key={location.pathname}>
-                                    {/* Admin Login - Special case, no animation wrapper needed */}
+                                    {/* Admin Login */}
                                     <Route path="/admin-login" element={<AdminLogin />} />
                                     
                                     {/* Public Routes */}
