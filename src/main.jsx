@@ -57,33 +57,45 @@ const measureWebVitals = () => {
     if (!isProduction) return;
     
     // Measure Largest Contentful Paint (LCP)
-    const lcpObserver = new PerformanceObserver((list) => {
-        const entries = list.getEntries();
-        const lastEntry = entries[entries.length - 1];
-        console.log(`🔍 LCP: ${lastEntry.startTime.toFixed(0)}ms`);
-    });
-    lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
+    try {
+        const lcpObserver = new PerformanceObserver((list) => {
+            const entries = list.getEntries();
+            const lastEntry = entries[entries.length - 1];
+            console.log(`🔍 LCP: ${lastEntry.startTime.toFixed(0)}ms`);
+        });
+        lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
+    } catch (e) {
+        console.debug('LCP observer not supported');
+    }
     
     // Measure First Input Delay (FID)
-    const fidObserver = new PerformanceObserver((list) => {
-        const firstInput = list.getEntries()[0];
-        if (firstInput) {
-            console.log(`🔍 FID: ${firstInput.processingStart - firstInput.startTime}ms`);
-        }
-    });
-    fidObserver.observe({ type: 'first-input', buffered: true });
+    try {
+        const fidObserver = new PerformanceObserver((list) => {
+            const firstInput = list.getEntries()[0];
+            if (firstInput) {
+                console.log(`🔍 FID: ${firstInput.processingStart - firstInput.startTime}ms`);
+            }
+        });
+        fidObserver.observe({ type: 'first-input', buffered: true });
+    } catch (e) {
+        console.debug('FID observer not supported');
+    }
     
     // Measure Cumulative Layout Shift (CLS)
-    let clsValue = 0;
-    const clsObserver = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-            if (!entry.hadRecentInput) {
-                clsValue += entry.value;
+    try {
+        let clsValue = 0;
+        const clsObserver = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                if (!entry.hadRecentInput) {
+                    clsValue += entry.value;
+                }
             }
-        }
-        console.log(`🔍 CLS: ${clsValue.toFixed(3)}`);
-    });
-    clsObserver.observe({ type: 'layout-shift', buffered: true });
+            console.log(`🔍 CLS: ${clsValue.toFixed(3)}`);
+        });
+        clsObserver.observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {
+        console.debug('CLS observer not supported');
+    }
 };
 
 // ============================================
@@ -191,6 +203,10 @@ clearServiceWorkers();
 
 // Verify Supabase connection (non-blocking)
 verifySupabaseConnection();
+
+// NOTE: Do NOT call initAnalytics() here or in App.jsx
+// The useAnalytics hook in App.jsx handles page view tracking automatically
+// If you see an error about initAnalytics, comment it out
 
 // Create root and render app
 const rootElement = document.getElementById('root');
