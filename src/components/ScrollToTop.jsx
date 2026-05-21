@@ -1,5 +1,5 @@
 // src/components/ScrollToTop.jsx
-// Scrolls window to top on every page navigation and refresh
+// Scrolls page to top on every route change
 
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -14,11 +14,6 @@ export default function ScrollToTop() {
             behavior: 'smooth'
         });
     }, [pathname]);
-
-    // Also scroll to top on initial mount (page refresh)
-    useEffect(() => {
-        window.scrollTo(0, 0);
-    }, []);
 
     return null;
 }
