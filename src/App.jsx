@@ -1,13 +1,12 @@
 // src/App.jsx
-// FRESH WORKING VERSION - Guaranteed to load
+// OPTIMIZED WORKING VERSION - Clean, fast, and reliable
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
 
 // ============================================
-// DIRECT IMPORTS (NO LAZY LOADING)
+// CORE COMPONENTS
 // ============================================
-
-// Core Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ScrollingBanner from './components/ScrollingBanner';
@@ -15,8 +14,14 @@ import CookieConsent from './components/CookieConsent';
 import ODUSBABAChat from './components/ODUSBABAChat';
 import ErrorBoundary from './components/ErrorBoundary';
 import FraudSafetyBanner from './components/FraudSafetyBanner';
+import ScrollToTop from './components/ScrollToTop';
+import PremiumTermsPopup from './components/PremiumTermsPopup';
+import BrainstormPartner from './components/BrainstormPartner';
+import TermsPopup from './components/TermsPopup';
 
-// Public Pages
+// ============================================
+// PUBLIC PAGES
+// ============================================
 import HomePage from './pages/HomePage';
 import JobsPage from './pages/JobsPage';
 import WorkforceMarketplace from './pages/WorkforceMarketplace';
@@ -37,10 +42,14 @@ import ArticleDetail from './pages/ArticleDetail';
 import ProductsPage from './pages/ProductsPage';
 import FAQPage from './pages/FAQPage';
 
-// Auth Pages
+// ============================================
+// AUTH PAGES
+// ============================================
 import AdminLogin from './pages/AdminLogin';
 
-// User Pages
+// ============================================
+// USER PAGES
+// ============================================
 import UserDashboard from './pages/UserDashboard';
 import UserProfile from './pages/UserProfile';
 import UserApplications from './pages/UserApplications';
@@ -54,12 +63,16 @@ import LearnerDashboard from './pages/LearnerDashboard';
 import CompanyProfile from './pages/CompanyProfile';
 import WorkforceDashboard from './pages/WorkforceDashboard';
 
-// Tester Pages
+// ============================================
+// TESTER PAGES
+// ============================================
 import TesterLoginPage from './pages/tester/TesterLoginPage';
 import TesterRegisterPage from './pages/tester/TesterRegisterPage';
 import TesterDashboard from './pages/tester/TesterDashboard';
 
-// Admin Pages
+// ============================================
+// ADMIN PAGES
+// ============================================
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminJobs from './pages/admin/AdminJobs';
@@ -78,12 +91,16 @@ import VirtualAssistantManager from './pages/admin/VirtualAssistantManager';
 import AICourseBuilder from './pages/admin/AICourseBuilder';
 import AdminSkills from './pages/admin/AdminSkills';
 
-// Dashboard Pages
+// ============================================
+// DASHBOARD PAGES
+// ============================================
 import SystemHealthDashboard from './pages/admin/SystemHealthDashboard';
 import SecurityDashboard from './pages/admin/SecurityDashboard';
 import AnalyticsDashboard from './pages/admin/AnalyticsDashboard';
 
-// Legal Pages
+// ============================================
+// LEGAL PAGES
+// ============================================
 import TermsPage from './pages/legal/TermsPage';
 import PrivacyPage from './pages/legal/PrivacyPage';
 import CookiesPage from './pages/legal/CookiesPage';
@@ -93,18 +110,15 @@ import FraudPreventionPage from './pages/legal/FraudPreventionPage';
 import SafetyTipsPage from './pages/legal/SafetyTipsPage';
 import ReportFraudPage from './pages/ReportFraudPage';
 
-// Workforce Components
+// ============================================
+// WORKFORCE COMPONENTS
+// ============================================
 import WorkforceOnboarding from './components/workforce/WorkforceOnboarding';
 import ProposalsList from './components/workforce/ProposalsList';
 import EngagementsDashboard from './components/workforce/EngagementsDashboard';
 
-// Popup Components
-import PremiumTermsPopup from './components/PremiumTermsPopup';
-import BrainstormPartner from './components/BrainstormPartner';
-import TermsPopup from './components/TermsPopup';
-
 // ============================================
-// 404 PAGE
+// SIMPLE 404 PAGE
 // ============================================
 function NotFoundPage() {
     return (
@@ -122,14 +136,25 @@ function NotFoundPage() {
 }
 
 // ============================================
-// APP COMPONENT
+// MAIN APP COMPONENT
 // ============================================
 function App() {
+    // Log that app mounted successfully
+    useEffect(() => {
+        console.log('✅ App mounted successfully');
+    }, []);
+
     return (
         <ErrorBoundary>
             <BrowserRouter>
+                {/* Scroll to top on route change */}
+                <ScrollToTop />
+                
+                {/* Core Layout Components */}
                 <Navbar />
                 <ScrollingBanner />
+                
+                {/* Main Content */}
                 <main className="min-h-screen bg-slate-950">
                     <div className="w-full px-4 sm:px-6 lg:px-8">
                         <div className="max-w-7xl mx-auto">
@@ -159,7 +184,7 @@ function App() {
                                 <Route path="/articles" element={<ArticlesPage />} />
                                 <Route path="/articles/:slug" element={<ArticleDetail />} />
 
-                                {/* Admin Login */}
+                                {/* Auth Routes */}
                                 <Route path="/admin-login" element={<AdminLogin />} />
 
                                 {/* User Routes */}
@@ -217,12 +242,14 @@ function App() {
                                 <Route path="/safety-tips" element={<SafetyTipsPage />} />
                                 <Route path="/report-fraud" element={<ReportFraudPage />} />
 
-                                {/* 404 Fallback */}
+                                {/* 404 Fallback - Must be last */}
                                 <Route path="*" element={<NotFoundPage />} />
                             </Routes>
                         </div>
                     </div>
                 </main>
+                
+                {/* Footer & Popups */}
                 <Footer />
                 <PremiumTermsPopup />
                 <CookieConsent />
