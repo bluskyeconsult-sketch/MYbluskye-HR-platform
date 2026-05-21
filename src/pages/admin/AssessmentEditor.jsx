@@ -179,8 +179,6 @@ export default function AssessmentEditor() {
         setError(null);
         
         try {
-            let assessmentId = id;
-            
             if (id === 'new') {
                 // Create new assessment
                 const { data, error } = await supabase
@@ -193,8 +191,7 @@ export default function AssessmentEditor() {
                     .single();
                 
                 if (error) throw error;
-                assessmentId = data.id;
-                navigate(`/admin/assessments/edit/${assessmentId}`, { replace: true });
+                navigate(`/admin/assessments/edit/${data.id}`, { replace: true });
             } else {
                 // Update existing assessment
                 const { error } = await supabase
@@ -206,11 +203,6 @@ export default function AssessmentEditor() {
                     .eq('id', id);
                 
                 if (error) throw error;
-            }
-            
-            // Refresh questions if needed
-            if (id === 'new') {
-                await loadAssessment();
             }
             
             alert('Assessment saved successfully!');
@@ -376,7 +368,7 @@ export default function AssessmentEditor() {
         setSaving(true);
         
         try {
-            // Delete options first (cascade should handle this, but explicit for safety)
+            // Delete options first
             await supabase
                 .from('assessment_options')
                 .delete()
@@ -446,8 +438,8 @@ export default function AssessmentEditor() {
             if (question.options && question.options.length > 0) {
                 const optionsToInsert = question.options.map((opt, idx) => ({
                     question_id: newQuestionData.id,
-                    option_text: opt.option_text,
-                    is_correct: opt.is_correct,
+                    option_text: opt.option_text || opt,
+                    is_correct: opt.is_correct || false,
                     sort_order: idx,
                     created_at: new Date().toISOString()
                 }));
