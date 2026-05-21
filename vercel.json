@@ -3,6 +3,7 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "installCommand": "npm install",
   
   "functions": {
     "api/index.js": {
@@ -15,10 +16,6 @@
     {
       "path": "/api/index?cron=fetch-jobs",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/index?cron=newsletters",
-      "schedule": "0 9,15 * * *"
     }
   ],
   
@@ -43,7 +40,7 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
+          "value": "GET, POST, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
@@ -72,8 +69,8 @@
           "value": "DENY"
         },
         {
-          "key": "X-XSS-Protection",
-          "value": "1; mode=block"
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
         }
       ]
     }
