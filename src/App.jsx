@@ -1,8 +1,9 @@
 // src/App.jsx
-// OPTIMIZED WORKING VERSION - With ErrorBoundary wrapper
+// OPTIMIZED WORKING VERSION - With ErrorBoundary, ScrollToTop, and Animations
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
 // CORE COMPONENTS
@@ -118,145 +119,178 @@ import ProposalsList from './components/workforce/ProposalsList';
 import EngagementsDashboard from './components/workforce/EngagementsDashboard';
 
 // ============================================
+// ANIMATED PAGE WRAPPER
+// ============================================
+function AnimatedPage({ children }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+        >
+            {children}
+        </motion.div>
+    );
+}
+
+// ============================================
 // SIMPLE 404 PAGE
 // ============================================
 function NotFoundPage() {
     return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-            <div className="text-center">
-                <h1 className="text-6xl font-bold text-white mb-4">404</h1>
-                <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
-                <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
-                <a href="/" className="inline-block px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-                    Go Home
-                </a>
+        <AnimatedPage>
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+                <div className="text-center">
+                    <h1 className="text-6xl font-bold text-white mb-4">404</h1>
+                    <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
+                    <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+                    <a href="/" className="inline-block px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                        Go Home
+                    </a>
+                </div>
             </div>
-        </div>
+        </AnimatedPage>
     );
 }
 
 // ============================================
 // MAIN APP COMPONENT
 // ============================================
-function App() {
+function AppContent() {
+    const location = useLocation();
+    
     // Log that app mounted successfully
     useEffect(() => {
-        console.log('✅ App mounted successfully');
+        console.log('✅ App mounted successfully with animations');
     }, []);
 
     return (
-        <ErrorBoundary>
-            <BrowserRouter>
-                {/* Scroll to top on route change */}
-                <ScrollToTop />
-                
-                {/* Core Layout Components */}
-                <Navbar />
-                <ScrollingBanner />
-                
-                {/* Main Content */}
-                <main className="min-h-screen bg-slate-950">
-                    <div className="w-full px-4 sm:px-6 lg:px-8">
-                        <div className="max-w-7xl mx-auto">
-                            <Routes>
+        <>
+            {/* Scroll to top on route change */}
+            <ScrollToTop />
+            
+            {/* Core Layout Components */}
+            <Navbar />
+            <ScrollingBanner />
+            
+            {/* Main Content with Animations */}
+            <main className="min-h-screen bg-slate-950">
+                <div className="w-full px-4 sm:px-6 lg:px-8">
+                    <div className="max-w-7xl mx-auto">
+                        <AnimatePresence mode="wait">
+                            <Routes location={location} key={location.pathname}>
                                 {/* Public Routes */}
-                                <Route path="/" element={<HomePage />} />
-                                <Route path="/jobs" element={<JobsPage />} />
-                                <Route path="/workforce" element={<WorkforceMarketplace />} />
-                                <Route path="/courses" element={<CoursesPage />} />
-                                <Route path="/books" element={<BooksPage />} />
-                                <Route path="/newsletter" element={<NewsletterPage />} />
-                                <Route path="/hire-va" element={<HireVirtualAssistant />} />
-                                <Route path="/about" element={<AboutPage />} />
-                                <Route path="/contact" element={<ContactPage />} />
-                                <Route path="/pricing" element={<PricingPage />} />
-                                <Route path="/sign-in" element={<SignInPage />} />
-                                <Route path="/sign-up" element={<SignUpPage />} />
-                                <Route path="/products" element={<ProductsPage />} />
-                                <Route path="/faq" element={<FAQPage />} />
+                                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
+                                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
 
                                 {/* Assessment Routes */}
-                                <Route path="/assessments" element={<AssessmentsPage />} />
-                                <Route path="/assessments/:id" element={<TakeAssessment />} />
-                                <Route path="/assessment-results/:id" element={<AssessmentResults />} />
+                                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                                <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                                <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
 
                                 {/* Article Routes */}
-                                <Route path="/articles" element={<ArticlesPage />} />
-                                <Route path="/articles/:slug" element={<ArticleDetail />} />
+                                <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                                <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
 
                                 {/* Auth Routes */}
-                                <Route path="/admin-login" element={<AdminLogin />} />
+                                <Route path="/admin-login" element={<AnimatedPage><AdminLogin /></AnimatedPage>} />
 
                                 {/* User Routes */}
-                                <Route path="/dashboard" element={<UserDashboard />} />
-                                <Route path="/profile" element={<UserProfile />} />
-                                <Route path="/applications" element={<UserApplications />} />
-                                <Route path="/skills" element={<UserSkills />} />
-                                <Route path="/messages" element={<UserMessages />} />
-                                <Route path="/settings" element={<UserSettings />} />
-                                <Route path="/saved-jobs" element={<SavedJobsPage />} />
-                                <Route path="/job-alerts" element={<JobAlertsPage />} />
-                                <Route path="/affiliate" element={<AffiliateDashboard />} />
-                                <Route path="/learning" element={<LearnerDashboard />} />
-                                <Route path="/company-profile" element={<CompanyProfile />} />
-                                <Route path="/workforce/dashboard" element={<WorkforceDashboard />} />
-                                <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
-                                <Route path="/workforce/proposals" element={<ProposalsList />} />
-                                <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
+                                <Route path="/dashboard" element={<AnimatedPage><UserDashboard /></AnimatedPage>} />
+                                <Route path="/profile" element={<AnimatedPage><UserProfile /></AnimatedPage>} />
+                                <Route path="/applications" element={<AnimatedPage><UserApplications /></AnimatedPage>} />
+                                <Route path="/skills" element={<AnimatedPage><UserSkills /></AnimatedPage>} />
+                                <Route path="/messages" element={<AnimatedPage><UserMessages /></AnimatedPage>} />
+                                <Route path="/settings" element={<AnimatedPage><UserSettings /></AnimatedPage>} />
+                                <Route path="/saved-jobs" element={<AnimatedPage><SavedJobsPage /></AnimatedPage>} />
+                                <Route path="/job-alerts" element={<AnimatedPage><JobAlertsPage /></AnimatedPage>} />
+                                <Route path="/affiliate" element={<AnimatedPage><AffiliateDashboard /></AnimatedPage>} />
+                                <Route path="/learning" element={<AnimatedPage><LearnerDashboard /></AnimatedPage>} />
+                                <Route path="/company-profile" element={<AnimatedPage><CompanyProfile /></AnimatedPage>} />
+                                <Route path="/workforce/dashboard" element={<AnimatedPage><WorkforceDashboard /></AnimatedPage>} />
+                                <Route path="/workforce/setup" element={<AnimatedPage><WorkforceOnboarding /></AnimatedPage>} />
+                                <Route path="/workforce/proposals" element={<AnimatedPage><ProposalsList /></AnimatedPage>} />
+                                <Route path="/workforce/engagements" element={<AnimatedPage><EngagementsDashboard /></AnimatedPage>} />
 
                                 {/* Tester Routes */}
-                                <Route path="/tester-login" element={<TesterLoginPage />} />
-                                <Route path="/tester-register" element={<TesterRegisterPage />} />
-                                <Route path="/tester/dashboard" element={<TesterDashboard />} />
+                                <Route path="/tester-login" element={<AnimatedPage><TesterLoginPage /></AnimatedPage>} />
+                                <Route path="/tester-register" element={<AnimatedPage><TesterRegisterPage /></AnimatedPage>} />
+                                <Route path="/tester/dashboard" element={<AnimatedPage><TesterDashboard /></AnimatedPage>} />
 
                                 {/* Admin Routes */}
-                                <Route path="/admin/dashboard" element={<AdminDashboard />} />
-                                <Route path="/admin/users" element={<AdminUsers />} />
-                                <Route path="/admin/jobs" element={<AdminJobs />} />
-                                <Route path="/admin/fraud-reports" element={<AdminFraudReports />} />
-                                <Route path="/admin/articles" element={<AdminArticles />} />
-                                <Route path="/admin/articles/new" element={<ArticleEditor />} />
-                                <Route path="/admin/articles/:id" element={<ArticleEditor />} />
-                                <Route path="/admin/testing-mode" element={<TestingModeSettings />} />
-                                <Route path="/admin/settings/tester-visibility" element={<TesterVisibilitySettings />} />
-                                <Route path="/admin/email-test" element={<EmailTest />} />
-                                <Route path="/admin/external-jobs" element={<ExternalJobs />} />
-                                <Route path="/admin/knowledge-sources" element={<KnowledgeSourceManager />} />
-                                <Route path="/admin/books" element={<ManageBooks />} />
-                                <Route path="/admin/newsletter" element={<NewsletterAdmin />} />
-                                <Route path="/admin/assessments" element={<AssessmentManager />} />
-                                <Route path="/admin/virtual-assistants" element={<VirtualAssistantManager />} />
-                                <Route path="/admin/ai-course-builder" element={<AICourseBuilder />} />
-                                <Route path="/admin/skills" element={<AdminSkills />} />
-                                <Route path="/admin/health" element={<SystemHealthDashboard />} />
-                                <Route path="/admin/security" element={<SecurityDashboard />} />
-                                <Route path="/admin/analytics" element={<AnalyticsDashboard />} />
+                                <Route path="/admin/dashboard" element={<AnimatedPage><AdminDashboard /></AnimatedPage>} />
+                                <Route path="/admin/users" element={<AnimatedPage><AdminUsers /></AnimatedPage>} />
+                                <Route path="/admin/jobs" element={<AnimatedPage><AdminJobs /></AnimatedPage>} />
+                                <Route path="/admin/fraud-reports" element={<AnimatedPage><AdminFraudReports /></AnimatedPage>} />
+                                <Route path="/admin/articles" element={<AnimatedPage><AdminArticles /></AnimatedPage>} />
+                                <Route path="/admin/articles/new" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+                                <Route path="/admin/articles/:id" element={<AnimatedPage><ArticleEditor /></AnimatedPage>} />
+                                <Route path="/admin/testing-mode" element={<AnimatedPage><TestingModeSettings /></AnimatedPage>} />
+                                <Route path="/admin/settings/tester-visibility" element={<AnimatedPage><TesterVisibilitySettings /></AnimatedPage>} />
+                                <Route path="/admin/email-test" element={<AnimatedPage><EmailTest /></AnimatedPage>} />
+                                <Route path="/admin/external-jobs" element={<AnimatedPage><ExternalJobs /></AnimatedPage>} />
+                                <Route path="/admin/knowledge-sources" element={<AnimatedPage><KnowledgeSourceManager /></AnimatedPage>} />
+                                <Route path="/admin/books" element={<AnimatedPage><ManageBooks /></AnimatedPage>} />
+                                <Route path="/admin/newsletter" element={<AnimatedPage><NewsletterAdmin /></AnimatedPage>} />
+                                <Route path="/admin/assessments" element={<AnimatedPage><AssessmentManager /></AnimatedPage>} />
+                                <Route path="/admin/virtual-assistants" element={<AnimatedPage><VirtualAssistantManager /></AnimatedPage>} />
+                                <Route path="/admin/ai-course-builder" element={<AnimatedPage><AICourseBuilder /></AnimatedPage>} />
+                                <Route path="/admin/skills" element={<AnimatedPage><AdminSkills /></AnimatedPage>} />
+                                <Route path="/admin/health" element={<AnimatedPage><SystemHealthDashboard /></AnimatedPage>} />
+                                <Route path="/admin/security" element={<AnimatedPage><SecurityDashboard /></AnimatedPage>} />
+                                <Route path="/admin/analytics" element={<AnimatedPage><AnalyticsDashboard /></AnimatedPage>} />
 
                                 {/* Legal Routes */}
-                                <Route path="/legal/terms" element={<TermsPage />} />
-                                <Route path="/legal/privacy" element={<PrivacyPage />} />
-                                <Route path="/legal/cookies" element={<CookiesPage />} />
-                                <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
-                                <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
-                                <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
-                                <Route path="/safety-tips" element={<SafetyTipsPage />} />
-                                <Route path="/report-fraud" element={<ReportFraudPage />} />
+                                <Route path="/legal/terms" element={<AnimatedPage><TermsPage /></AnimatedPage>} />
+                                <Route path="/legal/privacy" element={<AnimatedPage><PrivacyPage /></AnimatedPage>} />
+                                <Route path="/legal/cookies" element={<AnimatedPage><CookiesPage /></AnimatedPage>} />
+                                <Route path="/legal/disclaimer" element={<AnimatedPage><DisclaimerPage /></AnimatedPage>} />
+                                <Route path="/legal/acceptable-use" element={<AnimatedPage><AcceptableUsePage /></AnimatedPage>} />
+                                <Route path="/legal/fraud-prevention" element={<AnimatedPage><FraudPreventionPage /></AnimatedPage>} />
+                                <Route path="/safety-tips" element={<AnimatedPage><SafetyTipsPage /></AnimatedPage>} />
+                                <Route path="/report-fraud" element={<AnimatedPage><ReportFraudPage /></AnimatedPage>} />
 
                                 {/* 404 Fallback - Must be last */}
                                 <Route path="*" element={<NotFoundPage />} />
                             </Routes>
-                        </div>
+                        </AnimatePresence>
                     </div>
-                </main>
-                
-                {/* Footer & Popups */}
-                <Footer />
-                <PremiumTermsPopup />
-                <CookieConsent />
-                <ODUSBABAChat />
-                <BrainstormPartner />
-                <TermsPopup />
-                <FraudSafetyBanner />
+                </div>
+            </main>
+            
+            {/* Footer & Popups */}
+            <Footer />
+            <PremiumTermsPopup />
+            <CookieConsent />
+            <ODUSBABAChat />
+            <BrainstormPartner />
+            <TermsPopup />
+            <FraudSafetyBanner />
+        </>
+    );
+}
+
+// ============================================
+// MAIN APP COMPONENT WITH ROUTER
+// ============================================
+function App() {
+    return (
+        <ErrorBoundary>
+            <BrowserRouter>
+                <AppContent />
             </BrowserRouter>
         </ErrorBoundary>
     );
