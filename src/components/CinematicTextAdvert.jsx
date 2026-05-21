@@ -1,21 +1,26 @@
 // src/components/CinematicTextAdvert.jsx
-// COMPLETE CINEMATIC TEXT ADVERT - Animated with dynamic content support
+// OPTIMIZED - Cinematic animated advert with API fallback and smooth transitions
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Default messages (fallback if API fails)
+// ============================================
+// DEFAULT CONTENT (Fallback if API fails)
+// ============================================
+
 const DEFAULT_MESSAGES = [
     {
         text: "www.bluskyeconsult.com",
-        subtext: "Your Trusted Career Platform",
+        subtext: "AI-Governed Workforce Platform",
         icon: "🌐",
         gradient: "from-sky-500 to-blue-600",
-        duration: 4000
+        duration: 4000,
+        ctaText: "Get Started",
+        ctaLink: "/sign-up"
     },
     {
         text: "AI-Powered Career Intelligence",
-        subtext: "Powered by advanced neural networks",
+        subtext: "Powered by ODUSBABA's advanced neural networks",
         icon: "🧠",
         gradient: "from-purple-500 to-pink-500",
         duration: 3500
@@ -36,14 +41,14 @@ const DEFAULT_MESSAGES = [
     },
     {
         text: "Professional CV Optimization",
-        subtext: "ATS-friendly, recruiter-approved",
+        subtext: "ATS-friendly, recruiter-approved format",
         icon: "📄",
         gradient: "from-amber-500 to-orange-500",
         duration: 3500
     },
     {
-        text: "Virtual Assistant Ecosystem",
-        subtext: "24/7 career guidance at your fingertips",
+        text: "24/7 Virtual Assistant",
+        subtext: "Career guidance at your fingertips",
         icon: "🤖",
         gradient: "from-indigo-500 to-purple-500",
         duration: 3500
@@ -70,13 +75,17 @@ const DEFAULT_MESSAGES = [
         duration: 3500
     },
     {
-        text: "www.bluskyeconsult.com",
-        subtext: "Join Thousands of Success Stories",
+        text: "Join Thousands of Success Stories",
+        subtext: "Your career transformation starts here",
         icon: "🚀",
         gradient: "from-sky-500 to-blue-600",
         duration: 4000
     }
 ];
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function CinematicTextAdvert() {
     const [messages, setMessages] = useState(DEFAULT_MESSAGES);
@@ -84,29 +93,77 @@ export default function CinematicTextAdvert() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [progress, setProgress] = useState(0);
+    const [error, setError] = useState(false);
 
-    // Fetch dynamic content from API (optional)
+    // Fetch dynamic content from API
     useEffect(() => {
-        fetch('/api/marketing/content')
-            .then(res => {
-                if (!res.ok) throw new Error('API failed');
-                return res.json();
-            })
-            .then(data => {
-                if (data && Array.isArray(data) && data.length > 0) {
-                    setMessages(data);
+        const fetchContent = async () => {
+            try {
+                const response = await fetch('/api/marketing/content');
+                if (!response.ok) throw new Error('API request failed');
+                
+                const data = await response.json();
+                
+                // Check if API returned hero content and transform it
+                if (data?.data?.hero) {
+                    const hero = data.data.hero;
+                    // Transform API content to match message structure
+                    const apiMessage = {
+                        text: hero.title || hero.tagline || DEFAULT_MESSAGES[0].text,
+                        subtext: hero.subtitle || hero.description || DEFAULT_MESSAGES[0].subtext,
+                        icon: hero.icon || "✨",
+                        gradient: hero.gradient || "from-sky-500 to-blue-600",
+                        duration: 4000,
+                        ctaText: hero.ctaText,
+                        ctaLink: hero.ctaLink
+                    };
+                    
+                    // Combine API message with default messages (API message first)
+                    setMessages([apiMessage, ...DEFAULT_MESSAGES.slice(1)]);
+                } else if (data?.data?.features && Array.isArray(data.data.features)) {
+                    // Transform features into messages
+                    const featureMessages = data.data.features.map(feature => ({
+                        text: feature.title,
+                        subtext: feature.description,
+                        icon: feature.icon || getIconForFeature(feature.title),
+                        gradient: feature.gradient || "from-primary-500 to-sky-500",
+                        duration: 3500
+                    }));
+                    setMessages([...featureMessages, ...DEFAULT_MESSAGES]);
                 }
+            } catch (err) {
+                console.warn("Failed to load advert content, using defaults:", err.message);
+                setError(true);
+            } finally {
                 setLoading(false);
-            })
-            .catch(err => {
-                console.warn("Failed to load advert content, using defaults:", err);
-                setLoading(false);
-            });
+            }
+        };
+
+        fetchContent();
     }, []);
+
+    // Helper to map feature titles to icons
+    const getIconForFeature = (title) => {
+        const iconMap = {
+            'AI-Powered': '🧠',
+            'Job': '💼',
+            'Skill': '⭐',
+            'Career': '🎯',
+            'Salary': '💰',
+            'Workplace': '⚖️',
+            'Virtual': '🤖'
+        };
+        for (const [key, icon] of Object.entries(iconMap)) {
+            if (title.includes(key)) return icon;
+        }
+        return '✨';
+    };
 
     const currentMessage = messages[currentIndex];
     const displayDuration = currentMessage?.duration || 3500;
+    const hasCTA = currentMessage?.ctaText && currentMessage?.ctaLink;
 
+    // Progress bar animation
     useEffect(() => {
         if (loading || !currentMessage) return;
         
@@ -142,10 +199,20 @@ export default function CinematicTextAdvert() {
         };
     }, [currentIndex, displayDuration, loading, messages.length, currentMessage]);
 
-    // Don't render while loading (prevents flash)
+    // Don't render while loading - show skeleton
     if (loading) {
         return (
-            <div className="w-full h-64 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl my-8 animate-pulse" />
+            <div className="w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl my-8 overflow-hidden">
+                <div className="px-6 py-16 md:py-20 lg:py-24">
+                    <div className="max-w-4xl mx-auto text-center">
+                        <div className="animate-pulse">
+                            <div className="w-20 h-20 bg-slate-800 rounded-full mx-auto mb-6"></div>
+                            <div className="h-8 bg-slate-800 rounded w-64 mx-auto mb-4"></div>
+                            <div className="h-4 bg-slate-800 rounded w-96 mx-auto"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         );
     }
 
@@ -221,11 +288,27 @@ export default function CinematicTextAdvert() {
                                     {currentMessage.subtext}
                                 </motion.p>
                                 
-                                {/* Underline */}
+                                {/* CTA Button */}
+                                {hasCTA && (
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ duration: 0.4, delay: 0.5 }}
+                                    >
+                                        <a
+                                            href={currentMessage.ctaLink}
+                                            className="inline-block mt-4 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all hover:scale-105"
+                                        >
+                                            {currentMessage.ctaText} →
+                                        </a>
+                                    </motion.div>
+                                )}
+                                
+                                {/* Decorative underline */}
                                 <motion.div
                                     initial={{ scaleX: 0 }}
                                     animate={{ scaleX: 1 }}
-                                    transition={{ duration: 0.6, delay: 0.5 }}
+                                    transition={{ duration: 0.6, delay: 0.6 }}
                                     className="w-24 h-px bg-gradient-to-r from-transparent via-sky-500 to-transparent mx-auto"
                                 />
                             </motion.div>
@@ -235,7 +318,7 @@ export default function CinematicTextAdvert() {
                 
                 {/* Navigation dots */}
                 {messages.length > 1 && (
-                    <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2">
+                    <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2 z-40">
                         {messages.map((_, idx) => (
                             <button
                                 key={idx}
@@ -259,7 +342,7 @@ export default function CinematicTextAdvert() {
                 )}
             </div>
 
-            {/* Vignette effect */}
+            {/* Vignette effects */}
             <div className="absolute inset-0 pointer-events-none z-20 bg-gradient-to-t from-slate-950/40 via-transparent to-slate-950/20" />
             <div className="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]" />
         </div>
