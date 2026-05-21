@@ -58,7 +58,7 @@ export default function CoursesPage() {
         const { data, error } = await supabase
             .from('courses')
             .select('*')
-            .eq('is_published', true)
+            .eq('status', 'published')  // FIXED: Use 'status' instead of 'is_published'
             .order('created_at', { ascending: false });
         
         if (!error && data) {
@@ -381,7 +381,7 @@ export default function CoursesPage() {
                                             </button>
                                         ) : (
                                             <div className="flex gap-2">
-                                                <Link to={`/courses/${course.id}`} className="flex-1">
+                                                <Link to={`/courses/${course.slug || course.id}`} className="flex-1">
                                                     <button className="w-full py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition">
                                                         View Details
                                                     </button>
@@ -417,7 +417,7 @@ export default function CoursesPage() {
                 </div>
             </div>
             
-            {/* AI Chat Modal (optional) */}
+            {/* AI Chat Modal */}
             {showAIChat && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6">
