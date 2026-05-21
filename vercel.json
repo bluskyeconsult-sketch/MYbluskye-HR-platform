@@ -4,17 +4,21 @@
   "outputDirectory": "dist",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
+  "functions": {
+    "api/ai/*.js": {
+      "maxDuration": 30
+    },
+    "api/*.js": {
+      "maxDuration": 10
+    }
+  },
   "routes": [
     {
       "src": "/assets/(.*)",
-      "dest": "/assets/$1",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
-      }
-    },
-    {
-      "src": "/src/(.*)",
-      "dest": "/src/$1"
+      },
+      "dest": "/assets/$1"
     },
     {
       "src": "/api/(.*)",
@@ -23,6 +27,50 @@
     {
       "src": "/(.*)",
       "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        },
+        {
+          "key": "Access-Control-Max-Age",
+          "value": "86400"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
     }
   ]
 }
