@@ -1,9 +1,9 @@
 {
-  "name": "bluskye-hr-platform",
+  "name": "bluskye-consult",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "BluSkye Integrated Consult - AI-Powered HR Platform",
+  "description": "BluSkye Integrated Consult - AI-Powered HR Platform & Career Intelligence",
   "author": "BluSkye Integrated Consult",
   "license": "UNLICENSED",
   "homepage": "https://www.bluskyeconsult.com",
@@ -11,6 +11,14 @@
     "type": "git",
     "url": "https://github.com/bluskye/hr-platform.git"
   },
+  "keywords": [
+    "hr-platform",
+    "career-intelligence",
+    "ai-powered",
+    "job-board",
+    "course-platform",
+    "bluskye"
+  ],
   "scripts": {
     "dev": "vite --port 3000 --host",
     "build": "vite build",
@@ -19,6 +27,9 @@
     "preview:prod": "npm run build && npm run preview",
     "clean": "rm -rf dist .vite node_modules/.cache build",
     "clean:all": "npm run clean && rm -rf node_modules",
+    "deploy": "npm run build && npm run deploy:netlify",
+    "deploy:netlify": "netlify deploy --prod --dir=dist",
+    "deploy:vercel": "vercel --prod",
     "lint": "echo 'No linter configured'",
     "type-check": "tsc --noEmit",
     "postinstall": "echo '✅ Dependencies installed'"
@@ -59,7 +70,10 @@
       "not op_mini all",
       "not ie 11",
       "not and_qq 10",
-      "not android 4"
+      "not android 4",
+      "not Chrome < 60",
+      "not Safari < 12",
+      "not iOS < 12"
     ],
     "development": [
       "last 1 chrome version",
