@@ -1,112 +1,112 @@
 // vite.config.js
-// OPTIMIZED FOR www.bluskyeconsult.com
-
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ mode }) => {
     const isDev = mode === 'development';
     const isProd = mode === 'production';
+    const isAnalyze = mode === 'analyze';
     
     return {
         plugins: [react()],
         
-        // Base path - use root for custom domain
         base: '/',
         
-        // Development server
         server: {
             port: 3000,
+            host: true, // Expose to network for www.bluskyeconsult.com
             open: true,
-            host: true, // Expose to local network
             proxy: {
-                // Proxy API requests to backend (only in dev)
                 '/api': {
-                    target: isDev ? 'https://www.bluskyeconsult.com' : false,
+                    target: 'https://www.bluskyeconsult.com',
                     changeOrigin: true,
                     secure: true,
                     rewrite: (path) => path.replace(/^\/api/, '/api'),
-                    configure: (proxy, options) => {
-                        proxy.on('error', (err, req, res) => {
-                            console.log('proxy error', err);
-                        });
-                        proxy.on('proxyReq', (proxyReq, req, res) => {
-                            console.log('Sending Request:', req.method, req.url);
-                        });
+                    configure: (proxy) => {
+                        if (isDev) {
+                            proxy.on('proxyReq', (_, req) => {
+                                console.log('[Proxy]', req.method, req.url);
+                            });
+                        }
                     }
-                },
-                // Optional: Proxy WebSocket connections
-                '/socket.io': {
-                    target: 'wss://www.bluskyeconsult.com',
-                    ws: true,
-                    changeOrigin: true
                 }
             }
         },
         
-        // Build configuration
-        build: {
-            outDir: 'dist',
-            sourcemap: isDev, // Only in development
-            minify: 'terser',
-            terserOptions: {
-                compress: {
-                    drop_console: isProd, // Remove console logs in production
-                    drop_debugger: isProd
-                }
-            },
-            rollupOptions: {
-                output: {
-                    manualChunks: {
-                        // Core vendor chunks
-                        'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-                        'vendor-ui': ['framer-motion', 'lucide-react'],
-                        'vendor-supabase': ['@supabase/supabase-js'],
-                        'vendor-utils': ['date-fns', 'react-hook-form']
-                    },
-                    // Optimize chunk naming
-                    chunkFileNames: 'assets/js/[name]-[hash].js',
-                    entryFileNames: 'assets/js/[name]-[hash].js',
-                    assetFileNames: 'assets/css/[name]-[hash].[ext]'
-                }
-            },
-            // Increase chunk size warning limit
-            chunkSizeWarningLimit: 1000,
-            // Enable CSS code splitting
-            cssCodeSplit: true,
-            // Target modern browsers
-            target: 'es2020'
-        },
-        
-        // Preview server (for testing production build locally)
         preview: {
             port: 4173,
-            open: true,
-            host: true
+            host: true,
+            open: true
         },
         
-        // Environment variables prefix
-        envPrefix: 'VITE_',
+        build: {
+            outDir: 'dist',
+            sourcemap: isDev,
+            minify: isProd ? 'terser' : false,
+            target: 'es2020',
+            cssCodeSplit: true,
+            chunkSizeWarningLimit: 1000,
+            rollupOptions: {
+                input: {
+                    main: resolve(__dirname, 'index.html')
+                },
+                output: {
+                    manualChunks: {
+                        'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+                        'vendor-animation': ['framer-motion'],
+                        'vendor-icons': ['lucide-react'],
+                        'vendor-supabase': ['@supabase/supabase-js']
+                    },
+                    chunkFileNames: (chunkInfo) => {
+                        const pattern = 'assets/js/[name]-[hash].js';
+                        return pattern;
+                    },
+                    entryFileNames: 'assets/js/[name]-[hash].js',
+                    assetFileNames: (assetInfo) => {
+                        if (assetInfo.name?.endsWith('.css')) {
+                            return 'assets/css/[name]-[hash][extname]';
+                        }
+                        return 'assets/[name]-[hash][extname]';
+                    }
+                }
+            },
+            terserOptions: isProd ? {
+                compress: {
+                    drop_console: true,
+                    drop_debugger: true,
+                    pure_funcs: ['console.log', 'console.info', 'console.debug']
+                },
+                format: {
+                    comments: false
+                }
+            } : undefined
+        },
         
-        // Optimize dependencies
         optimizeDeps: {
-            include: ['react', 'react-dom', 'react-router-dom', 'framer-motion'],
+            include: [
+                'react',
+                'react-dom',
+                'react-router-dom',
+                'framer-motion',
+                'lucide-react',
+                '@supabase/supabase-js'
+            ],
             exclude: []
         },
         
-        // Resolve aliases (optional - for cleaner imports)
         resolve: {
             alias: {
-                '@': '/src',
-                '@components': '/src/components',
-                '@lib': '/src/lib',
-                '@services': '/src/services',
-                '@hooks': '/src/hooks',
-                '@utils': '/src/utils'
+                '@': resolve(__dirname, 'src'),
+                '@components': resolve(__dirname, 'src/components'),
+                '@lib': resolve(__dirname, 'src/lib'),
+                '@services': resolve(__dirname, 'src/services'),
+                '@hooks': resolve(__dirname, 'src/hooks'),
+                '@utils': resolve(__dirname, 'src/utils'),
+                '@assets': resolve(__dirname, 'src/assets')
             }
         },
         
-        // CSS options
         css: {
             devSourcemap: isDev,
             modules: {
@@ -114,11 +114,19 @@ export default defineConfig(({ command, mode }) => {
             }
         },
         
-        // ESBuild options
         esbuild: {
             logOverride: { 'this-is-undefined-in-esm': 'silent' },
-            // Remove console logs in production
             drop: isProd ? ['console', 'debugger'] : []
+        },
+        
+        // Environment variables
+        envPrefix: 'VITE_',
+        
+        // Define global constants
+        define: {
+            __APP_VERSION__: JSON.stringify('1.0.0'),
+            __APP_ENV__: JSON.stringify(mode),
+            __BUILD_TIME__: JSON.stringify(new Date().toISOString())
         }
     };
 });
