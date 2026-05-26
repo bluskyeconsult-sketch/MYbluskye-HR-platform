@@ -1,5 +1,6 @@
 // src/main.jsx
 // PRODUCTION ENTRY POINT - Optimized for www.bluskyeconsult.com
+// Includes safe Supabase error handling for development only
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -28,6 +29,90 @@ const performanceMetrics = {
     domLoading: 0,
     firstPaint: 0
 };
+
+// ============================================
+// SAFE SUPABASE ERROR HANDLER (Development only)
+// ============================================
+
+/**
+ * Safely execute Supabase queries with development error suppression
+ * Only suppresses expected "table does not exist" errors in development
+ */
+const safeSupabaseQuery = async (queryFn, tableName) => {
+    try {
+        return await queryFn();
+    } catch (error) {
+        // Only suppress table-not-found errors in development
+        if (isDevelopment && error?.message?.includes('does not exist')) {
+            console.warn(`⚠️ Development: Table "${tableName}" not found - migration may be pending`);
+            return { data: [], error: null };
+        }
+        throw error;
+    }
+};
+
+/**
+ * Enhanced Supabase client with development helpers
+ */
+const createSafeSupabase = (client) => {
+    if (!isDevelopment) return client;
+    
+    // Add helper methods without monkey patching
+    return {
+        ...client,
+        safeFrom: (tableName) => ({
+            select: (columns) => ({
+                then: (callback) => 
+                    safeSupabaseQuery(
+                        () => client.from(tableName).select(columns).then(callback),
+                        tableName
+                    ),
+                eq: (field, value) => ({
+                    then: (callback) =>
+                        safeSupabaseQuery(
+                            () => client.from(tableName).select(columns).eq(field, value).then(callback),
+                            tableName
+                        ),
+                    single: () => ({
+                        then: (callback) =>
+                            safeSupabaseQuery(
+                                () => client.from(tableName).select(columns).eq(field, value).single().then(callback),
+                                tableName
+                            )
+                    })
+                })
+            }),
+            insert: (data) => ({
+                then: (callback) =>
+                    safeSupabaseQuery(
+                        () => client.from(tableName).insert(data).then(callback),
+                        tableName
+                    )
+            }),
+            update: (data) => ({
+                eq: (field, value) => ({
+                    then: (callback) =>
+                        safeSupabaseQuery(
+                            () => client.from(tableName).update(data).eq(field, value).then(callback),
+                            tableName
+                        )
+                })
+            }),
+            delete: () => ({
+                eq: (field, value) => ({
+                    then: (callback) =>
+                        safeSupabaseQuery(
+                            () => client.from(tableName).delete().eq(field, value).then(callback),
+                            tableName
+                        )
+                })
+            })
+        })
+    };
+};
+
+// Export safe supabase for development (optional)
+export const safeSupabase = isDevelopment ? createSafeSupabase(supabase) : supabase;
 
 // ============================================
 // PERFORMANCE MONITORING
@@ -81,7 +166,6 @@ if (typeof PerformanceObserver !== 'undefined') {
 async function checkSupabaseConnection() {
     try {
         const start = Date.now();
-        // Try auth session first (more reliable than health table)
         const { data, error } = await supabase.auth.getSession();
         const duration = Date.now() - start;
         
@@ -121,7 +205,6 @@ async function cleanupServiceWorkers() {
             console.log('✅ Service workers cleaned up');
         }
     } catch (err) {
-        // Non-critical, ignore in production
         if (isDevelopment) console.debug('Service worker cleanup:', err.message);
     }
 }
@@ -130,7 +213,6 @@ async function cleanupServiceWorkers() {
 // GLOBAL ERROR HANDLING
 // ============================================
 
-// Handle uncaught errors
 window.addEventListener('error', (event) => {
     console.error('❌ Global error:', event.error?.message || event.message);
     if (isDevelopment && event.error) {
@@ -138,12 +220,10 @@ window.addEventListener('error', (event) => {
     }
 });
 
-// Handle unhandled promise rejections
 window.addEventListener('unhandledrejection', (event) => {
     console.error('❌ Unhandled rejection:', event.reason);
 });
 
-// Network status
 window.addEventListener('online', () => {
     if (isDevelopment) console.log('🌐 Online');
 });
@@ -156,13 +236,11 @@ window.addEventListener('offline', () => {
 // ============================================
 
 async function initializeApp() {
-    // Start non-blocking checks
     Promise.allSettled([
         cleanupServiceWorkers(),
         checkSupabaseConnection()
     ]).catch(() => {});
     
-    // Report metrics after load
     window.addEventListener('load', () => {
         reportPerformanceMetrics();
         console.log('🚀 Application ready - www.bluskyeconsult.com');
@@ -179,28 +257,24 @@ async function initializeApp() {
 
 const rootElement = document.getElementById('root');
 
-// Show user-friendly error if root element missing
 if (!rootElement) {
     console.error('❌ Root element missing!');
     document.body.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui, -apple-system, sans-serif; margin: 0;">
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui, sans-serif; margin: 0;">
             <div style="text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; max-width: 500px;">
                 <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
                 <h1 style="color: #f1f5f9; margin-bottom: 12px;">Configuration Error</h1>
-                <p style="color: #94a3b8; margin-bottom: 24px;">Root element not found. Please check your HTML file.</p>
-                <button onclick="location.reload()" style="padding: 10px 24px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px;">
-                    Refresh Page
+                <p style="color: #94a3b8; margin-bottom: 24px;">Root element not found.</p>
+                <button onclick="location.reload()" style="padding: 10px 24px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">
+                    Refresh
                 </button>
             </div>
         </div>
     `;
 } else if (!isRendered && !reactRoot) {
     isRendered = true;
-    
-    // Start initialization (non-blocking)
     initializeApp();
     
-    // Mark root as initialized to prevent duplicate React roots
     if (!rootElement.hasAttribute('data-react-initialized')) {
         rootElement.setAttribute('data-react-initialized', 'true');
         
@@ -220,12 +294,12 @@ if (!rootElement) {
         } catch (error) {
             console.error('❌ Render failed:', error);
             rootElement.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui, -apple-system, sans-serif; margin: 0;">
+                <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui, sans-serif; margin: 0;">
                     <div style="text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; max-width: 500px;">
                         <div style="font-size: 48px; margin-bottom: 16px;">💥</div>
-                        <h1 style="color: #f1f5f9; margin-bottom: 12px;">Failed to Load Application</h1>
+                        <h1 style="color: #f1f5f9; margin-bottom: 12px;">Failed to Load</h1>
                         <p style="color: #94a3b8; margin-bottom: 24px;">${error.message}</p>
-                        <button onclick="location.reload()" style="padding: 10px 24px; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px;">
+                        <button onclick="location.reload()" style="padding: 10px 24px; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer;">
                             Retry
                         </button>
                     </div>
@@ -251,9 +325,21 @@ if (isDevelopment && typeof window !== 'undefined') {
             sessionStorage.clear();
             console.log('✅ Storage cleared');
         },
-        getMetrics: () => performanceMetrics
+        getMetrics: () => performanceMetrics,
+        // Safe table check helper
+        checkTable: async (tableName) => {
+            try {
+                const { data, error } = await supabase.from(tableName).select('*').limit(1);
+                if (error) throw error;
+                console.log(`✅ Table "${tableName}" exists`);
+                return { exists: true, data };
+            } catch (err) {
+                console.warn(`⚠️ Table "${tableName}" not found:`, err.message);
+                return { exists: false, error: err.message };
+            }
+        }
     };
-    console.log('🐛 Debug tools available: window.__APP_DEBUG__');
+    console.log('🐛 Debug: window.__APP_DEBUG__');
 }
 
 // ============================================
@@ -262,10 +348,9 @@ if (isDevelopment && typeof window !== 'undefined') {
 
 if (isDevelopment && import.meta.hot) {
     import.meta.hot.accept();
-    console.log('🔥 HMR active - hot reload enabled');
+    console.log('🔥 HMR active');
 }
 
-// Log that main.jsx has executed
 if (isDevelopment) {
     console.log('📦 Main module loaded - www.bluskyeconsult.com');
 }
