@@ -1,6 +1,6 @@
 // src/services/externalJobService.js
-// COMPLETE EXTERNAL JOB SERVICE - Fetch, Approve, Reject, Batch Approve, SQL Sync, Stats
-// Supports: RSS feed parsing, mock data, database RPC, and comprehensive job management
+// COMPLETE EXTERNAL JOB SERVICE - Fetch via API, Approve, Reject, Batch Approve, SQL Sync, Stats
+// Fetches jobs from serverless API (no CORS issues) with RSS fallback
 
 import { supabase } from '../lib/supabase';
 
@@ -28,7 +28,7 @@ function normalizeJobType(jobType) {
 }
 
 // ============================================
-// RSS FEED SOURCES
+// RSS FEED SOURCES (Fallback when API fails)
 // ============================================
 
 const RSS_FEEDS = {
@@ -96,15 +96,15 @@ const RSS_FEEDS = {
 
 const MOCK_JOBS_BY_COUNTRY = {
     GB: [
-        { title: 'Policy Advisor', company: 'UK Civil Service', location: 'London, UK', salary: '£35,000 - £45,000', description: 'Join the UK Civil Service as a Policy Advisor. Shape government policies.', job_type: 'full_time' },
-        { title: 'Senior Policy Analyst', company: 'UK Civil Service', location: 'London, UK', salary: '£45,000 - £55,000', description: 'Seeking an experienced Policy Analyst to lead strategic initiatives.', job_type: 'full_time' },
+        { title: 'Policy Advisor', company: 'UK Civil Service', location: 'London, UK', salary: '£35,000 - £45,000', description: 'Join the UK Civil Service as a Policy Advisor.', job_type: 'full_time' },
+        { title: 'Senior Policy Analyst', company: 'UK Civil Service', location: 'London, UK', salary: '£45,000 - £55,000', description: 'Seeking an experienced Policy Analyst.', job_type: 'full_time' },
         { title: 'NHS Administrator', company: 'NHS', location: 'Manchester, UK', salary: '£28,000 - £32,000', description: 'The NHS is seeking an experienced Administrator.', job_type: 'full_time' }
     ],
     NG: [
-        { title: 'Civil Service Officer', company: 'Federal Civil Service', location: 'Abuja, Nigeria', salary: '₦3,500,000 - ₦5,000,000', description: 'Join the Federal Civil Service as an Officer.', job_type: 'full_time' }
+        { title: 'Civil Service Officer', company: 'Federal Civil Service', location: 'Abuja, Nigeria', salary: '₦3,500,000 - ₦5,000,000', description: 'Join the Federal Civil Service.', job_type: 'full_time' }
     ],
     IE: [
-        { title: 'Public Service Executive', company: 'Public Jobs IE', location: 'Dublin, Ireland', salary: '€50,000 - €65,000', description: 'Public Appointments Service hiring for executive roles.', job_type: 'full_time' }
+        { title: 'Public Service Executive', company: 'Public Jobs IE', location: 'Dublin, Ireland', salary: '€50,000 - €65,000', description: 'Public Appointments Service hiring.', job_type: 'full_time' }
     ],
     CA: [
         { title: 'Policy Analyst', company: 'GC Jobs', location: 'Ottawa, Canada', salary: 'CAD 65,000 - CAD 85,000', description: 'Government of Canada seeking Policy Analysts.', job_type: 'full_time' }
@@ -127,7 +127,7 @@ const MOCK_JOBS_BY_COUNTRY = {
 function detectSponsorshipEligibility(title, description, sourceConfig) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
-    if (sourceConfig.sponsorship_keywords) {
+    if (sourceConfig?.sponsorship_keywords) {
         for (const keyword of sourceConfig.sponsorship_keywords) {
             if (text.includes(keyword.toLowerCase())) {
                 return { eligible: true, keyword: keyword };
@@ -151,7 +151,7 @@ function detectSponsorshipEligibility(title, description, sourceConfig) {
 }
 
 // ============================================
-// PARSE RSS FEED (Browser-compatible)
+// PARSE RSS FEED (Browser-compatible - Fallback)
 // ============================================
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry, sourceConfig) {
@@ -184,10 +184,8 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry, sourceConfig) {
             
             if (!title || !link) continue;
             
-            // Detect sponsorship eligibility
             const sponsorship = detectSponsorshipEligibility(title, description, sourceConfig);
             
-            // Detect job type from title/description
             let jobType = 'full_time';
             const textLower = `${title} ${description}`.toLowerCase();
             if (textLower.includes('remote')) jobType = 'remote';
@@ -196,7 +194,6 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry, sourceConfig) {
             else if (textLower.includes('freelance')) jobType = 'freelance';
             else if (textLower.includes('hybrid')) jobType = 'hybrid';
             
-            // Extract salary
             let salaryRange = null;
             let salaryMin = null;
             let salaryMax = null;
@@ -245,38 +242,133 @@ async function useMockJobs(results) {
                 .maybeSingle();
             
             if (!existing) {
-                const { error } = await supabase
-                    .from('external_jobs')
-                    .insert({
-                        title: job.title,
-                        company: job.company,
-                        location: job.location,
-                        description: job.description,
-                        salary_range: job.salary,
-                        job_type: job.job_type,
-                        source_country: country,
-                        source_name: job.company,
-                        status: 'pending_approval',
-                        created_at: new Date().toISOString()
-                    });
-                
-                if (!error) {
-                    results.push({ source: job.company, job: job.title, status: 'added' });
-                }
+                await supabase.from('external_jobs').insert({
+                    title: job.title,
+                    company: job.company,
+                    location: job.location,
+                    description: job.description,
+                    salary_range: job.salary,
+                    job_type: job.job_type,
+                    source_country: country,
+                    source_name: job.company,
+                    status: 'pending_approval',
+                    created_at: new Date().toISOString()
+                });
+                results.push({ source: job.company, job: job.title, status: 'added' });
             }
         }
     }
 }
 
 // ============================================
-// FETCH EXTERNAL JOBS (Main function)
+// FETCH EXTERNAL JOBS VIA API (Primary - No CORS)
 // ============================================
 
-export async function fetchExternalJobs() {
+export async function fetchExternalJobs(forceRefresh = false) {
+    try {
+        const response = await fetch('/api/fetch-jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ forceRefresh })
+        });
+
+        if (!response.ok) {
+            throw new Error(`API returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Fetch failed');
+        }
+
+        // Insert jobs into external_jobs table
+        const results = { added: 0, exists: 0, errors: 0, details: [] };
+        
+        for (const job of data.jobs || []) {
+            // Check if job already exists
+            const { data: existing } = await supabase
+                .from('external_jobs')
+                .select('id')
+                .eq('title', job.title)
+                .eq('source_name', job.source_name)
+                .maybeSingle();
+
+            if (!existing) {
+                const sponsorship = detectSponsorshipEligibility(job.title, job.description, null);
+                const jobType = normalizeJobType(job.job_type);
+                
+                const { error } = await supabase
+                    .from('external_jobs')
+                    .insert({
+                        title: job.title,
+                        company: job.company,
+                        location: job.location,
+                        salary_range: job.salary_range,
+                        description: job.description,
+                        external_apply_url: job.external_url || job.source_url,
+                        source_country: job.source_country,
+                        source_name: job.source_name,
+                        job_type: jobType,
+                        sponsorship_eligible: sponsorship.eligible,
+                        status: 'pending_approval',
+                        created_at: new Date().toISOString()
+                    });
+
+                if (!error) {
+                    results.added++;
+                    results.details.push({ job: job.title, status: 'added', source: job.source_name });
+                } else {
+                    results.errors++;
+                    results.details.push({ job: job.title, status: 'error', error: error.message });
+                }
+            } else {
+                results.exists++;
+                results.details.push({ job: job.title, status: 'exists', source: job.source_name });
+            }
+        }
+
+        // Log the fetch
+        try {
+            await supabase.from('external_job_fetch_log').insert({
+                source_name: 'api_fetch',
+                fetch_status: results.added > 0 ? 'success' : (data.jobs?.length > 0 ? 'no_new_jobs' : 'failed'),
+                jobs_fetched: data.jobs?.length || 0,
+                jobs_new: results.added,
+                details: results.details,
+                created_at: new Date().toISOString()
+            });
+        } catch (logError) {
+            console.warn('Failed to log fetch results:', logError.message);
+        }
+
+        return { 
+            success: true, 
+            results: results.details,
+            totalAdded: results.added,
+            totalExists: results.exists,
+            totalErrors: results.errors,
+            jobs: data.jobs 
+        };
+
+    } catch (error) {
+        console.error('Fetch external jobs error:', error);
+        
+        // FALLBACK: Use RSS parsing directly
+        console.log('⚠️ API failed, falling back to RSS parsing...');
+        return await fetchExternalJobsRSS();
+    }
+}
+
+// ============================================
+// FETCH EXTERNAL JOBS VIA RSS (Fallback)
+// ============================================
+
+async function fetchExternalJobsRSS() {
     const allJobs = [];
     const results = [];
     
-    console.log('🚀 Starting external job fetch...');
+    console.log('🚀 Starting RSS job fetch (fallback)...');
     
     for (const [key, source] of Object.entries(RSS_FEEDS)) {
         if (!source.is_active) continue;
@@ -285,12 +377,11 @@ export async function fetchExternalJobs() {
         const jobs = await parseRSSFeed(source.url, source.name, source.country, source);
         
         if (jobs.length === 0) {
-            console.log(`⚠️ No jobs from ${source.name}, will use mock fallback`);
+            console.log(`⚠️ No jobs from ${source.name}`);
             continue;
         }
         
         for (const job of jobs) {
-            // Check if job already exists
             const { data: existing } = await supabase
                 .from('external_jobs')
                 .select('id')
@@ -340,7 +431,7 @@ export async function fetchExternalJobs() {
     // Log fetch results
     try {
         await supabase.from('external_job_fetch_log').insert({
-            source_name: 'rss_fetch_all',
+            source_name: 'rss_fallback',
             fetch_status: allJobs.length > 0 ? 'success' : 'no_new_jobs',
             jobs_fetched: allJobs.length,
             jobs_new: allJobs.length,
@@ -352,7 +443,7 @@ export async function fetchExternalJobs() {
     }
     
     const addedCount = results.filter(r => r.status === 'added').length;
-    console.log(`📊 Fetch complete: ${addedCount} new jobs added`);
+    console.log(`📊 RSS fetch complete: ${addedCount} new jobs added`);
     
     return { jobs: allJobs, results, totalAdded: addedCount };
 }
@@ -402,23 +493,11 @@ export async function getFetchStats() {
 }
 
 // ============================================
-// APPROVE SINGLE JOB (Uses database RPC function)
+// APPROVE SINGLE JOB
 // ============================================
 
 export async function approveExternalJob(jobId) {
-    // Try RPC first
-    try {
-        const { data, error } = await supabase
-            .rpc('approve_external_job', { job_id: jobId });
-        
-        if (!error) {
-            return { success: true, jobId: data };
-        }
-    } catch (rpcError) {
-        console.warn('RPC failed, falling back to direct update:', rpcError.message);
-    }
-    
-    // Fallback: Direct update
+    // Get external job
     const { data: externalJob, error: fetchError } = await supabase
         .from('external_jobs')
         .select('*')
@@ -427,8 +506,10 @@ export async function approveExternalJob(jobId) {
     
     if (fetchError) throw fetchError;
     
+    const jobType = normalizeJobType(externalJob.job_type);
+    
     // Insert into main jobs table
-    const { error: insertError } = await supabase
+    const { data: newJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
             title: externalJob.title,
@@ -438,7 +519,7 @@ export async function approveExternalJob(jobId) {
             salary_range: externalJob.salary_range,
             salary_min: externalJob.salary_min,
             salary_max: externalJob.salary_max,
-            job_type: externalJob.job_type,
+            job_type: jobType,
             external_apply_url: externalJob.external_apply_url,
             country_code: externalJob.source_country,
             source_type: 'authoritative',
@@ -447,7 +528,9 @@ export async function approveExternalJob(jobId) {
             compliance_status: 'approved',
             is_active: true,
             posted_at: new Date().toISOString()
-        });
+        })
+        .select()
+        .single();
     
     if (insertError) throw insertError;
     
@@ -457,11 +540,29 @@ export async function approveExternalJob(jobId) {
         .update({ 
             status: 'approved', 
             reviewed_at: new Date().toISOString(),
-            approved_job_id: externalJob.id
+            approved_job_id: newJob.id
         })
         .eq('id', jobId);
     
-    return { success: true, jobId: externalJob.id };
+    return { success: true, jobId: newJob.id };
+}
+
+// ============================================
+// REJECT JOB
+// ============================================
+
+export async function rejectExternalJob(jobId, reason = null) {
+    const { error } = await supabase
+        .from('external_jobs')
+        .update({ 
+            status: 'rejected', 
+            rejection_reason: reason,
+            reviewed_at: new Date().toISOString()
+        })
+        .eq('id', jobId);
+    
+    if (error) throw error;
+    return { success: true };
 }
 
 // ============================================
@@ -493,24 +594,6 @@ export async function batchApproveExternalJobs() {
     }
     
     return results;
-}
-
-// ============================================
-// REJECT JOB
-// ============================================
-
-export async function rejectExternalJob(jobId, reason = null) {
-    const { error } = await supabase
-        .from('external_jobs')
-        .update({ 
-            status: 'rejected', 
-            rejection_reason: reason,
-            reviewed_at: new Date().toISOString()
-        })
-        .eq('id', jobId);
-    
-    if (error) throw error;
-    return { success: true };
 }
 
 // ============================================
