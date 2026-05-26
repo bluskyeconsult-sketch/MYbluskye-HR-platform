@@ -1,12 +1,15 @@
 // src/components/CinematicTextAdvert.jsx
-// OPTIMIZED - Cinematic animated advert with API fallback and smooth transitions
+// CINEMATIC ADVERT - Animated, API-ready, with graceful fallbacks
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
-// DEFAULT CONTENT (Fallback if API fails)
+// CONSTANTS
 // ============================================
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+const MARKETING_ENDPOINT = `${API_BASE}/api/marketing/content`;
 
 const DEFAULT_MESSAGES = [
     {
@@ -33,13 +36,6 @@ const DEFAULT_MESSAGES = [
         duration: 3500
     },
     {
-        text: "Sponsorship & Visa Detection",
-        subtext: "Smart filtering for international talent",
-        icon: "✈️",
-        gradient: "from-emerald-500 to-teal-500",
-        duration: 3500
-    },
-    {
         text: "Professional CV Optimization",
         subtext: "ATS-friendly, recruiter-approved format",
         icon: "📄",
@@ -52,36 +48,14 @@ const DEFAULT_MESSAGES = [
         icon: "🤖",
         gradient: "from-indigo-500 to-purple-500",
         duration: 3500
-    },
-    {
-        text: "Skill Verification & Assessment",
-        subtext: "Validate your expertise with AI",
-        icon: "⭐",
-        gradient: "from-yellow-500 to-red-500",
-        duration: 3500
-    },
-    {
-        text: "Salary Negotiation Coach",
-        subtext: "Maximize your earning potential",
-        icon: "💰",
-        gradient: "from-green-500 to-emerald-500",
-        duration: 3500
-    },
-    {
-        text: "Workplace Rights Protection",
-        subtext: "Legal guidance when you need it",
-        icon: "⚖️",
-        gradient: "from-slate-500 to-gray-500",
-        duration: 3500
-    },
-    {
-        text: "Join Thousands of Success Stories",
-        subtext: "Your career transformation starts here",
-        icon: "🚀",
-        gradient: "from-sky-500 to-blue-600",
-        duration: 4000
     }
 ];
+
+const ICON_MAP = {
+    'AI-Powered': '🧠', 'Job': '💼', 'Skill': '⭐', 
+    'Career': '🎯', 'Salary': '💰', 'Workplace': '⚖️', 
+    'Virtual': '🤖', 'CV': '📄'
+};
 
 // ============================================
 // MAIN COMPONENT
@@ -89,117 +63,144 @@ const DEFAULT_MESSAGES = [
 
 export default function CinematicTextAdvert() {
     const [messages, setMessages] = useState(DEFAULT_MESSAGES);
-    const [loading, setLoading] = useState(true);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [progress, setProgress] = useState(0);
-    const [error, setError] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [retryCount, setRetryCount] = useState(0);
 
-    // Fetch dynamic content from API
-    useEffect(() => {
-        const fetchContent = async () => {
-            try {
-                const response = await fetch('/api/marketing/content');
-                if (!response.ok) throw new Error('API request failed');
-                
-                const data = await response.json();
-                
-                // Check if API returned hero content and transform it
-                if (data?.data?.hero) {
-                    const hero = data.data.hero;
-                    // Transform API content to match message structure
-                    const apiMessage = {
-                        text: hero.title || hero.tagline || DEFAULT_MESSAGES[0].text,
-                        subtext: hero.subtitle || hero.description || DEFAULT_MESSAGES[0].subtext,
-                        icon: hero.icon || "✨",
-                        gradient: hero.gradient || "from-sky-500 to-blue-600",
-                        duration: 4000,
-                        ctaText: hero.ctaText,
-                        ctaLink: hero.ctaLink
-                    };
-                    
-                    // Combine API message with default messages (API message first)
-                    setMessages([apiMessage, ...DEFAULT_MESSAGES.slice(1)]);
-                } else if (data?.data?.features && Array.isArray(data.data.features)) {
-                    // Transform features into messages
-                    const featureMessages = data.data.features.map(feature => ({
-                        text: feature.title,
-                        subtext: feature.description,
-                        icon: feature.icon || getIconForFeature(feature.title),
-                        gradient: feature.gradient || "from-primary-500 to-sky-500",
-                        duration: 3500
-                    }));
-                    setMessages([...featureMessages, ...DEFAULT_MESSAGES]);
-                }
-            } catch (err) {
-                console.warn("Failed to load advert content, using defaults:", err.message);
-                setError(true);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchContent();
-    }, []);
-
-    // Helper to map feature titles to icons
-    const getIconForFeature = (title) => {
-        const iconMap = {
-            'AI-Powered': '🧠',
-            'Job': '💼',
-            'Skill': '⭐',
-            'Career': '🎯',
-            'Salary': '💰',
-            'Workplace': '⚖️',
-            'Virtual': '🤖'
-        };
-        for (const [key, icon] of Object.entries(iconMap)) {
+    // Helper: Get icon for feature
+    const getIconForFeature = useCallback((title) => {
+        for (const [key, icon] of Object.entries(ICON_MAP)) {
             if (title.includes(key)) return icon;
         }
         return '✨';
-    };
+    }, []);
+
+    // Transform API response to message format
+    const transformApiResponse = useCallback((data) => {
+        // Single hero message
+        if (data?.data?.hero) {
+            const hero = data.data.hero;
+            return [{
+                text: hero.title || DEFAULT_MESSAGES[0].text,
+                subtext: hero.subtitle || hero.description || DEFAULT_MESSAGES[0].subtext,
+                icon: hero.icon || "✨",
+                gradient: hero.gradient || "from-sky-500 to-blue-600",
+                duration: 4000,
+                ctaText: hero.ctaText,
+                ctaLink: hero.ctaLink
+            }, ...DEFAULT_MESSAGES.slice(1)];
+        }
+        
+        // Multiple features
+        if (data?.data?.features?.length) {
+            const featureMessages = data.data.features.map(feature => ({
+                text: feature.title,
+                subtext: feature.description,
+                icon: feature.icon || getIconForFeature(feature.title),
+                gradient: feature.gradient || "from-primary-500 to-sky-500",
+                duration: 3500
+            }));
+            return [...featureMessages, ...DEFAULT_MESSAGES];
+        }
+        
+        return DEFAULT_MESSAGES;
+    }, [getIconForFeature]);
+
+    // Fetch content from API
+    useEffect(() => {
+        let isMounted = true;
+        let timeoutId;
+
+        const fetchContent = async () => {
+            try {
+                const response = await fetch(MARKETING_ENDPOINT, {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                });
+                
+                if (!isMounted) return;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const transformed = transformApiResponse(data);
+                    setMessages(transformed);
+                } else if (response.status !== 404) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+            } catch (err) {
+                console.warn('Advert content fetch failed:', err.message);
+                if (retryCount < 2) {
+                    timeoutId = setTimeout(() => {
+                        if (isMounted) setRetryCount(prev => prev + 1);
+                    }, 2000 * (retryCount + 1));
+                }
+            } finally {
+                if (isMounted) setLoading(false);
+            }
+        };
+        
+        fetchContent();
+        
+        return () => {
+            isMounted = false;
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [retryCount, transformApiResponse]);
 
     const currentMessage = messages[currentIndex];
-    const displayDuration = currentMessage?.duration || 3500;
+    const duration = currentMessage?.duration || 3500;
     const hasCTA = currentMessage?.ctaText && currentMessage?.ctaLink;
+    const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
 
-    // Progress bar animation
+    // Progress animation
     useEffect(() => {
         if (loading || !currentMessage) return;
         
         let startTime = Date.now();
-        let animationFrame;
-
+        let frameId;
+        
         const updateProgress = () => {
             const elapsed = Date.now() - startTime;
-            const newProgress = Math.min(100, (elapsed / (displayDuration - 500)) * 100);
+            const newProgress = Math.min(100, (elapsed / (duration - 500)) * 100);
             setProgress(newProgress);
             
             if (newProgress < 100) {
-                animationFrame = requestAnimationFrame(updateProgress);
+                frameId = requestAnimationFrame(updateProgress);
             }
         };
         
-        animationFrame = requestAnimationFrame(updateProgress);
+        frameId = requestAnimationFrame(updateProgress);
         
         const timer = setTimeout(() => {
             setIsVisible(false);
-            
             setTimeout(() => {
-                setCurrentIndex((prev) => (prev + 1) % messages.length);
+                setCurrentIndex(prev => (prev + 1) % messages.length);
                 setProgress(0);
                 setIsVisible(true);
                 startTime = Date.now();
             }, 300);
-        }, displayDuration - 300);
-
+        }, duration - 300);
+        
         return () => {
             clearTimeout(timer);
-            if (animationFrame) cancelAnimationFrame(animationFrame);
+            if (frameId) cancelAnimationFrame(frameId);
         };
-    }, [currentIndex, displayDuration, loading, messages.length, currentMessage]);
+    }, [currentIndex, duration, loading, messages.length, currentMessage]);
 
-    // Don't render while loading - show skeleton
+    // Navigate to specific slide
+    const goToSlide = useCallback((index) => {
+        if (index === currentIndex) return;
+        setIsVisible(false);
+        setTimeout(() => {
+            setCurrentIndex(index);
+            setProgress(0);
+            setIsVisible(true);
+        }, 300);
+    }, [currentIndex]);
+
+    // Loading skeleton
     if (loading) {
         return (
             <div className="w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl my-8 overflow-hidden">
@@ -216,13 +217,11 @@ export default function CinematicTextAdvert() {
         );
     }
 
-    const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
-    const urlTextStyle = isUrlMessage ? "tracking-wide font-mono text-3xl md:text-5xl lg:text-6xl" : "";
-
     return (
         <div className="relative w-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl shadow-2xl my-8">
-            {/* Cinematic grain overlay */}
-            <div className="absolute inset-0 pointer-events-none z-20 opacity-30"
+            {/* Grain overlay */}
+            <div 
+                className="absolute inset-0 pointer-events-none z-20 opacity-30"
                 style={{
                     backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' /%3E%3C/svg%3E")`,
                     backgroundRepeat: 'repeat',
@@ -230,7 +229,7 @@ export default function CinematicTextAdvert() {
                 }}
             />
             
-            {/* Ambient light effect */}
+            {/* Ambient light */}
             <div className="absolute inset-0 bg-gradient-to-r from-primary-500/5 via-transparent to-primary-500/5 animate-pulse pointer-events-none z-10" />
             
             {/* Progress bar */}
@@ -252,10 +251,7 @@ export default function CinematicTextAdvert() {
                                 initial={{ opacity: 0, y: 30, filter: "blur(8px)" }}
                                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                                 exit={{ opacity: 0, y: -30, filter: "blur(8px)" }}
-                                transition={{ 
-                                    duration: 0.6, 
-                                    ease: [0.25, 0.1, 0.25, 1]
-                                }}
+                                transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
                                 className="space-y-6"
                             >
                                 {/* Icon */}
@@ -273,7 +269,9 @@ export default function CinematicTextAdvert() {
                                     initial={{ clipPath: "inset(0 100% 0 0)" }}
                                     animate={{ clipPath: "inset(0 0% 0 0)" }}
                                     transition={{ duration: 0.8, delay: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-                                    className={`text-3xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r ${currentMessage.gradient || "from-sky-500 to-blue-600"} bg-clip-text text-transparent tracking-tight ${urlTextStyle}`}
+                                    className={`text-3xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r ${currentMessage.gradient || "from-sky-500 to-blue-600"} bg-clip-text text-transparent tracking-tight ${
+                                        isUrlMessage ? "tracking-wide font-mono" : ""
+                                    }`}
                                 >
                                     {currentMessage.text}
                                 </motion.h2>
@@ -304,7 +302,7 @@ export default function CinematicTextAdvert() {
                                     </motion.div>
                                 )}
                                 
-                                {/* Decorative underline */}
+                                {/* Decorative line */}
                                 <motion.div
                                     initial={{ scaleX: 0 }}
                                     animate={{ scaleX: 1 }}
@@ -322,14 +320,7 @@ export default function CinematicTextAdvert() {
                         {messages.map((_, idx) => (
                             <button
                                 key={idx}
-                                onClick={() => {
-                                    setIsVisible(false);
-                                    setTimeout(() => {
-                                        setCurrentIndex(idx);
-                                        setProgress(0);
-                                        setIsVisible(true);
-                                    }, 300);
-                                }}
+                                onClick={() => goToSlide(idx)}
                                 className={`transition-all duration-300 rounded-full ${
                                     idx === currentIndex 
                                         ? 'w-8 h-1.5 bg-sky-500' 
