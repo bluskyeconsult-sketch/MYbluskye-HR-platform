@@ -1,13 +1,27 @@
 {
   "name": "bluskye-hr-platform",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "BluSkye Integrated Consult - AI-Powered HR Platform",
+  "author": "BluSkye Integrated Consult",
+  "license": "UNLICENSED",
+  "homepage": "https://www.bluskyeconsult.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bluskye/hr-platform.git"
+  },
   "scripts": {
     "dev": "vite --port 3000 --host",
     "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist .vite node_modules/.cache"
+    "build:analyze": "vite build --mode analyze",
+    "preview": "vite preview --port 4173 --host",
+    "preview:prod": "npm run build && npm run preview",
+    "clean": "rm -rf dist .vite node_modules/.cache build",
+    "clean:all": "npm run clean && rm -rf node_modules",
+    "lint": "echo 'No linter configured'",
+    "type-check": "tsc --noEmit",
+    "postinstall": "echo '✅ Dependencies installed'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -16,6 +30,13 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.1"
+  },
+  "optionalDependencies": {
+    "chart.js": "^4.4.0",
+    "react-countup": "^6.4.2",
+    "react-hot-toast": "^2.4.1",
+    "react-intersection-observer": "^9.5.3",
+    "react-markdown": "^9.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
@@ -27,19 +48,28 @@
     "terser": "^5.31.0",
     "vite": "^5.0.8"
   },
-  "optionalDependencies": {
-    "chart.js": "^4.4.0",
-    "react-countup": "^6.4.2",
-    "react-hot-toast": "^2.4.1",
-    "react-intersection-observer": "^9.5.3",
-    "react-markdown": "^9.0.1"
-  },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all",
+      "not ie 11",
+      "not and_qq 10",
+      "not android 4"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version",
+      "last 1 edge version"
+    ]
+  },
+  "volta": {
+    "node": "18.19.0",
+    "npm": "10.2.3"
   }
 }
