@@ -264,7 +264,6 @@ function AppContent() {
     
     useEffect(() => {
         mountCount.current++;
-        // Only log in development
         if (import.meta.env.DEV) {
             console.log(`✅ App mounted (mount #${mountCount.current}) - www.bluskyeconsult.com`);
         }
@@ -276,7 +275,6 @@ function AppContent() {
         };
     }, []);
 
-    // Helper to render route group
     const renderRouteGroup = (routes) => 
         routes.map(({ path, element }) => (
             <Route 
@@ -298,7 +296,6 @@ function AppContent() {
                         <Suspense fallback={<PageLoader />}>
                             <AnimatePresence mode="wait">
                                 <Routes location={location} key={location.pathname}>
-                                    {/* Render all route groups */}
                                     {renderRouteGroup(routeGroups.public)}
                                     {renderRouteGroup(routeGroups.assessments)}
                                     {renderRouteGroup(routeGroups.articles)}
@@ -309,8 +306,6 @@ function AppContent() {
                                     {renderRouteGroup(routeGroups.admin)}
                                     {renderRouteGroup(routeGroups.workforce)}
                                     {renderRouteGroup(routeGroups.legal)}
-                                    
-                                    {/* 404 Fallback */}
                                     <Route path="*" element={<NotFoundPage />} />
                                 </Routes>
                             </AnimatePresence>
