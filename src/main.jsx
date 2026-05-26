@@ -1,5 +1,5 @@
 // src/main.jsx
-// OPTIMIZED ENTRY POINT - Clean, fast, and error-free with no external dependencies
+// PRODUCTION ENTRY POINT - Clean, robust, and performant
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -14,55 +14,69 @@ import { supabase } from './lib/supabase';
 
 const isDevelopment = import.meta.env.DEV;
 const isProduction = import.meta.env.PROD;
-
-// ============================================
-// PERFORMANCE METRICS (No external deps)
-// ============================================
-
 const startTime = performance.now();
 
-function reportLoadTime() {
+// Prevent double initialization
+let isRendered = false;
+
+// ============================================
+// PERFORMANCE MONITORING
+// ============================================
+
+function reportPerformanceMetrics() {
+    if (!isDevelopment) return;
+    
     const loadTime = performance.now() - startTime;
     console.log(`✅ App loaded in ${loadTime.toFixed(0)}ms`);
     
-    // Get basic navigation timing
-    if (performance.getEntriesByType) {
-        const nav = performance.getEntriesByType('navigation')[0];
-        if (nav) {
-            console.log(`📊 DNS: ${(nav.domainLookupEnd - nav.domainLookupStart).toFixed(0)}ms | ` +
-                       `TCP: ${(nav.connectEnd - nav.connectStart).toFixed(0)}ms | ` +
-                       `Load: ${(nav.loadEventEnd - nav.startTime).toFixed(0)}ms`);
-        }
+    // Navigation timing
+    const nav = performance.getEntriesByType('navigation')[0];
+    if (nav) {
+        console.log(`📊 DNS: ${(nav.domainLookupEnd - nav.domainLookupStart).toFixed(0)}ms | ` +
+                   `TCP: ${(nav.connectEnd - nav.connectStart).toFixed(0)}ms | ` +
+                   `Load: ${(nav.loadEventEnd - nav.startTime).toFixed(0)}ms`);
     }
     
-    // Log paint timings if available
-    if (performance.getEntriesByType('paint')) {
-        const paints = performance.getEntriesByType('paint');
-        paints.forEach(paint => {
-            console.log(`📊 ${paint.name}: ${paint.startTime.toFixed(0)}ms`);
-        });
-    }
+    // Paint timing
+    const paints = performance.getEntriesByType('paint');
+    paints.forEach(paint => {
+        console.log(`📊 ${paint.name}: ${paint.startTime.toFixed(0)}ms`);
+    });
+}
+
+// Paint observer (non-blocking)
+if (typeof PerformanceObserver !== 'undefined') {
+    const paintObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+            if (entry.name === 'first-paint' && isDevelopment) {
+                console.log(`📊 first-paint: ${entry.startTime.toFixed(0)}ms`);
+            }
+        }
+    });
+    paintObserver.observe({ entryTypes: ['paint'] });
 }
 
 // ============================================
-// SUPABASE CONNECTION CHECK (Non-blocking)
+// SUPABASE HEALTH CHECK (Non-blocking)
 // ============================================
 
 async function checkSupabaseConnection() {
     try {
-        const start = performance.now();
+        const start = Date.now();
         const { data, error } = await supabase.auth.getSession();
-        const duration = performance.now() - start;
+        const duration = Date.now() - start;
         
         if (error) {
-            console.warn('⚠️ Supabase connection error:', error.message);
+            console.warn('⚠️ Supabase connection issue:', error.message);
             return false;
         }
         
-        console.log(`✅ Supabase connected (${duration.toFixed(0)}ms)`);
+        if (isDevelopment) {
+            console.log(`✅ Supabase connected (${duration}ms)`);
+        }
         
-        if (data?.session?.user) {
-            console.log(`👤 User session: ${data.session.user.email}`);
+        if (data?.session?.user?.email) {
+            console.log(`👤 Session: ${data.session.user.email}`);
         }
         
         return true;
@@ -73,22 +87,23 @@ async function checkSupabaseConnection() {
 }
 
 // ============================================
-// SERVICE WORKER CLEANUP (Prevents caching issues)
+// SERVICE WORKER CLEANUP
 // ============================================
 
 async function cleanupServiceWorkers() {
-    if ('serviceWorker' in navigator) {
-        try {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            for (const registration of registrations) {
-                await registration.unregister();
-            }
-            if (registrations.length > 0) {
-                console.log('✅ Service workers cleaned up');
-            }
-        } catch (err) {
-            console.debug('Service worker cleanup error:', err);
+    if (!('serviceWorker' in navigator)) return;
+    
+    try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+            await registration.unregister();
         }
+        if (registrations.length > 0 && isDevelopment) {
+            console.log('✅ Service workers cleaned up');
+        }
+    } catch (err) {
+        // Non-critical, ignore
+        console.debug('Service worker cleanup:', err.message);
     }
 }
 
@@ -96,101 +111,106 @@ async function cleanupServiceWorkers() {
 // GLOBAL ERROR HANDLING
 // ============================================
 
-// Handle uncaught errors
 window.addEventListener('error', (event) => {
     console.error('❌ Global error:', event.error?.message || event.message);
-    
-    // Log to console only, don't show to users
     if (isDevelopment && event.error) {
-        console.debug('Error details:', event.error);
+        console.debug('Stack:', event.error.stack);
     }
 });
 
-// Handle unhandled promise rejections
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('❌ Unhandled Promise rejection:', event.reason);
+    console.error('❌ Unhandled rejection:', event.reason);
 });
 
-// ============================================
-// NETWORK STATUS
-// ============================================
-
-window.addEventListener('online', () => console.log('🌐 Back online'));
+// Network status
+window.addEventListener('online', () => console.log('🌐 Online'));
 window.addEventListener('offline', () => console.warn('⚠️ Offline mode'));
 
 // ============================================
-// LOAD EVENT
+// APP INITIALIZATION (Non-blocking)
 // ============================================
 
-window.addEventListener('load', () => {
-    reportLoadTime();
-    console.log('🚀 Application ready');
+async function initializeApp() {
+    // Start non-blocking checks
+    Promise.allSettled([
+        cleanupServiceWorkers(),
+        checkSupabaseConnection()
+    ]).catch(() => {});
     
-    if (!navigator.onLine) {
-        console.warn('⚠️ Offline mode - some features may be limited');
-    }
-});
+    // Report metrics after load
+    window.addEventListener('load', () => {
+        reportPerformanceMetrics();
+        console.log('🚀 Application ready');
+        
+        if (!navigator.onLine) {
+            console.warn('⚠️ Offline mode - features may be limited');
+        }
+    });
+}
 
 // ============================================
-// INITIALIZE APPLICATION
+// RENDER APPLICATION
 // ============================================
 
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
     console.error('❌ Root element missing!');
+    // Show user-friendly error
     document.body.innerHTML = `
-        <div style="padding: 40px; text-align: center; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; min-height: 100vh; color: white;">
-            <h1 style="color: #ef4444; margin-bottom: 16px;">Configuration Error</h1>
-            <p style="color: #94a3b8; margin-bottom: 24px;">Root element not found. Please check your HTML file.</p>
-            <button onclick="location.reload()" style="padding: 10px 20px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">
-                Refresh Page
-            </button>
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui; margin: 0;">
+            <div style="text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; max-width: 500px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+                <h1 style="color: #f1f5f9; margin-bottom: 12px;">Configuration Error</h1>
+                <p style="color: #94a3b8; margin-bottom: 24px;">Root element not found. Please check your HTML file.</p>
+                <button onclick="location.reload()" style="padding: 10px 24px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px;">
+                    Refresh Page
+                </button>
+            </div>
         </div>
     `;
-} else {
-    // Non-blocking initialization (don't block rendering)
-    cleanupServiceWorkers().catch(() => {});
-    checkSupabaseConnection().catch(() => {});
+} else if (!isRendered) {
+    isRendered = true;
+    
+    // Start initialization (non-blocking)
+    initializeApp();
     
     // Render app
     try {
-        ReactDOM.createRoot(rootElement).render(
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(
             <React.StrictMode>
                 <ErrorBoundary>
                     <App />
                 </ErrorBoundary>
             </React.StrictMode>
         );
-        console.log('🎯 App rendered successfully');
+        
+        if (isDevelopment) {
+            console.log('🎯 App rendered');
+        }
     } catch (error) {
         console.error('❌ Render failed:', error);
         rootElement.innerHTML = `
-            <div style="padding: 40px; text-align: center; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; min-height: 100vh; color: white;">
-                <h1 style="color: #ef4444; margin-bottom: 16px;">Failed to Load Application</h1>
-                <p style="color: #94a3b8; margin-bottom: 24px;">${error.message}</p>
-                <button onclick="location.reload()" style="padding: 10px 20px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">
-                    Refresh Page
-                </button>
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: system-ui; margin: 0;">
+                <div style="text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; max-width: 500px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">💥</div>
+                    <h1 style="color: #f1f5f9; margin-bottom: 12px;">Failed to Load</h1>
+                    <p style="color: #94a3b8; margin-bottom: 24px;">${error.message}</p>
+                    <button onclick="location.reload()" style="padding: 10px 24px; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px;">
+                        Retry
+                    </button>
+                </div>
             </div>
         `;
     }
 }
 
 // ============================================
-// HOT MODULE REPLACEMENT (Development only)
+// DEVELOPMENT TOOLS
 // ============================================
 
-if (isDevelopment && import.meta.hot) {
-    import.meta.hot.accept();
-    console.log('🔥 HMR active - hot reload enabled');
-}
-
-// ============================================
-// DEBUG TOOLS (Development only)
-// ============================================
-
-if (isDevelopment) {
+if (isDevelopment && typeof window !== 'undefined') {
     window.__APP_DEBUG__ = {
         version: '1.0.0',
         env: import.meta.env.MODE,
@@ -202,5 +222,13 @@ if (isDevelopment) {
             console.log('✅ Storage cleared');
         }
     };
-    console.log('🐛 Debug tools: window.__APP_DEBUG__');
+    console.log('🐛 Debug: window.__APP_DEBUG__');
+}
+
+// ============================================
+// HOT MODULE REPLACEMENT
+// ============================================
+
+if (isDevelopment && import.meta.hot) {
+    import.meta.hot.accept();
 }
