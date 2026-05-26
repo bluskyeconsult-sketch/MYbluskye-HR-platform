@@ -1,15 +1,12 @@
 // src/components/CinematicTextAdvert.jsx
-// CINEMATIC ADVERT - Animated, API-ready, with graceful fallbacks
+// ULTIMATE CINEMATIC ADVERT - Full animations, API-ready, production-optimized
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
 // CONSTANTS
 // ============================================
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
-const MARKETING_ENDPOINT = `${API_BASE}/api/marketing/content`;
 
 const DEFAULT_MESSAGES = [
     {
@@ -51,35 +48,65 @@ const DEFAULT_MESSAGES = [
     }
 ];
 
-const ICON_MAP = {
-    'AI-Powered': '🧠', 'Job': '💼', 'Skill': '⭐', 
-    'Career': '🎯', 'Salary': '💰', 'Workplace': '⚖️', 
-    'Virtual': '🤖', 'CV': '📄'
-};
-
 // ============================================
 // MAIN COMPONENT
 // ============================================
 
-export default function CinematicTextAdvert() {
+export default function CinematicTextAdvert({ 
+    campaignId = 'default', 
+    autoRotate = true, 
+    rotationInterval = 5000 
+}) {
     const [messages, setMessages] = useState(DEFAULT_MESSAGES);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [progress, setProgress] = useState(0);
     const [loading, setLoading] = useState(true);
-    const [retryCount, setRetryCount] = useState(0);
+    const [error, setError] = useState(null);
+    const rotationTimerRef = useRef(null);
+    const animationFrameRef = useRef(null);
+    const timeoutRef = useRef(null);
 
-    // Helper: Get icon for feature
-    const getIconForFeature = useCallback((title) => {
-        for (const [key, icon] of Object.entries(ICON_MAP)) {
-            if (title.includes(key)) return icon;
-        }
-        return '✨';
+    // Load content from API
+    useEffect(() => {
+        let isMounted = true;
+        
+        const loadContent = async () => {
+            try {
+                // Try to fetch from API if available
+                const response = await fetch('/api/marketing/content', {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                }).catch(() => null);
+                
+                if (isMounted && response?.ok) {
+                    const data = await response.json();
+                    if (data?.data?.hero || data?.data?.features) {
+                        const transformed = transformApiResponse(data);
+                        setMessages(transformed);
+                    }
+                }
+            } catch (err) {
+                console.warn('Advert content fetch failed, using defaults:', err.message);
+                setError(null); // Non-critical, use defaults
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                    // Trigger entrance animation
+                    setTimeout(() => setIsVisible(true), 100);
+                }
+            }
+        };
+        
+        loadContent();
+        
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     // Transform API response to message format
     const transformApiResponse = useCallback((data) => {
-        // Single hero message
         if (data?.data?.hero) {
             const hero = data.data.hero;
             return [{
@@ -93,7 +120,6 @@ export default function CinematicTextAdvert() {
             }, ...DEFAULT_MESSAGES.slice(1)];
         }
         
-        // Multiple features
         if (data?.data?.features?.length) {
             const featureMessages = data.data.features.map(feature => ({
                 text: feature.title,
@@ -106,60 +132,51 @@ export default function CinematicTextAdvert() {
         }
         
         return DEFAULT_MESSAGES;
-    }, [getIconForFeature]);
+    }, []);
 
-    // Fetch content from API
-    useEffect(() => {
-        let isMounted = true;
-        let timeoutId;
-
-        const fetchContent = async () => {
-            try {
-                const response = await fetch(MARKETING_ENDPOINT, {
-                    headers: { 'Accept': 'application/json' },
-                    cache: 'no-store'
-                });
-                
-                if (!isMounted) return;
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    const transformed = transformApiResponse(data);
-                    setMessages(transformed);
-                } else if (response.status !== 404) {
-                    throw new Error(`API Error: ${response.status}`);
-                }
-            } catch (err) {
-                console.warn('Advert content fetch failed:', err.message);
-                if (retryCount < 2) {
-                    timeoutId = setTimeout(() => {
-                        if (isMounted) setRetryCount(prev => prev + 1);
-                    }, 2000 * (retryCount + 1));
-                }
-            } finally {
-                if (isMounted) setLoading(false);
-            }
+    // Helper: Get icon for feature
+    const getIconForFeature = useCallback((title) => {
+        const iconMap = {
+            'AI': '🧠', 'Job': '💼', 'Skill': '⭐', 
+            'Career': '🎯', 'Salary': '💰', 'Workplace': '⚖️', 
+            'Virtual': '🤖', 'CV': '📄'
         };
-        
-        fetchContent();
-        
-        return () => {
-            isMounted = false;
-            if (timeoutId) clearTimeout(timeoutId);
-        };
-    }, [retryCount, transformApiResponse]);
+        for (const [key, icon] of Object.entries(iconMap)) {
+            if (title.includes(key)) return icon;
+        }
+        return '✨';
+    }, []);
 
     const currentMessage = messages[currentIndex];
     const duration = currentMessage?.duration || 3500;
     const hasCTA = currentMessage?.ctaText && currentMessage?.ctaLink;
     const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
 
+    // Auto-rotation effect
+    useEffect(() => {
+        if (!autoRotate || loading || messages.length <= 1) return;
+        
+        const rotateContent = () => {
+            setIsVisible(false);
+            setTimeout(() => {
+                setCurrentIndex(prev => (prev + 1) % messages.length);
+                setProgress(0);
+                setIsVisible(true);
+            }, 300);
+        };
+        
+        rotationTimerRef.current = setInterval(rotateContent, duration);
+        
+        return () => {
+            if (rotationTimerRef.current) clearInterval(rotationTimerRef.current);
+        };
+    }, [autoRotate, duration, loading, messages.length]);
+
     // Progress animation
     useEffect(() => {
-        if (loading || !currentMessage) return;
+        if (loading || !currentMessage || !autoRotate) return;
         
         let startTime = Date.now();
-        let frameId;
         
         const updateProgress = () => {
             const elapsed = Date.now() - startTime;
@@ -167,38 +184,43 @@ export default function CinematicTextAdvert() {
             setProgress(newProgress);
             
             if (newProgress < 100) {
-                frameId = requestAnimationFrame(updateProgress);
+                animationFrameRef.current = requestAnimationFrame(updateProgress);
             }
         };
         
-        frameId = requestAnimationFrame(updateProgress);
-        
-        const timer = setTimeout(() => {
-            setIsVisible(false);
-            setTimeout(() => {
-                setCurrentIndex(prev => (prev + 1) % messages.length);
-                setProgress(0);
-                setIsVisible(true);
-                startTime = Date.now();
-            }, 300);
-        }, duration - 300);
+        animationFrameRef.current = requestAnimationFrame(updateProgress);
         
         return () => {
-            clearTimeout(timer);
-            if (frameId) cancelAnimationFrame(frameId);
+            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         };
-    }, [currentIndex, duration, loading, messages.length, currentMessage]);
+    }, [currentIndex, duration, loading, currentMessage, autoRotate]);
 
     // Navigate to specific slide
     const goToSlide = useCallback((index) => {
         if (index === currentIndex) return;
+        
+        // Reset rotation timer
+        if (rotationTimerRef.current) {
+            clearInterval(rotationTimerRef.current);
+            if (autoRotate) {
+                rotationTimerRef.current = setInterval(() => {
+                    setIsVisible(false);
+                    setTimeout(() => {
+                        setCurrentIndex(prev => (prev + 1) % messages.length);
+                        setProgress(0);
+                        setIsVisible(true);
+                    }, 300);
+                }, duration);
+            }
+        }
+        
         setIsVisible(false);
         setTimeout(() => {
             setCurrentIndex(index);
             setProgress(0);
             setIsVisible(true);
         }, 300);
-    }, [currentIndex]);
+    }, [currentIndex, autoRotate, duration]);
 
     // Loading skeleton
     if (loading) {
@@ -233,13 +255,15 @@ export default function CinematicTextAdvert() {
             <div className="absolute inset-0 bg-gradient-to-r from-primary-500/5 via-transparent to-primary-500/5 animate-pulse pointer-events-none z-10" />
             
             {/* Progress bar */}
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-slate-800/50 z-30">
-                <motion.div
-                    className="h-full bg-gradient-to-r from-sky-500 to-blue-600"
-                    style={{ width: `${progress}%` }}
-                    transition={{ duration: 0.016, ease: "linear" }}
-                />
-            </div>
+            {autoRotate && (
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-slate-800/50 z-30">
+                    <motion.div
+                        className="h-full bg-gradient-to-r from-sky-500 to-blue-600"
+                        style={{ width: `${progress}%` }}
+                        transition={{ duration: 0.016, ease: "linear" }}
+                    />
+                </div>
+            )}
 
             {/* Main content */}
             <div className="relative z-30 px-6 py-16 md:py-20 lg:py-24">
