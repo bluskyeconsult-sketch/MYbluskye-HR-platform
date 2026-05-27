@@ -1,97 +1,44 @@
 // src/services/externalJobService.js
-// OPTIMIZED: Combined best features from both versions
-// Features: API fetch + RSS fallback, sponsorship detection, admin auth, batch operations
+// COMPLETE SERVICE WITH ALL EXPORTS
 
 import { supabase } from '../lib/supabase';
 
 // ============================================
-// CONSTANTS & CONFIGURATION
+// CONSTANTS
 // ============================================
 
 const ADMIN_EMAIL = 'bluskyeconsult@gmail.com';
-const BATCH_SIZE = 25; // Optimized batch size for Supabase
-
-const VALID_JOB_TYPES = ['full_time', 'part_time', 'contract', 'freelance', 'remote', 'hybrid', 'onsite'];
-
-const RSS_FEEDS = {
-    GB: [
-        { name: 'UK Civil Service Jobs', url: 'https://www.civilservicejobs.gov.uk/feeds/jobs.xml', keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa'] },
-        { name: 'NHS Jobs', url: 'https://www.jobs.nhs.uk/feeds/jobs.xml', keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship'] },
-        { name: 'UK Government Find a Job', url: 'https://findajob.dwp.gov.uk/feeds/jobs.rss', keywords: ['Sponsorship', 'Visa'] }
-    ],
-    US: [
-        { name: 'USAJobs', url: 'https://www.usajobs.gov/rss', keywords: ['Visa', 'Work Authorization', 'Sponsorship'] }
-    ],
-    CA: [
-        { name: 'GC Jobs Canada', url: 'https://www.jobs.gc.ca/rss', keywords: ['Work Permit', 'LMIA', 'Sponsorship'] }
-    ],
-    AU: [
-        { name: 'APS Jobs Australia', url: 'https://www.apsjobs.gov.au/rss', keywords: ['Visa Sponsorship', 'Work Visa'] }
-    ],
-    IE: [
-        { name: 'Public Jobs Ireland', url: 'https://www.publicjobs.ie/rss', keywords: ['Work Permit', 'Critical Skills'] }
-    ],
-    DE: [
-        { name: 'Bund.de Jobs', url: 'https://www.bund.de/rss/jobs', keywords: ['Work Visa', 'Blue Card'] }
-    ],
-    NG: [
-        { name: 'Federal Civil Service Nigeria', url: 'https://www.federalcharacter.gov.ng/api/jobs.rss', keywords: ['Sponsorship'] }
-    ]
-};
-
-// Simplified mock fallback data
-const MOCK_JOBS_FALLBACK = {
-    GB: [
-        { title: 'Policy Advisor', company: 'UK Civil Service', location: 'London', salary: '£35,000 - £45,000', description: 'Join the UK Civil Service as a Policy Advisor.', job_type: 'full_time' },
-        { title: 'Senior Policy Analyst', company: 'UK Civil Service', location: 'London', salary: '£45,000 - £55,000', description: 'Seeking an experienced Policy Analyst.', job_type: 'full_time' }
-    ],
-    US: [
-        { title: 'Program Analyst', company: 'USAJobs', location: 'Washington DC', salary: '$65,000 - $85,000', description: 'Federal agency seeking a Program Analyst.', job_type: 'full_time' }
-    ],
-    CA: [
-        { title: 'Policy Analyst', company: 'GC Jobs', location: 'Ottawa', salary: 'CAD 65,000 - CAD 85,000', description: 'Government of Canada seeking Policy Analysts.', job_type: 'full_time' }
-    ],
-    AU: [
-        { title: 'APS Policy Officer', company: 'APS Jobs', location: 'Canberra', salary: 'AUD 70,000 - AUD 90,000', description: 'Join the Australian Public Service.', job_type: 'full_time' }
-    ],
-    IE: [
-        { title: 'Public Service Executive', company: 'Public Jobs IE', location: 'Dublin', salary: '€50,000 - €65,000', description: 'Public Appointments Service hiring.', job_type: 'full_time' }
-    ]
-};
-
-// ============================================
-// HELPER FUNCTIONS (Optimized)
-// ============================================
-
-const normalizeJobType = (jobType) => {
-    if (!jobType) return 'full_time';
-    const normalized = jobType.toLowerCase().trim().replace(/-/g, '_');
-    if (VALID_JOB_TYPES.includes(normalized)) return normalized;
-    
-    const mapping = {
-        'fulltime': 'full_time', 'parttime': 'part_time', 'wfh': 'remote',
-        'work from home': 'remote', 'on-site': 'onsite', 'full-time': 'full_time',
-        'part-time': 'part_time'
-    };
-    return mapping[normalized] || 'full_time';
-};
-
-const detectSponsorshipEligibility = (title, description, keywords = []) => {
-    const text = `${title} ${description || ''}`.toLowerCase();
-    const allKeywords = [
-        ...keywords,
-        'visa sponsorship', 'work visa', 'skilled worker', 'tier 2',
-        'certificate of sponsorship', 'sponsorship available', 'work permit',
-        'relocation support', 'immigration support', 'visa assistance'
-    ];
-    
-    for (const keyword of allKeywords) {
-        if (text.includes(keyword.toLowerCase())) {
-            return { eligible: true, keyword };
-        }
+const RSS_FEEDS = [
+    {
+        name: 'UK Government Jobs',
+        url: 'https://www.find-government-jobs.service.gov.uk/api/v1/jobs.rss',
+        country: 'GB'
+    },
+    {
+        name: 'US Government Jobs',
+        url: 'https://www.usajobs.gov/api/jobs.rss',
+        country: 'US'
+    },
+    {
+        name: 'Canada Government Jobs',
+        url: 'https://www.canada.ca/content/dam/cra-arc/jobs.xml',
+        country: 'CA'
+    },
+    {
+        name: 'Australia Government Jobs',
+        url: 'https://www.apsjobs.gov.au/api/jobs.rss',
+        country: 'AU'
+    },
+    {
+        name: 'Nigeria Government Jobs',
+        url: 'https://www.federalcharacter.gov.ng/api/jobs.rss',
+        country: 'NG'
     }
-    return { eligible: false };
-};
+];
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
 const isAdmin = async () => {
     try {
@@ -102,306 +49,97 @@ const isAdmin = async () => {
     }
 };
 
-const parseSalary = (salaryStr) => {
-    if (!salaryStr) return { salary_min: null, salary_max: null, salary_range: null };
-    
-    const patterns = [
-        /£([\d,]+)(?:\s*-\s*£([\d,]+))?/i,
-        /€([\d,]+)(?:\s*-\s*€([\d,]+))?/i,
-        /\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i,
-        /CAD\s*([\d,]+)(?:\s*-\s*CAD\s*([\d,]+))?/i,
-        /AUD\s*([\d,]+)(?:\s*-\s*AUD\s*([\d,]+))?/i
-    ];
-    
-    for (const pattern of patterns) {
-        const match = salaryStr.match(pattern);
-        if (match) {
-            const min = parseInt(match[1].replace(/,/g, ''));
-            const max = match[2] ? parseInt(match[2].replace(/,/g, '')) : null;
-            return {
-                salary_min: min,
-                salary_max: max,
-                salary_range: salaryStr
-            };
-        }
-    }
-    
-    return { salary_min: null, salary_max: null, salary_range: salaryStr };
+const getCurrentUserId = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.id;
 };
 
 // ============================================
-// FETCH EXTERNAL JOBS (Primary: API, Fallback: RSS, Final: Mock)
-// ============================================
-
-export async function fetchExternalJobs(forceRefresh = false) {
-    // Try primary API endpoint first
-    try {
-        const response = await fetch('/api/fetch-jobs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ forceRefresh })
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.jobs?.length) {
-                return await processFetchedJobs(data.jobs, 'api_fetch');
-            }
-        }
-        throw new Error('API fetch failed or returned no jobs');
-    } catch (error) {
-        console.warn('⚠️ API failed, falling back to RSS:', error.message);
-        return await fetchExternalJobsRSS();
-    }
-}
-
-async function processFetchedJobs(jobs, source) {
-    const results = { added: 0, exists: 0, errors: 0, details: [] };
-    
-    for (const job of jobs) {
-        // Check for duplicate
-        const { data: existing } = await supabase
-            .from('jobs')
-            .select('id')
-            .eq('title', job.title)
-            .eq('source_name', job.source_name || source)
-            .maybeSingle();
-
-        if (existing) {
-            results.exists++;
-            results.details.push({ job: job.title, status: 'exists' });
-            continue;
-        }
-
-        const sponsorship = detectSponsorshipEligibility(job.title, job.description);
-        const jobType = normalizeJobType(job.job_type);
-        const { salary_min, salary_max, salary_range } = parseSalary(job.salary_range);
-        
-        const { error } = await supabase
-            .from('jobs')
-            .insert({
-                title: job.title?.substring(0, 200),
-                company: job.company,
-                location: job.location,
-                salary_range: salary_range || job.salary_range,
-                salary_min: salary_min || job.salary_min,
-                salary_max: salary_max || job.salary_max,
-                description: job.description?.substring(0, 2000),
-                external_apply_url: job.external_url || job.source_url,
-                source_country: job.source_country,
-                source_name: job.source_name || source,
-                job_type: jobType,
-                sponsorship_eligible: sponsorship.eligible,
-                compliance_status: 'pending',
-                status: 'draft',
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            });
-
-        if (!error) {
-            results.added++;
-            results.details.push({ job: job.title, status: 'added' });
-        } else {
-            results.errors++;
-            results.details.push({ job: job.title, status: 'error', error: error.message });
-        }
-    }
-    
-    await logFetchResults(source, results);
-    return { success: true, ...results };
-}
-
-// ============================================
-// RSS FETCH (Uses serverless function for CORS-free parsing)
-// ============================================
-
-async function fetchExternalJobsRSS() {
-    const results = { added: 0, failed: 0, details: [] };
-    
-    for (const [country, feeds] of Object.entries(RSS_FEEDS)) {
-        for (const feed of feeds) {
-            try {
-                const response = await fetch('/api/fetch-rss', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        url: feed.url,
-                        source: feed.name,
-                        country: country,
-                        keywords: feed.keywords
-                    })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    results.added += data.added || 0;
-                    results.details.push({ source: feed.name, added: data.added || 0 });
-                    console.log(`✅ ${feed.name}: Added ${data.added || 0} jobs`);
-                } else {
-                    results.failed++;
-                    results.details.push({ source: feed.name, status: 'failed', error: `HTTP ${response.status}` });
-                }
-            } catch (error) {
-                console.error(`❌ RSS fetch error for ${feed.name}:`, error.message);
-                results.failed++;
-                results.details.push({ source: feed.name, status: 'error', error: error.message });
-            }
-        }
-    }
-    
-    // Use mock fallback if no jobs added
-    if (results.added === 0) {
-        console.log('⚠️ No RSS jobs added, using mock fallback');
-        await insertMockJobs();
-        const mockCount = await getMockJobCount();
-        results.added = mockCount;
-        results.details.push({ source: 'mock_fallback', added: mockCount });
-    }
-    
-    await logFetchResults('rss_fallback', results);
-    return { success: true, ...results };
-}
-
-async function insertMockJobs() {
-    for (const [country, jobs] of Object.entries(MOCK_JOBS_FALLBACK)) {
-        for (const job of jobs) {
-            const { data: existing } = await supabase
-                .from('jobs')
-                .select('id')
-                .eq('title', job.title)
-                .eq('source_name', job.company)
-                .maybeSingle();
-            
-            if (!existing) {
-                const sponsorship = detectSponsorshipEligibility(job.title, job.description);
-                const jobType = normalizeJobType(job.job_type);
-                const { salary_min, salary_max, salary_range } = parseSalary(job.salary);
-                
-                await supabase.from('jobs').insert({
-                    title: job.title,
-                    company: job.company,
-                    location: job.location,
-                    salary_range: salary_range,
-                    salary_min: salary_min,
-                    salary_max: salary_max,
-                    description: job.description || `Join ${job.company} as a ${job.title}`,
-                    job_type: jobType,
-                    source_country: country,
-                    source_name: job.company,
-                    sponsorship_eligible: sponsorship.eligible,
-                    compliance_status: 'pending',
-                    status: 'draft',
-                    is_active: true,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                });
-            }
-        }
-    }
-}
-
-// ============================================
-// PENDING JOBS MANAGEMENT (Unified)
+// GET PENDING JOBS
 // ============================================
 
 export async function getPendingExternalJobs() {
-    const { data, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .eq('compliance_status', 'pending')
-        .eq('status', 'draft')
-        .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    return data || [];
-}
+    try {
+        const { data, error } = await supabase
+            .from('jobs')
+            .select('*')
+            .eq('compliance_status', 'pending')
+            .eq('status', 'draft')
+            .order('created_at', { ascending: false });
 
-export async function approveExternalJob(jobId) {
-    if (!await isAdmin()) {
-        return { success: false, error: 'Unauthorized: Admin only' };
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('Error fetching pending jobs:', error);
+        return [];
     }
-
-    const { data: job, error: fetchError } = await supabase
-        .from('jobs')
-        .select('*')
-        .eq('id', jobId)
-        .single();
-    
-    if (fetchError) throw fetchError;
-    
-    const jobType = normalizeJobType(job.job_type);
-    
-    const { data: updated, error: updateError } = await supabase
-        .from('jobs')
-        .update({
-            job_type: jobType,
-            compliance_status: 'approved',
-            status: 'active',
-            is_active: true,
-            approved_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', jobId)
-        .select()
-        .single();
-    
-    if (updateError) throw updateError;
-    
-    console.log(`✅ Job approved: ${updated.title}`);
-    return { success: true, data: updated };
-}
-
-export async function rejectExternalJob(jobId, reason = null) {
-    if (!await isAdmin()) {
-        return { success: false, error: 'Unauthorized: Admin only' };
-    }
-
-    const { data, error } = await supabase
-        .from('jobs')
-        .update({
-            compliance_status: 'rejected',
-            status: 'expired',
-            is_active: false,
-            rejection_reason: reason,
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', jobId)
-        .select()
-        .single();
-    
-    if (error) throw error;
-    return { success: true, data };
 }
 
 // ============================================
-// BATCH OPERATIONS (Optimized)
+// APPROVE SINGLE JOB
+// ============================================
+
+export async function approveExternalJob(jobId) {
+    try {
+        const adminCheck = await isAdmin();
+        if (!adminCheck) {
+            return { success: false, error: 'Unauthorized: Admin only' };
+        }
+
+        const userId = await getCurrentUserId();
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({
+                compliance_status: 'approved',
+                status: 'active',
+                is_active: true,
+                approved_by: userId,
+                approved_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', jobId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        
+        console.log(`✅ Job approved: ${data.title}`);
+        return { success: true, data };
+    } catch (error) {
+        console.error('Error approving job:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// BATCH APPROVE JOBS
 // ============================================
 
 export async function batchApproveExternalJobs(jobIds = null) {
-    if (!await isAdmin()) {
-        return { success: false, error: 'Unauthorized: Admin only', approved: 0, failed: 0 };
-    }
+    try {
+        const adminCheck = await isAdmin();
+        if (!adminCheck) {
+            return { success: false, error: 'Unauthorized: Admin only', approved: 0, failed: 0 };
+        }
 
-    let idsToApprove = jobIds;
-    if (!idsToApprove || idsToApprove.length === 0) {
-        const { data: pendingJobs } = await supabase
-            .from('jobs')
-            .select('id')
-            .eq('compliance_status', 'pending');
-        idsToApprove = pendingJobs?.map(job => job.id) || [];
-    }
+        // If no jobIds provided, get all pending jobs
+        let idsToApprove = jobIds;
+        if (!idsToApprove || idsToApprove.length === 0) {
+            const { data: pendingJobs } = await supabase
+                .from('jobs')
+                .select('id')
+                .eq('compliance_status', 'pending');
+            
+            idsToApprove = pendingJobs?.map(job => job.id) || [];
+        }
 
-    if (idsToApprove.length === 0) {
-        return { success: true, approved: 0, failed: 0, message: 'No pending jobs' };
-    }
+        if (idsToApprove.length === 0) {
+            return { success: true, approved: 0, failed: 0, message: 'No pending jobs to approve' };
+        }
 
-    const results = { approved: 0, failed: 0, errors: [] };
-    const now = new Date().toISOString();
-    
-    // Process in optimized batches
-    for (let i = 0; i < idsToApprove.length; i += BATCH_SIZE) {
-        const batch = idsToApprove.slice(i, i + BATCH_SIZE);
+        const userId = await getCurrentUserId();
+        const now = new Date().toISOString();
         
         const { error } = await supabase
             .from('jobs')
@@ -409,108 +147,252 @@ export async function batchApproveExternalJobs(jobIds = null) {
                 compliance_status: 'approved',
                 status: 'active',
                 is_active: true,
+                approved_by: userId,
                 approved_at: now,
                 updated_at: now
             })
-            .in('id', batch)
+            .in('id', idsToApprove)
             .eq('compliance_status', 'pending');
 
-        if (error) {
-            results.failed += batch.length;
-            results.errors.push({ batch, error: error.message });
-            console.error(`Batch approval error for batch ${i/BATCH_SIZE + 1}:`, error);
-        } else {
-            results.approved += batch.length;
-            console.log(`✅ Batch ${i/BATCH_SIZE + 1}: Approved ${batch.length} jobs`);
-        }
+        if (error) throw error;
+
+        console.log(`✅ Batch approved ${idsToApprove.length} jobs`);
+        return { success: true, approved: idsToApprove.length, failed: 0 };
+    } catch (error) {
+        console.error('Batch approval error:', error);
+        return { success: false, error: error.message, approved: 0, failed: 0 };
     }
-    
-    console.log(`✅ Batch approval complete: ${results.approved} approved, ${results.failed} failed`);
-    return { success: true, ...results };
 }
 
 // ============================================
-// STATISTICS & LOGGING
+// REJECT JOB
+// ============================================
+
+export async function rejectExternalJob(jobId, reason = '') {
+    try {
+        const adminCheck = await isAdmin();
+        if (!adminCheck) {
+            return { success: false, error: 'Unauthorized: Admin only' };
+        }
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({
+                compliance_status: 'rejected',
+                status: 'expired',
+                is_active: false,
+                rejection_reason: reason,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', jobId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        
+        console.log(`❌ Job rejected: ${data.title}`);
+        return { success: true, data };
+    } catch (error) {
+        console.error('Error rejecting job:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================
+// LOAD JOBS FROM SQL (Sync existing jobs)
+// ============================================
+
+export async function loadJobsFromSQL() {
+    try {
+        const adminCheck = await isAdmin();
+        if (!adminCheck) {
+            return { success: false, error: 'Unauthorized: Admin only', count: 0 };
+        }
+
+        // Get all jobs that are pending
+        const { data: pendingJobs, error: fetchError } = await supabase
+            .from('jobs')
+            .select('id')
+            .eq('compliance_status', 'pending');
+
+        if (fetchError) throw fetchError;
+
+        if (!pendingJobs || pendingJobs.length === 0) {
+            return { success: true, count: 0, message: 'No pending jobs to sync' };
+        }
+
+        const userId = await getCurrentUserId();
+        const now = new Date().toISOString();
+        
+        // Update all pending jobs to approved
+        const { error: updateError } = await supabase
+            .from('jobs')
+            .update({
+                compliance_status: 'approved',
+                status: 'active',
+                is_active: true,
+                approved_by: userId,
+                approved_at: now,
+                updated_at: now
+            })
+            .eq('compliance_status', 'pending');
+
+        if (updateError) throw updateError;
+
+        console.log(`✅ Synced ${pendingJobs.length} jobs from SQL`);
+        return { success: true, count: pendingJobs.length };
+    } catch (error) {
+        console.error('Error syncing jobs from SQL:', error);
+        return { success: false, error: error.message, count: 0 };
+    }
+}
+
+// ============================================
+// FETCH RSS JOBS
+// ============================================
+
+export async function fetchExternalJobs() {
+    const results = [];
+    let totalAdded = 0;
+
+    for (const feed of RSS_FEEDS) {
+        try {
+            console.log(`📡 Fetching from ${feed.name}...`);
+            
+            const response = await fetch('/api/fetch-rss', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: feed.url,
+                    source: feed.name,
+                    country: feed.country
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            results.push({
+                source: feed.name,
+                status: 'success',
+                jobsAdded: data.added || 0,
+                total: data.total || 0
+            });
+            
+            totalAdded += data.added || 0;
+            console.log(`✅ ${feed.name}: Added ${data.added || 0} new jobs`);
+            
+        } catch (error) {
+            console.error(`❌ Error fetching from ${feed.name}:`, error.message);
+            results.push({
+                source: feed.name,
+                status: 'error',
+                error: error.message
+            });
+        }
+    }
+
+    // Log the fetch results
+    try {
+        await supabase
+            .from('external_job_fetch_log')
+            .insert({
+                source: 'rss_batch',
+                status: totalAdded > 0 ? 'success' : 'partial',
+                jobs_fetched: totalAdded,
+                completed_at: new Date().toISOString()
+            });
+    } catch (logError) {
+        console.warn('Could not log fetch results:', logError.message);
+    }
+
+    return {
+        success: true,
+        totalAdded,
+        results
+    };
+}
+
+// ============================================
+// GET JOB STATS
 // ============================================
 
 export async function getExternalJobsStats() {
-    const stats = { pending: 0, approved: 0, rejected: 0, active: 0, total: 0 };
-    
-    const { data, error } = await supabase
-        .from('jobs')
-        .select('compliance_status, status');
-    
-    if (!error && data) {
-        data.forEach(job => {
+    try {
+        const { data, error } = await supabase
+            .from('jobs')
+            .select('compliance_status, status');
+
+        if (error) throw error;
+
+        const stats = {
+            pending: 0,
+            approved: 0,
+            rejected: 0,
+            active: 0,
+            total: data?.length || 0
+        };
+
+        data?.forEach(job => {
             if (job.compliance_status === 'pending') stats.pending++;
             if (job.compliance_status === 'approved') stats.approved++;
             if (job.compliance_status === 'rejected') stats.rejected++;
             if (job.status === 'active') stats.active++;
         });
-        stats.total = data.length;
-    }
-    
-    return stats;
-}
 
-async function logFetchResults(source, results) {
-    try {
-        await supabase.from('external_job_fetch_log').insert({
-            source_name: source,
-            fetch_status: results.added > 0 ? 'success' : results.failed > 0 ? 'partial' : 'no_new_jobs',
-            jobs_fetched: results.added,
-            jobs_new: results.added,
-            details: results.details,
-            created_at: new Date().toISOString()
-        });
+        return stats;
     } catch (error) {
-        console.warn('Failed to log fetch results:', error.message);
+        console.error('Error fetching stats:', error);
+        return { pending: 0, approved: 0, rejected: 0, active: 0, total: 0 };
     }
-}
-
-async function getMockJobCount() {
-    const mockSources = [...new Set(Object.values(MOCK_JOBS_FALLBACK).flat().map(j => j.company))];
-    const { count } = await supabase
-        .from('jobs')
-        .select('id', { count: 'exact', head: true })
-        .in('source_name', mockSources);
-    return count || 0;
 }
 
 // ============================================
-// UTILITY FUNCTIONS
+// TRIGGER JOB FETCH (Server-side)
 // ============================================
 
 export async function triggerJobFetch() {
-    console.log('🚀 Manually triggering job fetch...');
-    const result = await fetchExternalJobs(true);
-    return {
-        success: true,
-        message: `Job fetch completed. Added: ${result.added}, Exists: ${result.exists}, Errors: ${result.errors}`,
-        details: result
-    };
+    try {
+        const adminCheck = await isAdmin();
+        if (!adminCheck) {
+            return { success: false, error: 'Unauthorized: Admin only' };
+        }
+
+        const response = await fetch('/api/fetch-jobs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return { success: true, ...data };
+    } catch (error) {
+        console.error('Error triggering job fetch:', error);
+        return { success: false, error: error.message };
+    }
 }
 
-export async function getFetchLogs(limit = 10) {
-    const { data, error } = await supabase
-        .from('external_job_fetch_log')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
-    
-    if (error) throw error;
-    return data || [];
-}
+// ============================================
+// EXPORTS
+// ============================================
 
-export async function getApprovedJobs(limit = 100) {
-    const { data, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .eq('compliance_status', 'approved')
-        .eq('status', 'active')
-        .order('approved_at', { ascending: false })
-        .limit(limit);
-    
-    if (error) throw error;
-    return data || [];
-}
+export default {
+    getPendingExternalJobs,
+    approveExternalJob,
+    rejectExternalJob,
+    batchApproveExternalJobs,
+    fetchExternalJobs,
+    loadJobsFromSQL,
+    getExternalJobsStats,
+    triggerJobFetch
+};
