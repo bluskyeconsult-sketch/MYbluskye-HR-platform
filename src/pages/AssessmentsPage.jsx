@@ -1,12 +1,13 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, and user results tracking
+// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, and debugging
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
-    AlertCircle, Star, Users, FileText, CheckCircle, Filter
+    AlertCircle, Star, Users, FileText, CheckCircle, Filter,
+    BarChart3, Sparkles
 } from 'lucide-react';
 
 export default function AssessmentsPage() {
@@ -17,6 +18,8 @@ export default function AssessmentsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [userResults, setUserResults] = useState({});
+    const [debugInfo, setDebugInfo] = useState(null);
+    const [showDebug, setShowDebug] = useState(false);
 
     const categories = [
         { id: 'all', name: 'All Assessments', icon: Brain },
@@ -32,15 +35,74 @@ export default function AssessmentsPage() {
     useEffect(() => {
         loadAssessments();
         loadUserResults();
+        debugDatabase();
     }, []);
 
     useEffect(() => {
         filterAssessments();
     }, [assessments, searchQuery, selectedCategory]);
 
+    // Debug function to check database content
+    async function debugDatabase() {
+        console.log("🔍 [DEBUG] Starting database diagnostic...");
+        
+        try {
+            // Check assessments table
+            const { data: assessmentsData, error: assessmentsError } = await supabase
+                .from('assessments')
+                .select('id, title, assessment_type, question_count, time_limit_minutes, is_active');
+            
+            console.log("📊 [DEBUG] Assessments in DB:", assessmentsData);
+            if (assessmentsError) console.error("❌ [DEBUG] Assessments error:", assessmentsError);
+            
+            // Check questions count for each assessment
+            if (assessmentsData && assessmentsData.length > 0) {
+                for (const assessment of assessmentsData) {
+                    const { count, error: countError } = await supabase
+                        .from('assessment_questions')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('assessment_id', assessment.id);
+                    
+                    console.log(`📝 [DEBUG] "${assessment.title}" has ${count || 0} questions`);
+                    if (countError) console.error(`❌ [DEBUG] Questions error for ${assessment.title}:`, countError);
+                }
+            } else {
+                console.warn("⚠️ [DEBUG] No assessments found in database!");
+            }
+            
+            // Check user_results if user is logged in
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: userResultsData, error: userResultsError } = await supabase
+                    .from('user_assessments')
+                    .select('assessment_id, percentage, status')
+                    .eq('user_id', user.id);
+                
+                console.log("👤 [DEBUG] User results:", userResultsData);
+                if (userResultsError) console.error("❌ [DEBUG] User results error:", userResultsError);
+            }
+            
+            setDebugInfo({
+                assessmentsCount: assessmentsData?.length || 0,
+                assessmentsList: assessmentsData?.map(a => ({ 
+                    title: a.title, 
+                    questionCount: a.question_count,
+                    isActive: a.is_active 
+                })) || [],
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (err) {
+            console.error("❌ [DEBUG] Unexpected error:", err);
+            setDebugInfo({ error: err.message });
+        }
+    }
+
     async function loadAssessments() {
         try {
             setLoading(true);
+            console.log("🔄 Loading assessments from Supabase...");
+            
             const { data, error } = await supabase
                 .from('assessments')
                 .select('*')
@@ -49,12 +111,18 @@ export default function AssessmentsPage() {
             
             if (error) throw error;
             
+            console.log(`✅ Loaded ${data?.length || 0} assessments`);
+            
             // Safe filtering - ensure valid data
             const safeData = (data || []).filter(a => a && a.id && a.title);
             setAssessments(safeData);
             setFilteredAssessments(safeData);
+            
+            if (safeData.length === 0) {
+                console.warn("⚠️ No active assessments found. Check if assessments exist and is_active=true");
+            }
         } catch (err) {
-            console.error('Error loading assessments:', err);
+            console.error('❌ Error loading assessments:', err);
             setError('Failed to load assessments. Please refresh the page.');
             setAssessments([]);
             setFilteredAssessments([]);
@@ -85,6 +153,7 @@ export default function AssessmentsPage() {
                     };
                 });
                 setUserResults(resultsMap);
+                console.log(`✅ Loaded ${data.length} user assessment results`);
             }
         } catch (err) {
             console.warn('Could not load user results:', err);
@@ -154,7 +223,10 @@ export default function AssessmentsPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+                <div className="text-center">
+                    <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
+                    <p className="text-slate-400">Loading assessments...</p>
+                </div>
             </div>
         );
     }
@@ -169,6 +241,9 @@ export default function AssessmentsPage() {
                     <div className="flex gap-3 justify-center">
                         <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                             Try Again
+                        </button>
+                        <button onClick={debugDatabase} className="px-6 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">
+                            Run Diagnostic
                         </button>
                         <Link to="/" className="px-6 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">
                             Go Home
@@ -194,7 +269,40 @@ export default function AssessmentsPage() {
                     <p className="text-lg text-slate-400 max-w-2xl mx-auto">
                         Discover your potential with science-backed assessments
                     </p>
+                    
+                    {/* Debug Button (Admin only - optional) */}
+                    <button
+                        onClick={() => setShowDebug(!showDebug)}
+                        className="mt-4 text-xs text-slate-500 hover:text-slate-400 transition flex items-center gap-1 mx-auto"
+                    >
+                        <BarChart3 className="w-3 h-3" />
+                        {showDebug ? 'Hide Debug Info' : 'Show Debug Info'}
+                    </button>
                 </div>
+
+                {/* Debug Panel */}
+                {showDebug && debugInfo && (
+                    <div className="mb-6 p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
+                        <h3 className="text-sm font-semibold text-primary-400 mb-2 flex items-center gap-2">
+                            <Sparkles className="w-4 h-4" />
+                            Database Diagnostic
+                        </h3>
+                        <div className="text-xs text-slate-400 space-y-1">
+                            <p>📊 Total Assessments: {debugInfo.assessmentsCount}</p>
+                            {debugInfo.assessmentsList?.map((a, i) => (
+                                <p key={i} className="ml-4">
+                                    • {a.title}: {a.questionCount} questions, {a.isActive ? '✅ Active' : '❌ Inactive'}
+                                </p>
+                            ))}
+                            {debugInfo.assessmentsCount === 0 && (
+                                <p className="text-amber-400 mt-2">
+                                    ⚠️ No assessments found! Add assessments via Admin Panel or SQL.
+                                </p>
+                            )}
+                            <p className="text-slate-500 text-xs mt-2">Last check: {new Date(debugInfo.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Search and Filter */}
                 <div className="flex flex-col sm:flex-row gap-4 mb-8">
@@ -227,19 +335,29 @@ export default function AssessmentsPage() {
                 </div>
 
                 {/* Results Count */}
-                <div className="mb-4 flex justify-between items-center">
+                <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
                     <p className="text-slate-400 text-sm">
                         Showing <span className="text-white font-medium">{filteredAssessments.length}</span> of{' '}
                         <span className="text-white font-medium">{assessments.length}</span> assessments
                     </p>
-                    {searchQuery && (
-                        <button
-                            onClick={() => setSearchQuery('')}
-                            className="text-sm text-primary-400 hover:text-primary-300 transition"
-                        >
-                            Clear search
-                        </button>
-                    )}
+                    <div className="flex gap-2">
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery('')}
+                                className="text-sm text-primary-400 hover:text-primary-300 transition"
+                            >
+                                Clear search
+                            </button>
+                        )}
+                        {selectedCategory !== 'all' && (
+                            <button
+                                onClick={() => setSelectedCategory('all')}
+                                className="text-sm text-slate-400 hover:text-white transition"
+                            >
+                                Clear filter
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Assessments Grid */}
@@ -260,8 +378,16 @@ export default function AssessmentsPage() {
                                 }}
                                 className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
                             >
-                                Clear Filters
+                                Clear All Filters
                             </button>
+                        )}
+                        {assessments.length === 0 && (
+                            <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                                <p className="text-amber-400 text-sm">
+                                    💡 Tip: You need to add assessments to your database. 
+                                    Go to Admin Panel → Assessment Manager to create assessments.
+                                </p>
+                            </div>
                         )}
                     </div>
                 ) : (
