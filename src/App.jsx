@@ -1,5 +1,5 @@
 // src/App.jsx
-// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, and optional route tracking
+// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, route tracking, and complete assessment support
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
@@ -37,14 +37,18 @@ const ContactPage = lazy(() => import('./pages/ContactPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
-const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
-const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
-const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
-const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
-const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
+
+// ✅ ASSESSMENT PAGES (Critical - must be properly imported)
+const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
+const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
+const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
+
+// Article Pages
+const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
+const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
 
 // Auth Pages
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
@@ -82,7 +86,7 @@ const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
 const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
 const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
-const ExternalJobs = lazy(() => import('./pages/admin/AdminExternalJobs'));
+const ExternalJobs = lazy(() => import('./pages/admin/ExternalJobs'));
 const ExternalJobsManager = lazy(() => import('./pages/admin/ExternalJobsManager'));
 const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
@@ -178,6 +182,7 @@ const routeGroups = {
         { path: '/faq', element: <FAQPage /> },
         { path: '/blog', element: <BlogPage /> }
     ],
+    // ✅ ASSESSMENT ROUTES - Now properly defined
     assessments: [
         { path: '/assessments', element: <AssessmentsPage /> },
         { path: '/assessments/:id', element: <TakeAssessment /> },
@@ -302,27 +307,24 @@ function AppContent() {
             <ScrollingBanner />
             
             <main className="min-h-screen bg-slate-950">
-                <div className="w-full px-4 sm:px-6 lg:px-8">
-                    <div className="max-w-7xl mx-auto">
-                        <Suspense fallback={<PageLoader />}>
-                            <AnimatePresence mode="wait">
-                                <Routes location={location} key={location.pathname}>
-                                    {renderRouteGroup(routeGroups.public)}
-                                    {renderRouteGroup(routeGroups.assessments)}
-                                    {renderRouteGroup(routeGroups.articles)}
-                                    {renderRouteGroup(routeGroups.auth)}
-                                    {renderRouteGroup(routeGroups.user)}
-                                    {renderRouteGroup(routeGroups.employer)}
-                                    {renderRouteGroup(routeGroups.tester)}
-                                    {renderRouteGroup(routeGroups.admin)}
-                                    {renderRouteGroup(routeGroups.workforce)}
-                                    {renderRouteGroup(routeGroups.legal)}
-                                    <Route path="*" element={<NotFoundPage />} />
-                                </Routes>
-                            </AnimatePresence>
-                        </Suspense>
-                    </div>
-                </div>
+                {/* ✅ REMOVED extra padding - let individual pages control their layout */}
+                <Suspense fallback={<PageLoader />}>
+                    <AnimatePresence mode="wait">
+                        <Routes location={location} key={location.pathname}>
+                            {renderRouteGroup(routeGroups.public)}
+                            {renderRouteGroup(routeGroups.assessments)}  {/* ✅ Now includes /assessments/:id */}
+                            {renderRouteGroup(routeGroups.articles)}
+                            {renderRouteGroup(routeGroups.auth)}
+                            {renderRouteGroup(routeGroups.user)}
+                            {renderRouteGroup(routeGroups.employer)}
+                            {renderRouteGroup(routeGroups.tester)}
+                            {renderRouteGroup(routeGroups.admin)}
+                            {renderRouteGroup(routeGroups.workforce)}
+                            {renderRouteGroup(routeGroups.legal)}
+                            <Route path="*" element={<NotFoundPage />} />
+                        </Routes>
+                    </AnimatePresence>
+                </Suspense>
             </main>
             
             <Footer />
