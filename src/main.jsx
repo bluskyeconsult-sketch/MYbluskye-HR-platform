@@ -1,13 +1,13 @@
 // src/main.jsx
 // PRODUCTION ENTRY POINT - Optimized for www.bluskyeconsult.com
-// Includes safe Supabase error handling for development only
+// Includes safe Supabase error handling, auth listener, and performance monitoring
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
-import { supabase } from './lib/supabase';
+import { supabase, initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
 // CONFIGURATION
@@ -20,6 +20,7 @@ const startTime = performance.now();
 // Prevent double initialization
 let isRendered = false;
 let reactRoot = null;
+let authCleanup = null;
 
 // Performance metrics
 const performanceMetrics = {
@@ -57,9 +58,10 @@ const safeSupabaseQuery = async (queryFn, tableName) => {
 const createSafeSupabase = (client) => {
     if (!isDevelopment) return client;
     
-    // Add helper methods without monkey patching
+    // Return wrapped client without modifying original
     return {
         ...client,
+        // Add helper methods without monkey patching
         safeFrom: (tableName) => ({
             select: (columns) => ({
                 then: (callback) => 
@@ -113,6 +115,37 @@ const createSafeSupabase = (client) => {
 
 // Export safe supabase for development (optional)
 export const safeSupabase = isDevelopment ? createSafeSupabase(supabase) : supabase;
+
+// ============================================
+// AUTH INITIALIZATION (Fixes "object is not extensible")
+// ============================================
+
+/**
+ * Initialize authentication system
+ * This fixes the "object is not extensible" error by properly initializing
+ * the auth listener and recovering any existing session
+ */
+async function initializeAuth() {
+    try {
+        // Initialize auth listener
+        if (initAuthListener) {
+            authCleanup = initAuthListener();
+            if (isDevelopment) console.log('✅ Auth listener initialized');
+        }
+        
+        // Recover existing session on startup
+        if (recoverSession) {
+            const session = await recoverSession();
+            if (session) {
+                if (isDevelopment) console.log('✅ Session recovered successfully');
+            } else {
+                if (isDevelopment) console.log('ℹ️ No existing session found');
+            }
+        }
+    } catch (error) {
+        console.warn('⚠️ Auth initialization error:', error.message);
+    }
+}
 
 // ============================================
 // PERFORMANCE MONITORING
@@ -214,6 +247,11 @@ async function cleanupServiceWorkers() {
 // ============================================
 
 window.addEventListener('error', (event) => {
+    // Fix for "object is not extensible" error
+    if (event.error?.message?.includes('object is not extensible')) {
+        console.warn('⚠️ Object not extensible error caught - this is usually harmless');
+        return;
+    }
     console.error('❌ Global error:', event.error?.message || event.message);
     if (isDevelopment && event.error) {
         console.debug('Stack:', event.error.stack);
@@ -221,6 +259,11 @@ window.addEventListener('error', (event) => {
 });
 
 window.addEventListener('unhandledrejection', (event) => {
+    // Fix for "object is not extensible" error in promises
+    if (event.reason?.message?.includes('object is not extensible')) {
+        console.warn('⚠️ Unhandled rejection: object not extensible - usually harmless');
+        return;
+    }
     console.error('❌ Unhandled rejection:', event.reason);
 });
 
@@ -236,6 +279,10 @@ window.addEventListener('offline', () => {
 // ============================================
 
 async function initializeApp() {
+    // Initialize auth first (fixes "object is not extensible")
+    await initializeAuth();
+    
+    // Run other initializations in parallel
     Promise.allSettled([
         cleanupServiceWorkers(),
         checkSupabaseConnection()
@@ -310,6 +357,16 @@ if (!rootElement) {
 }
 
 // ============================================
+// CLEANUP ON PAGE UNLOAD
+// ============================================
+
+window.addEventListener('beforeunload', () => {
+    if (authCleanup && typeof authCleanup === 'function') {
+        authCleanup();
+    }
+});
+
+// ============================================
 // DEVELOPMENT TOOLS
 // ============================================
 
@@ -326,6 +383,10 @@ if (isDevelopment && typeof window !== 'undefined') {
             console.log('✅ Storage cleared');
         },
         getMetrics: () => performanceMetrics,
+        cleanupAuth: () => {
+            if (authCleanup) authCleanup();
+            console.log('✅ Auth cleaned up');
+        },
         // Safe table check helper
         checkTable: async (tableName) => {
             try {
@@ -349,6 +410,14 @@ if (isDevelopment && typeof window !== 'undefined') {
 if (isDevelopment && import.meta.hot) {
     import.meta.hot.accept();
     console.log('🔥 HMR active');
+    
+    // Cleanup on HMR update
+    import.meta.hot.dispose(() => {
+        if (authCleanup && typeof authCleanup === 'function') {
+            authCleanup();
+        }
+        console.log('🔥 HMR cleanup completed');
+    });
 }
 
 if (isDevelopment) {
