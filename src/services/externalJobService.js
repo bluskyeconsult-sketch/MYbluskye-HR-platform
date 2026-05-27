@@ -39,13 +39,23 @@ const RSS_FEEDS = {
     ]
 };
 
-// Mock fallback data (simplified from version 1)
+// Simplified mock fallback data
 const MOCK_JOBS_FALLBACK = {
     GB: [
-        { title: 'Policy Advisor', company: 'UK Civil Service', location: 'London', salary: '£35,000 - £45,000', job_type: 'full_time' }
+        { title: 'Policy Advisor', company: 'UK Civil Service', location: 'London', salary: '£35,000 - £45,000', description: 'Join the UK Civil Service as a Policy Advisor.', job_type: 'full_time' },
+        { title: 'Senior Policy Analyst', company: 'UK Civil Service', location: 'London', salary: '£45,000 - £55,000', description: 'Seeking an experienced Policy Analyst.', job_type: 'full_time' }
     ],
     US: [
-        { title: 'Program Analyst', company: 'USAJobs', location: 'Washington DC', salary: '$65,000 - $85,000', job_type: 'full_time' }
+        { title: 'Program Analyst', company: 'USAJobs', location: 'Washington DC', salary: '$65,000 - $85,000', description: 'Federal agency seeking a Program Analyst.', job_type: 'full_time' }
+    ],
+    CA: [
+        { title: 'Policy Analyst', company: 'GC Jobs', location: 'Ottawa', salary: 'CAD 65,000 - CAD 85,000', description: 'Government of Canada seeking Policy Analysts.', job_type: 'full_time' }
+    ],
+    AU: [
+        { title: 'APS Policy Officer', company: 'APS Jobs', location: 'Canberra', salary: 'AUD 70,000 - AUD 90,000', description: 'Join the Australian Public Service.', job_type: 'full_time' }
+    ],
+    IE: [
+        { title: 'Public Service Executive', company: 'Public Jobs IE', location: 'Dublin', salary: '€50,000 - €65,000', description: 'Public Appointments Service hiring.', job_type: 'full_time' }
     ]
 };
 
@@ -60,7 +70,8 @@ const normalizeJobType = (jobType) => {
     
     const mapping = {
         'fulltime': 'full_time', 'parttime': 'part_time', 'wfh': 'remote',
-        'work from home': 'remote', 'on-site': 'onsite'
+        'work from home': 'remote', 'on-site': 'onsite', 'full-time': 'full_time',
+        'part-time': 'part_time'
     };
     return mapping[normalized] || 'full_time';
 };
@@ -70,7 +81,8 @@ const detectSponsorshipEligibility = (title, description, keywords = []) => {
     const allKeywords = [
         ...keywords,
         'visa sponsorship', 'work visa', 'skilled worker', 'tier 2',
-        'certificate of sponsorship', 'sponsorship available', 'work permit'
+        'certificate of sponsorship', 'sponsorship available', 'work permit',
+        'relocation support', 'immigration support', 'visa assistance'
     ];
     
     for (const keyword of allKeywords) {
@@ -90,6 +102,33 @@ const isAdmin = async () => {
     }
 };
 
+const parseSalary = (salaryStr) => {
+    if (!salaryStr) return { salary_min: null, salary_max: null, salary_range: null };
+    
+    const patterns = [
+        /£([\d,]+)(?:\s*-\s*£([\d,]+))?/i,
+        /€([\d,]+)(?:\s*-\s*€([\d,]+))?/i,
+        /\$([\d,]+)(?:\s*-\s*\$([\d,]+))?/i,
+        /CAD\s*([\d,]+)(?:\s*-\s*CAD\s*([\d,]+))?/i,
+        /AUD\s*([\d,]+)(?:\s*-\s*AUD\s*([\d,]+))?/i
+    ];
+    
+    for (const pattern of patterns) {
+        const match = salaryStr.match(pattern);
+        if (match) {
+            const min = parseInt(match[1].replace(/,/g, ''));
+            const max = match[2] ? parseInt(match[2].replace(/,/g, '')) : null;
+            return {
+                salary_min: min,
+                salary_max: max,
+                salary_range: salaryStr
+            };
+        }
+    }
+    
+    return { salary_min: null, salary_max: null, salary_range: salaryStr };
+};
+
 // ============================================
 // FETCH EXTERNAL JOBS (Primary: API, Fallback: RSS, Final: Mock)
 // ============================================
@@ -105,11 +144,11 @@ export async function fetchExternalJobs(forceRefresh = false) {
 
         if (response.ok) {
             const data = await response.json();
-            if (data.success) {
-                return await processFetchedJobs(data.jobs || [], 'api_fetch');
+            if (data.success && data.jobs?.length) {
+                return await processFetchedJobs(data.jobs, 'api_fetch');
             }
         }
-        throw new Error('API fetch failed');
+        throw new Error('API fetch failed or returned no jobs');
     } catch (error) {
         console.warn('⚠️ API failed, falling back to RSS:', error.message);
         return await fetchExternalJobsRSS();
@@ -130,22 +169,24 @@ async function processFetchedJobs(jobs, source) {
 
         if (existing) {
             results.exists++;
+            results.details.push({ job: job.title, status: 'exists' });
             continue;
         }
 
         const sponsorship = detectSponsorshipEligibility(job.title, job.description);
         const jobType = normalizeJobType(job.job_type);
+        const { salary_min, salary_max, salary_range } = parseSalary(job.salary_range);
         
         const { error } = await supabase
             .from('jobs')
             .insert({
-                title: job.title,
+                title: job.title?.substring(0, 200),
                 company: job.company,
                 location: job.location,
-                salary_range: job.salary_range,
-                salary_min: job.salary_min,
-                salary_max: job.salary_max,
-                description: job.description,
+                salary_range: salary_range || job.salary_range,
+                salary_min: salary_min || job.salary_min,
+                salary_max: salary_max || job.salary_max,
+                description: job.description?.substring(0, 2000),
                 external_apply_url: job.external_url || job.source_url,
                 source_country: job.source_country,
                 source_name: job.source_name || source,
@@ -163,6 +204,7 @@ async function processFetchedJobs(jobs, source) {
             results.details.push({ job: job.title, status: 'added' });
         } else {
             results.errors++;
+            results.details.push({ job: job.title, status: 'error', error: error.message });
         }
     }
     
@@ -196,10 +238,14 @@ async function fetchExternalJobsRSS() {
                     results.added += data.added || 0;
                     results.details.push({ source: feed.name, added: data.added || 0 });
                     console.log(`✅ ${feed.name}: Added ${data.added || 0} jobs`);
+                } else {
+                    results.failed++;
+                    results.details.push({ source: feed.name, status: 'failed', error: `HTTP ${response.status}` });
                 }
             } catch (error) {
                 console.error(`❌ RSS fetch error for ${feed.name}:`, error.message);
                 results.failed++;
+                results.details.push({ source: feed.name, status: 'error', error: error.message });
             }
         }
     }
@@ -208,7 +254,9 @@ async function fetchExternalJobsRSS() {
     if (results.added === 0) {
         console.log('⚠️ No RSS jobs added, using mock fallback');
         await insertMockJobs();
-        results.added = await getMockJobCount();
+        const mockCount = await getMockJobCount();
+        results.added = mockCount;
+        results.details.push({ source: 'mock_fallback', added: mockCount });
     }
     
     await logFetchResults('rss_fallback', results);
@@ -226,14 +274,22 @@ async function insertMockJobs() {
                 .maybeSingle();
             
             if (!existing) {
+                const sponsorship = detectSponsorshipEligibility(job.title, job.description);
+                const jobType = normalizeJobType(job.job_type);
+                const { salary_min, salary_max, salary_range } = parseSalary(job.salary);
+                
                 await supabase.from('jobs').insert({
                     title: job.title,
                     company: job.company,
                     location: job.location,
-                    salary_range: job.salary,
-                    job_type: job.job_type,
+                    salary_range: salary_range,
+                    salary_min: salary_min,
+                    salary_max: salary_max,
+                    description: job.description || `Join ${job.company} as a ${job.title}`,
+                    job_type: jobType,
                     source_country: country,
                     source_name: job.company,
+                    sponsorship_eligible: sponsorship.eligible,
                     compliance_status: 'pending',
                     status: 'draft',
                     is_active: true,
@@ -341,6 +397,7 @@ export async function batchApproveExternalJobs(jobIds = null) {
     }
 
     const results = { approved: 0, failed: 0, errors: [] };
+    const now = new Date().toISOString();
     
     // Process in optimized batches
     for (let i = 0; i < idsToApprove.length; i += BATCH_SIZE) {
@@ -352,8 +409,8 @@ export async function batchApproveExternalJobs(jobIds = null) {
                 compliance_status: 'approved',
                 status: 'active',
                 is_active: true,
-                approved_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
+                approved_at: now,
+                updated_at: now
             })
             .in('id', batch)
             .eq('compliance_status', 'pending');
@@ -361,12 +418,14 @@ export async function batchApproveExternalJobs(jobIds = null) {
         if (error) {
             results.failed += batch.length;
             results.errors.push({ batch, error: error.message });
+            console.error(`Batch approval error for batch ${i/BATCH_SIZE + 1}:`, error);
         } else {
             results.approved += batch.length;
+            console.log(`✅ Batch ${i/BATCH_SIZE + 1}: Approved ${batch.length} jobs`);
         }
     }
     
-    console.log(`✅ Batch approval: ${results.approved} approved, ${results.failed} failed`);
+    console.log(`✅ Batch approval complete: ${results.approved} approved, ${results.failed} failed`);
     return { success: true, ...results };
 }
 
@@ -398,7 +457,7 @@ async function logFetchResults(source, results) {
     try {
         await supabase.from('external_job_fetch_log').insert({
             source_name: source,
-            fetch_status: results.added > 0 ? 'success' : 'no_new_jobs',
+            fetch_status: results.added > 0 ? 'success' : results.failed > 0 ? 'partial' : 'no_new_jobs',
             jobs_fetched: results.added,
             jobs_new: results.added,
             details: results.details,
@@ -410,10 +469,11 @@ async function logFetchResults(source, results) {
 }
 
 async function getMockJobCount() {
+    const mockSources = [...new Set(Object.values(MOCK_JOBS_FALLBACK).flat().map(j => j.company))];
     const { count } = await supabase
         .from('jobs')
         .select('id', { count: 'exact', head: true })
-        .in('source_name', Object.values(MOCK_JOBS_FALLBACK).flat().map(j => j.company));
+        .in('source_name', mockSources);
     return count || 0;
 }
 
@@ -426,7 +486,7 @@ export async function triggerJobFetch() {
     const result = await fetchExternalJobs(true);
     return {
         success: true,
-        message: `Job fetch completed. Added: ${result.added}`,
+        message: `Job fetch completed. Added: ${result.added}, Exists: ${result.exists}, Errors: ${result.errors}`,
         details: result
     };
 }
@@ -436,6 +496,19 @@ export async function getFetchLogs(limit = 10) {
         .from('external_job_fetch_log')
         .select('*')
         .order('created_at', { ascending: false })
+        .limit(limit);
+    
+    if (error) throw error;
+    return data || [];
+}
+
+export async function getApprovedJobs(limit = 100) {
+    const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('compliance_status', 'approved')
+        .eq('status', 'active')
+        .order('approved_at', { ascending: false })
         .limit(limit);
     
     if (error) throw error;
