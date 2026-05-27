@@ -1,5 +1,5 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, and debugging
+// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, debugging, and error handling
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
     AlertCircle, Star, Users, FileText, CheckCircle, Filter,
-    BarChart3, Sparkles
+    BarChart3, Sparkles, HelpCircle
 } from 'lucide-react';
 
 export default function AssessmentsPage() {
@@ -20,6 +20,7 @@ export default function AssessmentsPage() {
     const [userResults, setUserResults] = useState({});
     const [debugInfo, setDebugInfo] = useState(null);
     const [showDebug, setShowDebug] = useState(false);
+    const [questionCounts, setQuestionCounts] = useState({});
 
     const categories = [
         { id: 'all', name: 'All Assessments', icon: Brain },
@@ -42,7 +43,23 @@ export default function AssessmentsPage() {
         filterAssessments();
     }, [assessments, searchQuery, selectedCategory]);
 
-    // Debug function to check database content
+    // ✅ ENHANCED: Get real question count from database
+    async function getRealQuestionCount(assessmentId) {
+        try {
+            const { count, error } = await supabase
+                .from('assessment_questions')
+                .select('*', { count: 'exact', head: true })
+                .eq('assessment_id', assessmentId);
+            
+            if (error) throw error;
+            return count || 0;
+        } catch (err) {
+            console.warn(`Could not get question count for ${assessmentId}:`, err);
+            return 0;
+        }
+    }
+
+    // ✅ ENHANCED: Debug function with real question counts
     async function debugDatabase() {
         console.log("🔍 [DEBUG] Starting database diagnostic...");
         
@@ -55,17 +72,28 @@ export default function AssessmentsPage() {
             console.log("📊 [DEBUG] Assessments in DB:", assessmentsData);
             if (assessmentsError) console.error("❌ [DEBUG] Assessments error:", assessmentsError);
             
-            // Check questions count for each assessment
+            const countsMap = {};
+            const realCounts = [];
+            
+            // Check REAL question counts for each assessment
             if (assessmentsData && assessmentsData.length > 0) {
                 for (const assessment of assessmentsData) {
-                    const { count, error: countError } = await supabase
-                        .from('assessment_questions')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('assessment_id', assessment.id);
+                    const realCount = await getRealQuestionCount(assessment.id);
+                    countsMap[assessment.id] = realCount;
+                    realCounts.push({
+                        title: assessment.title,
+                        storedCount: assessment.question_count || 0,
+                        realCount: realCount,
+                        match: assessment.question_count === realCount
+                    });
                     
-                    console.log(`📝 [DEBUG] "${assessment.title}" has ${count || 0} questions`);
-                    if (countError) console.error(`❌ [DEBUG] Questions error for ${assessment.title}:`, countError);
+                    console.log(`📝 [DEBUG] "${assessment.title}" - Stored: ${assessment.question_count || 0}, Actual: ${realCount} questions`);
+                    
+                    if (assessment.question_count !== realCount) {
+                        console.warn(`⚠️ [DEBUG] Mismatch! Update question_count for ${assessment.title} from ${assessment.question_count} to ${realCount}`);
+                    }
                 }
+                setQuestionCounts(countsMap);
             } else {
                 console.warn("⚠️ [DEBUG] No assessments found in database!");
             }
@@ -86,7 +114,9 @@ export default function AssessmentsPage() {
                 assessmentsCount: assessmentsData?.length || 0,
                 assessmentsList: assessmentsData?.map(a => ({ 
                     title: a.title, 
-                    questionCount: a.question_count,
+                    storedCount: a.question_count || 0,
+                    realCount: countsMap[a.id] || 0,
+                    needsUpdate: a.question_count !== countsMap[a.id],
                     isActive: a.is_active 
                 })) || [],
                 timestamp: new Date().toISOString()
@@ -113,8 +143,18 @@ export default function AssessmentsPage() {
             
             console.log(`✅ Loaded ${data?.length || 0} assessments`);
             
+            // ✅ ENHANCED: Get real question counts for each assessment
+            const enhancedData = await Promise.all((data || []).map(async (assessment) => {
+                const realCount = await getRealQuestionCount(assessment.id);
+                return {
+                    ...assessment,
+                    // Use real count if available, otherwise fallback to stored
+                    display_question_count: realCount > 0 ? realCount : (assessment.question_count || 20)
+                };
+            }));
+            
             // Safe filtering - ensure valid data
-            const safeData = (data || []).filter(a => a && a.id && a.title);
+            const safeData = enhancedData.filter(a => a && a.id && a.title);
             setAssessments(safeData);
             setFilteredAssessments(safeData);
             
@@ -187,6 +227,14 @@ export default function AssessmentsPage() {
         setFilteredAssessments(filtered);
     }
 
+    // ✅ ENHANCED: Get question count safely
+    function getDisplayQuestionCount(assessment) {
+        // Priority: 1. Real fetched count, 2. Stored question_count, 3. Default 20
+        if (assessment.display_question_count) return assessment.display_question_count;
+        if (assessment.question_count && assessment.question_count > 0) return assessment.question_count;
+        return 20; // Safe default
+    }
+
     function getCategoryColor(type) {
         const colors = {
             personality: 'from-purple-500/20 to-purple-600/20 border-purple-500/30',
@@ -238,7 +286,7 @@ export default function AssessmentsPage() {
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Assessments</h1>
                     <p className="text-slate-400 mb-6">{error}</p>
-                    <div className="flex gap-3 justify-center">
+                    <div className="flex gap-3 justify-center flex-wrap">
                         <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                             Try Again
                         </button>
@@ -270,7 +318,7 @@ export default function AssessmentsPage() {
                         Discover your potential with science-backed assessments
                     </p>
                     
-                    {/* Debug Button (Admin only - optional) */}
+                    {/* Debug Button */}
                     <button
                         onClick={() => setShowDebug(!showDebug)}
                         className="mt-4 text-xs text-slate-500 hover:text-slate-400 transition flex items-center gap-1 mx-auto"
@@ -291,7 +339,11 @@ export default function AssessmentsPage() {
                             <p>📊 Total Assessments: {debugInfo.assessmentsCount}</p>
                             {debugInfo.assessmentsList?.map((a, i) => (
                                 <p key={i} className="ml-4">
-                                    • {a.title}: {a.questionCount} questions, {a.isActive ? '✅ Active' : '❌ Inactive'}
+                                    • {a.title}: Stored: {a.storedCount} questions, Actual: {a.realCount} questions
+                                    {a.needsUpdate && (
+                                        <span className="text-amber-400 ml-2">⚠️ Update needed!</span>
+                                    )}
+                                    {!a.isActive && <span className="text-red-400 ml-2">❌ Inactive</span>}
                                 </p>
                             ))}
                             {debugInfo.assessmentsCount === 0 && (
@@ -300,6 +352,12 @@ export default function AssessmentsPage() {
                                 </p>
                             )}
                             <p className="text-slate-500 text-xs mt-2">Last check: {new Date(debugInfo.timestamp).toLocaleTimeString()}</p>
+                            <button 
+                                onClick={debugDatabase}
+                                className="mt-2 text-primary-400 hover:text-primary-300 text-xs"
+                            >
+                                🔄 Refresh Diagnostic
+                            </button>
                         </div>
                     </div>
                 )}
@@ -363,7 +421,7 @@ export default function AssessmentsPage() {
                 {/* Assessments Grid */}
                 {filteredAssessments.length === 0 ? (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
-                        <Brain className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                        <HelpCircle className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-white mb-2">No assessments found</h3>
                         <p className="text-slate-400">
                             {assessments.length === 0 
@@ -396,6 +454,7 @@ export default function AssessmentsPage() {
                             const Icon = getCategoryIcon(assessment.assessment_type);
                             const userResult = userResults[assessment.id];
                             const performanceBadge = userResult ? getPerformanceBadge(userResult.percentage) : null;
+                            const questionCount = getDisplayQuestionCount(assessment);
                             
                             return (
                                 <div 
@@ -417,7 +476,7 @@ export default function AssessmentsPage() {
                                     </div>
                                     
                                     <h3 className="text-xl font-bold text-white mb-2 line-clamp-1">{assessment.title}</h3>
-                                    <p className="text-slate-400 text-sm mb-4 line-clamp-2">{assessment.description}</p>
+                                    <p className="text-slate-400 text-sm mb-4 line-clamp-2">{assessment.description || 'No description available'}</p>
                                     
                                     <div className="flex items-center justify-between mb-4">
                                         <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -426,13 +485,33 @@ export default function AssessmentsPage() {
                                         </div>
                                         <div className="flex items-center gap-2 text-sm text-slate-500">
                                             <FileText className="w-4 h-4" />
-                                            <span>{assessment.question_count || 20} questions</span>
+                                            <span>{questionCount} {questionCount === 1 ? 'question' : 'questions'}</span>
                                         </div>
                                     </div>
                                     
+                                    {/* ✅ ENHANCED: Warning if no questions */}
+                                    {questionCount === 0 && (
+                                        <div className="mb-3 p-2 bg-red-500/10 border border-red-500/20 rounded text-center">
+                                            <p className="text-red-400 text-xs flex items-center justify-center gap-1">
+                                                <AlertCircle className="w-3 h-3" />
+                                                No questions available
+                                            </p>
+                                        </div>
+                                    )}
+                                    
                                     <Link to={`/assessments/${assessment.id}`}>
-                                        <button className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition group-hover:shadow-lg group-hover:shadow-primary-500/20">
-                                            {userResult ? 'Retake Assessment →' : 'Start Assessment →'}
+                                        <button 
+                                            disabled={questionCount === 0}
+                                            className={`w-full py-2.5 rounded-lg transition ${
+                                                questionCount === 0
+                                                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                                                    : 'bg-primary-600 text-white hover:bg-primary-700 group-hover:shadow-lg group-hover:shadow-primary-500/20'
+                                            }`}
+                                        >
+                                            {questionCount === 0 
+                                                ? 'Unavailable' 
+                                                : (userResult ? 'Retake Assessment →' : 'Start Assessment →')
+                                            }
                                         </button>
                                     </Link>
                                 </div>
