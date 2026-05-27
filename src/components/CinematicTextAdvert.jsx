@@ -1,11 +1,11 @@
 // src/components/CinematicTextAdvert.jsx
-// ULTIMATE CINEMATIC ADVERT - Full animations, API-ready, production-optimized
+// CINEMATIC ADVERT - Full animations with local content (no API dependencies)
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
-// CONSTANTS
+// LOCAL CONTENT (No API calls needed)
 // ============================================
 
 const DEFAULT_MESSAGES = [
@@ -17,6 +17,15 @@ const DEFAULT_MESSAGES = [
         duration: 4000,
         ctaText: "Get Started",
         ctaLink: "/sign-up"
+    },
+    {
+        text: "Transform Your Career with BluSkye Consult",
+        subtext: "Expert Guidance for Professional Growth",
+        icon: "🎯",
+        gradient: "from-emerald-500 to-teal-500",
+        duration: 4000,
+        ctaText: "Learn More",
+        ctaLink: "/about"
     },
     {
         text: "AI-Powered Career Intelligence",
@@ -33,6 +42,13 @@ const DEFAULT_MESSAGES = [
         duration: 3500
     },
     {
+        text: "Strategic Solutions for Modern Business",
+        subtext: "Tailored strategies for unique challenges",
+        icon: "📊",
+        gradient: "from-orange-500 to-red-500",
+        duration: 3500
+    },
+    {
         text: "Professional CV Optimization",
         subtext: "ATS-friendly, recruiter-approved format",
         icon: "📄",
@@ -45,6 +61,15 @@ const DEFAULT_MESSAGES = [
         icon: "🤖",
         gradient: "from-indigo-500 to-purple-500",
         duration: 3500
+    },
+    {
+        text: "Proven Methodologies, Exceptional Results",
+        subtext: "Join thousands of successful professionals",
+        icon: "⭐",
+        gradient: "from-yellow-500 to-amber-500",
+        duration: 3500,
+        ctaText: "View Success Stories",
+        ctaLink: "/testimonials"
     }
 ];
 
@@ -53,108 +78,24 @@ const DEFAULT_MESSAGES = [
 // ============================================
 
 export default function CinematicTextAdvert({ 
-    campaignId = 'default', 
     autoRotate = true, 
-    rotationInterval = 5000 
+    rotationInterval = 5000,
+    messages = DEFAULT_MESSAGES
 }) {
-    const [messages, setMessages] = useState(DEFAULT_MESSAGES);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [progress, setProgress] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
     const rotationTimerRef = useRef(null);
     const animationFrameRef = useRef(null);
-    const timeoutRef = useRef(null);
-
-    // Load content from API
-    useEffect(() => {
-        let isMounted = true;
-        
-        const loadContent = async () => {
-            try {
-                // Try to fetch from API if available
-                const response = await fetch('/api/marketing/content', {
-                    headers: { 'Accept': 'application/json' },
-                    cache: 'no-store'
-                }).catch(() => null);
-                
-                if (isMounted && response?.ok) {
-                    const data = await response.json();
-                    if (data?.data?.hero || data?.data?.features) {
-                        const transformed = transformApiResponse(data);
-                        setMessages(transformed);
-                    }
-                }
-            } catch (err) {
-                console.warn('Advert content fetch failed, using defaults:', err.message);
-                setError(null); // Non-critical, use defaults
-            } finally {
-                if (isMounted) {
-                    setLoading(false);
-                    // Trigger entrance animation
-                    setTimeout(() => setIsVisible(true), 100);
-                }
-            }
-        };
-        
-        loadContent();
-        
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
-    // Transform API response to message format
-    const transformApiResponse = useCallback((data) => {
-        if (data?.data?.hero) {
-            const hero = data.data.hero;
-            return [{
-                text: hero.title || DEFAULT_MESSAGES[0].text,
-                subtext: hero.subtitle || hero.description || DEFAULT_MESSAGES[0].subtext,
-                icon: hero.icon || "✨",
-                gradient: hero.gradient || "from-sky-500 to-blue-600",
-                duration: 4000,
-                ctaText: hero.ctaText,
-                ctaLink: hero.ctaLink
-            }, ...DEFAULT_MESSAGES.slice(1)];
-        }
-        
-        if (data?.data?.features?.length) {
-            const featureMessages = data.data.features.map(feature => ({
-                text: feature.title,
-                subtext: feature.description,
-                icon: feature.icon || getIconForFeature(feature.title),
-                gradient: feature.gradient || "from-primary-500 to-sky-500",
-                duration: 3500
-            }));
-            return [...featureMessages, ...DEFAULT_MESSAGES];
-        }
-        
-        return DEFAULT_MESSAGES;
-    }, []);
-
-    // Helper: Get icon for feature
-    const getIconForFeature = useCallback((title) => {
-        const iconMap = {
-            'AI': '🧠', 'Job': '💼', 'Skill': '⭐', 
-            'Career': '🎯', 'Salary': '💰', 'Workplace': '⚖️', 
-            'Virtual': '🤖', 'CV': '📄'
-        };
-        for (const [key, icon] of Object.entries(iconMap)) {
-            if (title.includes(key)) return icon;
-        }
-        return '✨';
-    }, []);
 
     const currentMessage = messages[currentIndex];
-    const duration = currentMessage?.duration || 3500;
+    const duration = currentMessage?.duration || 4000;
     const hasCTA = currentMessage?.ctaText && currentMessage?.ctaLink;
     const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
 
     // Auto-rotation effect
     useEffect(() => {
-        if (!autoRotate || loading || messages.length <= 1) return;
+        if (!autoRotate || messages.length <= 1) return;
         
         const rotateContent = () => {
             setIsVisible(false);
@@ -170,11 +111,11 @@ export default function CinematicTextAdvert({
         return () => {
             if (rotationTimerRef.current) clearInterval(rotationTimerRef.current);
         };
-    }, [autoRotate, duration, loading, messages.length]);
+    }, [autoRotate, duration, messages.length]);
 
     // Progress animation
     useEffect(() => {
-        if (loading || !currentMessage || !autoRotate) return;
+        if (!autoRotate) return;
         
         let startTime = Date.now();
         
@@ -193,7 +134,7 @@ export default function CinematicTextAdvert({
         return () => {
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         };
-    }, [currentIndex, duration, loading, currentMessage, autoRotate]);
+    }, [currentIndex, duration, autoRotate]);
 
     // Navigate to specific slide
     const goToSlide = useCallback((index) => {
@@ -220,24 +161,13 @@ export default function CinematicTextAdvert({
             setProgress(0);
             setIsVisible(true);
         }, 300);
-    }, [currentIndex, autoRotate, duration]);
+    }, [currentIndex, autoRotate, duration, messages.length]);
 
-    // Loading skeleton
-    if (loading) {
-        return (
-            <div className="w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl my-8 overflow-hidden">
-                <div className="px-6 py-16 md:py-20 lg:py-24">
-                    <div className="max-w-4xl mx-auto text-center">
-                        <div className="animate-pulse">
-                            <div className="w-20 h-20 bg-slate-800 rounded-full mx-auto mb-6"></div>
-                            <div className="h-8 bg-slate-800 rounded w-64 mx-auto mb-4"></div>
-                            <div className="h-4 bg-slate-800 rounded w-96 mx-auto"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    // Trigger entrance animation on mount
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 100);
+        return () => clearTimeout(timer);
+    }, []);
 
     return (
         <div className="relative w-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl shadow-2xl my-8">
