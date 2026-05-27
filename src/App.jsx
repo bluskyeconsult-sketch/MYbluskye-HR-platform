@@ -1,5 +1,5 @@
 // src/App.jsx
-// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, and mount protection
+// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, and optional route tracking
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
@@ -261,19 +261,30 @@ const routeGroups = {
 function AppContent() {
     const location = useLocation();
     const mountCount = useRef(0);
+    const previousPathRef = useRef(location.pathname);
+    const isDevelopment = import.meta.env.DEV;
     
+    // App mount tracking
     useEffect(() => {
         mountCount.current++;
-        if (import.meta.env.DEV) {
+        if (isDevelopment) {
             console.log(`✅ App mounted (mount #${mountCount.current}) - www.bluskyeconsult.com`);
         }
         
         return () => {
-            if (import.meta.env.DEV) {
+            if (isDevelopment) {
                 console.log(`🔄 App unmounting (was mounted ${mountCount.current} times)`);
             }
         };
-    }, []);
+    }, [isDevelopment]);
+
+    // Route change tracking (development only)
+    useEffect(() => {
+        if (isDevelopment && previousPathRef.current !== location.pathname) {
+            console.log(`📍 Route changed: ${previousPathRef.current} → ${location.pathname}`);
+            previousPathRef.current = location.pathname;
+        }
+    }, [location.pathname, isDevelopment]);
 
     const renderRouteGroup = (routes) => 
         routes.map(({ path, element }) => (
