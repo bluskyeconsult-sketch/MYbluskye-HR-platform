@@ -1,23 +1,35 @@
 // src/lib/supabase.js
-// ROBUST SINGLETON - Prevents multiple instances, handles SSR, validates configuration
+// ROBUST SINGLETON - Prevents multiple instances, handles SSR, validates configuration, fixes token refresh errors
 
 import { createClient } from '@supabase/supabase-js';
 
-// Environment validation
+// ============================================
+// ENVIRONMENT VALIDATION
+// ============================================
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Validation with clear error message
+// Clear error messages for debugging
 if (!supabaseUrl || !supabaseAnonKey) {
+    const missing = [];
+    if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
+    if (!supabaseAnonKey) missing.push('VITE_SUPABASE_ANON_KEY');
+    
     throw new Error(
-        'Missing Supabase environment variables.\n\n' +
+        `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\n` +
         'Please check your .env file has:\n' +
         'VITE_SUPABASE_URL=your_project_url\n' +
         'VITE_SUPABASE_ANON_KEY=your_anon_key'
     );
 }
 
-// Module-level state (protected)
+// Clean URL for storage key generation
+const cleanUrl = supabaseUrl.replace(/[^a-zA-Z0-9]/g, '');
+const STORAGE_KEY = 'bluskye-auth-token';
+
+// ============================================
+// SINGLETON PATTERN
+// ============================================
 let supabaseInstance = null;
 let isInitializing = false;
 
@@ -33,10 +45,10 @@ export const getSupabase = () => {
     
     // Prevent concurrent initialization
     if (isInitializing) {
-        // Wait for initialization to complete (simple spin-wait)
+        // Wait for initialization to complete (max 100ms)
         const startTime = Date.now();
         while (isInitializing && Date.now() - startTime < 100) {
-            // Small delay to allow initialization
+            // Busy wait - acceptable for initialization race conditions
         }
         return supabaseInstance;
     }
@@ -46,36 +58,219 @@ export const getSupabase = () => {
     try {
         supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
             auth: {
-                persistSession: true,
                 autoRefreshToken: true,
+                persistSession: true,
                 detectSessionInUrl: true,
-                storageKey: 'odusbaba-auth-token', // Unique key for your app
-                storage: window?.localStorage, // Safe for SSR
-                flowType: 'pkce' // More secure for SPAs
+                storageKey: STORAGE_KEY,
+                storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+                flowType: 'pkce',
+                debug: import.meta.env.DEV ? false : false // Set to true for debugging
             },
             db: {
                 schema: 'public'
             },
             global: {
-                headers: { 'x-application-name': 'odusbaba-platform' }
+                headers: {
+                    'x-application-name': 'bluskye-consult',
+                    'x-client-info': 'bluskye@1.0.0'
+                }
             }
         });
         
-        // Optional: Log only in development
         if (import.meta.env.DEV) {
             console.log('✅ Supabase client initialized (singleton)');
         }
         
         return supabaseInstance;
+    } catch (error) {
+        console.error('❌ Failed to initialize Supabase client:', error);
+        throw error;
     } finally {
         isInitializing = false;
     }
 };
 
-// Export a frozen singleton for direct use
+// ============================================
+// EXPORT SINGLETON INSTANCE
+// ============================================
 export const supabase = getSupabase();
 
-// Freeze the object to prevent modifications (optional)
-if (typeof Object.freeze === 'function') {
+// Freeze to prevent modifications (optional, helps with debugging)
+if (typeof Object.freeze === 'function' && import.meta.env.PROD) {
     Object.freeze(supabase);
+}
+
+// ============================================
+// SESSION MANAGEMENT HELPERS
+// ============================================
+
+/**
+ * Clear corrupted auth state and redirect to sign-in
+ * Use this when you get "object is not extensible" errors
+ */
+export async function clearAndReauth() {
+    try {
+        console.warn('🔄 Clearing corrupted auth state...');
+        
+        // Clear all auth-related storage
+        const keysToRemove = [
+            STORAGE_KEY,
+            `sb-${cleanUrl}-auth-token`,
+            `sb-${cleanUrl}-session`,
+            'supabase-auth-token'
+        ];
+        
+        keysToRemove.forEach(key => {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(key);
+            }
+        });
+        
+        // Clear session storage as well
+        if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.clear();
+        }
+        
+        // Sign out if client exists
+        if (supabaseInstance) {
+            await supabaseInstance.auth.signOut();
+        }
+        
+        // Redirect to sign-in
+        window.location.href = '/sign-in?cleared=1';
+    } catch (err) {
+        console.error('Clear auth failed:', err);
+        window.location.href = '/sign-in';
+    }
+}
+
+/**
+ * Recover or refresh the current session
+ * Use this after app startup to validate session
+ * @returns {Promise<Session|null>}
+ */
+export async function recoverSession() {
+    try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+            console.warn('Session recovery error:', error.message);
+            
+            // If token refresh failed, clear and redirect
+            if (error.message?.includes('refresh') || error.message?.includes('token')) {
+                await clearAndReauth();
+                return null;
+            }
+            return null;
+        }
+        
+        if (!session) {
+            // Try to refresh anyway
+            const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+                console.warn('No valid session found');
+                return null;
+            }
+            return refreshed;
+        }
+        
+        return session;
+    } catch (err) {
+        console.error('Session recovery failed:', err);
+        return null;
+    }
+}
+
+/**
+ * Check if current session is valid and not expired
+ * @returns {Promise<boolean>}
+ */
+export async function isSessionValid() {
+    try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error || !session) return false;
+        
+        // Check if token is expired
+        const expiresAt = session.expires_at;
+        if (expiresAt) {
+            const isExpired = Date.now() >= expiresAt * 1000;
+            if (isExpired) {
+                // Try to refresh
+                const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession();
+                return !refreshError && !!refreshed;
+            }
+        }
+        
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Get current user with automatic session recovery
+ * @returns {Promise<User|null>}
+ */
+export async function getCurrentUser() {
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error || !user) {
+            // Try to recover session first
+            const session = await recoverSession();
+            if (!session) return null;
+            
+            // Retry getting user
+            const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
+            if (retryError || !retryUser) return null;
+            return retryUser;
+        }
+        
+        return user;
+    } catch (err) {
+        console.error('Get current user failed:', err);
+        return null;
+    }
+}
+
+// ============================================
+// AUTH EVENT LISTENER (Optional)
+// ============================================
+let authListener = null;
+
+/**
+ * Initialize auth state listener for debugging
+ * Call this once in your App component
+ */
+export function initAuthListener() {
+    if (authListener) return;
+    
+    authListener = supabase.auth.onAuthStateChange((event, session) => {
+        if (import.meta.env.DEV) {
+            console.log(`🔐 Auth event: ${event}`, session?.user?.email || 'no user');
+        }
+        
+        // Handle token refresh errors
+        if (event === 'TOKEN_REFRESHED') {
+            console.log('✅ Token refreshed successfully');
+        }
+        
+        if (event === 'SIGNED_OUT') {
+            // Clear any custom state if needed
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('lastPath');
+            }
+        }
+    });
+}
+
+/**
+ * Clean up auth listener (call on app unmount)
+ */
+export function cleanupAuthListener() {
+    if (authListener) {
+        authListener.data?.subscription?.unsubscribe();
+        authListener = null;
+    }
 }
