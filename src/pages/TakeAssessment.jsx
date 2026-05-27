@@ -1,5 +1,5 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types
+// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -9,18 +9,18 @@ import {
     checkUserEligibility, 
     recordAssessmentStart,
     submitAssessmentAnswers,
-    startAssessment,
     saveAnswer,
     completeAssessment
 } from '../services/assessmentService';
-import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award } from 'lucide-react';
+import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save } from 'lucide-react';
 
 export default function TakeAssessment() {
     const { id } = useParams();
     const navigate = useNavigate();
     
-    // State from both versions
+    // State
     const [assessment, setAssessment] = useState(null);
+    const [questions, setQuestions] = useState([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [answers, setAnswers] = useState({});
     const [timeLeft, setTimeLeft] = useState(null);
@@ -31,8 +31,8 @@ export default function TakeAssessment() {
     const [error, setError] = useState(null);
     const [startTime, setStartTime] = useState(null);
     const [user, setUser] = useState(null);
-    const [questions, setQuestions] = useState([]);
-    const [session, setSession] = useState(null);
+    const [sessionId, setSessionId] = useState(null);
+    const [autoSaveStatus, setAutoSaveStatus] = useState(null);
 
     useEffect(() => {
         loadAssessment();
@@ -56,28 +56,47 @@ export default function TakeAssessment() {
         return () => clearInterval(timer);
     }, [timeLeft, submitting]);
 
+    // Auto-save effect
+    useEffect(() => {
+        if (!sessionId || Object.keys(answers).length === 0) return;
+        
+        const autoSaveTimer = setTimeout(async () => {
+            try {
+                await saveAnswer(sessionId, answers);
+                setAutoSaveStatus('saved');
+                setTimeout(() => setAutoSaveStatus(null), 2000);
+            } catch (err) {
+                console.warn('Auto-save failed:', err);
+                setAutoSaveStatus('error');
+            }
+        }, 3000);
+        
+        return () => clearTimeout(autoSaveTimer);
+    }, [answers, sessionId]);
+
     async function loadAssessment() {
         setLoading(true);
         setError(null);
         
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
+            // 1. Check authentication
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+            if (!authUser) {
                 navigate(`/sign-in?redirect=/assessments/${id}`);
                 return;
             }
-            setUser(user);
+            setUser(authUser);
             
-            // Check eligibility using checkUserEligibility
+            // 2. Check eligibility
             let eligibilityData;
             try {
-                eligibilityData = await checkUserEligibility(user.id, id);
+                eligibilityData = await checkUserEligibility(authUser.id, id);
             } catch (err) {
                 // Fallback: manually check using profiles table
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('tier, user_type')
-                    .eq('id', user.id)
+                    .eq('id', authUser.id)
                     .single();
                 
                 const isUnlimited = profile?.tier === 'super_admin' || 
@@ -103,17 +122,27 @@ export default function TakeAssessment() {
                 return;
             }
             
-            // Get assessment details
+            // 3. Get assessment with questions
             let assessmentData;
             try {
                 assessmentData = await getAssessmentById(id);
             } catch {
-                const { data } = await supabase
+                const { data, error } = await supabase
                     .from('assessments')
-                    .select('*, questions:assessment_questions(*, options:assessment_options(*))')
+                    .select('*')
                     .eq('id', id)
                     .single();
-                assessmentData = data;
+                
+                if (error) throw error;
+                
+                // Get questions with options
+                const { data: questionsData } = await supabase
+                    .from('assessment_questions')
+                    .select('*, options:assessment_options(*)')
+                    .eq('assessment_id', id)
+                    .order('sort_order', { ascending: true });
+                
+                assessmentData = { ...data, questions: questionsData || [] };
             }
             
             if (!assessmentData) {
@@ -127,28 +156,30 @@ export default function TakeAssessment() {
             setTimeLeft(assessmentData.time_limit_minutes * 60);
             setStartTime(Date.now());
             
-            // Start assessment session
-            const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            // 4. Start assessment session
+            const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            setSessionId(newSessionId);
             
             let record;
             try {
-                record = await recordAssessmentStart(user.id, id, sessionId);
+                record = await recordAssessmentStart(authUser.id, id, newSessionId);
             } catch {
-                const result = await startAssessment(user.id, id);
-                record = result.session;
+                const result = await startAssessment(authUser.id, id);
+                record = result?.session;
             }
             
             setUserAssessmentId(record?.id);
-            setSession({ sessionId });
             
         } catch (err) {
-            setError(err.message);
+            console.error('Error loading assessment:', err);
+            setError(err.message || 'Failed to load assessment');
         } finally {
             setLoading(false);
         }
     }
 
     function formatTime(seconds) {
+        if (!seconds && seconds !== 0) return '--:--';
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
         return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -157,11 +188,6 @@ export default function TakeAssessment() {
     async function handleAnswer(questionId, answerValue) {
         const newAnswers = { ...answers, [questionId]: answerValue };
         setAnswers(newAnswers);
-        
-        // Auto-save if using the newer service
-        if (session?.sessionId) {
-            await saveAnswer(session.sessionId, questionId, answerValue, currentIndex);
-        }
     }
 
     async function handleNext() {
@@ -179,29 +205,33 @@ export default function TakeAssessment() {
     }
 
     async function handleSubmit() {
+        if (submitting) return;
+        
         setSubmitting(true);
         const timeSpent = Math.floor((Date.now() - startTime) / 1000);
         
-        let result;
         try {
+            let result;
             if (userAssessmentId) {
                 result = await submitAssessmentAnswers(userAssessmentId, answers, timeSpent);
-            } else if (session?.sessionId) {
-                result = await completeAssessment(session.sessionId);
+            } else if (sessionId) {
+                result = await completeAssessment(sessionId, answers);
             } else {
                 throw new Error('No active assessment session');
             }
             
             if (result.success) {
-                const redirectId = userAssessmentId || session?.sessionId;
+                const redirectId = userAssessmentId || sessionId;
                 navigate(`/assessment-results/${redirectId}`);
             } else {
                 setError(result.error || 'Failed to submit assessment. Please try again.');
             }
         } catch (err) {
+            console.error('Submit error:', err);
             setError(err.message || 'Failed to submit assessment. Please try again.');
+        } finally {
+            setSubmitting(false);
         }
-        setSubmitting(false);
     }
 
     function renderQuestion() {
@@ -216,23 +246,28 @@ export default function TakeAssessment() {
                     <div className="space-y-4">
                         <p className="text-white text-lg font-medium">{question.question_text}</p>
                         <div className="grid grid-cols-5 gap-2">
-                            {[1, 2, 3, 4, 5].map(value => (
-                                <button
-                                    key={value}
-                                    onClick={() => handleAnswer(question.id, value)}
-                                    className={`py-3 rounded-lg font-semibold transition whitespace-pre-line ${
-                                        currentAnswer === value
-                                            ? 'bg-primary-600 text-white'
-                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                    }`}
-                                >
-                                    {value === 1 ? 'Strongly\nDisagree' : 
-                                     value === 2 ? 'Disagree' : 
-                                     value === 3 ? 'Neutral' : 
-                                     value === 4 ? 'Agree' : 
-                                     'Strongly\nAgree'}
-                                </button>
-                            ))}
+                            {[1, 2, 3, 4, 5].map(value => {
+                                const labels = {
+                                    1: 'Strongly\nDisagree',
+                                    2: 'Disagree',
+                                    3: 'Neutral',
+                                    4: 'Agree',
+                                    5: 'Strongly\nAgree'
+                                };
+                                return (
+                                    <button
+                                        key={value}
+                                        onClick={() => handleAnswer(question.id, value)}
+                                        className={`py-3 rounded-lg font-semibold transition whitespace-pre-line text-center ${
+                                            currentAnswer === value
+                                                ? 'bg-primary-600 text-white'
+                                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {labels[value]}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                 );
@@ -242,7 +277,7 @@ export default function TakeAssessment() {
                     <div className="space-y-3">
                         <p className="text-white text-lg font-medium">{question.question_text}</p>
                         <div className="space-y-2">
-                            {question.options?.map(option => (
+                            {(question.options || []).map(option => (
                                 <label
                                     key={option.id}
                                     className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition ${
@@ -259,8 +294,30 @@ export default function TakeAssessment() {
                                         onChange={() => handleAnswer(question.id, option.id)}
                                         className="w-4 h-4 text-primary-500 focus:ring-primary-500"
                                     />
-                                    <span className="text-white">{option.option_text}</span>
+                                    <span className="text-white">{option.option_text || option.text}</span>
                                 </label>
+                            ))}
+                        </div>
+                    </div>
+                );
+                
+            case 'true_false':
+                return (
+                    <div className="space-y-3">
+                        <p className="text-white text-lg font-medium">{question.question_text}</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            {['True', 'False'].map(value => (
+                                <button
+                                    key={value}
+                                    onClick={() => handleAnswer(question.id, value.toLowerCase())}
+                                    className={`py-3 rounded-lg font-semibold transition ${
+                                        currentAnswer === value.toLowerCase()
+                                            ? 'bg-primary-600 text-white'
+                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {value}
+                                </button>
                             ))}
                         </div>
                     </div>
@@ -268,6 +325,7 @@ export default function TakeAssessment() {
                 
             case 'scenario':
             case 'text':
+            case 'essay':
                 return (
                     <div className="space-y-4">
                         <p className="text-white text-lg font-medium">{question.question_text}</p>
@@ -315,7 +373,7 @@ export default function TakeAssessment() {
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Cannot Start Assessment</h1>
                     <p className="text-slate-400 mb-6">{error}</p>
-                    <div className="flex gap-3 justify-center">
+                    <div className="flex gap-3 justify-center flex-wrap">
                         <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                             Try Again
                         </button>
@@ -333,25 +391,50 @@ export default function TakeAssessment() {
         );
     }
 
+    if (questions.length === 0) {
+        return (
+            <div className="min-h-screen bg-slate-950 py-12">
+                <div className="max-w-2xl mx-auto px-4 text-center">
+                    <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+                    <h1 className="text-2xl font-bold text-white mb-2">No Questions Available</h1>
+                    <p className="text-slate-400 mb-6">This assessment doesn't have any questions yet.</p>
+                    <a href="/assessments" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                        Back to Assessments
+                    </a>
+                </div>
+            </div>
+        );
+    }
+
     const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
     const currentQuestion = questions[currentIndex];
     const hasAnswered = currentQuestion ? answers[currentQuestion.id] !== undefined : false;
 
     return (
-        <div className="min-h-screen bg-slate-950 py-12">
+        <div className="min-h-screen bg-slate-950 py-8 md:py-12">
             <div className="max-w-3xl mx-auto px-4">
                 {/* Header */}
-                <div className="mb-8">
+                <div className="mb-6">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-2">
-                        <h1 className="text-2xl font-bold text-white">{assessment?.title}</h1>
-                        {timeLeft !== null && (
-                            <div className={`flex items-center gap-2 px-3 py-1 rounded-full w-fit ${
-                                timeLeft < 60 ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-slate-800 text-slate-300'
-                            }`}>
-                                <Clock className="w-4 h-4" />
-                                <span className="text-sm font-mono font-bold">{formatTime(timeLeft)}</span>
-                            </div>
-                        )}
+                        <h1 className="text-xl md:text-2xl font-bold text-white">{assessment?.title}</h1>
+                        <div className="flex items-center gap-3">
+                            {autoSaveStatus === 'saved' && (
+                                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                    <Save className="w-3 h-3" /> Saved
+                                </span>
+                            )}
+                            {autoSaveStatus === 'error' && (
+                                <span className="text-xs text-red-400">Auto-save failed</span>
+                            )}
+                            {timeLeft !== null && (
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${
+                                    timeLeft < 60 ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-slate-800 text-slate-300'
+                                }`}>
+                                    <Clock className="w-4 h-4" />
+                                    <span className="text-sm font-mono font-bold">{formatTime(timeLeft)}</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     
                     <div className="flex justify-between text-sm text-slate-400 mb-2">
@@ -368,7 +451,7 @@ export default function TakeAssessment() {
                 </div>
 
                 {/* Question Card */}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 md:p-6 mb-6">
                     {renderQuestion()}
                 </div>
 
@@ -377,28 +460,26 @@ export default function TakeAssessment() {
                     <button
                         onClick={handlePrevious}
                         disabled={currentIndex === 0}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition"
+                        className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition"
                     >
                         <ChevronLeft className="w-4 h-4" /> Previous
                     </button>
                     
                     <button
                         onClick={handleNext}
-                        disabled={!hasAnswered}
+                        disabled={!hasAnswered || submitting}
                         className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition font-medium"
                     >
-                        {currentIndex === questions.length - 1 ? (
-                            submitting ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Submitting...
-                                </>
-                            ) : (
-                                <>
-                                    <Award className="w-4 h-4" />
-                                    Submit Assessment
-                                </>
-                            )
+                        {submitting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Submitting...
+                            </>
+                        ) : currentIndex === questions.length - 1 ? (
+                            <>
+                                <Award className="w-4 h-4" />
+                                Submit Assessment
+                            </>
                         ) : (
                             <>
                                 Next <ChevronRight className="w-4 h-4" />
