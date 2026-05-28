@@ -1,6 +1,6 @@
 // api/index.js - COMPLETE CONSOLIDATED API FOR HOBBY PLAN
-// Handles: Health checks, IP geolocation, Email sending, Job fetching, AI chat, Assessment generation, Course generation
-// Replaces: health.js, send-email.js, fetch-jobs.js, chat.js, ai.js, and all cron jobs
+// INCLUDES: Full health monitoring, IP geolocation, Email with templates, Job fetching from 7+ countries, AI chat, Assessment generation, Course generation
+// RELEASES: api/health.js, api/chat.js, api/fetch-jobs.js, api/send-email.js, api/ai.js
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -14,17 +14,13 @@ const ALLOWED_EMAIL_TYPES = [
     'assessment_report', 'welcome', 'password_reset', 'job_alert', 'test'
 ];
 
-// Rate limiting for emails
 const rateLimit = new Map();
 
 function checkRateLimit(email, type) {
     const key = `${email}:${type}`;
     const now = Date.now();
     const lastSent = rateLimit.get(key);
-    
-    if (lastSent && (now - lastSent) < 60000) {
-        return false;
-    }
+    if (lastSent && (now - lastSent) < 60000) return false;
     rateLimit.set(key, now);
     return true;
 }
@@ -34,7 +30,6 @@ function isValidEmail(email) {
     return emailRegex.test(email);
 }
 
-// Helper for RSS feed extraction
 function extractTag(xml, tag) {
     const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i'));
     return match ? match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
@@ -54,12 +49,11 @@ async function safeFetch(url, timeout = 10000) {
 }
 
 // ============================================
-// EMAIL TEMPLATES
+// EMAIL TEMPLATES (Full from send-email.js)
 // ============================================
 
 const emailTemplates = {
-    contact: (data) => `
-<!DOCTYPE html>
+    contact: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -74,8 +68,7 @@ const emailTemplates = {
 </body>
 </html>`,
     
-    welcome: (data) => `
-<!DOCTYPE html>
+    welcome: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -83,13 +76,12 @@ const emailTemplates = {
         <h1 style="color: #10b981;">Welcome to BluSkye Integrated Consult</h1>
         <h2>Hello ${data.name},</h2>
         <p>Thank you for joining ODUSBABA! You're now part of the governed workforce platform.</p>
-        <a href="https://www.bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0B3C5D; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Go to Dashboard</a>
+        <a href="https://www.bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0B3C5D; color: white; padding: 12px 24px; border-radius: 8px;">Go to Dashboard</a>
     </div>
 </body>
 </html>`,
 
-    password_reset: (data) => `
-<!DOCTYPE html>
+    password_reset: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -101,8 +93,7 @@ const emailTemplates = {
 </body>
 </html>`,
 
-    job_alert: (data) => `
-<!DOCTYPE html>
+    job_alert: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -114,8 +105,7 @@ const emailTemplates = {
 </body>
 </html>`,
 
-    tester_welcome: (data) => `
-<!DOCTYPE html>
+    tester_welcome: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -128,8 +118,7 @@ const emailTemplates = {
 </body>
 </html>`,
 
-    assessment_report: (data) => `
-<!DOCTYPE html>
+    assessment_report: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
@@ -144,7 +133,32 @@ const emailTemplates = {
 </body>
 </html>`,
 
-    test: () => `<h1>✅ Email Test Successful!</h1><p>Your email system is working.</p>`
+    newsletter_welcome: (data) => `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 24px;">
+        <h1 style="color: #10b981;">Welcome to ODUSBABA Newsletter!</h1>
+        <p>Hello ${data.name},</p>
+        <p>Thank you for subscribing! You'll receive weekly insights on job opportunities, career tips, and industry trends.</p>
+        <a href="https://www.bluskyeconsult.com" style="display: inline-block; background-color: #0B3C5D; color: white; padding: 12px 24px; border-radius: 8px;">Visit ODUSBABA →</a>
+    </div>
+</body>
+</html>`,
+
+    notification: (data) => `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; background-color: #020617; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 24px;">
+        <h1 style="color: #10b981;">${data.subject || 'ODUSBABA Notification'}</h1>
+        <p>${data.message}</p>
+        ${data.actionLink ? `<a href="${data.actionLink}" style="display: inline-block; background-color: #0B3C5D; color: white; padding: 12px 24px; border-radius: 8px;">${data.actionText || 'Learn More'}</a>` : ''}
+    </div>
+</body>
+</html>`,
+
+    test: () => `<h1>✅ Email Test Successful!</h1><p>Your ODUSBABA email system is working correctly.</p>`
 };
 
 function getTransporter() {
@@ -156,12 +170,15 @@ function getTransporter() {
             user: process.env.VITE_EMAIL_USER || process.env.SMTP_USER,
             pass: process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD
         },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
     });
 }
 
 // ============================================
-// JOB FETCHING FUNCTION
+// JOB FETCHING (Full from fetch-jobs.js)
 // ============================================
 
 async function fetchAllJobs() {
@@ -169,7 +186,7 @@ async function fetchAllJobs() {
     let allJobs = [];
     const errors = [];
 
-    // UK Civil Service
+    // 1. UK Civil Service Jobs
     try {
         const response = await safeFetch('https://www.civilservicejobs.service.gov.uk/csr/index.cgi?action=feed.homesite&language=en', timeout);
         const text = await response.text();
@@ -191,7 +208,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'UK Civil Service', error: err.message });
     }
 
-    // NHS Jobs
+    // 2. UK NHS Jobs
     try {
         const response = await safeFetch('https://www.jobs.nhs.uk/feeds/jobs.xml', timeout);
         const text = await response.text();
@@ -213,7 +230,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'NHS', error: err.message });
     }
 
-    // USAJobs
+    // 3. USAJobs
     try {
         const response = await safeFetch('https://www.usajobs.gov/jobs/feed/rss?Number=10', timeout);
         const text = await response.text();
@@ -235,7 +252,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'USAJobs', error: err.message });
     }
 
-    // Canada GC Jobs
+    // 4. Canada GC Jobs
     try {
         const response = await safeFetch('https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/v1/announcements?language=en&page=1&count=10', timeout);
         const data = await response.json();
@@ -258,7 +275,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'Canada GC Jobs', error: err.message });
     }
 
-    // Australia APS Jobs
+    // 5. Australia APS Jobs
     try {
         const response = await safeFetch('https://www.apsjobs.gov.au/api/v1/jobs?limit=10&offset=0', timeout);
         const data = await response.json();
@@ -281,7 +298,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'Australia APS', error: err.message });
     }
 
-    // Ireland
+    // 6. Ireland Public Jobs
     try {
         const response = await safeFetch('https://www.publicjobs.ie/rss', timeout);
         const text = await response.text();
@@ -303,7 +320,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'Ireland', error: err.message });
     }
 
-    // Germany
+    // 7. Germany
     try {
         const response = await safeFetch('https://www.bund.de/rss/jobs', timeout);
         const text = await response.text();
@@ -325,7 +342,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'Germany', error: err.message });
     }
 
-    // France
+    // 8. France
     try {
         const response = await safeFetch('https://candidat.francetravail.fr/offres/search?limit=10&sort=date', timeout);
         const data = await response.json();
@@ -348,18 +365,20 @@ async function fetchAllJobs() {
         errors.push({ source: 'France', error: err.message });
     }
 
-    // Nigeria Fallback Jobs
-    allJobs.push(
-        { title: 'Civil Service Officer', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Federal Civil Service', description: 'Join the Federal Civil Service.', salary_range: '₦3,500,000 - ₦5,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
-        { title: 'Policy Analyst', company: 'Ministry of Finance', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Ministry of Finance', description: 'Policy development role.', salary_range: '₦4,000,000 - ₦6,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
-        { title: 'IT Specialist', company: 'NITDA', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'NITDA', description: 'Digital transformation role.', salary_range: '₦3,500,000 - ₦5,500,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false }
-    );
+    // 9. Nigeria - Fallback Jobs
+    const nigeriaJobs = [
+        { title: 'Civil Service Officer', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Federal Civil Service', description: 'Join the Federal Civil Service as an Officer. Opportunities in various ministries.', salary_range: '₦3,500,000 - ₦5,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
+        { title: 'Policy Analyst', company: 'Ministry of Finance', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Ministry of Finance', description: 'Policy development and economic analysis role.', salary_range: '₦4,000,000 - ₦6,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
+        { title: 'IT Specialist', company: 'NITDA', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'NITDA', description: 'Digital transformation and IT infrastructure role.', salary_range: '₦3,500,000 - ₦5,500,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false }
+    ];
+    allJobs.push(...nigeriaJobs);
 
-    // Remote Fallback Jobs
-    allJobs.push(
-        { title: 'Remote Software Engineer', company: 'Global Tech', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Full-stack development.', salary_range: '$60,000 - $90,000', job_type: 'remote', external_url: '', sponsorship_eligible: false },
-        { title: 'Virtual Assistant', company: 'Global Services', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Administrative support.', salary_range: '$25,000 - $40,000', job_type: 'remote', external_url: '', sponsorship_eligible: false }
-    );
+    // 10. Remote/Global Fallback Jobs
+    const remoteJobs = [
+        { title: 'Remote Software Engineer', company: 'Global Tech', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Full-stack development position. Work from anywhere.', salary_range: '$60,000 - $90,000', job_type: 'remote', external_url: '', sponsorship_eligible: false },
+        { title: 'Virtual Assistant', company: 'Global Services', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Administrative support for international clients.', salary_range: '$25,000 - $40,000', job_type: 'remote', external_url: '', sponsorship_eligible: false }
+    ];
+    allJobs.push(...remoteJobs);
 
     // Remove duplicates
     const uniqueJobs = [];
@@ -376,17 +395,17 @@ async function fetchAllJobs() {
 }
 
 // ============================================
-// AI HELPERS
+// AI HELPERS (Full from chat.js and ai.js)
 // ============================================
 
-async function callOpenAI(messages, maxTokens = 500) {
-    const apiKey = process.env.VITE_OPENAI_API_KEY;
+async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
+    const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens })
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens, temperature })
     });
 
     if (!response.ok) {
@@ -415,7 +434,7 @@ export default async function handler(req, res) {
     const startTime = Date.now();
 
     // ============================================
-    // ACTION: IP Geolocation
+    // ACTION: IP Geolocation (from health.js)
     // ============================================
     if (action === 'ip') {
         const ip = req.headers['x-forwarded-for']?.split(',')[0] ||
@@ -424,21 +443,27 @@ export default async function handler(req, res) {
                    '0.0.0.0';
         const cleanIp = ip.replace(/^::ffff:/, '');
 
+        const geoData = {
+            country: req.headers['x-vercel-ip-country'] || null,
+            countryRegion: req.headers['x-vercel-ip-country-region'] || null,
+            region: req.headers['x-vercel-ip-region'] || null,
+            city: req.headers['x-vercel-ip-city'] || null,
+            latitude: req.headers['x-vercel-ip-latitude'] || null,
+            longitude: req.headers['x-vercel-ip-longitude'] || null,
+            timezone: req.headers['x-vercel-ip-timezone'] || null
+        };
+
         return res.status(200).json({
             success: true,
             ip: cleanIp,
-            geolocation: {
-                country: req.headers['x-vercel-ip-country'] || null,
-                city: req.headers['x-vercel-ip-city'] || null,
-                latitude: req.headers['x-vercel-ip-latitude'] || null,
-                longitude: req.headers['x-vercel-ip-longitude'] || null
-            },
+            geolocation: geoData,
+            userAgent: req.headers['user-agent'] || null,
             timestamp: new Date().toISOString()
         });
     }
 
     // ============================================
-    // ACTION: Ping
+    // ACTION: Ping (from health.js)
     // ============================================
     if (action === 'ping') {
         return res.status(200).json({
@@ -449,50 +474,138 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Health Check
+    // ACTION: Health Check (Full from health.js)
     // ============================================
     if (action === 'health') {
         const supabase = createClient(
             process.env.VITE_SUPABASE_URL,
-            process.env.VITE_SUPABASE_ANON_KEY
+            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
         );
 
-        const services = {};
+        const results = {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            environment: process.env.NODE_ENV || 'production',
+            services: {},
+            responseTime: 0
+        };
 
         // Database
         const dbStart = Date.now();
         try {
-            const { error } = await supabase.from('profiles').select('id', { count: 'exact', head: true });
-            services.database = { status: !error ? 'healthy' : 'degraded', responseTime: Date.now() - dbStart };
+            const { error, count } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).limit(1);
+            results.services.database = {
+                status: !error ? 'healthy' : 'degraded',
+                responseTime: Date.now() - dbStart,
+                details: !error ? `Connected • ${count?.toLocaleString() || 0} users` : error.message
+            };
+            if (error) results.status = 'degraded';
         } catch (err) {
-            services.database = { status: 'error', responseTime: Date.now() - dbStart, error: err.message };
+            results.services.database = { status: 'critical', responseTime: Date.now() - dbStart, details: err.message };
+            results.status = 'degraded';
         }
 
         // Auth
         const authStart = Date.now();
         try {
             const { error } = await supabase.auth.getSession();
-            services.auth = { status: !error ? 'healthy' : 'degraded', responseTime: Date.now() - authStart };
+            results.services.auth = { status: !error ? 'healthy' : 'degraded', responseTime: Date.now() - authStart };
+            if (error) results.status = 'degraded';
         } catch (err) {
-            services.auth = { status: 'error', responseTime: Date.now() - authStart, error: err.message };
+            results.services.auth = { status: 'critical', responseTime: Date.now() - authStart, details: err.message };
+            results.status = 'degraded';
+        }
+
+        // Storage
+        const storageStart = Date.now();
+        try {
+            const { data: buckets, error } = await supabase.storage.listBuckets();
+            results.services.storage = {
+                status: !error ? 'healthy' : 'degraded',
+                responseTime: Date.now() - storageStart,
+                details: !error ? `${buckets?.length || 0} buckets available` : error.message
+            };
+            if (error) results.status = 'degraded';
+        } catch (err) {
+            results.services.storage = { status: 'critical', responseTime: Date.now() - storageStart, details: err.message };
+            results.status = 'degraded';
         }
 
         // OpenAI
-        services.openai = { status: process.env.VITE_OPENAI_API_KEY ? 'configured' : 'missing' };
+        const openaiKey = process.env.VITE_OPENAI_API_KEY;
+        if (!openaiKey) {
+            results.services.openai = { status: 'degraded', details: 'API key missing' };
+            results.status = 'degraded';
+        } else {
+            const openaiStart = Date.now();
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'Health check OK' }], max_tokens: 5 })
+                });
+                results.services.openai = {
+                    status: response.ok ? 'healthy' : 'degraded',
+                    responseTime: Date.now() - openaiStart,
+                    details: response.ok ? 'API responsive' : `HTTP ${response.status}`
+                };
+                if (!response.ok) results.status = 'degraded';
+            } catch (err) {
+                results.services.openai = { status: 'degraded', responseTime: Date.now() - openaiStart, details: err.message };
+                results.status = 'degraded';
+            }
+        }
 
         // Email
-        services.email = { status: (process.env.VITE_EMAIL_USER && process.env.VITE_EMAIL_PASS) ? 'configured' : 'missing' };
+        const emailUser = process.env.VITE_EMAIL_USER;
+        const emailPass = process.env.VITE_EMAIL_PASS;
+        if (!emailUser || !emailPass) {
+            results.services.email = { status: 'degraded', details: 'SMTP credentials missing' };
+            results.status = 'degraded';
+        } else {
+            const emailStart = Date.now();
+            try {
+                const nodemailerModule = await import('nodemailer');
+                const transporter = nodemailerModule.createTransport({
+                    host: process.env.VITE_SMTP_HOST || 'smtp.hostinger.com',
+                    port: 465,
+                    secure: true,
+                    auth: { user: emailUser, pass: emailPass }
+                });
+                await transporter.verify();
+                results.services.email = { status: 'healthy', responseTime: Date.now() - emailStart };
+            } catch (err) {
+                results.services.email = { status: 'degraded', responseTime: Date.now() - emailStart, details: err.message };
+                results.status = 'degraded';
+            }
+        }
 
-        return res.status(200).json({
-            status: 'operational',
-            timestamp: new Date().toISOString(),
-            services,
-            responseTime: Date.now() - startTime
-        });
+        // Vercel
+        results.services.vercel = { status: 'healthy', details: `Region: ${process.env.VERCEL_REGION || 'unknown'}` };
+
+        // System
+        const os = await import('os');
+        results.system = {
+            nodeVersion: process.version,
+            platform: process.platform,
+            memoryUsage: process.memoryUsage(),
+            cpuCount: os.cpus().length
+        };
+
+        results.responseTime = Date.now() - startTime;
+
+        const hasCritical = Object.values(results.services).some(s => s.status === 'critical');
+        const hasDegraded = Object.values(results.services).some(s => s.status === 'degraded');
+        if (hasCritical) results.status = 'critical';
+        else if (hasDegraded) results.status = 'degraded';
+        else results.status = 'healthy';
+
+        return res.status(200).json(results);
     }
 
     // ============================================
-    // ACTION: Send Email
+    // ACTION: Send Email (Full from send-email.js)
     // ============================================
     if (action === 'email' && req.method === 'POST') {
         const { to, subject, html, type, templateData } = req.body;
@@ -517,6 +630,7 @@ export default async function handler(req, res) {
                 else if (type === 'job_alert') emailSubject = subject || `New Jobs: ${templateData?.jobs?.length || 0} positions available`;
                 else if (type === 'tester_welcome') emailSubject = subject || 'Welcome to ODUSBABA Tester Program!';
                 else if (type === 'assessment_report') emailSubject = subject || `Your ${templateData?.assessmentTitle} Report`;
+                else if (type === 'newsletter_welcome') emailSubject = subject || 'Welcome to ODUSBABA Newsletter!';
                 else emailSubject = subject || 'ODUSBABA Notification';
             }
 
@@ -542,7 +656,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Fetch Jobs
+    // ACTION: Fetch Jobs (Full from fetch-jobs.js)
     // ============================================
     if (action === 'jobs') {
         const result = await fetchAllJobs();
@@ -556,18 +670,24 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: AI Chat
+    // ACTION: AI Chat (Full from chat.js)
     // ============================================
     if (action === 'chat' && req.method === 'POST') {
-        const { messages } = req.body;
+        const { messages, systemPrompt, temperature = 0.7, maxTokens = 800 } = req.body;
+
         if (!messages || !Array.isArray(messages)) {
             return res.status(400).json({ error: 'Invalid messages format' });
         }
 
         try {
-            const data = await callOpenAI(messages, 800);
-            return res.status(200).json({ 
-                success: true, 
+            let fullMessages = [...messages];
+            if (systemPrompt) {
+                fullMessages = [{ role: 'system', content: systemPrompt }, ...fullMessages];
+            }
+
+            const data = await callOpenAI(fullMessages, maxTokens, temperature);
+            return res.status(200).json({
+                success: true,
                 content: data.choices[0].message.content,
                 usage: data.usage
             });
@@ -577,10 +697,11 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Generate Assessment
+    // ACTION: Generate Assessment (from ai.js)
     // ============================================
     if (action === 'generate-assessment' && req.method === 'POST') {
-        const { topic, difficulty, count = 5 } = req.body;
+        const { topic, difficulty = 'intermediate', count = 5 } = req.body;
+
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
         }
@@ -588,8 +709,8 @@ export default async function handler(req, res) {
         try {
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an expert test creator. Return only valid JSON.' },
-                { role: 'user', content: `Create ${count} ${difficulty || 'intermediate'} level questions about "${topic}". Return as JSON array with: question, options (array), correct (index), explanation.` }
-            ], 2000);
+                { role: 'user', content: `Create ${count} ${difficulty} level questions about "${topic}". Return as JSON array with: question, options (array), correct (index 0-3), explanation.` }
+            ], 2000, 0.5);
 
             const content = data.choices[0].message.content;
             const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -602,10 +723,11 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Generate Course
+    // ACTION: Generate Course (from ai.js)
     // ============================================
     if (action === 'generate-course' && req.method === 'POST') {
         const { topic, level = 'beginner' } = req.body;
+
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
         }
@@ -614,10 +736,10 @@ export default async function handler(req, res) {
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an instructional designer.' },
                 { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Include: title, description, 5-7 modules with lessons, learning objectives, and estimated duration.` }
-            ], 1500);
+            ], 1500, 0.7);
 
-            return res.status(200).json({ 
-                success: true, 
+            return res.status(200).json({
+                success: true,
                 outline: data.choices[0].message.content,
                 usage: data.usage
             });
@@ -627,7 +749,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Database Check (Legacy)
+    // ACTION: Database Check (Legacy from health.js)
     // ============================================
     if (action === 'db') {
         const supabase = createClient(
@@ -655,12 +777,71 @@ export default async function handler(req, res) {
     }
 
     // ============================================
+    // ACTION: Service Check (from health.js)
+    // ============================================
+    if (action === 'service' && req.query.service) {
+        const service = req.query.service;
+        const supabase = createClient(
+            process.env.VITE_SUPABASE_URL,
+            process.env.VITE_SUPABASE_ANON_KEY
+        );
+
+        let result = { service, timestamp: new Date().toISOString() };
+
+        switch (service) {
+            case 'database':
+                const dbStart = Date.now();
+                try {
+                    const { error } = await supabase.from('profiles').select('id', { count: 'exact', head: true });
+                    result = { ...result, status: !error ? 'healthy' : 'degraded', responseTime: Date.now() - dbStart };
+                } catch (err) {
+                    result = { ...result, status: 'error', responseTime: Date.now() - dbStart, error: err.message };
+                }
+                break;
+
+            case 'auth':
+                const authStart = Date.now();
+                try {
+                    const { error } = await supabase.auth.getSession();
+                    result = { ...result, status: !error ? 'healthy' : 'degraded', responseTime: Date.now() - authStart };
+                } catch (err) {
+                    result = { ...result, status: 'error', responseTime: Date.now() - authStart, error: err.message };
+                }
+                break;
+
+            case 'openai':
+                const openaiKey = process.env.VITE_OPENAI_API_KEY;
+                if (!openaiKey) {
+                    result = { ...result, status: 'degraded', message: 'API key missing' };
+                } else {
+                    const openaiStart = Date.now();
+                    try {
+                        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'OK' }], max_tokens: 3 })
+                        });
+                        result = { ...result, status: response.ok ? 'healthy' : 'degraded', responseTime: Date.now() - openaiStart };
+                    } catch (err) {
+                        result = { ...result, status: 'error', responseTime: Date.now() - openaiStart, error: err.message };
+                    }
+                }
+                break;
+
+            default:
+                return res.status(400).json({ error: `Unknown service: ${service}` });
+        }
+
+        return res.status(200).json(result);
+    }
+
+    // ============================================
     // DEFAULT: API Info
     // ============================================
     return res.status(200).json({
         name: 'ODUSBABA API',
         version: '3.0.0',
-        description: 'Consolidated API for Hobby Plan',
+        description: 'Consolidated API for Hobby Plan - Full health, email, jobs, chat, AI generation',
         endpoints: {
             health: '/api/index?action=health',
             ip: '/api/index?action=ip',
@@ -670,7 +851,8 @@ export default async function handler(req, res) {
             jobs: '/api/index?action=jobs',
             assessment: 'POST /api/index?action=generate-assessment',
             course: 'POST /api/index?action=generate-course',
-            db: '/api/index?action=db'
+            db: '/api/index?action=db',
+            service: '/api/index?action=service&service=database|auth|openai'
         },
         timestamp: new Date().toISOString(),
         uptime: process.uptime()
