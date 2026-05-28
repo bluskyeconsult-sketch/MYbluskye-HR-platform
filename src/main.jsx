@@ -1,6 +1,5 @@
 // src/main.jsx
 // PRODUCTION ENTRY POINT - Optimized for www.bluskyeconsult.com
-// Includes safe Supabase error handling, auth listener, performance monitoring, and image generation blocking
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -8,35 +7,6 @@ import App from './App';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
 import { supabase, initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
-
-// ============================================
-// BLOCK IMAGE GENERATION API CALLS (Save credits)
-// Must be at the VERY TOP of the entry point
-// ============================================
-if (typeof window !== 'undefined') {
-    // Monkey patch to prevent accidental image generation
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-        const url = args[0];
-        // Block OpenAI image generation API calls
-        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
-            console.warn('🚫 Blocked image generation API call - saving credits!');
-            return Promise.reject(new Error('Image generation blocked to save credits'));
-        }
-        return originalFetch(...args);
-    };
-    
-    // Also block any image generation attempts via XMLHttpRequest
-    const originalOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
-            console.warn('🚫 Blocked image generation XHR - saving credits!');
-            this.abort();
-            return;
-        }
-        return originalOpen.call(this, method, url, ...rest);
-    };
-}
 
 // ============================================
 // CONFIGURATION
@@ -72,7 +42,6 @@ const safeSupabaseQuery = async (queryFn, tableName) => {
     try {
         return await queryFn();
     } catch (error) {
-        // Only suppress table-not-found errors in development
         if (isDevelopment && error?.message?.includes('does not exist')) {
             console.warn(`⚠️ Development: Table "${tableName}" not found - migration may be pending`);
             return { data: [], error: null };
@@ -87,10 +56,8 @@ const safeSupabaseQuery = async (queryFn, tableName) => {
 const createSafeSupabase = (client) => {
     if (!isDevelopment) return client;
     
-    // Return wrapped client without modifying original
     return {
         ...client,
-        // Add helper methods without monkey patching
         safeFrom: (tableName) => ({
             select: (columns) => ({
                 then: (callback) => 
@@ -142,31 +109,23 @@ const createSafeSupabase = (client) => {
     };
 };
 
-// Export safe supabase for development (optional)
 export const safeSupabase = isDevelopment ? createSafeSupabase(supabase) : supabase;
 
 // ============================================
-// AUTH INITIALIZATION (Fixes "object is not extensible")
+// AUTH INITIALIZATION
 // ============================================
 
-/**
- * Initialize authentication system
- * This fixes the "object is not extensible" error by properly initializing
- * the auth listener and recovering any existing session
- */
 async function initializeAuth() {
     try {
-        // Initialize auth listener
         if (initAuthListener) {
             authCleanup = initAuthListener();
             if (isDevelopment) console.log('✅ Auth listener initialized');
         }
         
-        // Recover existing session on startup
         if (recoverSession) {
-            const { session, recovered } = await recoverSession();
+            const session = await recoverSession();
             if (session) {
-                if (isDevelopment) console.log(`✅ Session recovered successfully${recovered ? ' (refreshed)' : ''}`);
+                if (isDevelopment) console.log('✅ Session active');
             } else {
                 if (isDevelopment) console.log('ℹ️ No existing session found');
             }
@@ -186,19 +145,15 @@ function reportPerformanceMetrics() {
     const loadTime = performance.now() - startTime;
     console.log(`✅ App loaded in ${loadTime.toFixed(0)}ms`);
     
-    // Navigation timing
     const nav = performance.getEntriesByType('navigation')[0];
     if (nav) {
         performanceMetrics.dnsLookup = nav.domainLookupEnd - nav.domainLookupStart;
         performanceMetrics.tcpConnection = nav.connectEnd - nav.connectStart;
         performanceMetrics.domLoading = nav.loadEventEnd - nav.startTime;
         
-        console.log(`📊 DNS: ${performanceMetrics.dnsLookup.toFixed(0)}ms | ` +
-                   `TCP: ${performanceMetrics.tcpConnection.toFixed(0)}ms | ` +
-                   `Load: ${performanceMetrics.domLoading.toFixed(0)}ms`);
+        console.log(`📊 DNS: ${performanceMetrics.dnsLookup.toFixed(0)}ms | TCP: ${performanceMetrics.tcpConnection.toFixed(0)}ms | Load: ${performanceMetrics.domLoading.toFixed(0)}ms`);
     }
     
-    // Paint timing
     const paints = performance.getEntriesByType('paint');
     paints.forEach(paint => {
         if (paint.name === 'first-paint') {
@@ -222,7 +177,7 @@ if (typeof PerformanceObserver !== 'undefined') {
 }
 
 // ============================================
-// SUPABASE HEALTH CHECK (Non-blocking)
+// SUPABASE HEALTH CHECK
 // ============================================
 
 async function checkSupabaseConnection() {
@@ -236,13 +191,8 @@ async function checkSupabaseConnection() {
             return false;
         }
         
-        if (isDevelopment) {
-            console.log(`✅ Supabase connected (${duration}ms)`);
-        }
-        
-        if (data?.session?.user?.email) {
-            console.log(`👤 Session: ${data.session.user.email}`);
-        }
+        if (isDevelopment) console.log(`✅ Supabase connected (${duration}ms)`);
+        if (data?.session?.user?.email) console.log(`👤 Session: ${data.session.user.email}`);
         
         return true;
     } catch (err) {
@@ -263,9 +213,7 @@ async function cleanupServiceWorkers() {
         for (const registration of registrations) {
             await registration.unregister();
         }
-        if (registrations.length > 0 && isDevelopment) {
-            console.log('✅ Service workers cleaned up');
-        }
+        if (registrations.length > 0 && isDevelopment) console.log('✅ Service workers cleaned up');
     } catch (err) {
         if (isDevelopment) console.debug('Service worker cleanup:', err.message);
     }
@@ -276,21 +224,21 @@ async function cleanupServiceWorkers() {
 // ============================================
 
 window.addEventListener('error', (event) => {
-    // Fix for "object is not extensible" error
     if (event.error?.message?.includes('object is not extensible')) {
-        console.warn('⚠️ Object not extensible error caught - this is usually harmless');
+        console.warn('⚠️ Object not extensible error caught - clearing session');
+        localStorage.clear();
+        sessionStorage.clear();
         return;
     }
     console.error('❌ Global error:', event.error?.message || event.message);
-    if (isDevelopment && event.error) {
-        console.debug('Stack:', event.error.stack);
-    }
+    if (isDevelopment && event.error) console.debug('Stack:', event.error.stack);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-    // Fix for "object is not extensible" error in promises
     if (event.reason?.message?.includes('object is not extensible')) {
-        console.warn('⚠️ Unhandled rejection: object not extensible - usually harmless');
+        console.warn('⚠️ Unhandled rejection: object not extensible - clearing session');
+        localStorage.clear();
+        sessionStorage.clear();
         return;
     }
     console.error('❌ Unhandled rejection:', event.reason);
@@ -304,14 +252,12 @@ window.addEventListener('offline', () => {
 });
 
 // ============================================
-// APP INITIALIZATION (Non-blocking)
+// APP INITIALIZATION
 // ============================================
 
 async function initializeApp() {
-    // Initialize auth first (fixes "object is not extensible")
     await initializeAuth();
     
-    // Run other initializations in parallel
     Promise.allSettled([
         cleanupServiceWorkers(),
         checkSupabaseConnection()
@@ -321,9 +267,7 @@ async function initializeApp() {
         reportPerformanceMetrics();
         console.log('🚀 Application ready - www.bluskyeconsult.com');
         
-        if (!navigator.onLine) {
-            console.warn('⚠️ Offline mode - features may be limited');
-        }
+        if (!navigator.onLine) console.warn('⚠️ Offline mode - features may be limited');
     });
 }
 
@@ -341,9 +285,7 @@ if (!rootElement) {
                 <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
                 <h1 style="color: #f1f5f9; margin-bottom: 12px;">Configuration Error</h1>
                 <p style="color: #94a3b8; margin-bottom: 24px;">Root element not found.</p>
-                <button onclick="location.reload()" style="padding: 10px 24px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">
-                    Refresh
-                </button>
+                <button onclick="location.reload()" style="padding: 10px 24px; background: #3b82f6; border: none; border-radius: 8px; color: white; cursor: pointer;">Refresh</button>
             </div>
         </div>
     `;
@@ -364,9 +306,7 @@ if (!rootElement) {
                 </React.StrictMode>
             );
             
-            if (isDevelopment) {
-                console.log('🎯 App rendered successfully');
-            }
+            if (isDevelopment) console.log('🎯 App rendered successfully');
         } catch (error) {
             console.error('❌ Render failed:', error);
             rootElement.innerHTML = `
@@ -375,9 +315,7 @@ if (!rootElement) {
                         <div style="font-size: 48px; margin-bottom: 16px;">💥</div>
                         <h1 style="color: #f1f5f9; margin-bottom: 12px;">Failed to Load</h1>
                         <p style="color: #94a3b8; margin-bottom: 24px;">${error.message}</p>
-                        <button onclick="location.reload()" style="padding: 10px 24px; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer;">
-                            Retry
-                        </button>
+                        <button onclick="location.reload()" style="padding: 10px 24px; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer;">Retry</button>
                     </div>
                 </div>
             `;
@@ -416,7 +354,6 @@ if (isDevelopment && typeof window !== 'undefined') {
             if (authCleanup) authCleanup();
             console.log('✅ Auth cleaned up');
         },
-        // Safe table check helper
         checkTable: async (tableName) => {
             try {
                 const { data, error } = await supabase.from(tableName).select('*').limit(1);
@@ -440,7 +377,6 @@ if (isDevelopment && import.meta.hot) {
     import.meta.hot.accept();
     console.log('🔥 HMR active');
     
-    // Cleanup on HMR update
     import.meta.hot.dispose(() => {
         if (authCleanup && typeof authCleanup === 'function') {
             authCleanup();
