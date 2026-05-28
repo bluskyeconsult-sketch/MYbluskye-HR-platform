@@ -1,7 +1,7 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check
+// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Safety Guards
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -10,9 +10,10 @@ import {
     recordAssessmentStart,
     submitAssessmentAnswers,
     saveAnswer,
-    completeAssessment
+    completeAssessment,
+    startAssessment
 } from '../services/assessmentService';
-import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save } from 'lucide-react';
+import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save, HelpCircle } from 'lucide-react';
 
 export default function TakeAssessment() {
     const { id } = useParams();
@@ -33,19 +34,28 @@ export default function TakeAssessment() {
     const [user, setUser] = useState(null);
     const [sessionId, setSessionId] = useState(null);
     const [autoSaveStatus, setAutoSaveStatus] = useState(null);
+    
+    // Refs for interval cleanup
+    const timerRef = useRef(null);
+    const autoSaveRef = useRef(null);
 
+    // Load assessment on mount
     useEffect(() => {
         loadAssessment();
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+            if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+        };
     }, [id]);
 
     // Timer effect
     useEffect(() => {
         if (timeLeft === null || timeLeft <= 0 || submitting) return;
         
-        const timer = setInterval(() => {
+        timerRef.current = setInterval(() => {
             setTimeLeft(prev => {
                 if (prev <= 1) {
-                    clearInterval(timer);
+                    clearInterval(timerRef.current);
                     handleSubmit();
                     return 0;
                 }
@@ -53,14 +63,18 @@ export default function TakeAssessment() {
             });
         }, 1000);
         
-        return () => clearInterval(timer);
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
     }, [timeLeft, submitting]);
 
     // Auto-save effect
     useEffect(() => {
         if (!sessionId || Object.keys(answers).length === 0) return;
         
-        const autoSaveTimer = setTimeout(async () => {
+        if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+        
+        autoSaveRef.current = setTimeout(async () => {
             try {
                 await saveAnswer(sessionId, answers);
                 setAutoSaveStatus('saved');
@@ -71,7 +85,9 @@ export default function TakeAssessment() {
             }
         }, 3000);
         
-        return () => clearTimeout(autoSaveTimer);
+        return () => {
+            if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+        };
     }, [answers, sessionId]);
 
     async function loadAssessment() {
@@ -234,11 +250,58 @@ export default function TakeAssessment() {
         }
     }
 
+    // ✅ SAFETY CHECK: Validate question has options
+    function hasValidOptions(question) {
+        if (!question) return false;
+        
+        // Check for options array
+        if (question.options && Array.isArray(question.options) && question.options.length > 0) {
+            return true;
+        }
+        
+        // Likert scale and true/false don't need options array
+        if (question.question_type === 'likert_scale' || question.question_type === 'true_false') {
+            return true;
+        }
+        
+        // Text-based questions don't need options
+        if (question.question_type === 'text' || question.question_type === 'essay' || question.question_type === 'scenario') {
+            return true;
+        }
+        
+        return false;
+    }
+
     function renderQuestion() {
         const question = questions[currentIndex];
         if (!question) return null;
         
         const currentAnswer = answers[question.id];
+        const hasOptions = hasValidOptions(question);
+        
+        // ✅ SAFETY GUARD: Show error if question has no valid options
+        if (!hasOptions) {
+            return (
+                <div className="space-y-4">
+                    <p className="text-white text-lg font-medium">{question.question_text}</p>
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <div className="flex items-center gap-2 text-amber-400 mb-2">
+                            <HelpCircle className="w-5 h-5" />
+                            <span className="font-semibold">Question Not Fully Configured</span>
+                        </div>
+                        <p className="text-slate-400 text-sm">
+                            This question is still being set up. Please contact support if this persists.
+                        </p>
+                        <button
+                            onClick={() => handleNext()}
+                            className="mt-3 px-4 py-2 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600 transition"
+                        >
+                            Skip to Next Question
+                        </button>
+                    </div>
+                </div>
+            );
+        }
         
         switch (question.question_type) {
             case 'likert_scale':
@@ -409,6 +472,7 @@ export default function TakeAssessment() {
     const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
     const currentQuestion = questions[currentIndex];
     const hasAnswered = currentQuestion ? answers[currentQuestion.id] !== undefined : false;
+    const isValidQuestion = currentQuestion ? hasValidOptions(currentQuestion) : false;
 
     return (
         <div className="min-h-screen bg-slate-950 py-8 md:py-12">
@@ -467,7 +531,7 @@ export default function TakeAssessment() {
                     
                     <button
                         onClick={handleNext}
-                        disabled={!hasAnswered || submitting}
+                        disabled={(!hasAnswered && isValidQuestion) || submitting}
                         className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition font-medium"
                     >
                         {submitting ? (
@@ -489,7 +553,7 @@ export default function TakeAssessment() {
                 </div>
                 
                 {/* Warning for unanswered questions */}
-                {!hasAnswered && currentQuestion && (
+                {!hasAnswered && isValidQuestion && currentQuestion && (
                     <p className="text-xs text-amber-400 text-center mt-4">
                         Please answer this question before continuing
                     </p>
