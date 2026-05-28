@@ -1,14 +1,44 @@
 // src/services/openaiService.js
-// COMPLETE OPENAI SERVICE - No placeholders
+// COMPLETE OPENAI SERVICE - With cost tracking, error handling, and all AI features
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
-async function callOpenAI(messages, temperature = 0.7, maxTokens = 1000) {
+// ============================================
+// COST TRACKING (2026 pricing)
+// ============================================
+const COST_RATES = {
+    'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+    'gpt-4o': { input: 2.50 / 1_000_000, output: 10.00 / 1_000_000 },
+    'gpt-4': { input: 30.00 / 1_000_000, output: 60.00 / 1_000_000 },
+    'gpt-3.5-turbo': { input: 0.50 / 1_000_000, output: 1.50 / 1_000_000 }
+};
+
+function calculateCost(model, inputTokens, outputTokens) {
+    const rates = COST_RATES[model] || COST_RATES['gpt-4o-mini'];
+    const inputCost = inputTokens * rates.input;
+    const outputCost = outputTokens * rates.output;
+    return inputCost + outputCost;
+}
+
+// ============================================
+// CORE OPENAI FUNCTION (with cost tracking)
+// ============================================
+async function callOpenAI(messages, options = {}) {
+    const {
+        model = 'gpt-4o-mini',
+        temperature = 0.7,
+        maxTokens = 1000,
+        trackCost = true,
+        feature = 'general'
+    } = options;
+
     if (!OPENAI_API_KEY) {
-        console.error('OpenAI API key missing');
-        return { error: 'OpenAI API key not configured' };
+        console.error('❌ OpenAI API key missing');
+        return { success: false, error: 'OpenAI API key not configured' };
     }
+
+    const startTime = Date.now();
 
     try {
         const response = await fetch(API_URL, {
@@ -18,12 +48,14 @@ async function callOpenAI(messages, temperature = 0.7, maxTokens = 1000) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: model,
                 messages: messages,
                 temperature: temperature,
                 max_tokens: maxTokens
             })
         });
+
+        const duration = Date.now() - startTime;
 
         if (!response.ok) {
             const error = await response.json();
@@ -31,11 +63,53 @@ async function callOpenAI(messages, temperature = 0.7, maxTokens = 1000) {
         }
 
         const data = await response.json();
-        return { success: true, content: data.choices[0].message.content };
+        const usage = data.usage;
+        const cost = calculateCost(model, usage.prompt_tokens, usage.completion_tokens);
+
+        // Log cost in development
+        if (import.meta.env.DEV) {
+            console.log(`💰 ${feature}: $${cost.toFixed(6)} (${usage.total_tokens} tokens, ${duration}ms)`);
+        }
+
+        return {
+            success: true,
+            content: data.choices[0].message.content,
+            usage: {
+                promptTokens: usage.prompt_tokens,
+                completionTokens: usage.completion_tokens,
+                totalTokens: usage.total_tokens,
+                cost: cost
+            },
+            duration: duration,
+            model: model
+        };
     } catch (error) {
         console.error('OpenAI API error:', error);
-        return { error: error.message };
+        return { success: false, error: error.message };
     }
+}
+
+// ============================================
+// TEST CONNECTION
+// ============================================
+export async function testOpenAIConnection() {
+    const start = Date.now();
+    
+    if (!OPENAI_API_KEY) {
+        return { success: false, error: 'API key missing', duration: 0 };
+    }
+    
+    const result = await callOpenAI(
+        [{ role: 'user', content: 'Say "OK" if you receive this.' }],
+        { maxTokens: 10, feature: 'test' }
+    );
+    
+    return {
+        success: result.success,
+        error: result.error,
+        duration: result.duration,
+        response: result.content
+    };
 }
 
 // ============================================
@@ -55,30 +129,43 @@ Requirements:
 
 Format as HTML with <h2> for section headings and <p> for paragraphs.`;
 
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are a professional career and HR content writer.' },
-        { role: 'user', content: prompt }
-    ], 0.7, maxTokens);
-
-    return result;
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are a professional career and HR content writer.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.7, maxTokens: maxTokens, feature: 'article_generation' }
+    );
 }
 
 export async function generateArticleHeadline(topic) {
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are a copywriter who creates compelling headlines.' },
-        { role: 'user', content: `Generate 5 engaging headlines for an article about "${topic}". Return as JSON array.` }
-    ], 0.8, 300);
+    const result = await callOpenAI(
+        [
+            { role: 'system', content: 'You are a copywriter who creates compelling headlines. Return ONLY valid JSON array.' },
+            { role: 'user', content: `Generate 5 engaging headlines for an article about "${topic}". Return as JSON array.` }
+        ],
+        { temperature: 0.8, maxTokens: 300, feature: 'headline_generation' }
+    );
     
+    if (result.success) {
+        try {
+            const headlines = JSON.parse(result.content);
+            return { success: true, headlines: headlines };
+        } catch (e) {
+            return { success: false, error: 'Failed to parse headlines' };
+        }
+    }
     return result;
 }
 
 export async function improveArticleContent(content, instructions) {
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are an editor who improves article content.' },
-        { role: 'user', content: `Improve this content: ${content}\n\nInstructions: ${instructions}` }
-    ], 0.5, 2000);
-    
-    return result;
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are an editor who improves article content.' },
+            { role: 'user', content: `Improve this content: ${content}\n\nInstructions: ${instructions}` }
+        ],
+        { temperature: 0.5, maxTokens: 2000, feature: 'article_improvement' }
+    );
 }
 
 // ============================================
@@ -104,8 +191,7 @@ If the user wants to escalate to a human, provide ticket creation instructions.`
         { role: 'user', content: userMessage }
     ];
 
-    const result = await callOpenAI(messages, 0.7, 800);
-    return result;
+    return callOpenAI(messages, { temperature: 0.7, maxTokens: 800, feature: 'chat' });
 }
 
 // ============================================
@@ -122,12 +208,13 @@ You help with:
 
 Be concise, practical, and action-oriented.`;
 
-    const result = await callOpenAI([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: question }
-    ], 0.8, 1500);
-    
-    return result;
+    return callOpenAI(
+        [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: question }
+        ],
+        { temperature: 0.8, maxTokens: 1500, feature: 'brainstorm' }
+    );
 }
 
 // ============================================
@@ -145,12 +232,13 @@ export async function executeVirtualAssistant(vaType, input, userContext = {}) {
 
     const prompt = prompts[vaType] || `You are a helpful career assistant. Respond to: ${input}`;
 
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are a professional career coach and advisor.' },
-        { role: 'user', content: prompt }
-    ], 0.7, 1200);
-    
-    return result;
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are a professional career coach and advisor.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.7, maxTokens: 1200, feature: `va_${vaType}` }
+    );
 }
 
 // ============================================
@@ -177,19 +265,24 @@ Return as JSON array with this structure:
 
 Difficulty: ${difficultyLevels[difficulty] || difficultyLevels.intermediate}`;
 
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are an expert test creator.' },
-        { role: 'user', content: prompt }
-    ], 0.5, 2000);
+    const result = await callOpenAI(
+        [
+            { role: 'system', content: 'You are an expert test creator. Return ONLY valid JSON.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.5, maxTokens: 2000, feature: 'assessment_generation' }
+    );
     
     if (result.success) {
         try {
             const jsonMatch = result.content.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
-                return { success: true, questions: JSON.parse(jsonMatch[0]) };
+                const questions = JSON.parse(jsonMatch[0]);
+                return { success: true, questions: questions };
             }
+            return { error: 'No JSON array found in response' };
         } catch (e) {
-            return { error: 'Failed to parse questions' };
+            return { success: false, error: 'Failed to parse questions: ' + e.message };
         }
     }
     
@@ -206,10 +299,47 @@ Target audience: ${segments.join(', ') || 'Career professionals'}
 Include: engaging subject line, introduction, 3-4 content sections, call-to-action.
 Format as HTML with proper styling.`;
 
-    const result = await callOpenAI([
-        { role: 'system', content: 'You are a marketing copywriter for a career platform.' },
-        { role: 'user', content: prompt }
-    ], 0.7, 1500);
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are a marketing copywriter for a career platform.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.7, maxTokens: 1500, feature: 'newsletter_generation' }
+    );
+}
+
+// ============================================
+// JOB DESCRIPTION GENERATOR
+// ============================================
+export async function generateJobDescription(title, company, requirements) {
+    const prompt = `Create a professional job description for a "${title}" position at ${company}.
     
-    return result;
+Requirements provided: ${requirements}
+
+Include: job summary, responsibilities, qualifications, benefits, and how to apply.`;
+
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are an HR professional writing job descriptions.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.6, maxTokens: 1200, feature: 'job_description' }
+    );
+}
+
+// ============================================
+// COURSE CONTENT GENERATOR
+// ============================================
+export async function generateCourseOutline(topic, level = 'beginner') {
+    const prompt = `Create a course outline for "${topic}" at ${level} level.
+    
+Include: learning objectives, module titles (5-7 modules), key topics per module, and a final project.`;
+
+    return callOpenAI(
+        [
+            { role: 'system', content: 'You are an instructional designer creating course outlines.' },
+            { role: 'user', content: prompt }
+        ],
+        { temperature: 0.6, maxTokens: 1500, feature: 'course_outline' }
+    );
 }
