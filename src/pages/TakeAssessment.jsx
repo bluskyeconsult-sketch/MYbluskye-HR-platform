@@ -1,7 +1,7 @@
 // src/pages/TakeAssessment.jsx
 // COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Proper Question Loading
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -89,7 +89,7 @@ export default function TakeAssessment() {
         };
     }, [answers, sessionId]);
 
-    // ✅ IMPROVED: Load assessment with proper question fetching
+    // ✅ Load assessment with proper question fetching
     async function loadAssessment() {
         setLoading(true);
         setError(null);
@@ -150,6 +150,7 @@ export default function TakeAssessment() {
             setStartTime(Date.now());
             
             // 4. ✅ CRITICAL FIX: Load questions with options using proper Supabase join
+            // Using the syntax that works: assessment_options (not options:)
             const { data: questionsData, error: qError } = await supabase
                 .from('assessment_questions')
                 .select(`
@@ -159,7 +160,7 @@ export default function TakeAssessment() {
                     points,
                     dimension,
                     sort_order,
-                    options:assessment_options(
+                    assessment_options (
                         id,
                         option_text,
                         option_value,
@@ -170,10 +171,19 @@ export default function TakeAssessment() {
                 .eq('assessment_id', id)
                 .order('sort_order', { ascending: true });
             
-            if (qError) throw qError;
+            if (qError) {
+                console.error('Questions error:', qError);
+                throw qError;
+            }
             
-            // 5. Filter questions - validate based on type
-            const validQuestions = (questionsData || []).filter(q => {
+            // 5. Process questions - ensure options is an array
+            const processedQuestions = (questionsData || []).map(q => ({
+                ...q,
+                options: q.assessment_options || []
+            }));
+            
+            // 6. Filter questions based on type
+            const validQuestions = processedQuestions.filter(q => {
                 // Text-based questions don't need options
                 if (q.question_type === 'text' || q.question_type === 'essay' || q.question_type === 'scenario') {
                     return true;
@@ -201,7 +211,7 @@ export default function TakeAssessment() {
             
             setQuestions(validQuestions);
             
-            // 6. Start assessment session
+            // 7. Start assessment session
             const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
             setSessionId(newSessionId);
             
@@ -279,7 +289,7 @@ export default function TakeAssessment() {
         }
     }
 
-    // ✅ SAFETY CHECK: Validate question has required content
+    // ✅ Validate question has required content
     function hasValidContent(question) {
         if (!question) return false;
         
@@ -308,7 +318,7 @@ export default function TakeAssessment() {
         const currentAnswer = answers[question.id];
         const hasContent = hasValidContent(question);
         
-        // ✅ SAFETY GUARD: Show error if question has no valid content
+        // Safety guard for invalid questions
         if (!hasContent) {
             return (
                 <div className="space-y-4">
@@ -469,13 +479,13 @@ export default function TakeAssessment() {
                         <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                             Try Again
                         </button>
-                        <a href="/assessments" className="px-4 py-2 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-800">
+                        <button onClick={() => navigate('/assessments')} className="px-4 py-2 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-800">
                             Back to Assessments
-                        </a>
+                        </button>
                         {error.includes('Upgrade') && (
-                            <a href="/pricing" className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">
+                            <button onClick={() => navigate('/pricing')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">
                                 Upgrade Plan
-                            </a>
+                            </button>
                         )}
                     </div>
                 </div>
@@ -490,9 +500,9 @@ export default function TakeAssessment() {
                     <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">No Questions Available</h1>
                     <p className="text-slate-400 mb-6">This assessment doesn't have any questions configured yet.</p>
-                    <a href="/assessments" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                    <button onClick={() => navigate('/assessments')} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                         Back to Assessments
-                    </a>
+                    </button>
                 </div>
             </div>
         );
