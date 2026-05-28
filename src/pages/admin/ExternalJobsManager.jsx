@@ -1,8 +1,8 @@
 // src/pages/admin/ExternalJobsManager.jsx
-// COMPLETE ADMIN UI - Manage jobs from government RSS feeds, Jobicy API, and commercial sources
-// Features: Multi-tab views, batch approve, stats dashboard, connection testing, force refresh
+// PROFESSIONAL ADMIN UI - Manage jobs from government RSS feeds, Jobicy API, and commercial sources
+// Features: Multi-tab views, batch approval, stats dashboard, connection testing, force refresh, unified API
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
     getPendingExternalJobs, 
@@ -30,11 +30,21 @@ import {
     Wifi,
     Sparkles,
     Settings,
-    Rss
+    Rss,
+    Filter,
+    Search,
+    Download,
+    Trash2
 } from 'lucide-react';
 
+// Unified API endpoint
+const API_BASE = '/api/index';
+const JOBS_ENDPOINT = `${API_BASE}?action=jobs`;
+
 export default function ExternalJobsManager() {
+    // State Management
     const [jobs, setJobs] = useState([]);
+    const [filteredJobs, setFilteredJobs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [processingId, setProcessingId] = useState(null);
@@ -46,6 +56,8 @@ export default function ExternalJobsManager() {
     const [connectionStatus, setConnectionStatus] = useState(null);
     const [testingConnection, setTestingConnection] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sourceFilter, setSourceFilter] = useState('all');
 
     // RSS Feed Sources Configuration
     const rssFeeds = [
@@ -69,6 +81,10 @@ export default function ExternalJobsManager() {
         loadStats();
     }, [activeTab]);
 
+    useEffect(() => {
+        filterJobs();
+    }, [jobs, searchTerm, sourceFilter]);
+
     async function loadJobs() {
         setLoading(true);
         try {
@@ -90,11 +106,11 @@ export default function ExternalJobsManager() {
                     .order('reviewed_at', { ascending: false });
                 data = rejected;
             } else {
-                // All jobs tab
                 const { data: all } = await supabase
                     .from('external_jobs')
                     .select('*')
-                    .order('created_at', { ascending: false });
+                    .order('created_at', { ascending: false })
+                    .limit(200);
                 data = all;
             }
             setJobs(data || []);
@@ -110,6 +126,26 @@ export default function ExternalJobsManager() {
         setStats(statsData);
     }
 
+    function filterJobs() {
+        let filtered = [...jobs];
+        
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(job => 
+                job.title?.toLowerCase().includes(term) ||
+                job.company?.toLowerCase().includes(term) ||
+                job.source_name?.toLowerCase().includes(term) ||
+                job.location?.toLowerCase().includes(term)
+            );
+        }
+        
+        if (sourceFilter !== 'all') {
+            filtered = filtered.filter(job => job.source_name === sourceFilter);
+        }
+        
+        setFilteredJobs(filtered);
+    }
+
     async function handleSync() {
         setSyncing(true);
         setSyncResult(null);
@@ -119,6 +155,32 @@ export default function ExternalJobsManager() {
             setSyncResult({ success: true, inserted: result.totalAdded, message: `Added ${result.totalAdded} new jobs` });
             await loadJobs();
             await loadStats();
+        } catch (error) {
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleServerFetch() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const response = await fetch(JOBS_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                setSyncResult({ success: true, inserted: data.added || 0, message: data.message || `Added ${data.added || 0} new jobs` });
+                await loadJobs();
+                await loadStats();
+            } else {
+                throw new Error(data.error || 'Server fetch failed');
+            }
         } catch (error) {
             setSyncResult({ success: false, error: error.message });
         } finally {
@@ -214,10 +276,10 @@ export default function ExternalJobsManager() {
     }
 
     function toggleSelectAll() {
-        if (selectedJobs.size === jobs.length) {
+        if (selectedJobs.size === filteredJobs.length) {
             setSelectedJobs(new Set());
         } else {
-            setSelectedJobs(new Set(jobs.map(job => job.id)));
+            setSelectedJobs(new Set(filteredJobs.map(job => job.id)));
         }
     }
 
@@ -229,6 +291,26 @@ export default function ExternalJobsManager() {
             newSet.add(jobId);
         }
         setSelectedJobs(newSet);
+    }
+
+    function exportJobs() {
+        const exportData = filteredJobs.map(job => ({
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            salary: job.salary_range,
+            source: job.source_name,
+            status: job.status,
+            created_at: job.created_at
+        }));
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `external_jobs_${activeTab}_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     function getSourceBadge(sourceName) {
@@ -263,21 +345,29 @@ export default function ExternalJobsManager() {
         return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
     }
 
+    const uniqueSources = ['all', ...new Set(jobs.map(job => job.source_name).filter(Boolean))];
+
     if (loading && jobs.length === 0) {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+                <span className="ml-2 text-slate-400">Loading jobs...</span>
             </div>
         );
     }
 
     return (
-        <div className="p-6">
+        <div className="p-6 space-y-6">
             {/* Header */}
-            <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">External Jobs Manager</h1>
-                    <p className="text-slate-400">Manage jobs from government RSS feeds, Jobicy API, and commercial sources</p>
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                        <Globe className="w-6 h-6 text-primary-400" />
+                        External Jobs Manager
+                    </h1>
+                    <p className="text-slate-400 text-sm mt-1">
+                        Manage jobs from government RSS feeds, Jobicy API, and commercial sources
+                    </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                     <button
@@ -309,14 +399,22 @@ export default function ExternalJobsManager() {
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2 transition"
                     >
                         {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        {syncing ? 'Syncing...' : 'Fetch New Jobs'}
+                        {syncing ? 'Syncing...' : 'Fetch RSS'}
+                    </button>
+                    <button
+                        onClick={handleServerFetch}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        {syncing ? 'Fetching...' : 'Fetch API'}
                     </button>
                 </div>
             </div>
 
             {/* RSS Feeds Settings Panel */}
             {showSettings && (
-                <div className="mb-6 p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
+                <div className="p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
                     <h3 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
                         <Rss className="w-4 h-4" />
                         Active RSS Feed Sources ({rssFeeds.filter(f => f.active).length} of {rssFeeds.length})
@@ -335,9 +433,9 @@ export default function ExternalJobsManager() {
                 </div>
             )}
 
-            {/* Sync Result */}
+            {/* Sync Result Banner */}
             {syncResult && (
-                <div className={`mb-4 p-3 rounded-lg ${syncResult.success ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+                <div className={`p-3 rounded-lg ${syncResult.success ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                     <p className={syncResult.success ? 'text-emerald-400' : 'text-red-400'}>
                         {syncResult.success 
                             ? `✅ ${syncResult.message || `Sync complete: ${syncResult.inserted} new jobs added`}${syncResult.forceRefresh ? ' (force refresh)' : ''}`
@@ -347,91 +445,117 @@ export default function ExternalJobsManager() {
             )}
 
             {/* Stats Dashboard */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div 
-                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition" 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
                     onClick={() => setActiveTab('pending')}
                 >
-                    <div className="flex items-center gap-3">
-                        <AlertCircle className="w-8 h-8 text-yellow-400" />
+                    <div className="flex items-center justify-between">
                         <div>
-                            <div className="text-2xl font-bold text-white">{stats.pending}</div>
-                            <div className="text-sm text-slate-400">Pending Approval</div>
+                            <p className="text-slate-400 text-sm">Pending Approval</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.pending}</p>
                         </div>
+                        <AlertCircle className="w-8 h-8 text-yellow-400 opacity-70 group-hover:opacity-100 transition" />
                     </div>
                 </div>
                 <div 
-                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition" 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
                     onClick={() => setActiveTab('approved')}
                 >
-                    <div className="flex items-center gap-3">
-                        <CheckCircle className="w-8 h-8 text-emerald-400" />
+                    <div className="flex items-center justify-between">
                         <div>
-                            <div className="text-2xl font-bold text-white">{stats.approved}</div>
-                            <div className="text-sm text-slate-400">Approved</div>
+                            <p className="text-slate-400 text-sm">Approved</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.approved}</p>
                         </div>
+                        <CheckCircle className="w-8 h-8 text-emerald-400 opacity-70 group-hover:opacity-100 transition" />
                     </div>
                 </div>
                 <div 
-                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition" 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
                     onClick={() => setActiveTab('rejected')}
                 >
-                    <div className="flex items-center gap-3">
-                        <XCircle className="w-8 h-8 text-red-400" />
+                    <div className="flex items-center justify-between">
                         <div>
-                            <div className="text-2xl font-bold text-white">{stats.rejected}</div>
-                            <div className="text-sm text-slate-400">Rejected</div>
+                            <p className="text-slate-400 text-sm">Rejected</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.rejected}</p>
                         </div>
+                        <XCircle className="w-8 h-8 text-red-400 opacity-70 group-hover:opacity-100 transition" />
                     </div>
                 </div>
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                    <div className="flex items-center gap-3">
-                        <TrendingUp className="w-8 h-8 text-primary-400" />
+                    <div className="flex items-center justify-between">
                         <div>
-                            <div className="text-2xl font-bold text-white">{rssFeeds.filter(f => f.active).length}</div>
-                            <div className="text-sm text-slate-400">Active RSS Feeds</div>
+                            <p className="text-slate-400 text-sm">Active RSS Feeds</p>
+                            <p className="text-2xl font-bold text-white">{rssFeeds.filter(f => f.active).length}</p>
                         </div>
+                        <TrendingUp className="w-8 h-8 text-primary-400 opacity-70" />
                     </div>
                 </div>
             </div>
 
             {/* Tab Navigation */}
-            <div className="flex gap-2 mb-6 border-b border-slate-800 flex-wrap">
-                <button
-                    onClick={() => setActiveTab('pending')}
-                    className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'pending' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
-                >
-                    Pending ({stats.pending})
-                </button>
-                <button
-                    onClick={() => setActiveTab('approved')}
-                    className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'approved' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
-                >
-                    Approved ({stats.approved})
-                </button>
-                <button
-                    onClick={() => setActiveTab('rejected')}
-                    className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'rejected' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
-                >
-                    Rejected ({stats.rejected})
-                </button>
-                <button
-                    onClick={() => setActiveTab('all')}
-                    className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'all' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
-                >
-                    All Jobs ({stats.total})
-                </button>
+            <div className="flex gap-2 border-b border-slate-800 flex-wrap">
+                {['pending', 'approved', 'rejected', 'all'].map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-4 py-2 text-sm font-medium transition capitalize ${
+                            activeTab === tab 
+                                ? 'text-primary-400 border-b-2 border-primary-400' 
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        {tab} {tab === 'pending' && `(${stats.pending})`}
+                        {tab === 'approved' && `(${stats.approved})`}
+                        {tab === 'rejected' && `(${stats.rejected})`}
+                        {tab === 'all' && `(${stats.total})`}
+                    </button>
+                ))}
             </div>
 
+            {/* Search and Filter Bar */}
+            {(activeTab === 'pending' || activeTab === 'all') && jobs.length > 0 && (
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input
+                            type="text"
+                            placeholder="Search by title, company, location, or source..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                    </div>
+                    <select
+                        value={sourceFilter}
+                        onChange={(e) => setSourceFilter(e.target.value)}
+                        className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                        {uniqueSources.map(source => (
+                            <option key={source} value={source}>
+                                {source === 'all' ? 'All Sources' : source}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={exportJobs}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 transition"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export
+                    </button>
+                </div>
+            )}
+
             {/* Batch Actions (Pending only) */}
-            {activeTab === 'pending' && jobs.length > 0 && (
-                <div className="flex gap-2 mb-4">
+            {activeTab === 'pending' && filteredJobs.length > 0 && (
+                <div className="flex gap-2">
                     <button
                         onClick={toggleSelectAll}
                         className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition"
                     >
-                        {selectedJobs.size === jobs.length ? <Square className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
-                        {selectedJobs.size === jobs.length ? 'Deselect All' : 'Select All'}
+                        {selectedJobs.size === filteredJobs.length ? <Square className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
+                        {selectedJobs.size === filteredJobs.length ? 'Deselect All' : 'Select All'}
                     </button>
                     <button
                         onClick={handleBatchApprove}
@@ -445,13 +569,13 @@ export default function ExternalJobsManager() {
             )}
 
             {/* Jobs List */}
-            {jobs.length === 0 ? (
+            {filteredJobs.length === 0 ? (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                     {activeTab === 'pending' ? (
                         <>
                             <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                             <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
-                            <p className="text-slate-400">Click "Fetch New Jobs" to import external job listings from {rssFeeds.length}+ RSS feeds.</p>
+                            <p className="text-slate-400">Click "Fetch RSS" or "Fetch API" to import external job listings.</p>
                         </>
                     ) : (
                         <>
@@ -463,20 +587,28 @@ export default function ExternalJobsManager() {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {jobs.map((job) => (
+                    {filteredJobs.map((job) => (
                         <div 
                             key={job.id} 
-                            className={`bg-slate-900/50 border rounded-xl p-5 transition ${selectedJobs.has(job.id) ? 'border-primary-500 bg-primary-500/5' : 'border-slate-800 hover:border-primary-500/30'}`}
+                            className={`bg-slate-900/50 border rounded-xl p-5 transition ${
+                                selectedJobs.has(job.id) 
+                                    ? 'border-primary-500 bg-primary-500/5 ring-1 ring-primary-500' 
+                                    : 'border-slate-800 hover:border-primary-500/30'
+                            }`}
                         >
                             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                                {/* Job Info */}
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                                         {activeTab === 'pending' && (
                                             <button
                                                 onClick={() => toggleSelectJob(job.id)}
                                                 className="p-1 hover:bg-slate-800 rounded transition"
+                                                aria-label={selectedJobs.has(job.id) ? 'Deselect' : 'Select'}
                                             >
-                                                {selectedJobs.has(job.id) ? <CheckSquare className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+                                                {selectedJobs.has(job.id) 
+                                                    ? <CheckSquare className="w-4 h-4 text-primary-400" /> 
+                                                    : <Square className="w-4 h-4 text-slate-500" />}
                                             </button>
                                         )}
                                         <h3 className="text-lg font-semibold text-white">{job.title}</h3>
@@ -499,10 +631,12 @@ export default function ExternalJobsManager() {
                                         <p className="text-emerald-400 text-sm mt-2">💰 {job.salary_range}</p>
                                     )}
                                 </div>
+                                
+                                {/* Actions */}
                                 <div className="flex flex-row md:flex-col gap-2">
                                     <button
                                         onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
-                                        className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition"
+                                        className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition hover:bg-slate-800"
                                     >
                                         <Eye className="w-3 h-3" /> Preview
                                     </button>
