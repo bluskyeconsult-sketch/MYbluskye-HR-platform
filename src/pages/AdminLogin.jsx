@@ -1,9 +1,9 @@
-// src/pages/AdminLogin.jsx
-// COMPLETE WORKING ADMIN LOGIN PAGE - With improved error handling, security, session management, and force clear
+// src/pages/AdminLogin.jsx - PRODUCTION READY VERSION
+// Features: Session clearing, token error handling, force clear button, admin detection
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase, forceClearAndRedirect } from '../lib/supabase';
+import { supabase, forceClearAuth, recoverSession, isAuthCorrupted } from '../lib/supabase';
 import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle, RefreshCw } from 'lucide-react';
 
 export default function AdminLogin() {
@@ -13,96 +13,66 @@ export default function AdminLogin() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [redirecting, setRedirecting] = useState(false);
-    const [loginAttempts, setLoginAttempts] = useState(0);
-    const [isLocked, setIsLocked] = useState(false);
     const [showClearButton, setShowClearButton] = useState(false);
+    const [sessionCleared, setSessionCleared] = useState(false);
     const navigate = useNavigate();
 
-    // Clear any corrupted session on page load
+    // Check URL params and existing session on mount
     useEffect(() => {
-        const clearCorruptedSession = async () => {
-            try {
-                await supabase.auth.signOut();
-            } catch (e) {
-                // Ignore errors
-            }
-            localStorage.removeItem('bluskye-auth-token');
-        };
-        clearCorruptedSession();
-        
-        // Load login attempts from localStorage
-        const attempts = localStorage.getItem('admin_login_attempts');
-        if (attempts) {
-            setLoginAttempts(parseInt(attempts));
-            if (parseInt(attempts) >= 5) {
-                setIsLocked(true);
-                setTimeout(() => {
-                    localStorage.removeItem('admin_login_attempts');
-                    setLoginAttempts(0);
-                    setIsLocked(false);
-                }, 15 * 60 * 1000); // 15 minute lockout
-            }
-        }
-        
-        // Check URL param for cleared flag
         const urlParams = new URLSearchParams(window.location.search);
+        
+        // Check if cleared flag is present
         if (urlParams.get('cleared') === '1') {
-            console.log('✅ Session cleared, please login');
-            // Remove the param after 3 seconds
-            setTimeout(() => {
-                const newUrl = window.location.pathname;
-                window.history.replaceState({}, '', newUrl);
-            }, 3000);
+            console.log('✅ Session cleared, ready to login');
+            setSessionCleared(true);
+            // Remove the param from URL without reloading
+            window.history.replaceState({}, '', '/admin-login');
+            
+            // Clear the success message after 5 seconds
+            setTimeout(() => setSessionCleared(false), 5000);
         }
+        
+        // Check for corrupted session
+        checkCorruptedSession();
         
         // Check existing session
         checkExistingSession();
     }, []);
 
+    async function checkCorruptedSession() {
+        const isCorrupted = await isAuthCorrupted();
+        if (isCorrupted) {
+            console.warn('⚠️ Detected corrupted session, offering clear option');
+            setShowClearButton(true);
+            setError('Session corruption detected. Click "Clear Session" below to fix.');
+        }
+    }
+
     async function checkExistingSession() {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('user_type, tier')
-                    .eq('id', session.user.id)
-                    .single();
-
-                const userType = profile?.user_type;
-                const isAdmin = userType === 'admin' || 
-                               userType === 'super_admin' || 
-                               profile?.tier === 'admin' ||
-                               profile?.tier === 'super_admin' ||
-                               session.user.email === 'bluskyeconsult@gmail.com';
+            const { session } = await recoverSession();
+            if (session && session.user) {
+                // Check if admin by email or metadata
+                const isAdmin = session.user.email === 'bluskyeconsult@gmail.com' ||
+                               session.user.user_metadata?.is_admin === true;
                 
                 if (isAdmin) {
                     navigate('/admin/dashboard');
                 }
             }
         } catch (err) {
-            console.error('Session check error:', err);
+            console.error('Session check failed:', err);
+            // If session check fails with token error, show clear button
+            if (err.message?.includes('token') || err.message?.includes('extensible')) {
+                setShowClearButton(true);
+            }
         }
     }
 
-    function recordFailedAttempt() {
-        const newAttempts = loginAttempts + 1;
-        setLoginAttempts(newAttempts);
-        localStorage.setItem('admin_login_attempts', newAttempts.toString());
-        
-        if (newAttempts >= 5) {
-            setIsLocked(true);
-            setTimeout(() => {
-                localStorage.removeItem('admin_login_attempts');
-                setLoginAttempts(0);
-                setIsLocked(false);
-            }, 15 * 60 * 1000);
-            setError('Too many failed attempts. Please try again in 15 minutes.');
-        }
-    }
-
-    const handleClearAndRetry = () => {
-        forceClearAndRedirect();
+    const handleClearSession = async () => {
+        setLoading(true);
+        await forceClearAuth();
+        // forceClearAuth redirects, so no need to set loading false
     };
 
     async function handleLogin(e) {
@@ -110,13 +80,6 @@ export default function AdminLogin() {
         setLoading(true);
         setError('');
         setShowClearButton(false);
-
-        // Check if locked
-        if (isLocked) {
-            setError('Account temporarily locked due to multiple failed attempts. Please try again later.');
-            setLoading(false);
-            return;
-        }
 
         // Basic validation
         if (!email.trim()) {
@@ -140,87 +103,50 @@ export default function AdminLogin() {
         }
 
         try {
-            // Attempt sign in
             const { data, error: signInError } = await supabase.auth.signInWithPassword({
                 email: email.trim(),
-                password
+                password: password
             });
 
             if (signInError) {
-                recordFailedAttempt();
-                
                 // Check for token/refresh errors
                 if (signInError.message?.includes('refresh') || 
                     signInError.message?.includes('token') ||
-                    signInError.message?.includes('object is not extensible') ||
-                    signInError.message?.includes('changedAccessToken')) {
+                    signInError.message?.includes('extensible')) {
                     setShowClearButton(true);
-                    setError('Session error detected. Click the button below to clear and retry.');
-                } else if (signInError.message === 'Invalid login credentials') {
-                    setError('Invalid email or password');
-                } else {
-                    setError(signInError.message);
+                    throw new Error('Session error detected. Click "Clear Session" below to fix.');
                 }
-                setLoading(false);
-                return;
+                throw signInError;
             }
 
             if (!data.user) {
-                recordFailedAttempt();
-                setError('Login failed. Please try again.');
-                setLoading(false);
-                return;
+                throw new Error('Login failed. Please try again.');
             }
 
-            // Check admin privileges
-            let isAdmin = false;
-            
-            // First try to get profile
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('user_type, tier')
-                .eq('id', data.user.id)
-                .single();
-
-            if (profileError) {
-                // If no profile, check user metadata
-                isAdmin = data.user.user_metadata?.is_admin || 
-                         data.user.email === 'bluskyeconsult@gmail.com';
-            } else {
-                isAdmin = profile.user_type === 'admin' || 
-                         profile.user_type === 'super_admin' ||
-                         profile.tier === 'admin' ||
-                         profile.tier === 'super_admin' ||
-                         data.user.email === 'bluskyeconsult@gmail.com';
-            }
+            // Check if admin (by email or metadata)
+            const isAdmin = data.user.email === 'bluskyeconsult@gmail.com' ||
+                           data.user.user_metadata?.is_admin === true;
 
             if (!isAdmin) {
-                recordFailedAttempt();
-                setError('Access denied. Admin privileges required.');
                 await supabase.auth.signOut();
-                setLoading(false);
-                return;
+                throw new Error('Access denied. Admin privileges required.');
             }
-
-            // Reset login attempts on successful login
-            localStorage.removeItem('admin_login_attempts');
-            setLoginAttempts(0);
 
             // Successful login - redirect
             setRedirecting(true);
             setTimeout(() => {
                 navigate('/admin/dashboard');
-            }, 800);
+            }, 500);
 
         } catch (err) {
-            console.error('Admin login error:', err);
+            console.error('Login error:', err);
             setError(err.message || 'Login failed. Please check your credentials.');
             
             // Check if error indicates corrupted session
             if (err.message?.includes('object is not extensible') || 
                 err.message?.includes('refresh') || 
                 err.message?.includes('token') ||
-                err.message?.includes('changedAccessToken')) {
+                err.message?.includes('corrupted')) {
                 setShowClearButton(true);
             }
         } finally {
@@ -254,7 +180,7 @@ export default function AdminLogin() {
                 </div>
 
                 {/* Session Cleared Success Message */}
-                {new URLSearchParams(window.location.search).get('cleared') === '1' && (
+                {sessionCleared && (
                     <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2">
                         <CheckCircle className="w-4 h-4 text-emerald-400" />
                         <p className="text-emerald-400 text-sm">Session cleared successfully. Please log in.</p>
@@ -278,7 +204,7 @@ export default function AdminLogin() {
                                     className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
                                     placeholder="admin@bluskyeconsult.com"
                                     required
-                                    disabled={loading || redirecting || isLocked}
+                                    disabled={loading || redirecting}
                                     autoComplete="email"
                                 />
                             </div>
@@ -298,7 +224,7 @@ export default function AdminLogin() {
                                     className="w-full pl-10 pr-10 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
                                     placeholder="••••••••"
                                     required
-                                    disabled={loading || redirecting || isLocked}
+                                    disabled={loading || redirecting}
                                     autoComplete="current-password"
                                 />
                                 <button
@@ -306,38 +232,18 @@ export default function AdminLogin() {
                                     onClick={() => setShowPassword(!showPassword)}
                                     className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
                                     tabIndex={-1}
-                                    disabled={isLocked}
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
                         </div>
 
-                        {/* Locked Warning */}
-                        {isLocked && (
-                            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-amber-400" />
-                                <p className="text-amber-400 text-sm">
-                                    Too many failed attempts. Please try again in 15 minutes.
-                                </p>
-                            </div>
-                        )}
-
                         {/* Error Message */}
-                        {error && !isLocked && (
+                        {error && (
                             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
                                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
                                     <p className="text-red-400 text-sm">{error}</p>
-                                    {showClearButton && (
-                                        <button
-                                            onClick={handleClearAndRetry}
-                                            className="mt-2 text-red-400 underline text-sm hover:text-red-300 transition flex items-center gap-1"
-                                        >
-                                            <RefreshCw className="w-3 h-3" />
-                                            Click here to clear corrupted session and try again
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                         )}
@@ -350,17 +256,23 @@ export default function AdminLogin() {
                             </div>
                         )}
 
-                        {/* Attempts Warning */}
-                        {loginAttempts > 0 && loginAttempts < 5 && !redirecting && !isLocked && (
-                            <p className="text-xs text-amber-400/70 text-center">
-                                {5 - loginAttempts} attempts remaining before temporary lockout
-                            </p>
+                        {/* Clear Session Button (shown when corruption detected) */}
+                        {showClearButton && (
+                            <button
+                                type="button"
+                                onClick={handleClearSession}
+                                disabled={loading}
+                                className="w-full py-2.5 bg-amber-600/30 text-amber-400 rounded-lg hover:bg-amber-600/50 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 text-sm border border-amber-500/30"
+                            >
+                                <RefreshCw className="w-4 h-4" />
+                                Clear Corrupted Session & Retry
+                            </button>
                         )}
 
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading || redirecting || isLocked}
+                            disabled={loading || redirecting}
                             className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium shadow-lg shadow-primary-500/20"
                         >
                             {loading ? (
