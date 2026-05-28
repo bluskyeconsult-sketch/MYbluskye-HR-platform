@@ -101,66 +101,6 @@ if (typeof Object.freeze === 'function' && import.meta.env.PROD && supabase) {
 }
 
 // ============================================
-// FORCE CLEAR AND REDIRECT (PERMANENT FIX)
-// ============================================
-
-/**
- * Force clear all auth state and redirect to login
- * This is the nuclear option for fixing corrupted sessions
- */
-export async function forceClearAndRedirect() {
-    try {
-        console.warn('💣 Force clearing all auth state...');
-        
-        // Clear all storage
-        if (typeof localStorage !== 'undefined') {
-            localStorage.clear();
-        }
-        if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.clear();
-        }
-        
-        // Clear all possible auth-related keys
-        const keysToRemove = [
-            STORAGE_KEY,
-            `sb-${cleanUrl}-auth-token`,
-            `sb-${cleanUrl}-session`,
-            'supabase-auth-token',
-            'sb-auth-token',
-            'supabase-auth-refresh-token'
-        ];
-        
-        keysToRemove.forEach(key => {
-            try {
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.removeItem(key);
-                }
-            } catch (e) {
-                // Ignore
-            }
-        });
-        
-        // Try to sign out
-        try {
-            if (supabaseInstance) {
-                await supabaseInstance.auth.signOut();
-            } else {
-                await supabase.auth.signOut();
-            }
-        } catch (e) {
-            // Ignore signout errors
-            console.debug('Sign out error (ignored):', e.message);
-        }
-        
-        // Redirect to login
-        window.location.href = '/admin-login?cleared=1';
-    } catch (e) {
-        console.error('Force clear failed:', e);
-        window.location.href = '/admin-login';
-    }
-}
-
-// ============================================
 // SESSION MANAGEMENT HELPERS
 // ============================================
 
