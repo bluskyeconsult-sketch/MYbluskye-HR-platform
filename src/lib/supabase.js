@@ -15,7 +15,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
     if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
     if (!supabaseAnonKey) missing.push('VITE_SUPABASE_ANON_KEY');
     
-    throw new Error(
+    console.error(
         `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\n` +
         'Please check your .env file has:\n' +
         'VITE_SUPABASE_URL=your_project_url\n' +
@@ -24,7 +24,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Clean URL for storage key generation
-const cleanUrl = supabaseUrl.replace(/[^a-zA-Z0-9]/g, '');
+const cleanUrl = supabaseUrl?.replace(/[^a-zA-Z0-9]/g, '') || 'bluskye';
 const STORAGE_KEY = 'bluskye-auth-token';
 
 // ============================================
@@ -64,7 +64,7 @@ export const getSupabase = () => {
                 storageKey: STORAGE_KEY,
                 storage: typeof window !== 'undefined' ? window.localStorage : undefined,
                 flowType: 'pkce',
-                debug: import.meta.env.DEV ? false : false // Set to true for debugging
+                debug: false // Set to true for debugging token issues
             },
             db: {
                 schema: 'public'
@@ -96,7 +96,7 @@ export const getSupabase = () => {
 export const supabase = getSupabase();
 
 // Freeze to prevent modifications (optional, helps with debugging)
-if (typeof Object.freeze === 'function' && import.meta.env.PROD) {
+if (typeof Object.freeze === 'function' && import.meta.env.PROD && supabase) {
     Object.freeze(supabase);
 }
 
@@ -117,7 +117,8 @@ export async function clearAndReauth() {
             STORAGE_KEY,
             `sb-${cleanUrl}-auth-token`,
             `sb-${cleanUrl}-session`,
-            'supabase-auth-token'
+            'supabase-auth-token',
+            'sb-auth-token'
         ];
         
         keysToRemove.forEach(key => {
@@ -147,37 +148,48 @@ export async function clearAndReauth() {
 /**
  * Recover or refresh the current session
  * Use this after app startup to validate session
- * @returns {Promise<Session|null>}
+ * @returns {Promise<{session: Session|null, recovered: boolean}>}
  */
 export async function recoverSession() {
     try {
+        // First, try to get existing session
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
             console.warn('Session recovery error:', error.message);
             
-            // If token refresh failed, clear and redirect
+            // If token refresh failed, clear and return null
             if (error.message?.includes('refresh') || error.message?.includes('token')) {
                 await clearAndReauth();
-                return null;
+                return { session: null, recovered: false };
             }
-            return null;
+            return { session: null, recovered: false };
         }
         
         if (!session) {
-            // Try to refresh anyway
+            // Try to refresh session
             const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession();
             if (refreshError) {
                 console.warn('No valid session found');
-                return null;
+                return { session: null, recovered: false };
             }
-            return refreshed;
+            return { session: refreshed, recovered: true };
         }
         
-        return session;
+        // Check if session is expired
+        const expiresAt = session.expires_at;
+        if (expiresAt && Date.now() >= expiresAt * 1000) {
+            // Try to refresh expired session
+            const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession();
+            if (!refreshError && refreshed) {
+                return { session: refreshed, recovered: true };
+            }
+        }
+        
+        return { session, recovered: false };
     } catch (err) {
         console.error('Session recovery failed:', err);
-        return null;
+        return { session: null, recovered: false };
     }
 }
 
@@ -218,7 +230,7 @@ export async function getCurrentUser() {
         
         if (error || !user) {
             // Try to recover session first
-            const session = await recoverSession();
+            const { session, recovered } = await recoverSession();
             if (!session) return null;
             
             // Retry getting user
@@ -235,25 +247,42 @@ export async function getCurrentUser() {
 }
 
 // ============================================
-// AUTH EVENT LISTENER (Optional)
+// AUTH EVENT LISTENER (Fixes "object is not extensible")
 // ============================================
 let authListener = null;
+let authSubscription = null;
 
 /**
- * Initialize auth state listener for debugging
+ * Initialize auth state listener for debugging and token refresh handling
  * Call this once in your App component
+ * @returns {Function} Cleanup function
  */
 export function initAuthListener() {
-    if (authListener) return;
+    // Don't create multiple listeners
+    if (authSubscription) {
+        return () => {
+            if (authSubscription) {
+                authSubscription.unsubscribe();
+                authSubscription = null;
+            }
+        };
+    }
     
-    authListener = supabase.auth.onAuthStateChange((event, session) => {
+    // Set up the auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (import.meta.env.DEV) {
             console.log(`🔐 Auth event: ${event}`, session?.user?.email || 'no user');
         }
         
-        // Handle token refresh errors
+        // Handle token refresh errors specifically
         if (event === 'TOKEN_REFRESHED') {
             console.log('✅ Token refreshed successfully');
+        }
+        
+        // Handle token refresh error (fixes "object is not extensible")
+        if (event === 'USER_UPDATED' && !session) {
+            console.warn('⚠️ Session may be corrupted - attempt recovery');
+            recoverSession().catch(() => {});
         }
         
         if (event === 'SIGNED_OUT') {
@@ -263,14 +292,76 @@ export function initAuthListener() {
             }
         }
     });
+    
+    authSubscription = subscription;
+    
+    // Return cleanup function
+    return () => {
+        if (authSubscription) {
+            authSubscription.unsubscribe();
+            authSubscription = null;
+        }
+    };
 }
 
 /**
  * Clean up auth listener (call on app unmount)
  */
 export function cleanupAuthListener() {
+    if (authSubscription) {
+        authSubscription.unsubscribe();
+        authSubscription = null;
+    }
     if (authListener) {
-        authListener.data?.subscription?.unsubscribe();
         authListener = null;
     }
 }
+
+// ============================================
+// HELPER: Check if auth state is corrupted
+// ============================================
+
+/**
+ * Check if the current auth state might be corrupted
+ * @returns {Promise<boolean>}
+ */
+export async function isAuthCorrupted() {
+    try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // If there's a session but we can't get user, it might be corrupted
+        if (session && error) {
+            return true;
+        }
+        
+        // Check for invalid token format
+        const token = localStorage.getItem(STORAGE_KEY);
+        if (token && !token.includes('.')) {
+            return true;
+        }
+        
+        return false;
+    } catch {
+        return true;
+    }
+}
+
+/**
+ * Force refresh the session (call when you suspect issues)
+ * @returns {Promise<boolean>}
+ */
+export async function forceRefreshSession() {
+    try {
+        const { data: { session }, error } = await supabase.auth.refreshSession();
+        if (error) throw error;
+        return !!session;
+    } catch (err) {
+        console.error('Force refresh failed:', err);
+        return false;
+    }
+}
+
+// ============================================
+// EXPORT ADDITIONAL HELPERS
+// ============================================
+export default supabase;
