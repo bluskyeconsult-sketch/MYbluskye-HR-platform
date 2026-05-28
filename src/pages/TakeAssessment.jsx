@@ -1,11 +1,10 @@
 // src/pages/TakeAssessment.jsx
 // COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Proper Question Loading
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
-    getAssessmentById, 
     checkUserEligibility, 
     recordAssessmentStart,
     submitAssessmentAnswers,
@@ -138,7 +137,7 @@ export default function TakeAssessment() {
                 return;
             }
             
-            // 3. ✅ FIXED: Load assessment with proper join for questions and options
+            // 3. Load assessment details
             const { data: assessmentData, error: aError } = await supabase
                 .from('assessments')
                 .select('*')
@@ -150,20 +149,30 @@ export default function TakeAssessment() {
             setTimeLeft(assessmentData.time_limit_minutes * 60);
             setStartTime(Date.now());
             
-            // 4. ✅ FIXED: Load questions with options using proper Supabase join
+            // 4. ✅ CRITICAL FIX: Load questions with options using proper Supabase join
             const { data: questionsData, error: qError } = await supabase
                 .from('assessment_questions')
                 .select(`
-                    *,
-                    options:assessment_options(*)
+                    id,
+                    question_text,
+                    question_type,
+                    points,
+                    dimension,
+                    sort_order,
+                    options:assessment_options(
+                        id,
+                        option_text,
+                        option_value,
+                        is_correct,
+                        sort_order
+                    )
                 `)
                 .eq('assessment_id', id)
                 .order('sort_order', { ascending: true });
             
             if (qError) throw qError;
             
-            // 5. Filter questions - but don't filter out all questions
-            // For text/essay questions, options aren't required
+            // 5. Filter questions - validate based on type
             const validQuestions = (questionsData || []).filter(q => {
                 // Text-based questions don't need options
                 if (q.question_type === 'text' || q.question_type === 'essay' || q.question_type === 'scenario') {
@@ -175,7 +184,11 @@ export default function TakeAssessment() {
                 }
                 // Multiple choice needs options
                 if (q.question_type === 'multiple_choice') {
-                    return q.options && q.options.length > 0;
+                    const hasOptions = q.options && Array.isArray(q.options) && q.options.length > 0;
+                    if (!hasOptions) {
+                        console.warn(`Question ${q.id} has no options:`, q.question_text);
+                    }
+                    return hasOptions;
                 }
                 return true;
             });
