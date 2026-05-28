@@ -1,41 +1,10 @@
-// src/App.jsx
-// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, route tracking, complete assessment support, and auth fix
-
+// src/App.jsx - COMPLETE PRODUCTION READY
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
-// BLOCK IMAGE GENERATION API CALLS (Save credits)
-// Must be at the VERY TOP of the app
-// ============================================
-if (typeof window !== 'undefined') {
-    // Monkey patch to prevent accidental image generation
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-        const url = args[0];
-        // Block OpenAI image generation API calls
-        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
-            console.warn('🚫 Blocked image generation API call - saving credits!');
-            return Promise.reject(new Error('Image generation blocked to save credits'));
-        }
-        return originalFetch(...args);
-    };
-    
-    // Also block any image generation attempts via XMLHttpRequest
-    const originalOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
-            console.warn('🚫 Blocked image generation XHR - saving credits!');
-            this.abort();
-            return;
-        }
-        return originalOpen.call(this, method, url, ...rest);
-    };
-}
-
-// ============================================
-// CORE COMPONENTS (Always needed - no lazy loading)
+// CORE COMPONENTS
 // ============================================
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -50,12 +19,12 @@ import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 
 // ============================================
-// AUTH FIX - Import auth utilities
+// AUTH UTILITIES
 // ============================================
 import { initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
-// LAZY LOADED PAGES (Code splitting)
+// LAZY LOADED PAGES
 // ============================================
 
 // Public Pages
@@ -75,7 +44,7 @@ const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
 
-// ✅ ASSESSMENT PAGES (Critical - must be properly imported)
+// Assessment Pages
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
 const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
 const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
@@ -152,7 +121,7 @@ const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'))
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
 
 // ============================================
-// LOADING FALLBACK COMPONENT
+// LOADING FALLBACK
 // ============================================
 const PageLoader = () => (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -178,7 +147,7 @@ const AnimatedPage = ({ children }) => (
 );
 
 // ============================================
-// 404 NOT FOUND PAGE
+// 404 PAGE
 // ============================================
 const NotFoundPage = () => (
     <AnimatedPage>
@@ -196,7 +165,7 @@ const NotFoundPage = () => (
 );
 
 // ============================================
-// ROUTE CONFIGURATION (Centralized for maintainability)
+// ROUTE CONFIGURATION
 // ============================================
 const routeGroups = {
     public: [
@@ -294,80 +263,42 @@ const routeGroups = {
 };
 
 // ============================================
-// MAIN APP CONTENT
+// APP CONTENT
 // ============================================
 function AppContent() {
     const location = useLocation();
     const mountCount = useRef(0);
-    const previousPathRef = useRef(location.pathname);
     const isDevelopment = import.meta.env.DEV;
-    const authCleanupRef = useRef(null);
-    
-    // ============================================
-    // AUTH FIX - Initialize auth listener and recover session
-    // This fixes the "object is not extensible" error
-    // ============================================
+
+    // Auth listener initialization
     useEffect(() => {
-        // Initialize auth listener
-        if (initAuthListener) {
-            authCleanupRef.current = initAuthListener();
-            if (isDevelopment) console.log('✅ Auth listener initialized');
-        }
+        const cleanup = initAuthListener();
         
-        // Recover session on startup
-        if (recoverSession) {
-            recoverSession().then(({ session, recovered }) => {
-                if (session && isDevelopment) {
-                    console.log(`✅ Session recovered successfully${recovered ? ' (refreshed)' : ''}`);
-                } else if (isDevelopment) {
-                    console.log('ℹ️ No existing session found');
-                }
-            }).catch(err => {
-                if (isDevelopment) console.warn('⚠️ Session recovery error:', err.message);
-            });
-        }
+        recoverSession().then(session => {
+            if (session && isDevelopment) {
+                console.log('✅ Session active');
+            }
+        }).catch(() => {});
         
-        // Cleanup on unmount
-        return () => {
-            if (authCleanupRef.current && typeof authCleanupRef.current === 'function') {
-                authCleanupRef.current();
-                if (isDevelopment) console.log('🔄 Auth listener cleaned up');
-            }
-            if (cleanupAuthListener) {
-                cleanupAuthListener();
-            }
-        };
-    }, [isDevelopment]);
-    
+        return cleanup;
+    }, []);
+
     // App mount tracking
     useEffect(() => {
         mountCount.current++;
         if (isDevelopment) {
-            console.log(`✅ App mounted (mount #${mountCount.current}) - www.bluskyeconsult.com`);
+            console.log(`✅ App mounted (mount #${mountCount.current})`);
         }
-        
         return () => {
             if (isDevelopment) {
-                console.log(`🔄 App unmounting (was mounted ${mountCount.current} times)`);
+                console.log(`🔄 App unmounting`);
             }
         };
-    }, [isDevelopment]);
-
-    // Route change tracking (development only)
-    useEffect(() => {
-        if (isDevelopment && previousPathRef.current !== location.pathname) {
-            console.log(`📍 Route changed: ${previousPathRef.current} → ${location.pathname}`);
-            previousPathRef.current = location.pathname;
-        }
-    }, [location.pathname, isDevelopment]);
+    }, []);
 
     const renderRouteGroup = (routes) => 
         routes.map(({ path, element }) => (
-            <Route 
-                key={path} 
-                path={path} 
-                element={<AnimatedPage>{element}</AnimatedPage>} 
-            />
+            <Route key={path} path={path} element={<AnimatedPage>{element}</AnimatedPage>} />
         ));
 
     return (
@@ -408,7 +339,7 @@ function AppContent() {
 }
 
 // ============================================
-// MAIN APP COMPONENT
+// MAIN APP
 // ============================================
 function App() {
     return (
