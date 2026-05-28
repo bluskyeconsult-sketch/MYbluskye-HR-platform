@@ -38,12 +38,10 @@ let isInitializing = false;
  * @returns {SupabaseClient} Supabase client instance
  */
 export const getSupabase = () => {
-    // Return existing instance if available
     if (supabaseInstance) {
         return supabaseInstance;
     }
     
-    // Prevent concurrent initialization
     if (isInitializing) {
         const startTime = Date.now();
         while (isInitializing && Date.now() - startTime < 100) {
@@ -57,9 +55,9 @@ export const getSupabase = () => {
     try {
         supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
             auth: {
-                autoRefreshToken: false,  // CRITICAL: Disabled for production to prevent token refresh conflicts
+                autoRefreshToken: false,
                 persistSession: true,
-                detectSessionInUrl: false,  // Disabled to prevent URL hash issues
+                detectSessionInUrl: false,
                 storageKey: STORAGE_KEY,
                 storage: typeof window !== 'undefined' ? window.localStorage : undefined,
                 flowType: 'pkce',
@@ -113,23 +111,17 @@ export async function recoverProductionSession() {
         
         if (error) {
             console.warn('Session recovery error:', error.message);
-            
-            // Clear corrupted data
             clearAuthStorage();
-            
             return { session: null, recovered: false };
         }
         
         if (!session) {
-            // Clear any stale data
             clearAuthStorage();
             return { session: null, recovered: false };
         }
         
-        // Check if session is expired
         const expiresAt = session.expires_at;
         if (expiresAt && Date.now() >= expiresAt * 1000) {
-            // Session expired, clear it
             clearAuthStorage();
             return { session: null, recovered: false };
         }
@@ -142,15 +134,16 @@ export async function recoverProductionSession() {
     }
 }
 
+// Alias for backward compatibility with App.jsx
+export const recoverSession = recoverProductionSession;
+
 /**
  * Clear all auth-related storage
  */
 export function clearAuthStorage() {
     try {
-        // Clear main storage key
         localStorage.removeItem(STORAGE_KEY);
         
-        // Clear possible alternative keys
         const altKeys = [
             `sb-${cleanUrl}-auth-token`,
             `sb-${cleanUrl}-session`,
@@ -167,7 +160,6 @@ export function clearAuthStorage() {
             }
         });
         
-        // Clear session storage
         try {
             sessionStorage.clear();
         } catch (e) {
@@ -184,24 +176,18 @@ export function clearAuthStorage() {
 
 /**
  * Force clear for production (nuclear option)
- * Use this when you get "object is not extensible" errors
  */
 export async function forceClearProduction() {
     try {
         console.warn('💣 Force clearing production auth state...');
-        
-        // Clear all storage
         clearAuthStorage();
         
-        // Try to sign out
         try {
             await supabase.auth.signOut();
         } catch (e) {
-            // Ignore signout errors
             console.debug('Sign out error (ignored):', e.message);
         }
         
-        // Redirect to admin login with cleared flag
         window.location.href = '/admin-login?cleared=1';
     } catch (e) {
         console.error('Force clear failed:', e);
@@ -209,14 +195,7 @@ export async function forceClearProduction() {
     }
 }
 
-// ============================================
-// FORCE CLEAR AND REDIRECT (Alias for compatibility)
-// ============================================
 export const forceClearAndRedirect = forceClearProduction;
-
-// ============================================
-// SESSION HELPERS
-// ============================================
 
 /**
  * Check if current session is valid
@@ -225,10 +204,8 @@ export const forceClearAndRedirect = forceClearProduction;
 export async function isSessionValid() {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
         if (error || !session) return false;
         
-        // Check if token is expired
         const expiresAt = session.expires_at;
         if (expiresAt && Date.now() >= expiresAt * 1000) {
             return false;
@@ -252,7 +229,6 @@ export async function getCurrentUser() {
             const { session } = await recoverProductionSession();
             if (!session) return null;
             
-            // Retry getting user
             const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
             if (retryError || !retryUser) return null;
             return retryUser;
@@ -266,14 +242,10 @@ export async function getCurrentUser() {
 }
 
 // ============================================
-// AUTH EVENT LISTENER (Optional)
+// AUTH EVENT LISTENER
 // ============================================
 let authSubscription = null;
 
-/**
- * Initialize auth state listener for debugging
- * @returns {Function} Cleanup function
- */
 export function initAuthListener() {
     if (authSubscription) {
         return () => {
@@ -304,9 +276,6 @@ export function initAuthListener() {
     };
 }
 
-/**
- * Clean up auth listener
- */
 export function cleanupAuthListener() {
     if (authSubscription) {
         authSubscription.unsubscribe();
@@ -314,24 +283,18 @@ export function cleanupAuthListener() {
     }
 }
 
-// ============================================
-// CHECK IF AUTH IS CORRUPTED
-// ============================================
-
 /**
- * Check if the current auth state might be corrupted
+ * Check if auth state might be corrupted
  * @returns {Promise<boolean>}
  */
 export async function isAuthCorrupted() {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        // If there's a session but we can't get user, it might be corrupted
         if (session && error) {
             return true;
         }
         
-        // Check for invalid token format
         const token = localStorage.getItem(STORAGE_KEY);
         if (token && !token.includes('.')) {
             return true;
@@ -343,7 +306,4 @@ export async function isAuthCorrupted() {
     }
 }
 
-// ============================================
-// EXPORT DEFAULT
-// ============================================
 export default supabase;
