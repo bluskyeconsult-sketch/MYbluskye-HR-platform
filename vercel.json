@@ -1,29 +1,26 @@
 {
-  "version": 2,
-  "framework": "vite",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "crons": [
+    {
+      "path": "/api/cron/fetch-jobs",
+      "schedule": "0 2 * * *"
+    }
+  ],
   "functions": {
+    "api/ai/*.js": {
+      "maxDuration": 30
+    },
     "api/*.js": {
-      "maxDuration": 10,
-      "memory": 1024
+      "maxDuration": 10
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/assets/(.*)",
-      "headers": {
-        "Cache-Control": "public, max-age=31536000, immutable"
-      },
-      "dest": "/assets/$1"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
@@ -32,7 +29,7 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "https://www.bluskyeconsult.com"
+          "value": "*"
         },
         {
           "key": "Access-Control-Allow-Methods",
@@ -65,7 +62,5 @@
         }
       ]
     }
-  ],
-  "cleanUrls": true,
-  "trailingSlash": false
+  ]
 }
