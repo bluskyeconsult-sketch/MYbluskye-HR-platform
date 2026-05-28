@@ -1,6 +1,6 @@
 // src/main.jsx
 // PRODUCTION ENTRY POINT - Optimized for www.bluskyeconsult.com
-// Includes safe Supabase error handling, auth listener, and performance monitoring
+// Includes safe Supabase error handling, auth listener, performance monitoring, and image generation blocking
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -8,6 +8,35 @@ import App from './App';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
 import { supabase, initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
+
+// ============================================
+// BLOCK IMAGE GENERATION API CALLS (Save credits)
+// Must be at the VERY TOP of the entry point
+// ============================================
+if (typeof window !== 'undefined') {
+    // Monkey patch to prevent accidental image generation
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        // Block OpenAI image generation API calls
+        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
+            console.warn('🚫 Blocked image generation API call - saving credits!');
+            return Promise.reject(new Error('Image generation blocked to save credits'));
+        }
+        return originalFetch(...args);
+    };
+    
+    // Also block any image generation attempts via XMLHttpRequest
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
+            console.warn('🚫 Blocked image generation XHR - saving credits!');
+            this.abort();
+            return;
+        }
+        return originalOpen.call(this, method, url, ...rest);
+    };
+}
 
 // ============================================
 // CONFIGURATION
@@ -135,9 +164,9 @@ async function initializeAuth() {
         
         // Recover existing session on startup
         if (recoverSession) {
-            const session = await recoverSession();
+            const { session, recovered } = await recoverSession();
             if (session) {
-                if (isDevelopment) console.log('✅ Session recovered successfully');
+                if (isDevelopment) console.log(`✅ Session recovered successfully${recovered ? ' (refreshed)' : ''}`);
             } else {
                 if (isDevelopment) console.log('ℹ️ No existing session found');
             }
