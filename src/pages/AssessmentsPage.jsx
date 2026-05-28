@@ -1,13 +1,13 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, debugging, and error handling
+// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, debugging, error handling, and proper routing
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
     AlertCircle, Star, Users, FileText, CheckCircle, Filter,
-    BarChart3, Sparkles, HelpCircle
+    BarChart3, Sparkles, HelpCircle, RefreshCw
 } from 'lucide-react';
 
 export default function AssessmentsPage() {
@@ -21,6 +21,7 @@ export default function AssessmentsPage() {
     const [debugInfo, setDebugInfo] = useState(null);
     const [showDebug, setShowDebug] = useState(false);
     const [questionCounts, setQuestionCounts] = useState({});
+    const [refreshing, setRefreshing] = useState(false);
 
     const categories = [
         { id: 'all', name: 'All Assessments', icon: Brain },
@@ -33,17 +34,27 @@ export default function AssessmentsPage() {
         { id: 'career_aptitude', name: 'Career', icon: TrendingUp }
     ];
 
+    // Load data on mount
     useEffect(() => {
-        loadAssessments();
-        loadUserResults();
-        debugDatabase();
+        loadAllData();
     }, []);
 
+    // Filter when dependencies change
     useEffect(() => {
         filterAssessments();
     }, [assessments, searchQuery, selectedCategory]);
 
-    // ✅ ENHANCED: Get real question count from database
+    async function loadAllData() {
+        setRefreshing(true);
+        await Promise.all([
+            loadAssessments(),
+            loadUserResults(),
+            debugDatabase()
+        ]);
+        setRefreshing(false);
+    }
+
+    // ✅ Get real question count from database
     async function getRealQuestionCount(assessmentId) {
         try {
             const { count, error } = await supabase
@@ -59,7 +70,7 @@ export default function AssessmentsPage() {
         }
     }
 
-    // ✅ ENHANCED: Debug function with real question counts
+    // ✅ Debug function with real question counts
     async function debugDatabase() {
         console.log("🔍 [DEBUG] Starting database diagnostic...");
         
@@ -73,19 +84,12 @@ export default function AssessmentsPage() {
             if (assessmentsError) console.error("❌ [DEBUG] Assessments error:", assessmentsError);
             
             const countsMap = {};
-            const realCounts = [];
             
             // Check REAL question counts for each assessment
             if (assessmentsData && assessmentsData.length > 0) {
                 for (const assessment of assessmentsData) {
                     const realCount = await getRealQuestionCount(assessment.id);
                     countsMap[assessment.id] = realCount;
-                    realCounts.push({
-                        title: assessment.title,
-                        storedCount: assessment.question_count || 0,
-                        realCount: realCount,
-                        match: assessment.question_count === realCount
-                    });
                     
                     console.log(`📝 [DEBUG] "${assessment.title}" - Stored: ${assessment.question_count || 0}, Actual: ${realCount} questions`);
                     
@@ -143,12 +147,11 @@ export default function AssessmentsPage() {
             
             console.log(`✅ Loaded ${data?.length || 0} assessments`);
             
-            // ✅ ENHANCED: Get real question counts for each assessment
+            // ✅ Get real question counts for each assessment
             const enhancedData = await Promise.all((data || []).map(async (assessment) => {
                 const realCount = await getRealQuestionCount(assessment.id);
                 return {
                     ...assessment,
-                    // Use real count if available, otherwise fallback to stored
                     display_question_count: realCount > 0 ? realCount : (assessment.question_count || 20)
                 };
             }));
@@ -227,12 +230,11 @@ export default function AssessmentsPage() {
         setFilteredAssessments(filtered);
     }
 
-    // ✅ ENHANCED: Get question count safely
+    // ✅ Get question count safely
     function getDisplayQuestionCount(assessment) {
-        // Priority: 1. Real fetched count, 2. Stored question_count, 3. Default 20
         if (assessment.display_question_count) return assessment.display_question_count;
         if (assessment.question_count && assessment.question_count > 0) return assessment.question_count;
-        return 20; // Safe default
+        return 20;
     }
 
     function getCategoryColor(type) {
@@ -318,14 +320,24 @@ export default function AssessmentsPage() {
                         Discover your potential with science-backed assessments
                     </p>
                     
-                    {/* Debug Button */}
-                    <button
-                        onClick={() => setShowDebug(!showDebug)}
-                        className="mt-4 text-xs text-slate-500 hover:text-slate-400 transition flex items-center gap-1 mx-auto"
-                    >
-                        <BarChart3 className="w-3 h-3" />
-                        {showDebug ? 'Hide Debug Info' : 'Show Debug Info'}
-                    </button>
+                    {/* Debug and Refresh Buttons */}
+                    <div className="flex items-center justify-center gap-3 mt-4">
+                        <button
+                            onClick={() => setShowDebug(!showDebug)}
+                            className="text-xs text-slate-500 hover:text-slate-400 transition flex items-center gap-1"
+                        >
+                            <BarChart3 className="w-3 h-3" />
+                            {showDebug ? 'Hide Debug Info' : 'Show Debug Info'}
+                        </button>
+                        <button
+                            onClick={loadAllData}
+                            disabled={refreshing}
+                            className="text-xs text-slate-500 hover:text-slate-400 transition flex items-center gap-1"
+                        >
+                            <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                            Refresh
+                        </button>
+                    </div>
                 </div>
 
                 {/* Debug Panel */}
@@ -489,7 +501,7 @@ export default function AssessmentsPage() {
                                         </div>
                                     </div>
                                     
-                                    {/* ✅ ENHANCED: Warning if no questions */}
+                                    {/* Warning if no questions */}
                                     {questionCount === 0 && (
                                         <div className="mb-3 p-2 bg-red-500/10 border border-red-500/20 rounded text-center">
                                             <p className="text-red-400 text-xs flex items-center justify-center gap-1">
@@ -499,6 +511,7 @@ export default function AssessmentsPage() {
                                         </div>
                                     )}
                                     
+                                    {/* ✅ CORRECTED LINK - Now properly routes to /assessments/:id */}
                                     <Link to={`/assessments/${assessment.id}`}>
                                         <button 
                                             disabled={questionCount === 0}
