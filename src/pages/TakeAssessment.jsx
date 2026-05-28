@@ -1,5 +1,5 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Proper Question Loading
+// COMPLETE ASSESSMENT TAKING PAGE - Fixed for existing table schema (no option_value)
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -89,7 +89,7 @@ export default function TakeAssessment() {
         };
     }, [answers, sessionId]);
 
-    // ✅ Load assessment with proper question fetching
+    // Load assessment with proper question fetching
     async function loadAssessment() {
         setLoading(true);
         setError(null);
@@ -149,8 +149,9 @@ export default function TakeAssessment() {
             setTimeLeft(assessmentData.time_limit_minutes * 60);
             setStartTime(Date.now());
             
-            // 4. ✅ CRITICAL FIX: Load questions with options using proper Supabase join
-            // Using the syntax that works: assessment_options (not options:)
+            // 4. ✅ FIXED: Load questions with options - ONLY EXISTING COLUMNS
+            // REMOVED: option_value (doesn't exist in your schema)
+            // KEPT: id, option_text, is_correct, sort_order
             const { data: questionsData, error: qError } = await supabase
                 .from('assessment_questions')
                 .select(`
@@ -163,7 +164,6 @@ export default function TakeAssessment() {
                     assessment_options (
                         id,
                         option_text,
-                        option_value,
                         is_correct,
                         sort_order
                     )
@@ -210,6 +210,7 @@ export default function TakeAssessment() {
             }
             
             setQuestions(validQuestions);
+            console.log(`✅ Loaded ${validQuestions.length} questions with options`);
             
             // 7. Start assessment session
             const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -289,7 +290,7 @@ export default function TakeAssessment() {
         }
     }
 
-    // ✅ Validate question has required content
+    // Validate question has required content
     function hasValidContent(question) {
         if (!question) return false;
         
@@ -396,7 +397,7 @@ export default function TakeAssessment() {
                                         onChange={() => handleAnswer(question.id, option.id)}
                                         className="w-4 h-4 text-primary-500 focus:ring-primary-500"
                                     />
-                                    <span className="text-white">{option.option_text || option.text}</span>
+                                    <span className="text-white">{option.option_text}</span>
                                 </label>
                             ))}
                         </div>
