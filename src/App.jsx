@@ -6,6 +6,35 @@ import { useEffect, lazy, Suspense, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
+// BLOCK IMAGE GENERATION API CALLS (Save credits)
+// Must be at the VERY TOP of the app
+// ============================================
+if (typeof window !== 'undefined') {
+    // Monkey patch to prevent accidental image generation
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const url = args[0];
+        // Block OpenAI image generation API calls
+        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
+            console.warn('🚫 Blocked image generation API call - saving credits!');
+            return Promise.reject(new Error('Image generation blocked to save credits'));
+        }
+        return originalFetch(...args);
+    };
+    
+    // Also block any image generation attempts via XMLHttpRequest
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (typeof url === 'string' && url.includes('openai.com/v1/images/generations')) {
+            console.warn('🚫 Blocked image generation XHR - saving credits!');
+            this.abort();
+            return;
+        }
+        return originalOpen.call(this, method, url, ...rest);
+    };
+}
+
+// ============================================
 // CORE COMPONENTS (Always needed - no lazy loading)
 // ============================================
 import Navbar from './components/Navbar';
@@ -187,7 +216,6 @@ const routeGroups = {
         { path: '/faq', element: <FAQPage /> },
         { path: '/blog', element: <BlogPage /> }
     ],
-    // ✅ ASSESSMENT ROUTES - Now properly defined
     assessments: [
         { path: '/assessments', element: <AssessmentsPage /> },
         { path: '/assessments/:id', element: <TakeAssessment /> },
@@ -288,9 +316,9 @@ function AppContent() {
         
         // Recover session on startup
         if (recoverSession) {
-            recoverSession().then(session => {
+            recoverSession().then(({ session, recovered }) => {
                 if (session && isDevelopment) {
-                    console.log('✅ Session recovered successfully');
+                    console.log(`✅ Session recovered successfully${recovered ? ' (refreshed)' : ''}`);
                 } else if (isDevelopment) {
                     console.log('ℹ️ No existing session found');
                 }
@@ -353,7 +381,7 @@ function AppContent() {
                     <AnimatePresence mode="wait">
                         <Routes location={location} key={location.pathname}>
                             {renderRouteGroup(routeGroups.public)}
-                            {renderRouteGroup(routeGroups.assessments)}  {/* ✅ Now includes /assessments/:id */}
+                            {renderRouteGroup(routeGroups.assessments)}
                             {renderRouteGroup(routeGroups.articles)}
                             {renderRouteGroup(routeGroups.auth)}
                             {renderRouteGroup(routeGroups.user)}
