@@ -9,6 +9,10 @@ import {
     Wifi, HardDrive, Zap, Bell, Shield, TrendingUp, Globe
 } from 'lucide-react';
 
+// Unified API endpoint
+const API_BASE = '/api/index';
+const HEALTH_ENDPOINT = `${API_BASE}?action=health`;
+
 export default function SystemHealthDashboard() {
     const [health, setHealth] = useState(null);
     const [history, setHistory] = useState([]);
@@ -34,10 +38,10 @@ export default function SystemHealthDashboard() {
         const startTime = Date.now();
         const checks = [];
         
-        // 1. Check API Gateway (Vercel)
+        // 1. Check API Gateway (Vercel) - Using unified endpoint
         try {
             const apiStart = Date.now();
-            const apiResponse = await fetch('/api/health?action=health');
+            const apiResponse = await fetch(HEALTH_ENDPOINT);
             const apiData = await apiResponse.json();
             checks.push({
                 name: 'API Gateway',
@@ -135,13 +139,12 @@ export default function SystemHealthDashboard() {
         });
         
         // 6. Check Email Service (via environment)
-        const smtpHost = import.meta.env.VITE_SMTP_HOST || process.env.SMTP_HOST;
         const emailUser = import.meta.env.VITE_EMAIL_USER;
         checks.push({
             name: 'Email Service',
-            status: (smtpHost && emailUser) ? 'healthy' : 'degraded',
+            status: emailUser ? 'healthy' : 'degraded',
             responseTime: 0,
-            details: (smtpHost && emailUser) ? `${emailUser} via ${smtpHost}` : 'SMTP credentials missing',
+            details: emailUser ? `${emailUser} via Hostinger SMTP` : 'Email credentials missing',
             icon: Mail
         });
         
@@ -436,11 +439,11 @@ export default function SystemHealthDashboard() {
                         Diagnostic Recommendations
                     </h4>
                     <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
-                        {!health.checks.find(c => c.name === 'OpenAI API')?.status === 'healthy' && (
+                        {health.checks.find(c => c.name === 'OpenAI API')?.status !== 'healthy' && (
                             <li>OpenAI API key missing - Add VITE_OPENAI_API_KEY to environment variables</li>
                         )}
-                        {!health.checks.find(c => c.name === 'Email Service')?.status === 'healthy' && (
-                            <li>Email credentials missing - Configure SMTP in Vercel environment variables</li>
+                        {health.checks.find(c => c.name === 'Email Service')?.status !== 'healthy' && (
+                            <li>Email credentials missing - Configure VITE_EMAIL_USER in Vercel environment variables</li>
                         )}
                         {health.checks.find(c => c.name === 'Supabase Database')?.status !== 'healthy' && (
                             <li>Database connection issue - Check Supabase status page and RLS policies</li>
