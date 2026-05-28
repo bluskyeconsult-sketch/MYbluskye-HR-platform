@@ -1,5 +1,5 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Safety Guards
+// COMPLETE ASSESSMENT TAKING PAGE - Timer, Scoring, Auto-save, All Question Types, Eligibility Check, Proper Question Loading
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -35,7 +35,7 @@ export default function TakeAssessment() {
     const [sessionId, setSessionId] = useState(null);
     const [autoSaveStatus, setAutoSaveStatus] = useState(null);
     
-    // Refs for interval cleanup
+    // Refs for cleanup
     const timerRef = useRef(null);
     const autoSaveRef = useRef(null);
 
@@ -90,6 +90,7 @@ export default function TakeAssessment() {
         };
     }, [answers, sessionId]);
 
+    // ✅ IMPROVED: Load assessment with proper question fetching
     async function loadAssessment() {
         setLoading(true);
         setError(null);
@@ -108,7 +109,6 @@ export default function TakeAssessment() {
             try {
                 eligibilityData = await checkUserEligibility(authUser.id, id);
             } catch (err) {
-                // Fallback: manually check using profiles table
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('tier, user_type')
@@ -138,41 +138,57 @@ export default function TakeAssessment() {
                 return;
             }
             
-            // 3. Get assessment with questions
-            let assessmentData;
-            try {
-                assessmentData = await getAssessmentById(id);
-            } catch {
-                const { data, error } = await supabase
-                    .from('assessments')
-                    .select('*')
-                    .eq('id', id)
-                    .single();
-                
-                if (error) throw error;
-                
-                // Get questions with options
-                const { data: questionsData } = await supabase
-                    .from('assessment_questions')
-                    .select('*, options:assessment_options(*)')
-                    .eq('assessment_id', id)
-                    .order('sort_order', { ascending: true });
-                
-                assessmentData = { ...data, questions: questionsData || [] };
-            }
+            // 3. ✅ FIXED: Load assessment with proper join for questions and options
+            const { data: assessmentData, error: aError } = await supabase
+                .from('assessments')
+                .select('*')
+                .eq('id', id)
+                .single();
             
-            if (!assessmentData) {
-                setError('Assessment not found');
+            if (aError) throw aError;
+            setAssessment(assessmentData);
+            setTimeLeft(assessmentData.time_limit_minutes * 60);
+            setStartTime(Date.now());
+            
+            // 4. ✅ FIXED: Load questions with options using proper Supabase join
+            const { data: questionsData, error: qError } = await supabase
+                .from('assessment_questions')
+                .select(`
+                    *,
+                    options:assessment_options(*)
+                `)
+                .eq('assessment_id', id)
+                .order('sort_order', { ascending: true });
+            
+            if (qError) throw qError;
+            
+            // 5. Filter questions - but don't filter out all questions
+            // For text/essay questions, options aren't required
+            const validQuestions = (questionsData || []).filter(q => {
+                // Text-based questions don't need options
+                if (q.question_type === 'text' || q.question_type === 'essay' || q.question_type === 'scenario') {
+                    return true;
+                }
+                // Likert and True/False don't need options array
+                if (q.question_type === 'likert_scale' || q.question_type === 'true_false') {
+                    return true;
+                }
+                // Multiple choice needs options
+                if (q.question_type === 'multiple_choice') {
+                    return q.options && q.options.length > 0;
+                }
+                return true;
+            });
+            
+            if (validQuestions.length === 0) {
+                setError('This assessment has no valid questions configured yet. Please contact support.');
                 setLoading(false);
                 return;
             }
             
-            setAssessment(assessmentData);
-            setQuestions(assessmentData.questions || []);
-            setTimeLeft(assessmentData.time_limit_minutes * 60);
-            setStartTime(Date.now());
+            setQuestions(validQuestions);
             
-            // 4. Start assessment session
+            // 6. Start assessment session
             const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
             setSessionId(newSessionId);
             
@@ -250,12 +266,12 @@ export default function TakeAssessment() {
         }
     }
 
-    // ✅ SAFETY CHECK: Validate question has options
-    function hasValidOptions(question) {
+    // ✅ SAFETY CHECK: Validate question has required content
+    function hasValidContent(question) {
         if (!question) return false;
         
-        // Check for options array
-        if (question.options && Array.isArray(question.options) && question.options.length > 0) {
+        // Text-based questions don't need options
+        if (question.question_type === 'text' || question.question_type === 'essay' || question.question_type === 'scenario') {
             return true;
         }
         
@@ -264,9 +280,9 @@ export default function TakeAssessment() {
             return true;
         }
         
-        // Text-based questions don't need options
-        if (question.question_type === 'text' || question.question_type === 'essay' || question.question_type === 'scenario') {
-            return true;
+        // Multiple choice needs options
+        if (question.question_type === 'multiple_choice') {
+            return question.options && Array.isArray(question.options) && question.options.length > 0;
         }
         
         return false;
@@ -277,10 +293,10 @@ export default function TakeAssessment() {
         if (!question) return null;
         
         const currentAnswer = answers[question.id];
-        const hasOptions = hasValidOptions(question);
+        const hasContent = hasValidContent(question);
         
-        // ✅ SAFETY GUARD: Show error if question has no valid options
-        if (!hasOptions) {
+        // ✅ SAFETY GUARD: Show error if question has no valid content
+        if (!hasContent) {
             return (
                 <div className="space-y-4">
                     <p className="text-white text-lg font-medium">{question.question_text}</p>
@@ -460,7 +476,7 @@ export default function TakeAssessment() {
                 <div className="max-w-2xl mx-auto px-4 text-center">
                     <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">No Questions Available</h1>
-                    <p className="text-slate-400 mb-6">This assessment doesn't have any questions yet.</p>
+                    <p className="text-slate-400 mb-6">This assessment doesn't have any questions configured yet.</p>
                     <a href="/assessments" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                         Back to Assessments
                     </a>
@@ -471,8 +487,9 @@ export default function TakeAssessment() {
 
     const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
     const currentQuestion = questions[currentIndex];
+    const hasValidContentFlag = currentQuestion ? hasValidContent(currentQuestion) : false;
     const hasAnswered = currentQuestion ? answers[currentQuestion.id] !== undefined : false;
-    const isValidQuestion = currentQuestion ? hasValidOptions(currentQuestion) : false;
+    const canProceed = hasValidContentFlag ? hasAnswered : true;
 
     return (
         <div className="min-h-screen bg-slate-950 py-8 md:py-12">
@@ -531,7 +548,7 @@ export default function TakeAssessment() {
                     
                     <button
                         onClick={handleNext}
-                        disabled={(!hasAnswered && isValidQuestion) || submitting}
+                        disabled={(!canProceed && hasValidContentFlag) || submitting}
                         className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition font-medium"
                     >
                         {submitting ? (
@@ -553,7 +570,7 @@ export default function TakeAssessment() {
                 </div>
                 
                 {/* Warning for unanswered questions */}
-                {!hasAnswered && isValidQuestion && currentQuestion && (
+                {!hasAnswered && hasValidContentFlag && currentQuestion && (
                     <p className="text-xs text-amber-400 text-center mt-4">
                         Please answer this question before continuing
                     </p>
