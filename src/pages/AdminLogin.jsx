@@ -1,10 +1,10 @@
 // src/pages/AdminLogin.jsx
-// COMPLETE WORKING ADMIN LOGIN PAGE - With improved error handling, security, and session management
+// COMPLETE WORKING ADMIN LOGIN PAGE - With improved error handling, security, session management, and force clear
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
-import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
+import { supabase, forceClearAndRedirect } from '../lib/supabase';
+import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle, RefreshCw } from 'lucide-react';
 
 export default function AdminLogin() {
     const [email, setEmail] = useState('');
@@ -15,11 +15,13 @@ export default function AdminLogin() {
     const [redirecting, setRedirecting] = useState(false);
     const [loginAttempts, setLoginAttempts] = useState(0);
     const [isLocked, setIsLocked] = useState(false);
+    const [showClearButton, setShowClearButton] = useState(false);
     const navigate = useNavigate();
 
     // Check if already logged in as admin
     useEffect(() => {
         checkExistingSession();
+        
         // Load login attempts from localStorage
         const attempts = localStorage.getItem('admin_login_attempts');
         if (attempts) {
@@ -32,6 +34,20 @@ export default function AdminLogin() {
                     setIsLocked(false);
                 }, 15 * 60 * 1000); // 15 minute lockout
             }
+        }
+        
+        // Check URL param for cleared flag
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('cleared') === '1') {
+            console.log('✅ Session cleared, please login');
+            // Show success message briefly
+            const timer = setTimeout(() => {
+                const clearedParam = new URLSearchParams(window.location.search);
+                clearedParam.delete('cleared');
+                const newUrl = `${window.location.pathname}?${clearedParam.toString()}`;
+                window.history.replaceState({}, '', newUrl);
+            }, 3000);
+            return () => clearTimeout(timer);
         }
     }, []);
 
@@ -71,10 +87,15 @@ export default function AdminLogin() {
         }
     }
 
+    const handleClearAndRetry = () => {
+        forceClearAndRedirect();
+    };
+
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setShowClearButton(false);
 
         // Check if locked
         if (isLocked) {
@@ -113,10 +134,20 @@ export default function AdminLogin() {
 
             if (signInError) {
                 recordFailedAttempt();
-                if (signInError.message === 'Invalid login credentials') {
+                
+                // Check for token/refresh errors
+                if (signInError.message?.includes('refresh') || 
+                    signInError.message?.includes('token') ||
+                    signInError.message?.includes('object is not extensible')) {
+                    setShowClearButton(true);
+                    setError('Session error detected. Click the button below to clear and retry.');
+                } else if (signInError.message === 'Invalid login credentials') {
                     throw new Error('Invalid email or password');
+                } else {
+                    throw signInError;
                 }
-                throw signInError;
+                setLoading(false);
+                return;
             }
 
             if (!data.user) {
@@ -161,6 +192,13 @@ export default function AdminLogin() {
         } catch (err) {
             console.error('Admin login error:', err);
             setError(err.message || 'Login failed. Please check your credentials.');
+            
+            // Check if error indicates corrupted session
+            if (err.message?.includes('object is not extensible') || 
+                err.message?.includes('refresh') || 
+                err.message?.includes('token')) {
+                setShowClearButton(true);
+            }
         } finally {
             if (!redirecting) {
                 setLoading(false);
@@ -184,12 +222,20 @@ export default function AdminLogin() {
 
                 {/* Header */}
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 animate-pulse">
+                    <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
                         <Shield className="w-8 h-8 text-white" />
                     </div>
                     <h1 className="text-2xl font-bold text-white">Admin Login</h1>
                     <p className="text-slate-400 mt-2">Access the ODUSBABA administration panel</p>
                 </div>
+
+                {/* Session Cleared Success Message */}
+                {new URLSearchParams(window.location.search).get('cleared') === '1' && (
+                    <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                        <p className="text-emerald-400 text-sm">Session cleared successfully. Please log in.</p>
+                    </div>
+                )}
 
                 {/* Login Form */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
@@ -255,9 +301,20 @@ export default function AdminLogin() {
 
                         {/* Error Message */}
                         {error && !isLocked && (
-                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2 animate-shake">
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
                                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                                <p className="text-red-400 text-sm">{error}</p>
+                                <div className="flex-1">
+                                    <p className="text-red-400 text-sm">{error}</p>
+                                    {showClearButton && (
+                                        <button
+                                            onClick={handleClearAndRetry}
+                                            className="mt-2 text-red-400 underline text-sm hover:text-red-300 transition flex items-center gap-1"
+                                        >
+                                            <RefreshCw className="w-3 h-3" />
+                                            Click here to clear corrupted session and try again
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         )}
 
