@@ -1,5 +1,5 @@
-// src/lib/supabase.js
-// ROBUST SINGLETON - Production-ready with auto-refresh disabled, error handling, and session recovery
+// src/lib/supabase.js - COMPLETE PRODUCTION FIX
+// Includes all necessary exports for App.jsx and AdminLogin.jsx
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,23 +9,19 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Clear error messages for debugging
+// Validate environment variables
 if (!supabaseUrl || !supabaseAnonKey) {
     const missing = [];
     if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
     if (!supabaseAnonKey) missing.push('VITE_SUPABASE_ANON_KEY');
     
-    console.error(
-        `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\n` +
-        'Please check your .env file has:\n' +
-        'VITE_SUPABASE_URL=your_project_url\n' +
-        'VITE_SUPABASE_ANON_KEY=your_anon_key'
-    );
+    console.error(`❌ Missing Supabase environment variables: ${missing.join(', ')}`);
+    throw new Error('Missing Supabase configuration');
 }
 
-// Clean URL for storage key generation
-const cleanUrl = supabaseUrl?.replace(/[^a-zA-Z0-9]/g, '') || 'bluskye';
-const STORAGE_KEY = 'bluskye_prod_auth';
+// Clean URL for storage keys
+const cleanUrl = supabaseUrl.replace(/[^a-zA-Z0-9]/g, '');
+const STORAGE_KEY = `bluskye_auth_${cleanUrl}`;
 
 // ============================================
 // SINGLETON PATTERN
@@ -35,17 +31,14 @@ let isInitializing = false;
 
 /**
  * Get or create Supabase client instance (singleton pattern)
- * @returns {SupabaseClient} Supabase client instance
  */
 export const getSupabase = () => {
-    if (supabaseInstance) {
-        return supabaseInstance;
-    }
+    if (supabaseInstance) return supabaseInstance;
     
     if (isInitializing) {
         const startTime = Date.now();
         while (isInitializing && Date.now() - startTime < 100) {
-            // Busy wait for initialization race conditions
+            // Wait for initialization
         }
         return supabaseInstance;
     }
@@ -55,13 +48,12 @@ export const getSupabase = () => {
     try {
         supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
             auth: {
-                autoRefreshToken: false,
+                autoRefreshToken: false,  // DISABLED - prevents corruption
                 persistSession: true,
                 detectSessionInUrl: false,
                 storageKey: STORAGE_KEY,
                 storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-                flowType: 'pkce',
-                debug: false
+                flowType: 'implicit'  // SIMPLER than pkce for production
             },
             db: {
                 schema: 'public'
@@ -75,7 +67,7 @@ export const getSupabase = () => {
         });
         
         if (import.meta.env.DEV) {
-            console.log('✅ Supabase client initialized (production mode - autoRefreshToken: false)');
+            console.log('✅ Supabase client initialized (production mode)');
         }
         
         return supabaseInstance;
@@ -92,74 +84,43 @@ export const getSupabase = () => {
 // ============================================
 export const supabase = getSupabase();
 
-// Freeze to prevent modifications in production
+// Freeze in production to prevent modifications
 if (typeof Object.freeze === 'function' && import.meta.env.PROD && supabase) {
     Object.freeze(supabase);
 }
 
 // ============================================
-// PRODUCTION SESSION MANAGEMENT
+// AUTH STORAGE MANAGEMENT
 // ============================================
-
-/**
- * Recover or refresh the current session (production-safe)
- * @returns {Promise<{session: Session|null, recovered: boolean}>}
- */
-export async function recoverProductionSession() {
-    try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-            console.warn('Session recovery error:', error.message);
-            clearAuthStorage();
-            return { session: null, recovered: false };
-        }
-        
-        if (!session) {
-            clearAuthStorage();
-            return { session: null, recovered: false };
-        }
-        
-        const expiresAt = session.expires_at;
-        if (expiresAt && Date.now() >= expiresAt * 1000) {
-            clearAuthStorage();
-            return { session: null, recovered: false };
-        }
-        
-        return { session, recovered: false };
-    } catch (err) {
-        console.error('Session recovery failed:', err);
-        clearAuthStorage();
-        return { session: null, recovered: false };
-    }
-}
-
-// Alias for backward compatibility with App.jsx
-export const recoverSession = recoverProductionSession;
 
 /**
  * Clear all auth-related storage
  */
 export function clearAuthStorage() {
     try {
+        // Main storage key
         localStorage.removeItem(STORAGE_KEY);
         
+        // Alternative keys that might contain auth data
         const altKeys = [
             `sb-${cleanUrl}-auth-token`,
             `sb-${cleanUrl}-session`,
             'supabase-auth-token',
             'sb-auth-token',
-            'supabase-auth-refresh-token'
+            'bluskye-auth',
+            'bluskye-auth-token',
+            'bluskye_prod_auth'
         ];
         
         altKeys.forEach(key => {
             try {
                 localStorage.removeItem(key);
             } catch (e) {
-                // Ignore
+                // Ignore individual failures
             }
         });
         
+        // Clear session storage
         try {
             sessionStorage.clear();
         } catch (e) {
@@ -175,11 +136,11 @@ export function clearAuthStorage() {
 }
 
 /**
- * Force clear for production (nuclear option)
+ * Force clear all auth data (nuclear option)
  */
-export async function forceClearProduction() {
+export async function forceClearAuth() {
     try {
-        console.warn('💣 Force clearing production auth state...');
+        console.warn('💣 Force clearing all auth state...');
         clearAuthStorage();
         
         try {
@@ -188,6 +149,7 @@ export async function forceClearProduction() {
             console.debug('Sign out error (ignored):', e.message);
         }
         
+        // Force hard redirect
         window.location.href = '/admin-login?cleared=1';
     } catch (e) {
         console.error('Force clear failed:', e);
@@ -195,7 +157,59 @@ export async function forceClearProduction() {
     }
 }
 
-export const forceClearAndRedirect = forceClearProduction;
+// Alias for compatibility with other files
+export const forceClearAndRedirect = forceClearAuth;
+
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+/**
+ * Simple session check
+ * @returns {Promise<Session|null>}
+ */
+export async function checkSession() {
+    try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) {
+            return null;
+        }
+        return session;
+    } catch (err) {
+        console.error('Session check failed:', err);
+        return null;
+    }
+}
+
+/**
+ * Recover session (alias for checkSession with extended info)
+ * @returns {Promise<{session: Session|null, recovered: boolean}>}
+ */
+export async function recoverSession() {
+    try {
+        const session = await checkSession();
+        if (!session) {
+            clearAuthStorage();
+            return { session: null, recovered: false };
+        }
+        
+        // Check if session is expired
+        const expiresAt = session.expires_at;
+        if (expiresAt && Date.now() >= expiresAt * 1000) {
+            clearAuthStorage();
+            return { session: null, recovered: false };
+        }
+        
+        return { session, recovered: false };
+    } catch (err) {
+        console.error('Session recovery failed:', err);
+        clearAuthStorage();
+        return { session: null, recovered: false };
+    }
+}
+
+// Alias for backward compatibility
+export const recoverProductionSession = recoverSession;
 
 /**
  * Check if current session is valid
@@ -203,8 +217,8 @@ export const forceClearAndRedirect = forceClearProduction;
  */
 export async function isSessionValid() {
     try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error || !session) return false;
+        const session = await checkSession();
+        if (!session) return false;
         
         const expiresAt = session.expires_at;
         if (expiresAt && Date.now() >= expiresAt * 1000) {
@@ -226,9 +240,10 @@ export async function getCurrentUser() {
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (error || !user) {
-            const { session } = await recoverProductionSession();
+            const session = await checkSession();
             if (!session) return null;
             
+            // Retry getting user
             const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
             if (retryError || !retryUser) return null;
             return retryUser;
@@ -246,6 +261,10 @@ export async function getCurrentUser() {
 // ============================================
 let authSubscription = null;
 
+/**
+ * Initialize auth state listener
+ * @returns {Function} Cleanup function
+ */
 export function initAuthListener() {
     if (authSubscription) {
         return () => {
@@ -261,7 +280,14 @@ export function initAuthListener() {
             console.log(`🔐 Auth event: ${event}`, session?.user?.email || 'no user');
         }
         
+        // Clear storage on sign out
         if (event === 'SIGNED_OUT') {
+            clearAuthStorage();
+        }
+        
+        // Handle token refresh errors
+        if (event === 'USER_UPDATED' && !session) {
+            console.warn('⚠️ Session may be corrupted - clearing storage');
             clearAuthStorage();
         }
     });
@@ -276,12 +302,19 @@ export function initAuthListener() {
     };
 }
 
+/**
+ * Clean up auth listener
+ */
 export function cleanupAuthListener() {
     if (authSubscription) {
         authSubscription.unsubscribe();
         authSubscription = null;
     }
 }
+
+// ============================================
+// CORRUPTION DETECTION
+// ============================================
 
 /**
  * Check if auth state might be corrupted
@@ -291,12 +324,14 @@ export async function isAuthCorrupted() {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
+        // If there's a session but error getting user, it's corrupted
         if (session && error) {
             return true;
         }
         
+        // Check for invalid token format
         const token = localStorage.getItem(STORAGE_KEY);
-        if (token && !token.includes('.')) {
+        if (token && (!token.includes('.') || token.split('.').length !== 3)) {
             return true;
         }
         
@@ -306,4 +341,22 @@ export async function isAuthCorrupted() {
     }
 }
 
+/**
+ * Force refresh session (if autoRefreshToken is disabled)
+ * @returns {Promise<boolean>}
+ */
+export async function forceRefreshSession() {
+    try {
+        const { data: { session }, error } = await supabase.auth.refreshSession();
+        if (error) throw error;
+        return !!session;
+    } catch (err) {
+        console.error('Force refresh failed:', err);
+        return false;
+    }
+}
+
+// ============================================
+// EXPORT DEFAULT
+// ============================================
 export default supabase;
