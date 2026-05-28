@@ -1,5 +1,5 @@
 // src/App.jsx
-// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, route tracking, and complete assessment support
+// OPTIMIZED FOR www.bluskyeconsult.com - With lazy loading, animations, route tracking, complete assessment support, and auth fix
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
@@ -19,6 +19,11 @@ import ScrollToTop from './components/ScrollToTop';
 import PremiumTermsPopup from './components/PremiumTermsPopup';
 import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
+
+// ============================================
+// AUTH FIX - Import auth utilities
+// ============================================
+import { initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
 // LAZY LOADED PAGES (Code splitting)
@@ -268,6 +273,43 @@ function AppContent() {
     const mountCount = useRef(0);
     const previousPathRef = useRef(location.pathname);
     const isDevelopment = import.meta.env.DEV;
+    const authCleanupRef = useRef(null);
+    
+    // ============================================
+    // AUTH FIX - Initialize auth listener and recover session
+    // This fixes the "object is not extensible" error
+    // ============================================
+    useEffect(() => {
+        // Initialize auth listener
+        if (initAuthListener) {
+            authCleanupRef.current = initAuthListener();
+            if (isDevelopment) console.log('✅ Auth listener initialized');
+        }
+        
+        // Recover session on startup
+        if (recoverSession) {
+            recoverSession().then(session => {
+                if (session && isDevelopment) {
+                    console.log('✅ Session recovered successfully');
+                } else if (isDevelopment) {
+                    console.log('ℹ️ No existing session found');
+                }
+            }).catch(err => {
+                if (isDevelopment) console.warn('⚠️ Session recovery error:', err.message);
+            });
+        }
+        
+        // Cleanup on unmount
+        return () => {
+            if (authCleanupRef.current && typeof authCleanupRef.current === 'function') {
+                authCleanupRef.current();
+                if (isDevelopment) console.log('🔄 Auth listener cleaned up');
+            }
+            if (cleanupAuthListener) {
+                cleanupAuthListener();
+            }
+        };
+    }, [isDevelopment]);
     
     // App mount tracking
     useEffect(() => {
@@ -307,7 +349,6 @@ function AppContent() {
             <ScrollingBanner />
             
             <main className="min-h-screen bg-slate-950">
-                {/* ✅ REMOVED extra padding - let individual pages control their layout */}
                 <Suspense fallback={<PageLoader />}>
                     <AnimatePresence mode="wait">
                         <Routes location={location} key={location.pathname}>
