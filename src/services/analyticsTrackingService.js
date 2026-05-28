@@ -1,5 +1,5 @@
 // src/services/analyticsTrackingService.js
-// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking, integrated IP detection
+// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking, unified IP detection
 
 import { supabase } from '../lib/supabase';
 
@@ -19,6 +19,10 @@ const CONFIG = {
     MAX_RETRIES: 2,
     RETRY_DELAY: 1000
 };
+
+// Unified API endpoint
+const API_BASE = '/api/index';
+const IP_ENDPOINT = `${API_BASE}?action=ip`;
 
 // State management
 let currentSessionId = null;
@@ -69,17 +73,17 @@ async function getUser() {
 }
 
 // ============================================
-// IP DETECTION (Integrated from /api/get-ip)
+// IP DETECTION (Unified via /api/index?action=ip)
 // ============================================
 
 /**
  * Get user's IP address and geolocation data
- * Uses Vercel's /api/health endpoint with action=ip
+ * Uses unified /api/index?action=ip endpoint
  */
 export async function getUserIP() {
     try {
-        // Try Vercel's geolocation endpoint first
-        const response = await fetch('/api/health?action=ip', {
+        // Use unified API endpoint
+        const response = await fetch(IP_ENDPOINT, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -93,7 +97,7 @@ export async function getUserIP() {
                 region: data.region,
                 latitude: data.latitude,
                 longitude: data.longitude,
-                source: 'vercel'
+                source: 'api'
             };
         }
         
@@ -210,7 +214,6 @@ async function checkAnalyticsTables() {
             .select('session_id', { count: 'exact', head: true })
             .limit(1);
         
-        // If error code is 42P01 (table doesn't exist), analytics is disabled
         return !(error && error.code === '42P01');
     }, false);
     
@@ -305,7 +308,6 @@ export async function endSession() {
             .eq('session_id', sessionId)
             .is('end_time', null);
         
-        // Clear session storage
         sessionStorage.removeItem(STORAGE_KEYS.SESSION_ID);
         sessionStorage.removeItem(STORAGE_KEYS.SESSION_START);
         currentSessionId = null;
@@ -349,7 +351,6 @@ export async function trackPageView(pagePath, pageTitle) {
         const user = await getUser();
         const deviceInfo = getDeviceInfo();
         
-        // Record new page view
         await supabase
             .from('analytics_page_views')
             .insert({
@@ -382,7 +383,6 @@ export async function trackPageView(pagePath, pageTitle) {
             })
             .eq('session_id', sessionId);
         
-        // Reset tracking for new page
         pageViewStartTime = Date.now();
         currentPagePath = pagePath;
     });
