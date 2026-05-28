@@ -1,157 +1,213 @@
 // src/components/ODUSBABAChat.jsx
-// COMPLETE CHAT COMPONENT - Integrated with real OpenAI API, credit tracking, database persistence
+// PROFESSIONAL CHAT COMPONENT - Integrated with OpenAI API, credit tracking, database persistence, unified API endpoint
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, FileText, Award, TrendingUp, Users, Zap, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, FileText, Award, TrendingUp, Users, Zap, Loader2, AlertCircle, CreditCard } from 'lucide-react';
+
+// Unified API endpoint
+const API_BASE = '/api/index';
+const CHAT_ENDPOINT = `${API_BASE}?action=chat`;
+
+// Configuration
+const GUEST_LIMIT = 5;
+const MAX_HISTORY_MESSAGES = 10;
+const TYPING_DELAY = 500;
 
 export default function ODUSBABAChat() {
+    // State Management
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
     const [user, setUser] = useState(null);
     const [conversationId, setConversationId] = useState(null);
     const [remainingCredits, setRemainingCredits] = useState(null);
     const [userTier, setUserTier] = useState(null);
+    const [error, setError] = useState(null);
+    
+    // Refs
     const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
+    const typingTimeoutRef = useRef(null);
 
-    // Guest message limit
-    const GUEST_LIMIT = 5;
-
+    // Initialize chat on mount
     useEffect(() => {
-        checkAuth();
+        initializeChat();
+        return () => {
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        };
     }, []);
 
+    // Auto-scroll to bottom when messages change
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+        scrollToBottom();
+    }, [messages, isTyping]);
 
-    async function checkAuth() {
+    // Focus input when chat opens
+    useEffect(() => {
+        if (isOpen && inputRef.current) {
+            setTimeout(() => inputRef.current?.focus(), 100);
+        }
+    }, [isOpen]);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const initializeChat = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
         
         if (user) {
-            await loadConversation();
-            await loadCredits();
+            await Promise.all([
+                loadConversation(),
+                loadCredits()
+            ]);
         } else {
-            // Guest mode - load welcome message only
-            setMessages([{
-                id: 'welcome',
-                sender: 'odusbaba',
-                message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
-                created_at: new Date().toISOString()
-            }]);
+            // Guest mode - welcome message only
+            setMessages([createWelcomeMessage()]);
         }
-    }
-
-    async function loadConversation() {
-        if (!user) return;
-        
-        // Get most recent conversation
-        const { data: existing } = await supabase
-            .from('chat_conversations')
-            .select('id')
-            .eq('user_id', user.id)
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        
-        let convId = existing?.id;
-        
-        if (!convId) {
-            const { data: newConv } = await supabase
-                .from('chat_conversations')
-                .insert({ user_id: user.id, title: 'New Conversation' })
-                .select()
-                .single();
-            convId = newConv?.id;
-        }
-        
-        setConversationId(convId);
-        
-        if (convId) {
-            const { data: history } = await supabase
-                .from('chat_messages')
-                .select('*')
-                .eq('conversation_id', convId)
-                .order('created_at', { ascending: true });
-            
-            if (history?.length > 0) {
-                setMessages(history);
-            } else {
-                setMessages([{
-                    id: 'welcome',
-                    sender: 'odusbaba',
-                    message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
-                    created_at: new Date().toISOString()
-                }]);
-            }
-        }
-    }
-
-    async function loadCredits() {
-        if (!user) return;
-        
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('ai_credits_remaining, tier, user_type')
-            .eq('id', user.id)
-            .single();
-        
-        setUserTier(profile?.tier || 'free');
-        const credits = profile?.ai_credits_remaining;
-        
-        if (credits !== null && credits !== undefined) {
-            setRemainingCredits(credits);
-        } else {
-            const limits = { free: 5, registered: 20, professional: 100, employer: 200, business: 999999 };
-            setRemainingCredits(limits[profile?.tier] || 5);
-        }
-    }
-
-    const guestMessageCount = messages.filter(m => m.sender === 'user').length;
-    const canSendMessage = () => {
-        if (loading) return false;
-        if (!input.trim()) return false;
-        if (!user && guestMessageCount >= GUEST_LIMIT) return false;
-        if (user && remainingCredits !== null && remainingCredits <= 0) return false;
-        return true;
     };
 
-    async function sendMessage() {
+    const createWelcomeMessage = () => ({
+        id: `welcome_${Date.now()}`,
+        sender: 'odusbaba',
+        message: "Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
+        created_at: new Date().toISOString()
+    });
+
+    const loadConversation = async () => {
+        if (!user) return;
+        
+        try {
+            // Get or create conversation
+            const { data: existing } = await supabase
+                .from('chat_conversations')
+                .select('id')
+                .eq('user_id', user.id)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            
+            let convId = existing?.id;
+            
+            if (!convId) {
+                const { data: newConv } = await supabase
+                    .from('chat_conversations')
+                    .insert({ user_id: user.id, title: 'New Conversation' })
+                    .select()
+                    .single();
+                convId = newConv?.id;
+            }
+            
+            setConversationId(convId);
+            
+            // Load message history
+            if (convId) {
+                const { data: history } = await supabase
+                    .from('chat_messages')
+                    .select('*')
+                    .eq('conversation_id', convId)
+                    .order('created_at', { ascending: true });
+                
+                if (history?.length > 0) {
+                    setMessages(history);
+                } else {
+                    setMessages([createWelcomeMessage()]);
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load conversation:', err);
+            setMessages([createWelcomeMessage()]);
+        }
+    };
+
+    const loadCredits = async () => {
+        if (!user) return;
+        
+        try {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('ai_credits_remaining, tier, user_type')
+                .eq('id', user.id)
+                .single();
+            
+            setUserTier(profile?.tier || 'free');
+            
+            // Check for unlimited access
+            const isUnlimited = profile?.user_type === 'super_admin' || 
+                               profile?.user_type === 'admin' || 
+                               profile?.tier === 'business';
+            
+            if (isUnlimited) {
+                setRemainingCredits(999999);
+            } else {
+                const credits = profile?.ai_credits_remaining;
+                if (credits !== null && credits !== undefined) {
+                    setRemainingCredits(credits);
+                } else {
+                    const limits = { free: 5, registered: 20, professional: 100, employer: 200 };
+                    setRemainingCredits(limits[profile?.tier] || 5);
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load credits:', err);
+            setRemainingCredits(5);
+        }
+    };
+
+    const guestMessageCount = messages.filter(m => m.sender === 'user').length;
+    
+    const canSendMessage = useCallback(() => {
+        if (isLoading) return false;
+        if (!input.trim()) return false;
+        if (!user && guestMessageCount >= GUEST_LIMIT) return false;
+        if (user && remainingCredits !== null && remainingCredits <= 0 && remainingCredits !== 999999) return false;
+        return true;
+    }, [isLoading, input, user, guestMessageCount, remainingCredits]);
+
+    const sendMessage = async () => {
         if (!canSendMessage()) return;
         
         const userMessage = {
-            id: Date.now(),
+            id: `msg_${Date.now()}`,
             sender: 'user',
-            message: input,
+            message: input.trim(),
             created_at: new Date().toISOString()
         };
         
         setMessages(prev => [...prev, userMessage]);
         setInput('');
-        setLoading(true);
+        setError(null);
+        setIsLoading(true);
+        setIsTyping(true);
 
+        // Simulate typing delay for better UX
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        
         try {
-            // Save user message to database (if logged in)
+            // Save user message to database
             if (conversationId && user) {
                 await supabase.from('chat_messages').insert({
                     conversation_id: conversationId,
                     sender: 'user',
-                    message: input
+                    message: userMessage.message
                 });
             }
 
-            // Prepare conversation history for API
-            const history = messages.slice(-10).map(m => ({
-                role: m.sender === 'user' ? 'user' : 'assistant',
-                content: m.message
-            }));
-            history.push({ role: 'user', content: input });
+            // Prepare conversation history
+            const history = messages
+                .slice(-MAX_HISTORY_MESSAGES)
+                .map(m => ({
+                    role: m.sender === 'user' ? 'user' : 'assistant',
+                    content: m.message
+                }));
+            history.push({ role: 'user', content: userMessage.message });
 
-            // Call API endpoint
-            const response = await fetch('/api/chat', {
+            // Call unified API endpoint
+            const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -165,18 +221,21 @@ export default function ODUSBABAChat() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Chat failed');
+                throw new Error(data.error || 'Chat service unavailable');
             }
 
-            // Save bot response
+            setIsTyping(false);
+            
             const botMessage = {
-                id: Date.now() + 1,
+                id: `msg_${Date.now() + 1}`,
                 sender: 'odusbaba',
                 message: data.reply,
                 created_at: new Date().toISOString()
             };
+            
             setMessages(prev => [...prev, botMessage]);
 
+            // Save bot response
             if (conversationId && user) {
                 await supabase.from('chat_messages').insert({
                     conversation_id: conversationId,
@@ -184,7 +243,6 @@ export default function ODUSBABAChat() {
                     message: data.reply
                 });
                 
-                // Update conversation timestamp
                 await supabase
                     .from('chat_conversations')
                     .update({ updated_at: new Date().toISOString() })
@@ -195,98 +253,136 @@ export default function ODUSBABAChat() {
                 setRemainingCredits(data.remaining);
             }
 
-        } catch (error) {
-            console.error('Chat error:', error);
+        } catch (err) {
+            console.error('Chat error:', err);
+            setError(err.message);
+            
             setMessages(prev => [...prev, {
-                id: Date.now() + 1,
+                id: `msg_error_${Date.now()}`,
                 sender: 'odusbaba',
-                message: "I'm having trouble connecting right now. Please try again in a moment, or contact support@bluskyeconsult.com for assistance.",
+                message: "I'm having trouble connecting right now. Please try again in a moment, or refresh the page if the issue persists.",
                 created_at: new Date().toISOString()
             }]);
         } finally {
-            setLoading(false);
+            setIsLoading(false);
+            setIsTyping(false);
         }
-    }
+    };
+
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
+    const formatTimestamp = (timestamp) => {
+        if (!timestamp) return '';
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const getCreditDisplay = () => {
+        if (!user) return null;
+        if (remainingCredits >= 999999) return null;
+        if (remainingCredits <= 5) return 'urgent';
+        if (remainingCredits <= 20) return 'warning';
+        return 'normal';
+    };
 
     const suggestedActions = [
-        { icon: Briefcase, text: "Career Path Planning", action: "Help me plan my career path based on my skills" },
+        { icon: Briefcase, text: "Career Path", action: "Help me plan my career path based on my skills" },
         { icon: FileText, text: "Resume Review", action: "Can you review my resume and provide suggestions?" },
-        { icon: Award, text: "Skill Gap Analysis", action: "Identify my skill gaps and recommend learning paths" },
-        { icon: TrendingUp, text: "Job Search Strategy", action: "Help me find jobs that match my profile" },
+        { icon: Award, text: "Skill Gap", action: "Identify my skill gaps and recommend learning paths" },
+        { icon: TrendingUp, text: "Job Search", action: "Help me find jobs that match my profile" },
         { icon: Users, text: "Interview Prep", action: "Generate interview questions for my target role" },
-        { icon: Zap, text: "Salary Guidance", action: "What salary should I expect for my role and location?" }
+        { icon: Zap, text: "Salary Guide", action: "What salary should I expect for my role and location?" }
     ];
 
-    const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0;
+    const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0 && !isLoading;
+
+    const creditStatus = getCreditDisplay();
 
     return (
         <>
             {/* Chat Button */}
             <button
                 onClick={() => setIsOpen(true)}
-                className={`fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-primary-500 to-purple-600 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 ${isOpen ? 'scale-0' : 'scale-100'}`}
+                className={`fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-primary-600 to-purple-600 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 ${isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`}
+                aria-label="Open chat"
             >
                 <MessageCircle className="w-6 h-6 text-white" />
                 {!user && remainingCredits !== 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full animate-pulse"></span>
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
                 )}
             </button>
 
             {/* Chat Window */}
             {isOpen && (
-                <div className="fixed bottom-24 right-6 z-50 w-[400px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-8rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up">
+                <div className="fixed bottom-24 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-8rem)] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up">
                     
                     {/* Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-gradient-to-r from-primary-600/20 to-purple-600/20">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-gradient-to-r from-primary-900/30 to-purple-900/30">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center">
-                                <Sparkles className="w-5 h-5 text-white" />
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center shadow-lg">
+                                <Sparkles className="w-4 h-4 text-white" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-white">ODUSBABA AI</h3>
-                                <p className="text-xs text-slate-400">Career Advisor • 24/7</p>
+                                <h3 className="font-semibold text-white text-sm">ODUSBABA AI</h3>
+                                <p className="text-xs text-slate-400">Career Advisor • Online</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {user && remainingCredits !== null && (
-                                <div className="px-2 py-1 bg-slate-800 rounded-lg">
-                                    <p className={`text-xs font-medium ${remainingCredits <= 5 ? 'text-amber-400' : 'text-slate-400'}`}>
-                                        {remainingCredits >= 999999 ? '∞' : remainingCredits} credits left
-                                    </p>
+                            {user && remainingCredits !== null && remainingCredits < 999999 && (
+                                <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    creditStatus === 'urgent' ? 'bg-red-500/20 text-red-400' :
+                                    creditStatus === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                                    'bg-slate-700 text-slate-300'
+                                }`}>
+                                    <CreditCard className="w-3 h-3 inline mr-1" />
+                                    {remainingCredits} credits
                                 </div>
                             )}
-                            <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white transition">
+                            <button 
+                                onClick={() => setIsOpen(false)} 
+                                className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
+                                aria-label="Close chat"
+                            >
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
                     </div>
 
-                    {/* Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {messages.map((msg) => (
-                            <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[85%] ${msg.sender === 'user' ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-200'} rounded-2xl px-4 py-2.5 ${msg.sender === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'}`}>
-                                    <div className="flex items-center gap-2 mb-1">
+                    {/* Messages Container */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-900 to-slate-950">
+                        {messages.map((msg, idx) => (
+                            <div
+                                key={msg.id || idx}
+                                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
+                            >
+                                <div className={`max-w-[85%] ${msg.sender === 'user' ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-200'} rounded-2xl px-4 py-2.5 ${msg.sender === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'} shadow-sm`}>
+                                    <div className="flex items-center gap-1.5 mb-1">
                                         {msg.sender === 'odusbaba' ? (
                                             <Bot className="w-3 h-3 text-primary-400" />
                                         ) : (
                                             <User className="w-3 h-3 text-slate-400" />
                                         )}
                                         <span className="text-xs opacity-70">
-                                            {msg.sender === 'odusbaba' ? 'Career Advisor' : 'You'}
+                                            {msg.sender === 'odusbaba' ? 'Advisor' : 'You'}
                                         </span>
                                     </div>
-                                    <p className="text-sm whitespace-pre-wrap">{msg.message}</p>
-                                    <p className="text-xs opacity-50 mt-1">
-                                        {new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>
+                                    <p className="text-[10px] opacity-40 mt-1 text-right">
+                                        {formatTimestamp(msg.created_at)}
                                     </p>
                                 </div>
                             </div>
                         ))}
                         
-                        {loading && (
-                            <div className="flex justify-start">
-                                <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-2">
+                        {/* Typing indicator */}
+                        {isTyping && (
+                            <div className="flex justify-start animate-fade-in">
+                                <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
                                     <div className="flex gap-1">
                                         <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                                         <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -296,25 +392,38 @@ export default function ODUSBABAChat() {
                             </div>
                         )}
                         
+                        {/* Error message */}
+                        {error && (
+                            <div className="flex justify-center">
+                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                                    <p className="text-red-400 text-xs flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {error}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Suggested Actions - Only show when no conversation yet */}
+                    {/* Suggested Actions */}
                     {showSuggestedActions && (
-                        <div className="p-3 border-t border-slate-800 bg-slate-900/50">
-                            <p className="text-xs text-slate-400 mb-2">✨ Suggested actions:</p>
+                        <div className="p-3 border-t border-slate-700 bg-slate-900/80">
+                            <p className="text-xs text-slate-500 mb-2">Quick suggestions:</p>
                             <div className="flex flex-wrap gap-2">
                                 {suggestedActions.map((action, idx) => (
                                     <button
                                         key={idx}
                                         onClick={() => {
                                             setInput(action.action);
-                                            setTimeout(() => sendMessage(), 100);
+                                            setTimeout(() => sendMessage(), 50);
                                         }}
-                                        className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-xs text-slate-300 hover:bg-slate-700 transition"
+                                        className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                        disabled={isLoading}
                                     >
                                         <action.icon className="w-3 h-3" />
-                                        {action.text}
+                                        <span className="hidden sm:inline">{action.text}</span>
                                     </button>
                                 ))}
                             </div>
@@ -322,24 +431,26 @@ export default function ODUSBABAChat() {
                     )}
 
                     {/* Input Area */}
-                    <div className="p-4 border-t border-slate-800 bg-slate-900">
+                    <div className="p-3 border-t border-slate-700 bg-slate-900">
                         <div className="flex gap-2">
                             <textarea
+                                ref={inputRef}
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                                placeholder={user ? "Ask me anything..." : `Try ODUSBABA free (${GUEST_LIMIT - guestMessageCount} messages left)...`}
+                                onKeyPress={handleKeyPress}
+                                placeholder={user ? "Ask me anything..." : `Free: ${GUEST_LIMIT - guestMessageCount} msgs left`}
                                 rows={1}
-                                className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 resize-none"
-                                style={{ minHeight: '44px', maxHeight: '100px' }}
-                                disabled={loading || (user && remainingCredits === 0)}
+                                className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm"
+                                style={{ minHeight: '42px', maxHeight: '100px' }}
+                                disabled={isLoading || (user && remainingCredits === 0)}
                             />
                             <button
                                 onClick={sendMessage}
                                 disabled={!canSendMessage()}
-                                className="p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[42px]"
+                                aria-label="Send message"
                             >
-                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                             </button>
                         </div>
                         
@@ -348,26 +459,25 @@ export default function ODUSBABAChat() {
                             <p className="text-xs text-slate-500 text-center mt-2">
                                 {guestMessageCount >= GUEST_LIMIT ? (
                                     <span className="text-amber-400">
-                                        Free messages used. <a href="/sign-up" className="text-primary-400 underline">Sign up</a> to continue.
+                                        Free messages used. <a href="/sign-up" className="text-primary-400 hover:underline">Sign up</a> to continue.
                                     </span>
                                 ) : (
                                     <span>
-                                        {GUEST_LIMIT - guestMessageCount} free messages remaining. 
-                                        <a href="/sign-up" className="text-primary-400 underline ml-1">Sign up</a> for more.
+                                        {GUEST_LIMIT - guestMessageCount} free messages remaining
                                     </span>
                                 )}
                             </p>
                         )}
                         
-                        {user && remainingCredits === 0 && (
+                        {user && remainingCredits === 0 && remainingCredits !== 999999 && (
                             <p className="text-xs text-amber-400 text-center mt-2">
-                                You've used all your credits. <a href="/pricing" className="text-primary-400 underline">Upgrade</a> to continue.
+                                Credits exhausted. <a href="/pricing" className="underline hover:text-amber-300">Upgrade</a> to continue.
                             </p>
                         )}
                         
-                        {user && remainingCredits > 0 && remainingCredits <= 5 && (
-                            <p className="text-xs text-amber-400/70 text-center mt-2">
-                                ⚠️ Low on credits. <a href="/pricing" className="text-primary-400 underline">Purchase more</a>
+                        {user && remainingCredits > 0 && remainingCredits <= 5 && remainingCredits !== 999999 && (
+                            <p className="text-xs text-amber-500 text-center mt-2">
+                                Low on credits ({remainingCredits} left). <a href="/pricing" className="underline">Purchase more</a>
                             </p>
                         )}
                     </div>
