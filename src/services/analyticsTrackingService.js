@@ -1,5 +1,5 @@
 // src/services/analyticsTrackingService.js
-// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking
+// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking, integrated IP detection
 
 import { supabase } from '../lib/supabase';
 
@@ -68,6 +68,68 @@ async function getUser() {
     }
 }
 
+// ============================================
+// IP DETECTION (Integrated from /api/get-ip)
+// ============================================
+
+/**
+ * Get user's IP address and geolocation data
+ * Uses Vercel's /api/health endpoint with action=ip
+ */
+export async function getUserIP() {
+    try {
+        // Try Vercel's geolocation endpoint first
+        const response = await fetch('/api/health?action=ip', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return {
+                ip: data.ip,
+                country: data.country,
+                city: data.city,
+                region: data.region,
+                latitude: data.latitude,
+                longitude: data.longitude,
+                source: 'vercel'
+            };
+        }
+        
+        // Fallback to free IP API
+        const fallbackResponse = await fetch('https://ipapi.co/json/');
+        if (fallbackResponse.ok) {
+            const data = await fallbackResponse.json();
+            return {
+                ip: data.ip,
+                country: data.country_name,
+                city: data.city,
+                region: data.region,
+                latitude: data.latitude,
+                longitude: data.longitude,
+                source: 'ipapi'
+            };
+        }
+        
+        return { ip: null, error: 'Unable to fetch IP' };
+    } catch (error) {
+        console.debug('IP detection failed:', error.message);
+        return { ip: null, error: error.message };
+    }
+}
+
+/**
+ * Get browser's timezone
+ */
+export function getUserTimezone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+        return 'UTC';
+    }
+}
+
 function getDeviceInfo() {
     const ua = navigator.userAgent;
     
@@ -101,7 +163,8 @@ function getDeviceInfo() {
         os,
         screenResolution: `${screen.width}x${screen.height}`,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
-        language: navigator.language
+        language: navigator.language,
+        timezone: getUserTimezone()
     };
 }
 
@@ -169,6 +232,8 @@ export async function startSession() {
         const existingSessionId = getCurrentSessionId();
         const user = await getUser();
         const visitorId = getVisitorId();
+        const ipData = await getUserIP();
+        const deviceInfo = getDeviceInfo();
         
         // Check if session already exists
         if (existingSessionId) {
@@ -185,7 +250,6 @@ export async function startSession() {
         }
         
         // Create new session
-        const deviceInfo = getDeviceInfo();
         const newSessionId = generateId('sess_');
         
         const { error } = await supabase
@@ -194,11 +258,15 @@ export async function startSession() {
                 session_id: newSessionId,
                 visitor_id: visitorId,
                 user_id: user?.id,
+                ip_address: ipData.ip,
+                ip_country: ipData.country,
+                ip_city: ipData.city,
                 device_type: deviceInfo.deviceType,
                 browser: deviceInfo.browser,
                 os: deviceInfo.os,
                 screen_resolution: deviceInfo.screenResolution,
                 language: deviceInfo.language,
+                timezone: deviceInfo.timezone,
                 referrer: document.referrer || 'direct',
                 landing_page: window.location.pathname,
                 start_time: new Date().toISOString(),
@@ -447,7 +515,13 @@ export async function getVisitorAnalytics(days = 30) {
                     acc[e.event_type] = (acc[e.event_type] || 0) + 1;
                     return acc;
                 }, {})
-            )
+            ),
+            geo_data: {
+                countries: sessionsData.reduce((acc, s) => {
+                    if (s.ip_country) acc[s.ip_country] = (acc[s.ip_country] || 0) + 1;
+                    return acc;
+                }, {})
+            }
         };
     }, []);
 }
@@ -533,11 +607,15 @@ CREATE TABLE IF NOT EXISTS analytics_sessions (
     session_id TEXT UNIQUE NOT NULL,
     visitor_id TEXT,
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    ip_address TEXT,
+    ip_country TEXT,
+    ip_city TEXT,
     device_type TEXT,
     browser TEXT,
     os TEXT,
     screen_resolution TEXT,
     language TEXT,
+    timezone TEXT,
     referrer TEXT,
     landing_page TEXT,
     start_time TIMESTAMPTZ DEFAULT NOW(),
@@ -612,5 +690,7 @@ export default {
     trackAssessmentComplete,
     trackNewsletterSignup,
     getVisitorAnalytics,
+    getUserIP,
+    getUserTimezone,
     createAnalyticsTablesSQL
 };
