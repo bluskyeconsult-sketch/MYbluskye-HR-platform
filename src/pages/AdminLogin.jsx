@@ -18,9 +18,17 @@ export default function AdminLogin() {
     const [showClearButton, setShowClearButton] = useState(false);
     const navigate = useNavigate();
 
-    // Check if already logged in as admin
+    // Clear any corrupted session on page load
     useEffect(() => {
-        checkExistingSession();
+        const clearCorruptedSession = async () => {
+            try {
+                await supabase.auth.signOut();
+            } catch (e) {
+                // Ignore errors
+            }
+            localStorage.removeItem('bluskye-auth-token');
+        };
+        clearCorruptedSession();
         
         // Load login attempts from localStorage
         const attempts = localStorage.getItem('admin_login_attempts');
@@ -40,15 +48,15 @@ export default function AdminLogin() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('cleared') === '1') {
             console.log('✅ Session cleared, please login');
-            // Show success message briefly
-            const timer = setTimeout(() => {
-                const clearedParam = new URLSearchParams(window.location.search);
-                clearedParam.delete('cleared');
-                const newUrl = `${window.location.pathname}?${clearedParam.toString()}`;
+            // Remove the param after 3 seconds
+            setTimeout(() => {
+                const newUrl = window.location.pathname;
                 window.history.replaceState({}, '', newUrl);
             }, 3000);
-            return () => clearTimeout(timer);
         }
+        
+        // Check existing session
+        checkExistingSession();
     }, []);
 
     async function checkExistingSession() {
@@ -57,12 +65,18 @@ export default function AdminLogin() {
             if (session) {
                 const { data: profile } = await supabase
                     .from('profiles')
-                    .select('user_type')
+                    .select('user_type, tier')
                     .eq('id', session.user.id)
                     .single();
 
                 const userType = profile?.user_type;
-                if (userType === 'admin' || userType === 'super_admin' || session.user.email === 'bluskyeconsult@gmail.com') {
+                const isAdmin = userType === 'admin' || 
+                               userType === 'super_admin' || 
+                               profile?.tier === 'admin' ||
+                               profile?.tier === 'super_admin' ||
+                               session.user.email === 'bluskyeconsult@gmail.com';
+                
+                if (isAdmin) {
                     navigate('/admin/dashboard');
                 }
             }
@@ -91,7 +105,7 @@ export default function AdminLogin() {
         forceClearAndRedirect();
     };
 
-    async function handleSubmit(e) {
+    async function handleLogin(e) {
         e.preventDefault();
         setLoading(true);
         setError('');
@@ -138,13 +152,14 @@ export default function AdminLogin() {
                 // Check for token/refresh errors
                 if (signInError.message?.includes('refresh') || 
                     signInError.message?.includes('token') ||
-                    signInError.message?.includes('object is not extensible')) {
+                    signInError.message?.includes('object is not extensible') ||
+                    signInError.message?.includes('changedAccessToken')) {
                     setShowClearButton(true);
                     setError('Session error detected. Click the button below to clear and retry.');
                 } else if (signInError.message === 'Invalid login credentials') {
-                    throw new Error('Invalid email or password');
+                    setError('Invalid email or password');
                 } else {
-                    throw signInError;
+                    setError(signInError.message);
                 }
                 setLoading(false);
                 return;
@@ -152,10 +167,15 @@ export default function AdminLogin() {
 
             if (!data.user) {
                 recordFailedAttempt();
-                throw new Error('Login failed. Please try again.');
+                setError('Login failed. Please try again.');
+                setLoading(false);
+                return;
             }
 
             // Check admin privileges
+            let isAdmin = false;
+            
+            // First try to get profile
             const { data: profile, error: profileError } = await supabase
                 .from('profiles')
                 .select('user_type, tier')
@@ -163,15 +183,18 @@ export default function AdminLogin() {
                 .single();
 
             if (profileError) {
-                console.warn('Profile fetch error:', profileError);
+                // If no profile, check user metadata
+                isAdmin = data.user.user_metadata?.is_admin || 
+                         data.user.email === 'bluskyeconsult@gmail.com';
+            } else {
+                isAdmin = profile.user_type === 'admin' || 
+                         profile.user_type === 'super_admin' ||
+                         profile.tier === 'admin' ||
+                         profile.tier === 'super_admin' ||
+                         data.user.email === 'bluskyeconsult@gmail.com';
             }
 
-            const userType = profile?.user_type;
-            const isAuthorized = userType === 'admin' || 
-                                userType === 'super_admin' || 
-                                data.user.email === 'bluskyeconsult@gmail.com';
-
-            if (!isAuthorized) {
+            if (!isAdmin) {
                 recordFailedAttempt();
                 setError('Access denied. Admin privileges required.');
                 await supabase.auth.signOut();
@@ -196,7 +219,8 @@ export default function AdminLogin() {
             // Check if error indicates corrupted session
             if (err.message?.includes('object is not extensible') || 
                 err.message?.includes('refresh') || 
-                err.message?.includes('token')) {
+                err.message?.includes('token') ||
+                err.message?.includes('changedAccessToken')) {
                 setShowClearButton(true);
             }
         } finally {
@@ -239,7 +263,7 @@ export default function AdminLogin() {
 
                 {/* Login Form */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleLogin} className="space-y-4">
                         {/* Email Field */}
                         <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
