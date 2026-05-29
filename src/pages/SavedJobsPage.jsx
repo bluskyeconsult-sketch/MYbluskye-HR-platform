@@ -1,40 +1,398 @@
+// src/pages/SavedJobsPage.jsx
+// COMPLETE PROFESSIONAL SAVED JOBS - With unified API, filtering, and enhanced UI
+
 import { useEffect, useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
-import { BookmarkCheck, Briefcase, MapPin, Clock } from 'lucide-react';
+import { 
+    BookmarkCheck, Briefcase, MapPin, Clock, DollarSign, 
+    Building2, Filter, Search, Trash2, Eye, Loader2,
+    AlertCircle, TrendingUp, Star, Zap, Calendar, X
+} from 'lucide-react';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Job type configurations
+const JOB_TYPES = [
+    { id: 'all', name: 'All Types', icon: Briefcase },
+    { id: 'full_time', name: 'Full Time', icon: Briefcase },
+    { id: 'part_time', name: 'Part Time', icon: Clock },
+    { id: 'remote', name: 'Remote', icon: Zap },
+    { id: 'contract', name: 'Contract', icon: FileText },
+    { id: 'freelance', name: 'Freelance', icon: Star }
+];
+
+// Import missing icon
+import { FileText } from 'lucide-react';
+
 export default function SavedJobsPage() {
-  const [savedJobs, setSavedJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+    const [savedJobs, setSavedJobs] = useState([]);
+    const [filteredJobs, setFilteredJobs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [removingId, setRemovingId] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [jobTypeFilter, setJobTypeFilter] = useState('all');
+    const [stats, setStats] = useState({
+        total: 0,
+        fullTime: 0,
+        remote: 0,
+        recent: 0
+    });
 
-  useEffect(() => { loadSavedJobs(); }, []);
+    useEffect(() => {
+        loadSavedJobs();
+    }, []);
 
-  async function loadSavedJobs() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase.from('saved_jobs').select('*, jobs:job_id(*)').eq('user_id', user.id);
-      setSavedJobs(data || []);
+    useEffect(() => {
+        filterJobs();
+    }, [savedJobs, searchQuery, jobTypeFilter]);
+
+    async function loadSavedJobs() {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const { data: { user } } = await supabase.auth.getUser();
+            
+            if (!user) {
+                navigate('/sign-in?redirect=/saved-jobs');
+                return;
+            }
+            
+            // ✅ Using unified API endpoint
+            const response = await fetch('/api/index?action=user-saved-jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id })
+            });
+            
+            const result = await response.json();
+            
+            if (!result.success) throw new Error(result.error);
+            
+            const jobs = result.data || [];
+            setSavedJobs(jobs);
+            
+            // Calculate stats
+            const fullTimeCount = jobs.filter(j => j.jobs?.job_type === 'full_time').length;
+            const remoteCount = jobs.filter(j => j.jobs?.job_type === 'remote' || j.jobs?.is_remote).length;
+            const recentCount = jobs.filter(j => {
+                const savedDate = new Date(j.saved_at);
+                const daysAgo = (Date.now() - savedDate.getTime()) / (1000 * 60 * 60 * 24);
+                return daysAgo <= 7;
+            }).length;
+            
+            setStats({
+                total: jobs.length,
+                fullTime: fullTimeCount,
+                remote: remoteCount,
+                recent: recentCount
+            });
+            
+        } catch (err) {
+            console.error('Error loading saved jobs:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
     }
-    setLoading(false);
-  }
 
-  async function removeSaved(jobId) {
-    const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from('saved_jobs').delete().eq('user_id', user.id).eq('job_id', jobId);
-    loadSavedJobs();
-  }
+    async function removeSaved(jobId) {
+        setRemovingId(jobId);
+        setError(null);
+        
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            
+            const response = await fetch('/api/index?action=user-saved-job-remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: user.id,
+                    jobId: jobId
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (!result.success) throw new Error(result.error);
+            
+            await loadSavedJobs();
+            
+        } catch (err) {
+            console.error('Error removing saved job:', err);
+            setError(err.message);
+        } finally {
+            setRemovingId(null);
+        }
+    }
 
-  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><div className="animate-pulse text-slate-400">Loading...</div></div>;
+    function filterJobs() {
+        let filtered = [...savedJobs];
+        
+        // Job type filter
+        if (jobTypeFilter !== 'all') {
+            filtered = filtered.filter(item => 
+                item.jobs?.job_type === jobTypeFilter ||
+                (jobTypeFilter === 'remote' && item.jobs?.is_remote)
+            );
+        }
+        
+        // Search filter
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(item => 
+                item.jobs?.title?.toLowerCase().includes(query) ||
+                item.jobs?.company?.toLowerCase().includes(query) ||
+                item.jobs?.location?.toLowerCase().includes(query)
+            );
+        }
+        
+        // Sort by saved date (newest first)
+        filtered.sort((a, b) => new Date(b.saved_at) - new Date(a.saved_at));
+        
+        setFilteredJobs(filtered);
+    }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-3xl font-bold text-white mb-8">Saved Jobs</h1>
-        {savedJobs.length === 0 ? <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center"><BookmarkCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" /><p className="text-slate-400">No saved jobs yet. Click the bookmark icon on jobs to save them!</p></div> : <div className="space-y-4">{savedJobs.map(item => item.jobs && (<div key={item.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all"><div className="flex justify-between items-start"><div><h2 className="text-xl font-semibold text-white">{item.jobs.title}</h2><p className="text-slate-400 mt-1">{item.jobs.company} • {item.jobs.location || 'Remote'}</p><div className="flex flex-wrap gap-4 mt-3"><span className="text-xs text-emerald-400">{item.jobs.job_type}</span><span className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" />Saved {new Date(item.saved_at).toLocaleDateString()}</span></div></div><div className="flex gap-2"><button onClick={() => window.location.href = `/jobs/${item.jobs.id}`} className="px-3 py-1 bg-emerald-600 text-white text-sm rounded-lg">Apply Now</button><button onClick={() => removeSaved(item.jobs.id)} className="px-3 py-1 bg-red-500/20 text-red-400 text-sm rounded-lg">Remove</button></div></div></div>))}</div>}
-      </div>
-    </div>
-  );
+    function formatSalary(salaryMin, salaryMax) {
+        if (!salaryMin && !salaryMax) return null;
+        if (salaryMin && salaryMax) return `$${salaryMin.toLocaleString()} - $${salaryMax.toLocaleString()}`;
+        if (salaryMin) return `$${salaryMin.toLocaleString()}+`;
+        return `Up to $${salaryMax.toLocaleString()}`;
+    }
+
+    function getJobTypeBadge(jobType) {
+        const config = {
+            full_time: { label: 'Full Time', color: 'bg-emerald-500/20 text-emerald-400' },
+            part_time: { label: 'Part Time', color: 'bg-blue-500/20 text-blue-400' },
+            remote: { label: 'Remote', color: 'bg-purple-500/20 text-purple-400' },
+            contract: { label: 'Contract', color: 'bg-amber-500/20 text-amber-400' },
+            freelance: { label: 'Freelance', color: 'bg-pink-500/20 text-pink-400' }
+        };
+        const { label, color } = config[jobType] || { label: jobType || 'Full Time', color: 'bg-slate-500/20 text-slate-400' };
+        return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
+    }
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
+            <div className="max-w-6xl mx-auto px-4 py-12">
+                {/* Header */}
+                <div className="mb-8">
+                    <div className="flex items-center gap-3 mb-2">
+                        <BookmarkCheck className="w-8 h-8 text-primary-400" />
+                        <h1 className="text-3xl font-bold text-white">Saved Jobs</h1>
+                    </div>
+                    <p className="text-slate-400">Jobs you've saved for later consideration</p>
+                </div>
+
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400" />
+                        <p className="text-red-400 text-sm">{error}</p>
+                    </div>
+                )}
+
+                {/* Stats Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center hover:border-primary-500/30 transition">
+                        <div className="text-2xl font-bold text-white">{stats.total}</div>
+                        <div className="text-xs text-slate-400">Total Saved</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center hover:border-primary-500/30 transition">
+                        <div className="text-2xl font-bold text-emerald-400">{stats.fullTime}</div>
+                        <div className="text-xs text-slate-400">Full Time</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center hover:border-primary-500/30 transition">
+                        <div className="text-2xl font-bold text-purple-400">{stats.remote}</div>
+                        <div className="text-xs text-slate-400">Remote</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center hover:border-primary-500/30 transition">
+                        <div className="text-2xl font-bold text-amber-400">{stats.recent}</div>
+                        <div className="text-xs text-slate-400">Saved This Week</div>
+                    </div>
+                </div>
+
+                {/* Search and Filter */}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                    <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search saved jobs by title, company, or location..."
+                            className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                        {JOB_TYPES.map(type => (
+                            <button
+                                key={type.id}
+                                onClick={() => setJobTypeFilter(type.id)}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition ${
+                                    jobTypeFilter === type.id
+                                        ? 'bg-primary-600 text-white'
+                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                }`}
+                            >
+                                <type.icon className="w-3 h-3" />
+                                {type.name}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Saved Jobs List */}
+                {filteredJobs.length === 0 ? (
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
+                        {savedJobs.length === 0 ? (
+                            <>
+                                <BookmarkCheck className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                                <h3 className="text-xl font-semibold text-white mb-2">No Saved Jobs Yet</h3>
+                                <p className="text-slate-400 mb-6">
+                                    Click the bookmark icon on job listings to save them for later.
+                                </p>
+                                <Link 
+                                    to="/jobs" 
+                                    className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition inline-flex items-center gap-2"
+                                >
+                                    Browse Jobs
+                                </Link>
+                            </>
+                        ) : (
+                            <>
+                                <Filter className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                                <h3 className="text-xl font-semibold text-white mb-2">No Matching Saved Jobs</h3>
+                                <p className="text-slate-400 mb-6">
+                                    No saved jobs match "{searchQuery}" or the selected filter.
+                                </p>
+                                <button
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        setJobTypeFilter('all');
+                                    }}
+                                    className="px-6 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition"
+                                >
+                                    Clear Filters
+                                </button>
+                            </>
+                        )}
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {filteredJobs.map((item) => {
+                            const job = item.jobs;
+                            if (!job) return null;
+                            
+                            const salaryText = formatSalary(job.salary_min, job.salary_max);
+                            const savedDate = new Date(item.saved_at);
+                            const daysAgo = Math.floor((Date.now() - savedDate.getTime()) / (1000 * 60 * 60 * 24));
+                            
+                            return (
+                                <div 
+                                    key={item.id} 
+                                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all duration-200 group"
+                                >
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                                        <div className="flex-1">
+                                            <div className="flex items-start justify-between">
+                                                <div>
+                                                    <h2 className="text-xl font-semibold text-white group-hover:text-primary-400 transition">
+                                                        {job.title}
+                                                    </h2>
+                                                    <p className="text-slate-400 mt-1 flex items-center gap-1">
+                                                        <Building2 className="w-3 h-3" />
+                                                        {job.company}
+                                                    </p>
+                                                </div>
+                                                {getJobTypeBadge(job.job_type)}
+                                            </div>
+                                            
+                                            <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-500">
+                                                {job.location && (
+                                                    <span className="flex items-center gap-1">
+                                                        <MapPin className="w-3 h-3" />
+                                                        {job.location}
+                                                    </span>
+                                                )}
+                                                {salaryText && (
+                                                    <span className="flex items-center gap-1">
+                                                        <DollarSign className="w-3 h-3" />
+                                                        {salaryText}
+                                                    </span>
+                                                )}
+                                                <span className="flex items-center gap-1">
+                                                    <Clock className="w-3 h-3" />
+                                                    Saved {daysAgo === 0 ? 'today' : `${daysAgo} days ago`}
+                                                </span>
+                                            </div>
+                                            
+                                            {job.description && (
+                                                <p className="text-slate-400 text-sm mt-3 line-clamp-2">
+                                                    {job.description.substring(0, 200)}...
+                                                </p>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex flex-row md:flex-col gap-2">
+                                            <Link to={`/jobs/${job.id}`}>
+                                                <button className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition text-sm flex items-center gap-1">
+                                                    <Eye className="w-3 h-3" />
+                                                    View & Apply
+                                                </button>
+                                            </Link>
+                                            <button 
+                                                onClick={() => removeSaved(job.id)}
+                                                disabled={removingId === job.id}
+                                                className="w-full px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition text-sm flex items-center justify-center gap-1 disabled:opacity-50"
+                                            >
+                                                {removingId === job.id ? (
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                ) : (
+                                                    <Trash2 className="w-3 h-3" />
+                                                )}
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Saved date highlight for recent saves */}
+                                    {daysAgo <= 3 && (
+                                        <div className="mt-3 pt-3 border-t border-slate-800">
+                                            <p className="text-xs text-amber-400 flex items-center gap-1">
+                                                <Zap className="w-3 h-3" />
+                                                Recently saved - don't miss this opportunity!
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                
+                {/* Summary */}
+                {filteredJobs.length > 0 && (
+                    <div className="mt-6 text-center">
+                        <p className="text-sm text-slate-500">
+                            Showing {filteredJobs.length} of {savedJobs.length} saved jobs
+                        </p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
