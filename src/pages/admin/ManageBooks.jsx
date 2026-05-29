@@ -1,6 +1,6 @@
 // src/pages/admin/ManageBooks.jsx
 // COMPLETE PROFESSIONAL BOOKS MANAGEMENT - Add, edit, delete books with file uploads
-// Features: Book cover upload, PDF upload, featured books, categories, publish date
+// Features: Search, category filter, featured books, PDF preview, enhanced metadata
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -9,7 +9,8 @@ import {
     BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
     Download, Star, Calendar, DollarSign, User, 
     Tag, AlertCircle, CheckCircle, X, Image as ImageIcon,
-    FileText, Award, TrendingUp, Users, Briefcase, Code
+    FileText, Award, TrendingUp, Users, Briefcase, Code,
+    Search, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 // ============================================
@@ -17,13 +18,15 @@ import {
 // ============================================
 
 const CATEGORIES = [
-    { id: 'hr', name: 'Human Resources', icon: Users, color: 'primary' },
-    { id: 'leadership', name: 'Leadership', icon: Award, color: 'emerald' },
-    { id: 'technology', name: 'Technology', icon: Code, color: 'purple' },
-    { id: 'career', name: 'Career Development', icon: TrendingUp, color: 'amber' },
-    { id: 'management', name: 'Management', icon: Briefcase, color: 'blue' },
-    { id: 'soft-skills', name: 'Soft Skills', icon: Users, color: 'pink' }
+    { id: 'hr', name: 'Human Resources', icon: Users, color: 'primary', description: 'HR management, recruitment, employee relations' },
+    { id: 'leadership', name: 'Leadership', icon: Award, color: 'emerald', description: 'Team management, executive skills, strategy' },
+    { id: 'technology', name: 'Technology', icon: Code, color: 'purple', description: 'Tech trends, digital transformation, AI' },
+    { id: 'career', name: 'Career Development', icon: TrendingUp, color: 'amber', description: 'Career planning, growth, advancement' },
+    { id: 'management', name: 'Management', icon: Briefcase, color: 'blue', description: 'Operations, project management, strategy' },
+    { id: 'soft-skills', name: 'Soft Skills', icon: Users, color: 'pink', description: 'Communication, teamwork, emotional intelligence' }
 ];
+
+const ITEMS_PER_PAGE = 12;
 
 const getCategoryIcon = (categoryId) => {
     const category = CATEGORIES.find(c => c.id === categoryId);
@@ -49,6 +52,7 @@ export default function ManageBooks() {
     const [successMessage, setSuccessMessage] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
     const [formData, setFormData] = useState({
         title: '',
         author: '',
@@ -62,7 +66,8 @@ export default function ManageBooks() {
         isbn: '',
         pages: 0,
         language: 'English',
-        edition: 1
+        edition: 1,
+        publisher: ''
     });
 
     useEffect(() => {
@@ -170,7 +175,8 @@ export default function ManageBooks() {
             isbn: '',
             pages: 0,
             language: 'English',
-            edition: 1
+            edition: 1,
+            publisher: ''
         });
         setError('');
     }
@@ -182,13 +188,22 @@ export default function ManageBooks() {
         setError('');
     }
 
+    // Filter books
     const filteredBooks = books.filter(book => {
         const matchesCategory = selectedCategory === 'all' || book.category === selectedCategory;
         const matchesSearch = searchTerm === '' || 
             book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            book.author.toLowerCase().includes(searchTerm.toLowerCase());
+            book.author.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (book.isbn && book.isbn.includes(searchTerm));
         return matchesCategory && matchesSearch;
     });
+
+    // Pagination
+    const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
+    const paginatedBooks = filteredBooks.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE
+    );
 
     if (loading) {
         return (
@@ -226,12 +241,13 @@ export default function ManageBooks() {
             {/* Search and Filter Bar */}
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
                         type="text"
-                        placeholder="Search books by title or author..."
+                        placeholder="Search books by title, author, or ISBN..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-4 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-2">
@@ -254,6 +270,7 @@ export default function ManageBooks() {
                                     ? `bg-${cat.color}-600 text-white`
                                     : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                             }`}
+                            title={cat.description}
                         >
                             <cat.icon className="w-3 h-3" />
                             {cat.name}
@@ -263,7 +280,7 @@ export default function ManageBooks() {
             </div>
 
             {/* Books Grid */}
-            {filteredBooks.length === 0 ? (
+            {paginatedBooks.length === 0 ? (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                     <BookOpen className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                     <h3 className="text-xl font-semibold text-white mb-2">No books found</h3>
@@ -272,106 +289,139 @@ export default function ManageBooks() {
                             ? 'No books in the library yet. Click "Add New Book" to get started.'
                             : 'No books match your search criteria.'}
                     </p>
+                    {(searchTerm || selectedCategory !== 'all') && (
+                        <button
+                            onClick={() => { setSearchTerm(''); setSelectedCategory('all'); }}
+                            className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
+                        >
+                            Clear Filters
+                        </button>
+                    )}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {filteredBooks.map(book => {
-                        const Icon = getCategoryIcon(book.category);
-                        const categoryColor = getCategoryColor(book.category);
-                        
-                        return (
-                            <div 
-                                key={book.id} 
-                                className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all hover:-translate-y-1"
-                            >
-                                {/* Book Cover */}
-                                {book.cover_url ? (
-                                    <div className="relative h-48 overflow-hidden">
-                                        <img 
-                                            src={book.cover_url} 
-                                            alt={book.title} 
-                                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                                        />
-                                        {book.is_featured && (
-                                            <div className="absolute top-2 right-2 px-2 py-1 bg-amber-500/90 rounded-lg text-xs text-white font-semibold flex items-center gap-1">
-                                                <Star className="w-3 h-3" /> Featured
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="h-48 bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center">
-                                        <BookOpen className="w-12 h-12 text-primary-400 mb-2" />
-                                        <span className="text-xs text-slate-500">No cover image</span>
-                                    </div>
-                                )}
-                                
-                                {/* Book Info */}
-                                <div className="p-4">
-                                    <div className="flex items-start justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className={`p-1.5 rounded-lg bg-${categoryColor}-500/10`}>
-                                                <Icon className={`w-3 h-3 text-${categoryColor}-400`} />
-                                            </div>
-                                            <span className="text-xs text-slate-500 capitalize">{book.category || 'Uncategorized'}</span>
+                <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                        {paginatedBooks.map(book => {
+                            const Icon = getCategoryIcon(book.category);
+                            const categoryColor = getCategoryColor(book.category);
+                            
+                            return (
+                                <div 
+                                    key={book.id} 
+                                    className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all hover:-translate-y-1"
+                                >
+                                    {/* Book Cover */}
+                                    {book.cover_url ? (
+                                        <div className="relative h-48 overflow-hidden">
+                                            <img 
+                                                src={book.cover_url} 
+                                                alt={book.title} 
+                                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                            />
+                                            {book.is_featured && (
+                                                <div className="absolute top-2 right-2 px-2 py-1 bg-amber-500/90 rounded-lg text-xs text-white font-semibold flex items-center gap-1">
+                                                    <Star className="w-3 h-3" /> Featured
+                                                </div>
+                                            )}
                                         </div>
-                                        <span className="text-lg font-bold text-primary-400">${book.price}</span>
-                                    </div>
+                                    ) : (
+                                        <div className="h-48 bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center">
+                                            <BookOpen className="w-12 h-12 text-primary-400 mb-2" />
+                                            <span className="text-xs text-slate-500">No cover image</span>
+                                        </div>
+                                    )}
                                     
-                                    <h3 className="text-white font-semibold text-lg mb-1 line-clamp-1">{book.title}</h3>
-                                    <p className="text-slate-400 text-sm mb-2">by {book.author}</p>
-                                    
-                                    <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
-                                        {book.publish_date && (
-                                            <span className="flex items-center gap-1">
-                                                <Calendar className="w-3 h-3" />
-                                                {new Date(book.publish_date).getFullYear()}
-                                            </span>
-                                        )}
-                                        {book.pages > 0 && (
-                                            <span className="flex items-center gap-1">
-                                                <FileText className="w-3 h-3" />
-                                                {book.pages} pages
-                                            </span>
-                                        )}
-                                        {book.pdf_url && (
-                                            <span className="flex items-center gap-1 text-emerald-400">
-                                                <Download className="w-3 h-3" />
-                                                PDF
-                                            </span>
-                                        )}
-                                    </div>
-                                    
-                                    {/* Action Buttons */}
-                                    <div className="flex gap-2 pt-2 border-t border-slate-800">
-                                        <button 
-                                            onClick={() => openEditModal(book)} 
-                                            className="flex-1 py-1.5 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition flex items-center justify-center gap-1 text-sm"
-                                        >
-                                            <Edit2 className="w-3 h-3" /> Edit
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDelete(book.id)} 
-                                            className="flex-1 py-1.5 bg-slate-800 rounded-lg text-red-400 hover:bg-red-500/20 hover:text-red-300 transition flex items-center justify-center gap-1 text-sm"
-                                        >
-                                            <Trash2 className="w-3 h-3" /> Delete
-                                        </button>
-                                        {book.pdf_url && (
-                                            <a 
-                                                href={book.pdf_url} 
-                                                target="_blank" 
-                                                rel="noopener noreferrer" 
-                                                className="py-1.5 px-3 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                                title="Preview PDF"
+                                    {/* Book Info */}
+                                    <div className="p-4">
+                                        <div className="flex items-start justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`p-1.5 rounded-lg bg-${categoryColor}-500/10`}>
+                                                    <Icon className={`w-3 h-3 text-${categoryColor}-400`} />
+                                                </div>
+                                                <span className="text-xs text-slate-500 capitalize">{book.category || 'Uncategorized'}</span>
+                                            </div>
+                                            <span className="text-lg font-bold text-primary-400">${book.price}</span>
+                                        </div>
+                                        
+                                        <h3 className="text-white font-semibold text-lg mb-1 line-clamp-1">{book.title}</h3>
+                                        <p className="text-slate-400 text-sm mb-2">by {book.author}</p>
+                                        
+                                        <div className="flex items-center gap-3 text-xs text-slate-500 mb-3 flex-wrap">
+                                            {book.publish_date && (
+                                                <span className="flex items-center gap-1">
+                                                    <Calendar className="w-3 h-3" />
+                                                    {new Date(book.publish_date).getFullYear()}
+                                                </span>
+                                            )}
+                                            {book.pages > 0 && (
+                                                <span className="flex items-center gap-1">
+                                                    <FileText className="w-3 h-3" />
+                                                    {book.pages} pages
+                                                </span>
+                                            )}
+                                            {book.pdf_url && (
+                                                <span className="flex items-center gap-1 text-emerald-400">
+                                                    <Download className="w-3 h-3" />
+                                                    PDF
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Action Buttons */}
+                                        <div className="flex gap-2 pt-2 border-t border-slate-800">
+                                            <button 
+                                                onClick={() => openEditModal(book)} 
+                                                className="flex-1 py-1.5 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition flex items-center justify-center gap-1 text-sm"
                                             >
-                                                <Eye className="w-3 h-3" />
-                                            </a>
-                                        )}
+                                                <Edit2 className="w-3 h-3" /> Edit
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDelete(book.id)} 
+                                                className="flex-1 py-1.5 bg-slate-800 rounded-lg text-red-400 hover:bg-red-500/20 hover:text-red-300 transition flex items-center justify-center gap-1 text-sm"
+                                            >
+                                                <Trash2 className="w-3 h-3" /> Delete
+                                            </button>
+                                            {book.pdf_url && (
+                                                <a 
+                                                    href={book.pdf_url} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer" 
+                                                    className="py-1.5 px-3 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                                    title="Preview PDF"
+                                                >
+                                                    <Eye className="w-3 h-3" />
+                                                </a>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+                    
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <div className="flex justify-center gap-2 mt-8">
+                            <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <span className="px-4 py-2 bg-slate-800 rounded-lg text-white text-sm">
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                                className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            >
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
 
             {/* Add/Edit Modal */}
@@ -484,6 +534,16 @@ export default function ManageBooks() {
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Publisher</label>
+                                    <input
+                                        type="text"
+                                        value={formData.publisher}
+                                        onChange={e => setFormData({...formData, publisher: e.target.value})}
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                        placeholder="Publisher name"
+                                    />
+                                </div>
+                                <div>
                                     <label className="block text-sm font-medium text-slate-400 mb-1">Language</label>
                                     <select
                                         value={formData.language}
@@ -498,6 +558,9 @@ export default function ManageBooks() {
                                         <option value="Japanese">Japanese</option>
                                     </select>
                                 </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-400 mb-1">Edition</label>
                                     <input
@@ -505,6 +568,15 @@ export default function ManageBooks() {
                                         min="1"
                                         value={formData.edition}
                                         onChange={e => setFormData({...formData, edition: parseInt(e.target.value) || 1})}
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Publish Date</label>
+                                    <input
+                                        type="date"
+                                        value={formData.publish_date}
+                                        onChange={e => setFormData({...formData, publish_date: e.target.value})}
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                                     />
                                 </div>
@@ -534,30 +606,19 @@ export default function ManageBooks() {
                                 />
                             </div>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Publish Date</label>
+                            <div className="flex items-center gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
                                     <input
-                                        type="date"
-                                        value={formData.publish_date}
-                                        onChange={e => setFormData({...formData, publish_date: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                        type="checkbox"
+                                        checked={formData.is_featured}
+                                        onChange={e => setFormData({...formData, is_featured: e.target.checked})}
+                                        className="w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500"
                                     />
-                                </div>
-                                <div className="flex items-center justify-end">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.is_featured}
-                                            onChange={e => setFormData({...formData, is_featured: e.target.checked})}
-                                            className="w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500"
-                                        />
-                                        <span className="text-white text-sm flex items-center gap-1">
-                                            <Star className="w-4 h-4 text-amber-400" />
-                                            Feature this book
-                                        </span>
-                                    </label>
-                                </div>
+                                    <span className="text-white text-sm flex items-center gap-1">
+                                        <Star className="w-4 h-4 text-amber-400" />
+                                        Feature this book
+                                    </span>
+                                </label>
                             </div>
                             
                             <div className="flex gap-3 pt-4">
