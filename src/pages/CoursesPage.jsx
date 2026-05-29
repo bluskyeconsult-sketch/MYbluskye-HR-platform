@@ -1,5 +1,5 @@
 // src/pages/CoursesPage.jsx
-// COMPLETE COURSES PAGE - Real database integration, search, filters, enrollment tracking, and AI-powered learning
+// COMPLETE PROFESSIONAL COURSES PAGE - With unified API, search, filters, enrollment tracking, and AI-powered learning
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -8,19 +8,25 @@ import {
     BookOpen, Clock, Users, Star, Loader2, Search, Award, 
     Filter, ChevronRight, Calendar, TrendingUp, Sparkles, 
     CheckCircle, Play, Download, Shield, Target, Zap, X,
-    MessageCircle, GraduationCap, Brain
+    MessageCircle, GraduationCap, Brain, ExternalLink,
+    Trophy, Flame, Eye, ThumbsUp, AlertCircle
 } from 'lucide-react';
 
 export default function CoursesPage() {
     const [courses, setCourses] = useState([]);
     const [filteredCourses, setFilteredCourses] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedLevel, setSelectedLevel] = useState('all');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [sortBy, setSortBy] = useState('newest');
     const [enrolledCourses, setEnrolledCourses] = useState({});
     const [user, setUser] = useState(null);
     const [showAIChat, setShowAIChat] = useState(false);
+    const [aiQuestion, setAiQuestion] = useState('');
+    const [aiRecommendations, setAiRecommendations] = useState(null);
+    const [aiLoading, setAiLoading] = useState(false);
 
     const levels = [
         { id: 'all', name: 'All Levels', color: 'primary' },
@@ -38,6 +44,13 @@ export default function CoursesPage() {
         { id: 'career', name: 'Career Development', icon: TrendingUp, color: 'cyan' }
     ];
 
+    const sortOptions = [
+        { id: 'newest', name: 'Newest First', icon: Calendar },
+        { id: 'popular', name: 'Most Popular', icon: Flame },
+        { id: 'rating', name: 'Highest Rated', icon: Star },
+        { id: 'duration', name: 'Shortest First', icon: Clock }
+    ];
+
     useEffect(() => {
         loadUser();
         loadCourses();
@@ -45,8 +58,8 @@ export default function CoursesPage() {
     }, []);
 
     useEffect(() => {
-        filterCourses();
-    }, [courses, searchTerm, selectedLevel, selectedCategory]);
+        filterAndSortCourses();
+    }, [courses, searchTerm, selectedLevel, selectedCategory, sortBy]);
 
     async function loadUser() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -55,38 +68,58 @@ export default function CoursesPage() {
 
     async function loadCourses() {
         setLoading(true);
-        const { data, error } = await supabase
-            .from('courses')
-            .select('*')
-            .eq('status', 'published')  // FIXED: Use 'status' instead of 'is_published'
-            .order('created_at', { ascending: false });
+        setError(null);
         
-        if (!error && data) {
-            setCourses(data);
-            setFilteredCourses(data);
+        try {
+            // ✅ Using unified API endpoint
+            const response = await fetch('/api/index?action=courses-list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'published' })
+            });
+            
+            const result = await response.json();
+            
+            if (!result.success) throw new Error(result.error);
+            
+            const coursesData = result.data || [];
+            setCourses(coursesData);
+            setFilteredCourses(coursesData);
+            
+        } catch (err) {
+            console.error('Error loading courses:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
     async function loadEnrolledCourses() {
         if (!user) return;
         
-        const { data, error } = await supabase
-            .from('course_enrollments')
-            .select('course_id, progress, completed_at, started_at')
-            .eq('user_id', user.id);
-        
-        if (!error && data) {
-            const enrolled = {};
-            data.forEach(e => {
-                enrolled[e.course_id] = { 
-                    enrolled: true, 
-                    progress: e.progress || 0,
-                    completed: !!e.completed_at,
-                    started_at: e.started_at
-                };
+        try {
+            const response = await fetch('/api/index?action=user-enrollments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id })
             });
-            setEnrolledCourses(enrolled);
+            
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+                const enrolled = {};
+                result.data.forEach(e => {
+                    enrolled[e.course_id] = { 
+                        enrolled: true, 
+                        progress: e.progress || 0,
+                        completed: !!e.completed_at,
+                        started_at: e.started_at
+                    };
+                });
+                setEnrolledCourses(enrolled);
+            }
+        } catch (err) {
+            console.error('Error loading enrollments:', err);
         }
     }
 
@@ -96,20 +129,20 @@ export default function CoursesPage() {
             return;
         }
 
-        const { error } = await supabase
-            .from('course_enrollments')
-            .insert({
-                user_id: user.id,
-                course_id: courseId,
-                enrolled_at: new Date().toISOString(),
-                started_at: new Date().toISOString(),
-                progress: 0
+        try {
+            const response = await fetch('/api/index?action=course-enroll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, courseId })
             });
-
-        if (!error) {
+            
+            const result = await response.json();
+            
+            if (!result.success) throw new Error(result.error);
+            
             await loadEnrolledCourses();
             alert('✅ Successfully enrolled in course!');
-        } else {
+        } catch (error) {
             alert('❌ Error enrolling in course: ' + error.message);
         }
     }
@@ -118,9 +151,48 @@ export default function CoursesPage() {
         window.location.href = `/courses/${courseId}/learn`;
     }
 
-    function filterCourses() {
+    async function handleAIRecommendations() {
+        if (!aiQuestion.trim()) {
+            alert('Please describe your career goals');
+            return;
+        }
+        
+        setAiLoading(true);
+        setAiRecommendations(null);
+        
+        try {
+            const response = await fetch('/api/index?action=ai-course-recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    question: aiQuestion,
+                    availableCourses: courses.map(c => ({
+                        id: c.id,
+                        title: c.title,
+                        description: c.description,
+                        category: c.category,
+                        level: c.level
+                    }))
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (!result.success) throw new Error(result.error);
+            
+            setAiRecommendations(result.recommendations);
+        } catch (error) {
+            console.error('AI recommendation error:', error);
+            alert('Failed to get recommendations. Please try again.');
+        } finally {
+            setAiLoading(false);
+        }
+    }
+
+    function filterAndSortCourses() {
         let filtered = [...courses];
         
+        // Search filter
         if (searchTerm.trim()) {
             const query = searchTerm.toLowerCase();
             filtered = filtered.filter(c => 
@@ -129,13 +201,31 @@ export default function CoursesPage() {
             );
         }
         
+        // Level filter
         if (selectedLevel !== 'all') {
             filtered = filtered.filter(c => c.level?.toLowerCase() === selectedLevel);
         }
         
+        // Category filter
         if (selectedCategory !== 'all') {
             filtered = filtered.filter(c => c.category === selectedCategory);
         }
+        
+        // Sorting
+        filtered.sort((a, b) => {
+            switch (sortBy) {
+                case 'newest':
+                    return new Date(b.created_at) - new Date(a.created_at);
+                case 'popular':
+                    return (b.students_count || 0) - (a.students_count || 0);
+                case 'rating':
+                    return (b.rating || 0) - (a.rating || 0);
+                case 'duration':
+                    return (a.duration_hours || 999) - (b.duration_hours || 999);
+                default:
+                    return 0;
+            }
+        });
         
         setFilteredCourses(filtered);
     }
@@ -172,14 +262,32 @@ export default function CoursesPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
         );
     }
 
+    if (error) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+                <div className="max-w-4xl mx-auto px-4 text-center">
+                    <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Courses</h1>
+                    <p className="text-slate-400 mb-6">{error}</p>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-slate-950 py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 {/* Header */}
@@ -195,7 +303,7 @@ export default function CoursesPage() {
                     </p>
                 </div>
 
-                {/* Search and Filters */}
+                {/* Search, Filters, and Sort */}
                 <div className="flex flex-col lg:flex-row gap-4 mb-8">
                     <div className="flex-1 relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
@@ -219,23 +327,34 @@ export default function CoursesPage() {
                             ))}
                         </select>
                         
-                        <div className="flex gap-2 overflow-x-auto pb-1">
-                            {categories.map(cat => (
-                                <button
-                                    key={cat.id}
-                                    onClick={() => setSelectedCategory(cat.id)}
-                                    className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap transition flex items-center gap-1 ${
-                                        selectedCategory === cat.id
-                                            ? 'bg-primary-600 text-white'
-                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                    }`}
-                                >
-                                    {getCategoryIcon(cat.id)}
-                                    {cat.name}
-                                </button>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        >
+                            {sortOptions.map(option => (
+                                <option key={option.id} value={option.id}>{option.name}</option>
                             ))}
-                        </div>
+                        </select>
                     </div>
+                </div>
+
+                {/* Category Filters */}
+                <div className="flex flex-wrap gap-2 mb-6">
+                    {categories.map(cat => (
+                        <button
+                            key={cat.id}
+                            onClick={() => setSelectedCategory(cat.id)}
+                            className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition flex items-center gap-1 ${
+                                selectedCategory === cat.id
+                                    ? 'bg-primary-600 text-white'
+                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                            }`}
+                        >
+                            {getCategoryIcon(cat.id)}
+                            {cat.name}
+                        </button>
+                    ))}
                 </div>
 
                 {/* Results Count & Clear Filters */}
@@ -244,12 +363,13 @@ export default function CoursesPage() {
                         Showing <span className="text-white font-medium">{filteredCourses.length}</span> of{' '}
                         <span className="text-white font-medium">{courses.length}</span> courses
                     </p>
-                    {(searchTerm || selectedLevel !== 'all' || selectedCategory !== 'all') && (
+                    {(searchTerm || selectedLevel !== 'all' || selectedCategory !== 'all' || sortBy !== 'newest') && (
                         <button
                             onClick={() => {
                                 setSearchTerm('');
                                 setSelectedLevel('all');
                                 setSelectedCategory('all');
+                                setSortBy('newest');
                             }}
                             className="text-sm text-primary-400 hover:text-primary-300 transition flex items-center gap-1"
                         >
@@ -315,7 +435,7 @@ export default function CoursesPage() {
                                     <div className="p-5">
                                         {/* Category Badge */}
                                         <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 flex items-center gap-1">
                                                 {getCategoryIcon(course.category)} {categories.find(c => c.id === course.category)?.name || 'Course'}
                                             </span>
                                         </div>
@@ -329,9 +449,9 @@ export default function CoursesPage() {
                                             <span className={`text-xs px-2 py-0.5 rounded-full border ${getLevelColor(course.level)}`}>
                                                 {getLevelBadge(course.level)}
                                             </span>
-                                            {course.duration && (
+                                            {course.duration_hours && (
                                                 <span className="text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-300 flex items-center gap-1">
-                                                    <Clock className="w-3 h-3" /> {course.duration}
+                                                    <Clock className="w-3 h-3" /> {course.duration_hours} hrs
                                                 </span>
                                             )}
                                             {course.students_count > 0 && (
@@ -383,7 +503,7 @@ export default function CoursesPage() {
                                             <div className="flex gap-2">
                                                 <Link to={`/courses/${course.slug || course.id}`} className="flex-1">
                                                     <button className="w-full py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition">
-                                                        View Details
+                                                        Details
                                                     </button>
                                                 </Link>
                                                 <button
@@ -420,26 +540,82 @@ export default function CoursesPage() {
             {/* AI Chat Modal */}
             {showAIChat && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-bold text-white flex items-center gap-2">
                                 <Brain className="w-5 h-5 text-primary-400" /> ODUSBABA AI Assistant
                             </h3>
-                            <button onClick={() => setShowAIChat(false)} className="text-slate-400 hover:text-white">
+                            <button onClick={() => {
+                                setShowAIChat(false);
+                                setAiRecommendations(null);
+                                setAiQuestion('');
+                            }} className="text-slate-400 hover:text-white">
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
-                        <p className="text-slate-400 text-sm mb-4">
-                            Tell me about your career goals, and I'll recommend the best courses for you.
-                        </p>
-                        <textarea 
-                            rows={4} 
-                            placeholder="Example: I want to become a HR manager specializing in AI recruitment..."
-                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 mb-4"
-                        />
-                        <button className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center gap-2">
-                            <Sparkles className="w-4 h-4" /> Get Recommendations
-                        </button>
+                        
+                        {!aiRecommendations ? (
+                            <>
+                                <p className="text-slate-400 text-sm mb-4">
+                                    Tell me about your career goals, and I'll recommend the best courses for you.
+                                </p>
+                                <textarea 
+                                    value={aiQuestion}
+                                    onChange={(e) => setAiQuestion(e.target.value)}
+                                    rows={4} 
+                                    placeholder="Example: I want to become a HR manager specializing in AI recruitment and need to develop skills in both HR compliance and AI technologies..."
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 mb-4"
+                                />
+                                <button 
+                                    onClick={handleAIRecommendations}
+                                    disabled={aiLoading}
+                                    className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                    {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                    Get Recommendations
+                                </button>
+                            </>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 p-3 bg-primary-500/10 rounded-lg">
+                                    <Sparkles className="w-4 h-4 text-primary-400" />
+                                    <p className="text-primary-400 text-sm">Based on your goals, here are the best courses for you:</p>
+                                </div>
+                                
+                                <div className="space-y-3 max-h-80 overflow-y-auto">
+                                    {aiRecommendations.map((rec, idx) => {
+                                        const course = courses.find(c => c.id === rec.courseId);
+                                        if (!course) return null;
+                                        
+                                        return (
+                                            <div key={idx} className="p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h4 className="text-white font-medium">{course.title}</h4>
+                                                        <p className="text-slate-400 text-xs mt-1">{rec.reason}</p>
+                                                    </div>
+                                                    <Link to={`/courses/${course.slug || course.id}`}>
+                                                        <button className="px-3 py-1 text-xs bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                                                            View
+                                                        </button>
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                
+                                <button 
+                                    onClick={() => {
+                                        setAiRecommendations(null);
+                                        setAiQuestion('');
+                                    }}
+                                    className="w-full py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition"
+                                >
+                                    Ask Another Question
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
