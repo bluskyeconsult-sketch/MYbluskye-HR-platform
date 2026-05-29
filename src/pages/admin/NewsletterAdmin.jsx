@@ -115,11 +115,6 @@ export default function NewsletterAdmin() {
                 });
             }
             
-            // If send_now is true, trigger sending
-            if (formData.send_now) {
-                await sendNewsletterNow(newsletterId);
-            }
-            
             setShowCreateModal(false);
             setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false });
             loadData();
@@ -130,24 +125,6 @@ export default function NewsletterAdmin() {
             alert('Failed to create newsletter. Please try again.');
         } finally {
             setSending(false);
-        }
-    }
-
-    async function sendNewsletterNow(newsletterId) {
-        try {
-            const response = await fetch('/api/index?action=newsletter-send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ newsletterId, test: false })
-            });
-            
-            if (response.ok) {
-                alert('Newsletter sent successfully!');
-                loadData();
-            }
-        } catch (error) {
-            console.error('Error sending newsletter:', error);
-            alert('Failed to send newsletter. Please try again.');
         }
     }
 
@@ -497,6 +474,3 @@ export default function NewsletterAdmin() {
         </AdminLayout>
     );
 }
-
-// Import missing icons
-import { XCircle } from 'lucide-react';
