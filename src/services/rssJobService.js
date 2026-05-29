@@ -2,7 +2,7 @@
 // COMPLETE RSS JOB FETCHING SERVICE - Optimized for hobby plan with full features
 // Features: Government feeds + Commercial feeds + Jobicy API + Remotive
 // Features: Sponsorship detection, job type detection, duplicate handling, search, suggestions, stats
-// Optimized: Rate limiting, caching, batch processing, reduced API calls
+// Optimized: Rate limiting, caching, batch processing, reduced API calls, unified API endpoint
 
 import { supabase } from '../lib/supabase';
 
@@ -10,11 +10,15 @@ import { supabase } from '../lib/supabase';
 // CONSTANTS & CONFIGURATION
 // ============================================
 
+// ✅ FIXED: Unified API endpoint
+const API_BASE = '/api/index';
+const FETCH_JOBS_ENDPOINT = `${API_BASE}?action=fetch-jobs`;
+
 const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 const REQUEST_TIMEOUT = 10000;
 const MAX_JOBS_PER_SOURCE = 30;
 const BATCH_SIZE = 10;
-const MIN_FETCH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours
+const MIN_FETCH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours (hobby plan: once per day)
 
 // ============================================
 // RSS FEEDS CONFIGURATION (Prioritized for hobby plan)
@@ -127,24 +131,24 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Visa', 'Sponsorship']
     },
     
-    // Commercial - Stack Overflow (Priority 4)
+    // Commercial - Stack Overflow (Priority 4 - Disabled by default)
     STACK_OVERFLOW: {
         name: 'Stack Overflow - Remote Jobs',
         country: 'Global',
         url: 'https://stackoverflow.com/jobs/feed?l=Remote',
         type: 'rss',
-        is_active: false, // Disabled by default to save resources
+        is_active: false,
         priority: 4,
         sponsorship_keywords: ['Visa', 'Sponsorship']
     },
     
-    // Commercial - Zapier (Priority 4)
+    // Commercial - Zapier (Priority 4 - Disabled by default)
     ZAPIER: {
         name: 'Zapier - Latest Jobs',
         country: 'Global',
         url: 'https://zapier.com/jobs/feeds/latest/',
         type: 'rss',
-        is_active: false, // Disabled by default
+        is_active: false,
         priority: 4,
         sponsorship_keywords: ['Visa', 'Sponsorship']
     }
@@ -160,7 +164,7 @@ const API_SOURCES = {
         country: 'Global',
         url: 'https://jobicy.com/api/v2/remote-jobs?count=10',
         type: 'api',
-        is_active: false, // Disabled for hobby plan - saves API calls
+        is_active: false,
         parseFunction: (data) => {
             const jobs = [];
             for (const job of data.jobs || []) {
@@ -187,7 +191,7 @@ const API_SOURCES = {
         country: 'Global',
         url: 'https://remotive.com/api/remote-jobs',
         type: 'api',
-        is_active: false, // Disabled for hobby plan
+        is_active: false,
         parseFunction: (data) => {
             const jobs = [];
             for (const job of data.jobs || []) {
@@ -227,7 +231,7 @@ function resetDailyCountIfNeeded() {
 
 function canFetchToday() {
     resetDailyCountIfNeeded();
-    return dailyFetchCount < 1;
+    return dailyFetchCount < 1; // Hobby plan: 1 fetch per day
 }
 
 function incrementFetchCount() {
@@ -531,7 +535,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
             jobs: [],
             results: [],
             totalAdded: 0,
-            message: 'Daily fetch limit reached. Only one fetch per day allowed.'
+            message: 'Daily fetch limit reached. Only one fetch per day allowed.',
+            nextAvailable: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         };
     }
     
@@ -818,6 +823,41 @@ export async function loadJobsFromSQL() {
 }
 
 // ============================================
+// TRIGGER FETCH FROM FRONTEND (Unified API)
+// ============================================
+
+/**
+ * Trigger job fetch via unified API endpoint
+ * This replaces direct fetch to /api/fetch-jobs
+ */
+export async function triggerJobFetchViaAPI() {
+    try {
+        const response = await fetch(FETCH_JOBS_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`API returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return {
+            success: true,
+            message: data.message || 'Job fetch initiated',
+            added: data.added || 0,
+            details: data.details
+        };
+    } catch (error) {
+        console.error('Trigger fetch error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+// ============================================
 // SEARCH & SUGGESTIONS
 // ============================================
 
@@ -956,3 +996,23 @@ export async function testRSSConnection() {
 // ============================================
 
 export { RSS_FEEDS, API_SOURCES };
+
+export default {
+    fetchExternalJobs,
+    triggerJobFetchViaAPI,
+    getExternalJobsByStatus,
+    getPendingExternalJobs,
+    getApprovedExternalJobs,
+    getRejectedExternalJobs,
+    getExternalJobsStats,
+    approveExternalJob,
+    rejectExternalJob,
+    batchApproveExternalJobs,
+    loadJobsFromSQL,
+    searchLiveJobs,
+    getJobSuggestions,
+    testRSSConnection,
+    invalidateJobCache,
+    RSS_FEEDS,
+    API_SOURCES
+};
