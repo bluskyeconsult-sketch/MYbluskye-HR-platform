@@ -62,7 +62,9 @@ export default function AdminArticles() {
                         return;
                     }
                 }
-            } catch (err) { console.warn('API check failed, falling back to Supabase:', err); }
+            } catch (err) { 
+                console.warn('API check failed, falling back to Supabase:', err); 
+            }
             
             // Fallback to Supabase
             const { data: profile } = await supabase
@@ -102,7 +104,9 @@ export default function AdminArticles() {
                     return;
                 }
             }
-        } catch (err) { console.warn('API stats failed:', err); }
+        } catch (err) { 
+            console.warn('API stats failed:', err); 
+        }
         
         // Fallback
         const { data } = await supabase.from('articles').select('status, view_count, content');
@@ -111,7 +115,7 @@ export default function AdminArticles() {
         const draft = data?.filter(a => a.status === 'draft').length || 0;
         const views = data?.reduce((sum, a) => sum + (a.view_count || 0), 0) || 0;
         const totalWords = data?.reduce((sum, a) => sum + (a.content?.length || 0), 0) || 0;
-        const avgReadTime = Math.round(totalWords / (published || 1) / 200);
+        const avgReadTime = totalWords > 0 && published > 0 ? Math.round(totalWords / published / 200) : 5;
         setStats({ total, published, draft, views, avgReadTime });
     }
 
@@ -144,35 +148,43 @@ export default function AdminArticles() {
                     return;
                 }
             }
-        } catch (err) { console.warn('API fetch failed, falling back to Supabase:', err); }
+        } catch (err) { 
+            console.warn('API fetch failed, falling back to Supabase:', err); 
+        }
         
         // Fallback to Supabase
-        let query = supabase
-            .from('articles')
-            .select('*', { count: 'exact' })
-            .order('created_at', { ascending: false });
-        
-        if (selectedCategory !== 'all') query = query.eq('category', selectedCategory);
-        if (selectedStatus !== 'all') query = query.eq('status', selectedStatus);
-        if (searchTerm) query = query.or(`title.ilike.%${searchTerm}%,content.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
-        if (dateRange.from) query = query.gte('created_at', dateRange.from);
-        if (dateRange.to) query = query.lte('created_at', dateRange.to);
-        
-        const from = (currentPage - 1) * itemsPerPage;
-        query = query.range(from, from + itemsPerPage - 1);
-        
-        const { data, error, count } = await query;
-        if (error) throw error;
-        
-        setArticles(data || []);
-        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-    } catch (err) {
-        setError('Failed to load articles');
-        toast.error('Failed to load articles');
-    } finally { setLoading(false); }
-}
+        try {
+            let query = supabase
+                .from('articles')
+                .select('*', { count: 'exact' })
+                .order('created_at', { ascending: false });
+            
+            if (selectedCategory !== 'all') query = query.eq('category', selectedCategory);
+            if (selectedStatus !== 'all') query = query.eq('status', selectedStatus);
+            if (searchTerm) query = query.or(`title.ilike.%${searchTerm}%,content.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
+            if (dateRange.from) query = query.gte('created_at', dateRange.from);
+            if (dateRange.to) query = query.lte('created_at', dateRange.to);
+            
+            const from = (currentPage - 1) * itemsPerPage;
+            query = query.range(from, from + itemsPerPage - 1);
+            
+            const { data, error, count } = await query;
+            if (error) throw error;
+            
+            setArticles(data || []);
+            setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+        } catch (err) {
+            console.error('Load articles error:', err);
+            setError('Failed to load articles');
+            toast.error('Failed to load articles');
+        } finally {
+            setLoading(false);
+        }
+    }
 
-    async function deleteArticle(id) { setShowDeleteConfirm({ id, type: 'single' }); }
+    async function deleteArticle(id) { 
+        setShowDeleteConfirm({ id, type: 'single' }); 
+    }
 
     async function confirmDelete() {
         try {
@@ -192,10 +204,14 @@ export default function AdminArticles() {
             setSelectedArticles(new Set());
         } catch (err) { 
             toast.error('Failed to delete'); 
-        } finally { setShowDeleteConfirm(null); }
+        } finally { 
+            setShowDeleteConfirm(null); 
+        }
     }
 
-    async function bulkDelete() { setShowDeleteConfirm({ ids: Array.from(selectedArticles), type: 'bulk', count: selectedArticles.size }); }
+    async function bulkDelete() { 
+        setShowDeleteConfirm({ ids: Array.from(selectedArticles), type: 'bulk', count: selectedArticles.size }); 
+    }
 
     async function confirmBulkDelete() {
         try {
@@ -215,7 +231,9 @@ export default function AdminArticles() {
             await loadStats();
         } catch (err) { 
             toast.error('Failed to delete'); 
-        } finally { setShowDeleteConfirm(null); }
+        } finally { 
+            setShowDeleteConfirm(null); 
+        }
     }
 
     async function toggleStatus(id, currentStatus) {
@@ -252,7 +270,8 @@ export default function AdminArticles() {
             
             if (response.ok) {
                 const data = await response.json();
-                const csv = convertToCSV(data.articles || articles);
+                const articlesToExport = data.articles || articles;
+                const csv = convertToCSV(articlesToExport);
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -261,21 +280,25 @@ export default function AdminArticles() {
                 a.click();
                 URL.revokeObjectURL(url);
                 toast.success('Articles exported');
+            } else {
+                throw new Error('Export failed');
             }
         } catch (err) { 
             toast.error('Export failed'); 
-        } finally { setExporting(false); }
+        } finally { 
+            setExporting(false); 
+        }
     }
 
-    function convertToCSV(articles) {
+    function convertToCSV(articlesData) {
         const headers = ['Title', 'Category', 'Status', 'Views', 'Created At', 'Author'];
-        const rows = articles.map(a => [
-            `"${a.title?.replace(/"/g, '""')}"`,
-            a.category,
-            a.status,
+        const rows = articlesData.map(a => [
+            `"${a.title?.replace(/"/g, '""') || ''}"`,
+            a.category || '',
+            a.status || '',
             a.view_count || 0,
             new Date(a.created_at).toLocaleDateString(),
-            a.author
+            a.author || ''
         ]);
         return [headers, ...rows].map(row => row.join(',')).join('\n');
     }
