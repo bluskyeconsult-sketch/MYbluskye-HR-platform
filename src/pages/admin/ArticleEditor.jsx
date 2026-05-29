@@ -12,7 +12,6 @@ import {
     AlertCircle, WifiOff, Maximize2, Minimize2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -143,7 +142,7 @@ export default function ArticleEditor() {
         }
     }, [aiFallbackUsed]);
 
-    // Database Operations - Using Direct Supabase Client (Reliable)
+    // Database Operations - Using Direct Supabase Client
     async function loadArticle() {
         setLoading(true);
         const { data, error } = await supabase
@@ -181,10 +180,8 @@ export default function ArticleEditor() {
         try {
             let result;
             if (id && id !== 'new') {
-                // Update existing article
                 result = await supabase.from('articles').update(articleData).eq('id', id);
             } else {
-                // Create new article
                 const { data, error } = await supabase.from('articles').insert([articleData]).select();
                 result = { error };
                 if (!error && data) {
@@ -226,7 +223,7 @@ export default function ArticleEditor() {
         }
     }
 
-    // AI Functions - Using API endpoints
+    // AI Functions
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
@@ -576,7 +573,7 @@ export default function ArticleEditor() {
                             {article.category && <span className="flex items-center gap-2"><Tag className="w-4 h-4" /> {article.category}</span>}
                         </div>
                         <div className="markdown-content">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            <ReactMarkdown>
                                 {article.content || '*No content yet*'}
                             </ReactMarkdown>
                         </div>
