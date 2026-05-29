@@ -1,14 +1,19 @@
 // src/pages/tester/TesterRegisterPage.jsx
-// COMPLETE TESTER REGISTRATION PAGE - Master invite code system with usage tracking
-// Features: Master invite code (TESTER2026), usage tracking, admin panel, password strength, email validation, proper flow
+// COMPLETE PROFESSIONAL TESTER REGISTRATION PAGE - Master invite code system with usage tracking
+// Features: Master invite code (TESTER2026), usage tracking, admin panel, password strength, email validation, unified API
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { 
     FlaskConical, Mail, Lock, User, Loader2, AlertCircle, 
-    CheckCircle, Key, Copy, Check, Eye, EyeOff, Shield 
+    CheckCircle, Key, Copy, Check, Eye, EyeOff, Shield,
+    ArrowLeft, Calendar, Clock, Zap
 } from 'lucide-react';
+
+// ============================================
+// CONSTANTS & CONFIGURATION
+// ============================================
 
 // Master invite code configuration
 const MASTER_INVITE_CODE = {
@@ -16,6 +21,55 @@ const MASTER_INVITE_CODE = {
     MAX_USES: 100,
     RESET_INTERVAL_DAYS: 30
 };
+
+// Email validation regex
+const EMAIL_REGEX = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+
+// Password requirements
+const PASSWORD_REQUIREMENTS = {
+    minLength: 8,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSpecial: true
+};
+
+// Unified API endpoint
+const API_BASE = '/api/index';
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+const validateEmail = (email) => EMAIL_REGEX.test(email);
+
+const validatePasswordStrength = (password) => {
+    let strength = 0;
+    if (password.length >= PASSWORD_REQUIREMENTS.minLength) strength++;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+    if (/[0-9]/.test(password)) strength++;
+    if (/[^a-zA-Z0-9]/.test(password)) strength++;
+    return { strength, isValid: strength >= 3 };
+};
+
+const getPasswordStrengthText = (strength) => {
+    if (strength === 0) return '';
+    if (strength === 1) return 'Weak';
+    if (strength === 2) return 'Fair';
+    if (strength === 3) return 'Good';
+    return 'Strong';
+};
+
+const getPasswordStrengthColor = (strength) => {
+    if (strength <= 1) return 'bg-red-500';
+    if (strength === 2) return 'bg-yellow-500';
+    if (strength === 3) return 'bg-blue-500';
+    return 'bg-green-500';
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function TesterRegisterPage() {
     const navigate = useNavigate();
@@ -38,6 +92,7 @@ export default function TesterRegisterPage() {
     const [requireInviteCode, setRequireInviteCode] = useState(true);
     const [validatingCode, setValidatingCode] = useState(false);
     const [codeValid, setCodeValid] = useState(false);
+    const [touchedFields, setTouchedFields] = useState({});
 
     // Check admin status and load settings
     useEffect(() => {
@@ -47,14 +102,18 @@ export default function TesterRegisterPage() {
     }, []);
 
     async function checkAdminStatus() {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('user_type')
-                .eq('id', user.id)
-                .single();
-            setIsAdmin(profile?.user_type === 'super_admin' || profile?.user_type === 'admin');
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('user_type')
+                    .eq('id', user.id)
+                    .single();
+                setIsAdmin(profile?.user_type === 'super_admin' || profile?.user_type === 'admin');
+            }
+        } catch (err) {
+            console.error('Error checking admin status:', err);
         }
     }
 
@@ -151,23 +210,6 @@ export default function TesterRegisterPage() {
         }
     }
 
-    // Password validation
-    const validatePassword = useCallback((password) => {
-        let strength = 0;
-        if (password.length >= 8) strength++;
-        if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
-        if (password.match(/[0-9]/)) strength++;
-        if (password.match(/[^a-zA-Z0-9]/)) strength++;
-        setPasswordStrength(strength);
-        return strength >= 3;
-    }, []);
-
-    // Email validation
-    const validateEmail = useCallback((email) => {
-        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
-        return emailRegex.test(email);
-    }, []);
-
     // Increment invite usage
     const incrementInviteUsage = useCallback(async () => {
         if (!inviteCodeStats) return;
@@ -210,6 +252,29 @@ export default function TesterRegisterPage() {
         }
     }, []);
 
+    // Send welcome email via unified API
+    async function sendWelcomeEmail(email, fullName) {
+        try {
+            await fetch(`${API_BASE}?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: email,
+                    subject: 'Welcome to ODUSBABA Tester Program!',
+                    template: 'tester_welcome',
+                    data: { 
+                        fullName, 
+                        testerDays: 30,
+                        testerUses: 10,
+                        dashboardUrl: 'https://www.bluskyeconsult.com/tester-dashboard'
+                    }
+                })
+            });
+        } catch (err) {
+            console.warn('Welcome email notification failed:', err);
+        }
+    }
+
     // Handle registration
     const handleSubmit = useCallback(async (e) => {
         e.preventDefault();
@@ -224,10 +289,12 @@ export default function TesterRegisterPage() {
             return;
         }
         
-        if (!validatePassword(formData.password)) {
+        const { isValid: isPasswordValid, strength } = validatePasswordStrength(formData.password);
+        if (!isPasswordValid) {
             setError('Password must be at least 8 characters with uppercase, lowercase, number, and special character');
             return;
         }
+        setPasswordStrength(strength);
         
         if (formData.password !== formData.confirmPassword) {
             setError('Passwords do not match');
@@ -253,7 +320,8 @@ export default function TesterRegisterPage() {
                     data: {
                         full_name: formData.full_name,
                         user_type: 'tester',
-                        is_tester: true
+                        is_tester: true,
+                        registered_at: new Date().toISOString()
                     }
                 }
             });
@@ -266,7 +334,7 @@ export default function TesterRegisterPage() {
             testerExpiry.setDate(testerExpiry.getDate() + 30);
             
             // Update profile
-            await supabase
+            const { error: profileError } = await supabase
                 .from('profiles')
                 .update({
                     user_type: 'tester',
@@ -275,9 +343,15 @@ export default function TesterRegisterPage() {
                     tier: 'free',
                     full_name: formData.full_name,
                     country_code: 'GB',
-                    updated_at: new Date().toISOString()
+                    updated_at: new Date().toISOString(),
+                    ai_credits_remaining: 10,
+                    va_credits_balance: 10
                 })
                 .eq('id', authData.user.id);
+            
+            if (profileError) {
+                console.warn('Profile update warning:', profileError);
+            }
             
             // Create tester allocation
             await supabase
@@ -288,34 +362,31 @@ export default function TesterRegisterPage() {
                     used_uses: 0,
                     remaining_uses: 10,
                     expires_at: testerExpiry.toISOString(),
-                    status: 'active'
+                    status: 'active',
+                    created_at: new Date().toISOString()
                 });
+            
+            // Send welcome email (non-blocking)
+            sendWelcomeEmail(formData.email, formData.full_name);
             
             setSuccess(true);
             setTimeout(() => navigate('/tester-login'), 3000);
             
         } catch (err) {
-            setError(err.message);
+            console.error('Registration error:', err);
+            setError(err.message || 'Registration failed. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, [formData, requireInviteCode, validateEmail, validatePassword, incrementInviteUsage, navigate]);
+    }, [formData, requireInviteCode, incrementInviteUsage, navigate]);
 
-    // Password strength text
-    const passwordStrengthText = useMemo(() => {
-        if (passwordStrength === 0) return '';
-        if (passwordStrength === 1) return 'Weak';
-        if (passwordStrength === 2) return 'Fair';
-        if (passwordStrength === 3) return 'Good';
-        return 'Strong';
-    }, [passwordStrength]);
+    const handleFieldBlur = (field) => {
+        setTouchedFields(prev => ({ ...prev, [field]: true }));
+    };
 
-    const passwordStrengthColor = useMemo(() => {
-        if (passwordStrength <= 1) return 'bg-red-500';
-        if (passwordStrength === 2) return 'bg-yellow-500';
-        if (passwordStrength === 3) return 'bg-blue-500';
-        return 'bg-green-500';
-    }, [passwordStrength]);
+    const { isValid: isPasswordValid, strength } = validatePasswordStrength(formData.password);
+    const isEmailValid = touchedFields.email ? validateEmail(formData.email) : true;
+    const doPasswordsMatch = touchedFields.confirmPassword ? formData.password === formData.confirmPassword : true;
 
     if (success) {
         return (
@@ -326,7 +397,7 @@ export default function TesterRegisterPage() {
                     </div>
                     <h1 className="text-2xl font-bold text-white mb-2">Tester Registration Successful!</h1>
                     <p className="text-slate-400 mb-4">
-                        You now have 10 free uses for 30 days. Start exploring ODUSBABA!
+                        You now have 10 free uses for 30 days. A confirmation email has been sent to your inbox.
                     </p>
                     <p className="text-slate-500 text-sm">Redirecting to login...</p>
                 </div>
@@ -337,6 +408,17 @@ export default function TesterRegisterPage() {
     return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
             <div className="max-w-md w-full">
+                {/* Back to Home Link */}
+                <div className="mb-6">
+                    <Link 
+                        to="/" 
+                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition text-sm group"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition" />
+                        Back to Home
+                    </Link>
+                </div>
+
                 {/* Header */}
                 <div className="text-center mb-8">
                     <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/20">
@@ -388,16 +470,20 @@ export default function TesterRegisterPage() {
                                 </button>
                             </div>
                         )}
+                        <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                            <Calendar className="w-3 h-3" />
+                            Resets every {MASTER_INVITE_CODE.RESET_INTERVAL_DAYS} days
+                        </div>
                     </div>
                 )}
 
                 {/* Registration Form */}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Invite Code */}
                         {requireInviteCode && (
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
                                     Invite Code <span className="text-red-400">*</span>
                                 </label>
                                 <div className="flex gap-2">
@@ -405,58 +491,79 @@ export default function TesterRegisterPage() {
                                         type="text"
                                         value={formData.invite_code}
                                         onChange={(e) => setFormData({...formData, invite_code: e.target.value.toUpperCase()})}
-                                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
                                         placeholder="TESTER2026"
                                         required={requireInviteCode}
+                                        disabled={loading}
                                     />
                                     <button
                                         type="button"
                                         onClick={validateInviteCode}
-                                        disabled={validatingCode}
-                                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50"
+                                        disabled={validatingCode || loading}
+                                        className="px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 disabled:opacity-50 transition flex items-center gap-1"
                                     >
-                                        {validatingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Check'}
+                                        {validatingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                        {validatingCode ? 'Checking...' : 'Check'}
                                     </button>
                                 </div>
-                                {codeValid && <p className="text-xs text-emerald-400 mt-1">✓ Valid invite code</p>}
+                                {codeValid && (
+                                    <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Valid invite code
+                                    </p>
+                                )}
                             </div>
                         )}
 
                         {/* Full Name */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Full Name <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type="text"
                                     value={formData.full_name}
                                     onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    onBlur={() => handleFieldBlur('full_name')}
+                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
                                     placeholder="John Doe"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
                         </div>
 
                         {/* Email */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Email Address</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Email Address <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type="email"
                                     value={formData.email}
                                     onChange={(e) => setFormData({...formData, email: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    onBlur={() => handleFieldBlur('email')}
+                                    className={`w-full pl-10 pr-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition ${
+                                        touchedFields.email && !isEmailValid ? 'border-red-500' : 'border-slate-700'
+                                    }`}
                                     placeholder="you@example.com"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
+                            {touchedFields.email && !isEmailValid && (
+                                <p className="text-xs text-red-400 mt-1">Please enter a valid email address</p>
+                            )}
                         </div>
 
                         {/* Password */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Password</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Password <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
@@ -464,16 +571,20 @@ export default function TesterRegisterPage() {
                                     value={formData.password}
                                     onChange={(e) => {
                                         setFormData({...formData, password: e.target.value});
-                                        validatePassword(e.target.value);
+                                        const { strength: newStrength } = validatePasswordStrength(e.target.value);
+                                        setPasswordStrength(newStrength);
                                     }}
-                                    className="w-full pl-10 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    onBlur={() => handleFieldBlur('password')}
+                                    className="w-full pl-10 pr-10 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
                                     placeholder="••••••••"
                                     required
+                                    disabled={loading}
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition"
+                                    tabIndex={-1}
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
@@ -487,60 +598,94 @@ export default function TesterRegisterPage() {
                                             <div 
                                                 key={level}
                                                 className={`flex-1 rounded-full transition-all ${
-                                                    level <= passwordStrength ? passwordStrengthColor : 'bg-slate-700'
+                                                    level <= passwordStrength ? getPasswordStrengthColor(passwordStrength) : 'bg-slate-700'
                                                 }`}
                                             />
                                         ))}
                                     </div>
                                     <p className="text-xs text-slate-500">
-                                        Strength: {passwordStrengthText}
+                                        Strength: {getPasswordStrengthText(passwordStrength)}
                                     </p>
+                                    {touchedFields.password && !isPasswordValid && (
+                                        <p className="text-xs text-red-400 mt-1">
+                                            Password must have at least 8 characters, uppercase, lowercase, number, and special character
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
 
                         {/* Confirm Password */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Confirm Password</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Confirm Password <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type={showPassword ? "text" : "password"}
                                     value={formData.confirmPassword}
                                     onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    onBlur={() => handleFieldBlur('confirmPassword')}
+                                    className={`w-full pl-10 pr-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition ${
+                                        touchedFields.confirmPassword && !doPasswordsMatch ? 'border-red-500' : 'border-slate-700'
+                                    }`}
                                     placeholder="••••••••"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
-                            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                            {touchedFields.confirmPassword && !doPasswordsMatch && (
                                 <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
                             )}
                         </div>
 
                         {/* Error */}
                         {error && (
-                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                                 <p className="text-red-400 text-sm">{error}</p>
                             </div>
                         )}
+
+                        {/* Tester Info Box */}
+                        <div className="p-3 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Clock className="w-4 h-4 text-purple-400" />
+                                <span className="text-xs text-purple-400 font-medium">What you get:</span>
+                            </div>
+                            <ul className="text-xs text-slate-400 space-y-1 ml-6 list-disc">
+                                <li>10 free uses of ODUSBABA features</li>
+                                <li>30 days of unlimited access</li>
+                                <li>AI Career Chat, CV optimization, Job matching</li>
+                                <li>Priority support during testing period</li>
+                            </ul>
+                        </div>
 
                         {/* Submit Button */}
                         <button
                             type="submit"
                             disabled={loading || (requireInviteCode && !codeValid)}
-                            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium"
+                            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium shadow-lg shadow-purple-500/20"
                         >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
-                            {loading ? 'Registering...' : 'Register as Tester'}
+                            {loading ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Registering...
+                                </>
+                            ) : (
+                                <>
+                                    <FlaskConical className="w-4 h-4" />
+                                    Register as Tester
+                                </>
+                            )}
                         </button>
                     </form>
 
                     {/* Footer */}
                     <p className="text-center text-sm text-slate-500 mt-6">
                         Already a tester?{' '}
-                        <Link to="/tester-login" className="text-purple-400 hover:underline">
+                        <Link to="/tester-login" className="text-purple-400 hover:underline transition">
                             Sign In
                         </Link>
                     </p>
