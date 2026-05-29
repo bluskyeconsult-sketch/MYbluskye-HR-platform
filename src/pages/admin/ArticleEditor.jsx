@@ -1,6 +1,6 @@
 // src/pages/admin/ArticleEditor.jsx
-// COMPLETE ARTICLE EDITOR - With AI generation, markdown support, SEO optimization, content improvement, and fallback handling
-// Features: AI article generation, AI content improvement, SEO title generation, markdown preview, tags, categories, fallback improvements
+// PROFESSIONAL ARTICLE EDITOR - AI-powered content creation with markdown support, SEO optimization, and fallback handling
+// Features: AI article generation, content improvement, SEO optimization, markdown preview, tags, categories, and professional UI
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,34 +9,39 @@ import {
     Save, Eye, Send, X, Plus, Trash2, Sparkles, Loader2, 
     Copy, Check, RefreshCw, FileText, Tag, Calendar, User, 
     Edit, Clock, Wand2, Globe, Hash, Image as ImageIcon, 
-    AlertCircle, WifiOff
+    AlertCircle, WifiOff, Maximize2, Minimize2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================
+// PROFESSIONAL CONFIGURATION
+// ============================================
+
+const MAX_EXCERPT_LENGTH = 160;
+const MAX_TITLE_LENGTH = 120;
+const DEFAULT_AUTHOR = 'ODUSBABA Team';
+
+// ============================================
 // FALLBACK FUNCTIONS (When AI API is unavailable)
 // ============================================
 
-function fallbackImproveContent(text) {
-    if (!text || text.trim().length === 0) return text;
+const fallbackImproveContent = (text) => {
+    if (!text?.trim()) return text;
     
     let improved = text;
     
-    // 1. Capitalize first letter of sentences
-    improved = improved.replace(/([.!?])\s*([a-z])/g, (match, p1, p2) => `${p1} ${p2.toUpperCase()}`);
+    // Professional formatting improvements
+    improved = improved.replace(/([.!?])\s*([a-z])/g, (_, p1, p2) => `${p1} ${p2.toUpperCase()}`);
     improved = improved.charAt(0).toUpperCase() + improved.slice(1);
-    
-    // 2. Fix multiple spaces
     improved = improved.replace(/\s+/g, ' ');
-    
-    // 3. Fix spaces before punctuation
     improved = improved.replace(/\s+([.,!?:;])/g, '$1');
     
-    // 4. Add paragraph breaks for long text
+    // Add paragraph breaks for long text
     if (improved.length > 500 && !improved.includes('\n\n')) {
         const sentences = improved.split('. ');
         if (sentences.length > 3) {
@@ -45,52 +50,50 @@ function fallbackImproveContent(text) {
         }
     }
     
-    // 5. Fix common typos
-    const commonTypos = {
+    // Professional typography fixes
+    const corrections = {
         'teh': 'the', 'adn': 'and', 'wih': 'with', 'thier': 'their',
-        'recieve': 'receive', 'acheive': 'achieve'
+        'recieve': 'receive', 'acheive': 'achieve', 'practise': 'practice',
+        'definately': 'definitely', 'seperate': 'separate', 'occured': 'occurred'
     };
     
-    for (const [wrong, correct] of Object.entries(commonTypos)) {
+    for (const [wrong, correct] of Object.entries(corrections)) {
         improved = improved.replace(new RegExp(wrong, 'gi'), correct);
     }
     
     return improved;
-}
+};
 
-function fallbackGenerateSEOTitle(title) {
+const fallbackGenerateSEOTitle = (title) => {
     if (!title) return '';
-    
     let seoTitle = title.replace(/[^\w\s]/g, '').trim();
-    if (seoTitle.length > 60) {
-        seoTitle = seoTitle.substring(0, 57) + '...';
-    }
-    return seoTitle;
-}
+    return seoTitle.length > 60 ? seoTitle.substring(0, 57) + '...' : seoTitle;
+};
 
-function fallbackGenerateArticle(topic) {
+const fallbackGenerateArticle = (topic) => {
     const templates = {
-        default: `# ${topic}\n\n## Introduction\n\n${topic} is becoming increasingly important in today's fast-paced environment. This article explores the key aspects, benefits, and practical applications.\n\n## Key Benefits\n\n- **Increased efficiency**: Streamline processes and save time\n- **Better outcomes**: Achieve superior results with proven methods\n- **Cost effectiveness**: Reduce expenses while maintaining quality\n\n## Implementation Steps\n\n1. Assess your current situation\n2. Identify opportunities for improvement\n3. Develop a strategic plan\n4. Execute with precision\n5. Monitor and adjust as needed\n\n## Best Practices\n\n### Do's\n- Start with clear objectives\n- Engage stakeholders early\n- Measure progress regularly\n\n### Don'ts\n- Rush the planning phase\n- Ignore feedback from users\n- Overlook training requirements\n\n## Conclusion\n\n${topic} offers tremendous opportunities for those willing to embrace change and innovation. Start your journey today!`,
+        default: `# ${topic}\n\n## Introduction\n\n${topic} represents a significant opportunity in today's professional landscape. This comprehensive guide explores key aspects, benefits, and practical applications.\n\n## Key Benefits\n\n- **Enhanced Efficiency**: Streamline processes and optimize workflows\n- **Superior Outcomes**: Achieve measurable results with proven methodologies\n- **Cost Effectiveness**: Maximize ROI while maintaining quality standards\n\n## Implementation Strategy\n\n1. Assess current capabilities and identify gaps\n2. Develop a strategic roadmap aligned with business goals\n3. Execute with precision and monitor progress\n4. Iterate and optimize based on feedback\n\n## Best Practices\n\n### Recommended Approaches\n- Establish clear, measurable objectives\n- Engage stakeholders throughout the process\n- Implement regular progress reviews\n\n### Common Pitfalls to Avoid\n- Rushing strategic planning phases\n- Dismissing valuable user feedback\n- Neglecting ongoing training requirements\n\n## Conclusion\n\n${topic} offers transformative potential for organizations ready to embrace innovation. Begin your journey toward excellence today.`,
         
-        technology: `# ${topic}\n\n## The Evolution of ${topic}\n\nThe technology landscape has transformed dramatically over the past decade, with ${topic} emerging as a game-changer.\n\n## Key Trends in ${topic}\n\n- **Artificial Intelligence Integration**: AI is revolutionizing how we approach ${topic.toLowerCase()}\n- **Cloud Computing**: Scalable solutions for modern challenges\n- **Data-Driven Decisions**: Leveraging analytics for better outcomes\n\n## Future Outlook\n\nThe future of ${topic} looks promising, with continued innovation and adoption expected across industries.\n\n## Getting Started\n\n1. Research available tools and platforms\n2. Start with a pilot project\n3. Scale based on results\n4. Continuously optimize your approach\n\n## Conclusion\n\n${topic} represents the next frontier of digital transformation. Stay ahead of the curve by embracing these technologies today.`,
+        technology: `# ${topic}\n\n## The Evolution of ${topic}\n\nThe technology landscape has undergone remarkable transformation, with ${topic} emerging as a pivotal force shaping modern business practices.\n\n## Emerging Trends\n\n- **Artificial Intelligence Integration**: Revolutionizing approaches to ${topic.toLowerCase()}\n- **Cloud-Native Architectures**: Scalable solutions for dynamic challenges\n- **Data-Driven Decision Making**: Leveraging analytics for strategic advantage\n\n## Future Outlook\n\nThe trajectory of ${topic} points toward continued innovation and widespread adoption across industries.\n\n## Implementation Roadmap\n\n1. Conduct comprehensive technology assessment\n2. Initiate pilot programs for validation\n3. Scale successful initiatives\n4. Continuously optimize based on performance metrics\n\n## Conclusion\n\n${topic} represents the next frontier of digital transformation. Organizations that embrace these technologies will gain competitive advantage.`,
         
-        remote: `# ${topic}\n\n## The Rise of ${topic}\n\nRemote work has revolutionized how we think about productivity, work-life balance, and organizational culture.\n\n## Benefits of ${topic}\n\n- **Flexible schedules**: Work when you're most productive\n- **Reduced commute**: Save time and reduce stress\n- **Global talent pool**: Access the best talent anywhere\n\n## Challenges and Solutions\n\n### Communication\nUse tools like Slack, Zoom, and Teams to stay connected\n\n### Collaboration\nImplement project management platforms like Asana or Trello\n\n### Culture\nBuild virtual team-building activities and regular check-ins\n\n## Best Practices for Success\n\n1. Establish clear communication protocols\n2. Set measurable goals and KPIs\n3. Provide necessary tools and equipment\n4. Schedule regular team meetings\n5. Recognize and celebrate achievements\n\n## Conclusion\n\n${topic} is here to stay. Organizations that adapt effectively will thrive in this new era of work.`
+        remote: `# ${topic}\n\n## The Rise of ${topic}\n\nRemote work has fundamentally transformed organizational culture, productivity paradigms, and work-life integration.\n\n## Strategic Advantages\n\n- **Flexible Work Arrangements**: Optimizing productivity through personalized schedules\n- **Reduced Commuting**: Enhancing quality of life and environmental sustainability\n- **Global Talent Access**: Building diverse, high-performing teams without geographic constraints\n\n## Challenges and Solutions\n\n### Communication Excellence\nLeverage collaboration platforms including Slack, Zoom, and Microsoft Teams\n\n### Collaborative Workflows\nImplement robust project management systems such as Asana, Trello, or Jira\n\n### Culture Building\nDevelop intentional virtual team-building initiatives and regular check-ins\n\n## Success Framework\n\n1. Establish clear communication protocols and expectations\n2. Define measurable KPIs aligned with organizational goals\n3. Provide necessary technology infrastructure and support\n4. Schedule regular team synchronization meetings\n5. Recognize and celebrate achievements consistently\n\n## Conclusion\n\n${topic} is permanently reshaping the professional landscape. Organizations that adapt strategically will thrive in this new era of work.`
     };
     
     const topicLower = topic.toLowerCase();
-    
-    if (topicLower.includes('tech') || topicLower.includes('ai') || topicLower.includes('software')) {
-        return templates.technology;
-    } else if (topicLower.includes('remote') || topicLower.includes('work from home') || topicLower.includes('distributed')) {
-        return templates.remote;
-    }
-    
+    if (topicLower.includes('tech') || topicLower.includes('ai') || topicLower.includes('software')) return templates.technology;
+    if (topicLower.includes('remote') || topicLower.includes('work from home') || topicLower.includes('distributed')) return templates.remote;
     return templates.default;
-}
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function ArticleEditor() {
     const { id } = useParams();
     const navigate = useNavigate();
+    
+    // State Management
     const [article, setArticle] = useState({
         title: '',
         slug: '',
@@ -99,13 +102,14 @@ export default function ArticleEditor() {
         category: '',
         tags: [],
         featured_image: '',
-        author: 'ODUSBABA Team',
+        author: DEFAULT_AUTHOR,
         status: 'draft',
         send_notification: false,
         seo_title: '',
         seo_description: '',
         view_count: 0
     });
+    
     const [tagInput, setTagInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -119,11 +123,11 @@ export default function ArticleEditor() {
     const [readTime, setReadTime] = useState(0);
     const [notificationSent, setNotificationSent] = useState(false);
     const [aiFallbackUsed, setAiFallbackUsed] = useState(false);
+    const [fullscreen, setFullscreen] = useState(false);
 
+    // Effects
     useEffect(() => {
-        if (id && id !== 'new') {
-            loadArticle();
-        }
+        if (id && id !== 'new') loadArticle();
     }, [id]);
 
     useEffect(() => {
@@ -134,11 +138,12 @@ export default function ArticleEditor() {
 
     useEffect(() => {
         if (aiFallbackUsed) {
-            const timer = setTimeout(() => setAiFallbackUsed(false), 3000);
+            const timer = setTimeout(() => setAiFallbackUsed(false), 5000);
             return () => clearTimeout(timer);
         }
     }, [aiFallbackUsed]);
 
+    // Database Operations
     async function loadArticle() {
         setLoading(true);
         const { data, error } = await supabase
@@ -156,9 +161,7 @@ export default function ArticleEditor() {
         setLoading(false);
     }
 
-    function generateSlug(title) {
-        return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    }
+    const generateSlug = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
     async function saveArticle(publish = false) {
         if (!article.title.trim()) {
@@ -175,22 +178,21 @@ export default function ArticleEditor() {
             published_at: publish && article.status !== 'published' ? new Date().toISOString() : article.published_at
         };
 
-        let result;
-        if (id && id !== 'new') {
-            result = await supabase.from('articles').update(articleData).eq('id', id);
-        } else {
-            const { data, error } = await supabase.from('articles').insert([articleData]).select();
-            result = { error };
-            if (!error && data) {
-                navigate(`/admin/articles/${data[0].id}`, { replace: true });
+        try {
+            let result;
+            if (id && id !== 'new') {
+                result = await supabase.from('articles').update(articleData).eq('id', id);
+            } else {
+                const { data, error } = await supabase.from('articles').insert([articleData]).select();
+                result = { error };
+                if (!error && data) {
+                    navigate(`/admin/articles/${data[0].id}`, { replace: true });
+                }
             }
-        }
 
-        if (result.error) {
-            alert('Error saving article: ' + result.error.message);
-        } else {
-            const message = publish ? '✅ Article published successfully!' : '✅ Article saved as draft';
-            alert(message);
+            if (result.error) throw result.error;
+
+            alert(publish ? '✅ Article published successfully!' : '✅ Article saved as draft');
             
             if (publish && article.send_notification && !notificationSent) {
                 setNotificationSent(true);
@@ -198,8 +200,13 @@ export default function ArticleEditor() {
             }
             
             navigate('/admin/articles');
+            
+        } catch (error) {
+            console.error('Save error:', error);
+            alert('Error saving article: ' + error.message);
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     }
 
     async function sendNotification(articleData) {
@@ -217,6 +224,7 @@ export default function ArticleEditor() {
         }
     }
 
+    // AI Functions
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
@@ -242,7 +250,7 @@ export default function ArticleEditor() {
                     ...article,
                     title: data.title || aiTopic,
                     content: data.content,
-                    excerpt: data.excerpt || data.content.substring(0, 160)
+                    excerpt: data.excerpt || data.content.substring(0, MAX_EXCERPT_LENGTH)
                 });
                 alert('✅ Article generated successfully!');
                 setShowAIPanel(false);
@@ -257,7 +265,7 @@ export default function ArticleEditor() {
                 ...article,
                 title: aiTopic,
                 content: fallbackContent,
-                excerpt: fallbackContent.substring(0, 160)
+                excerpt: fallbackContent.substring(0, MAX_EXCERPT_LENGTH)
             });
             setAiFallbackUsed(true);
             alert('⚠️ AI service unavailable. Used template-based generation instead.');
@@ -341,28 +349,30 @@ export default function ArticleEditor() {
         }
     }
 
-    function copyToClipboard(text) {
+    // Utility Functions
+    const copyToClipboard = (text) => {
         if (!text) return;
         navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-    }
+    };
 
-    function addTag() {
+    const addTag = () => {
         if (tagInput && !article.tags.includes(tagInput)) {
             setArticle({ ...article, tags: [...article.tags, tagInput] });
             setTagInput('');
         }
-    }
+    };
 
-    function removeTag(tag) {
+    const removeTag = (tag) => {
         setArticle({ ...article, tags: article.tags.filter(t => t !== tag) });
-    }
+    };
 
     const categories = [
         'AI & Technology', 'Employment Law', 'HR Strategy', 'Workforce Trends',
         'Career Development', 'Skill Verification', 'Remote Work', 'Diversity & Inclusion',
-        'Leadership', 'Recruitment', 'Productivity', 'Wellness'
+        'Leadership', 'Recruitment', 'Productivity', 'Wellness', 'Talent Management',
+        'Employee Engagement', 'Workplace Culture', 'Compliance', 'Benefits & Compensation'
     ];
 
     if (loading) {
@@ -376,7 +386,7 @@ export default function ArticleEditor() {
     const isAiLoading = aiGenerating || aiImproving;
 
     return (
-        <div className="min-h-screen bg-slate-950">
+        <div className={`min-h-screen bg-slate-950 ${fullscreen ? 'fixed inset-0 z-50 overflow-auto' : ''}`}>
             <div className="max-w-6xl mx-auto px-4 py-8">
                 {/* Header */}
                 <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -385,7 +395,7 @@ export default function ArticleEditor() {
                             {id === 'new' ? 'Create New Article' : 'Edit Article'}
                         </h1>
                         {!preview && (
-                            <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                            <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
                                 <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {wordCount} words</span>
                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {readTime} min read</span>
                                 <span className="flex items-center gap-1"><Tag className="w-3 h-3" /> {article.tags.length} tags</span>
@@ -393,6 +403,9 @@ export default function ArticleEditor() {
                         )}
                     </div>
                     <div className="flex gap-3 flex-wrap">
+                        <button onClick={() => setFullscreen(!fullscreen)} className="px-3 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition" title="Fullscreen">
+                            {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => setShowAIPanel(!showAIPanel)} className="px-4 py-2 bg-purple-600/20 text-purple-400 rounded-lg hover:bg-purple-600/30 transition flex items-center gap-2">
                             <Sparkles className="w-4 h-4" /> AI Assistant
                         </button>
@@ -419,31 +432,32 @@ export default function ArticleEditor() {
 
                 {/* AI Panel */}
                 {showAIPanel && !preview && (
-                    <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/20 to-primary-900/20 border border-purple-500/30 rounded-xl">
-                        <div className="flex justify-between items-center mb-3">
-                            <h3 className="text-white font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-purple-400" /> AI Content Assistant</h3>
-                            <button onClick={() => setShowAIPanel(false)} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+                    <div className="mb-6 p-5 bg-gradient-to-r from-purple-900/20 to-primary-900/20 border border-purple-500/30 rounded-xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-white font-semibold flex items-center gap-2"><Sparkles className="w-5 h-5 text-purple-400" /> AI Content Assistant</h3>
+                            <button onClick={() => setShowAIPanel(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-sm text-slate-300 mb-2">Generate Article</label>
                                 <div className="flex gap-2">
-                                    <input type="text" value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g., Future of Remote Work in 2024" className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                                    <input type="text" value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g., Future of Remote Work" className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
                                     <button onClick={handleAIGenerate} disabled={isAiLoading} className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition disabled:opacity-50" title="Generate full article">
                                         {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                                     </button>
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-sm text-slate-300 mb-2">Improve Existing Content</label>
-                                <div className="flex gap-2">
-                                    <button onClick={handleImproveContent} disabled={isAiLoading || !article.content} className="flex-1 px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                                        {aiImproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Improve Clarity & Grammar
-                                    </button>
-                                    <button onClick={generateSEOTitle} disabled={isAiLoading || !article.title} className="px-3 py-2 bg-emerald-600/20 text-emerald-400 rounded-lg hover:bg-emerald-600/30 transition disabled:opacity-50 flex items-center gap-1 text-sm" title="Generate SEO Title">
-                                        <Globe className="w-4 h-4" /> SEO
-                                    </button>
-                                </div>
+                                <label className="block text-sm text-slate-300 mb-2">Improve Content</label>
+                                <button onClick={handleImproveContent} disabled={isAiLoading || !article.content} className="w-full px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                                    {aiImproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Improve Grammar & Clarity
+                                </button>
+                            </div>
+                            <div>
+                                <label className="block text-sm text-slate-300 mb-2">SEO Optimization</label>
+                                <button onClick={generateSEOTitle} disabled={isAiLoading || !article.title} className="w-full px-3 py-2 bg-emerald-600/20 text-emerald-400 rounded-lg hover:bg-emerald-600/30 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                                    <Globe className="w-4 h-4" /> Generate SEO Title
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -454,7 +468,8 @@ export default function ArticleEditor() {
                         {/* Title */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Title *</label>
-                            <input type="text" value={article.title} onChange={(e) => setArticle({ ...article, title: e.target.value, slug: generateSlug(e.target.value), seo_title: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg" placeholder="Article title..." />
+                            <input type="text" value={article.title} onChange={(e) => setArticle({ ...article, title: e.target.value.slice(0, MAX_TITLE_LENGTH), slug: generateSlug(e.target.value), seo_title: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg" placeholder="Article title..." />
+                            <p className="text-xs text-slate-500 mt-1">{article.title.length}/{MAX_TITLE_LENGTH} characters</p>
                         </div>
 
                         {/* Slug & SEO */}
@@ -471,18 +486,20 @@ export default function ArticleEditor() {
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-1">SEO Title (Optional)</label>
                                 <div className="flex gap-2">
-                                    <input type="text" value={article.seo_title} onChange={(e) => setArticle({ ...article, seo_title: e.target.value })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="SEO optimized title" />
+                                    <input type="text" value={article.seo_title} onChange={(e) => setArticle({ ...article, seo_title: e.target.value.slice(0, 60) })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="SEO optimized title" />
                                     <button onClick={generateSEOTitle} disabled={isAiLoading || !article.title} className="px-3 py-2 bg-purple-600/20 text-purple-400 rounded-lg hover:bg-purple-600/30 transition disabled:opacity-50">
                                         <Sparkles className="w-4 h-4" />
                                     </button>
                                 </div>
+                                <p className="text-xs text-slate-500 mt-1">{article.seo_title.length}/60 characters</p>
                             </div>
                         </div>
 
                         {/* Excerpt */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">Excerpt (Short summary) - {article.excerpt.length}/160 characters</label>
-                            <textarea rows={2} value={article.excerpt} onChange={(e) => setArticle({ ...article, excerpt: e.target.value.slice(0, 160) })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Brief summary of the article..." />
+                            <label className="block text-sm font-medium text-slate-300 mb-1">Excerpt (SEO Meta Description)</label>
+                            <textarea rows={2} value={article.excerpt} onChange={(e) => setArticle({ ...article, excerpt: e.target.value.slice(0, MAX_EXCERPT_LENGTH) })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Brief summary for search engines..." />
+                            <p className="text-xs text-slate-500 mt-1">{article.excerpt.length}/{MAX_EXCERPT_LENGTH} characters</p>
                         </div>
 
                         {/* Category & Author */}
@@ -530,9 +547,10 @@ export default function ArticleEditor() {
 
                         {/* Content */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">Content (Markdown supported) - {wordCount} words</label>
-                            <textarea rows={15} value={article.content} onChange={(e) => setArticle({ ...article, content: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Write your article content here... Use markdown for formatting." />
-                            <div className="mt-2 flex justify-end gap-2">
+                            <label className="block text-sm font-medium text-slate-300 mb-1">Content (Markdown supported)</label>
+                            <textarea rows={18} value={article.content} onChange={(e) => setArticle({ ...article, content: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Write your article content here... Use markdown for formatting." />
+                            <div className="mt-2 flex justify-between items-center">
+                                <p className="text-xs text-slate-500">{wordCount} words • {readTime} min read</p>
                                 <button onClick={handleImproveContent} disabled={isAiLoading || !article.content} className="text-xs text-purple-400 hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-1">
                                     {aiImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Improve with AI
                                 </button>
@@ -546,16 +564,20 @@ export default function ArticleEditor() {
                         </div>
                     </div>
                 ) : (
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 prose prose-invert max-w-none">
-                        {article.featured_image && <img src={article.featured_image} alt={article.title} className="rounded-xl mb-6 w-full" />}
-                        <h1 className="text-3xl font-bold">{article.title}</h1>
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400 mb-6 pb-4 border-b border-slate-800">
-                            <span className="flex items-center gap-1"><User className="w-3 h-3" /> {article.author}</span>
-                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date().toLocaleDateString()}</span>
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {readTime} min read</span>
-                            {article.category && <span className="flex items-center gap-1"><Tag className="w-3 h-3" /> {article.category}</span>}
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 prose prose-invert prose-lg max-w-none">
+                        {article.featured_image && <img src={article.featured_image} alt={article.title} className="rounded-xl mb-8 w-full" />}
+                        <h1 className="text-4xl font-bold mb-4">{article.title}</h1>
+                        <div className="flex flex-wrap items-center gap-6 text-sm text-slate-400 mb-8 pb-6 border-b border-slate-800">
+                            <span className="flex items-center gap-2"><User className="w-4 h-4" /> {article.author}</span>
+                            <span className="flex items-center gap-2"><Calendar className="w-4 h-4" /> {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                            <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> {readTime} min read</span>
+                            {article.category && <span className="flex items-center gap-2"><Tag className="w-4 h-4" /> {article.category}</span>}
                         </div>
-                        <div className="whitespace-pre-wrap"><ReactMarkdown>{article.content || '*No content yet*'}</ReactMarkdown></div>
+                        <div className="markdown-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {article.content || '*No content yet*'}
+                            </ReactMarkdown>
+                        </div>
                     </div>
                 )}
             </div>
