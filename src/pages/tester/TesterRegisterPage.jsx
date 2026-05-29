@@ -8,7 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { 
     FlaskConical, Mail, Lock, User, Loader2, AlertCircle, 
     CheckCircle, Key, Copy, Check, Eye, EyeOff, Shield,
-    ArrowLeft, Calendar, Clock, Zap
+    ArrowLeft, Calendar, Clock, Zap, Award, Sparkles
 } from 'lucide-react';
 
 // ============================================
@@ -36,6 +36,16 @@ const PASSWORD_REQUIREMENTS = {
 
 // Unified API endpoint
 const API_BASE = '/api/index';
+
+// Tester benefits
+const TESTER_BENEFITS = [
+    '10 free uses of ODUSBABA features',
+    '30 days of unlimited access',
+    'AI Career Chat integration',
+    'CV optimization tools',
+    'Job matching algorithm',
+    'Priority support during testing'
+];
 
 // ============================================
 // HELPER FUNCTIONS
@@ -266,7 +276,9 @@ export default function TesterRegisterPage() {
                         fullName, 
                         testerDays: 30,
                         testerUses: 10,
-                        dashboardUrl: 'https://www.bluskyeconsult.com/tester-dashboard'
+                        inviteCode: MASTER_INVITE_CODE.CODE,
+                        dashboardUrl: 'https://www.bluskyeconsult.com/tester-dashboard',
+                        benefits: TESTER_BENEFITS
                     }
                 })
             });
@@ -321,7 +333,8 @@ export default function TesterRegisterPage() {
                         full_name: formData.full_name,
                         user_type: 'tester',
                         is_tester: true,
-                        registered_at: new Date().toISOString()
+                        registered_at: new Date().toISOString(),
+                        registered_with: 'master_invite_code'
                     }
                 }
             });
@@ -648,18 +661,24 @@ export default function TesterRegisterPage() {
                             </div>
                         )}
 
-                        {/* Tester Info Box */}
-                        <div className="p-3 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Clock className="w-4 h-4 text-purple-400" />
-                                <span className="text-xs text-purple-400 font-medium">What you get:</span>
+                        {/* Tester Benefits Box */}
+                        <div className="p-4 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Award className="w-4 h-4 text-purple-400" />
+                                <span className="text-xs font-medium text-purple-400">What You Get:</span>
                             </div>
-                            <ul className="text-xs text-slate-400 space-y-1 ml-6 list-disc">
-                                <li>10 free uses of ODUSBABA features</li>
-                                <li>30 days of unlimited access</li>
-                                <li>AI Career Chat, CV optimization, Job matching</li>
-                                <li>Priority support during testing period</li>
-                            </ul>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {TESTER_BENEFITS.map((benefit, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 text-xs text-slate-400">
+                                        <Sparkles className="w-3 h-3 text-purple-400" />
+                                        {benefit}
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-3 pt-2 border-t border-purple-500/20 flex items-center justify-between text-xs">
+                                <span className="text-slate-500">⏱️ Expires in 30 days</span>
+                                <span className="text-slate-500">🎯 10 free uses included</span>
+                            </div>
                         </div>
 
                         {/* Submit Button */}
