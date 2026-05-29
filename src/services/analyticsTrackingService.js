@@ -1,5 +1,6 @@
 // src/services/analyticsTrackingService.js
-// OPTIMIZED - Robust error handling, graceful degradation, comprehensive tracking, unified IP detection
+// COMPLETE PROFESSIONAL ANALYTICS SERVICE - Unified API endpoint, robust error handling, comprehensive tracking
+// Features: Session tracking, page views, events, IP detection, device info, scroll/click tracking
 
 import { supabase } from '../lib/supabase';
 
@@ -20,7 +21,7 @@ const CONFIG = {
     RETRY_DELAY: 1000
 };
 
-// Unified API endpoint
+// ✅ FIXED: Unified API endpoint
 const API_BASE = '/api/index';
 const IP_ENDPOINT = `${API_BASE}?action=ip`;
 
@@ -82,7 +83,7 @@ async function getUser() {
  */
 export async function getUserIP() {
     try {
-        // Use unified API endpoint
+        // ✅ FIXED: Using unified API endpoint
         const response = await fetch(IP_ENDPOINT, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
@@ -471,6 +472,18 @@ export function trackNewsletterSignup(email, source) {
     return trackEvent('newsletter_signup', { source });
 }
 
+export function trackLogin(method = 'email') {
+    return trackEvent('user_login', { method });
+}
+
+export function trackSignup(method = 'email', userType = 'job_seeker') {
+    return trackEvent('user_signup', { method, user_type: userType });
+}
+
+export function trackContactForm(name, email, subject) {
+    return trackEvent('contact_form', { name: name?.substring(0, 50), email, subject: subject?.substring(0, 100) });
+}
+
 // ============================================
 // ANALYTICS QUERIES (Admin)
 // ============================================
@@ -523,6 +536,22 @@ export async function getVisitorAnalytics(days = 30) {
                 }, {})
             }
         };
+    }, []);
+}
+
+export async function getActiveUsers() {
+    if (!await checkAnalyticsTables()) return [];
+    
+    return safeAnalyticsCall(async () => {
+        const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        
+        const { data } = await supabase
+            .from('analytics_sessions')
+            .select('session_id, visitor_id, device_type, ip_country, last_activity')
+            .gte('last_activity', fifteenMinsAgo)
+            .is('end_time', null);
+        
+        return data || [];
     }, []);
 }
 
@@ -657,7 +686,7 @@ CREATE TABLE IF NOT EXISTS analytics_events (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create indexes
+-- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_session_id ON analytics_sessions(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_user_id ON analytics_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_start_time ON analytics_sessions(start_time);
@@ -689,7 +718,11 @@ export default {
     trackAssessmentStart,
     trackAssessmentComplete,
     trackNewsletterSignup,
+    trackLogin,
+    trackSignup,
+    trackContactForm,
     getVisitorAnalytics,
+    getActiveUsers,
     getUserIP,
     getUserTimezone,
     createAnalyticsTablesSQL
