@@ -7,13 +7,15 @@ import AdminLayout from '../../components/admin/AdminLayout';
 import { 
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
     Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2,
-    Copy, Play, Pause, BarChart3, Plus, Search, Filter
+    Copy, Play, Pause, BarChart3, Plus, Search, Filter,
+    RefreshCw, Download, FileText, Zap, Target, Activity
 } from 'lucide-react';
 
 export default function NewsletterAdmin() {
     const [newsletters, setNewsletters] = useState([]);
     const [subscribers, setSubscribers] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedNewsletter, setSelectedNewsletter] = useState(null);
@@ -29,7 +31,8 @@ export default function NewsletterAdmin() {
         totalSent: 0,
         openRate: 0,
         clickRate: 0,
-        bounceRate: 0
+        bounceRate: 0,
+        subscribers: 0
     });
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -42,7 +45,26 @@ export default function NewsletterAdmin() {
     async function loadData() {
         setLoading(true);
         
-        // Load newsletters
+        // Load newsletters via API
+        try {
+            const response = await fetch('/api/index?action=newsletter-list', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.newsletters) {
+                    setNewsletters(data.newsletters);
+                    setLoading(false);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('API fetch failed, falling back to Supabase:', err);
+        }
+        
+        // Fallback to direct Supabase query
         let query = supabase.from('newsletters').select('*').order('created_at', { ascending: false });
         
         if (filterStatus !== 'all') {
@@ -50,16 +72,35 @@ export default function NewsletterAdmin() {
         }
         
         const { data: newsData } = await query;
+        setNewsletters(newsData || []);
+        setLoading(false);
+    }
+
+    async function loadSubscribers() {
+        try {
+            const response = await fetch('/api/index?action=newsletter-subscribers', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.subscribers) {
+                    setSubscribers(data.subscribers);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('Could not fetch subscribers:', err);
+        }
         
-        // Load subscribers
+        // Fallback
         const { data: subData } = await supabase
             .from('newsletter_subscribers')
             .select('*')
             .eq('status', 'active');
         
-        setNewsletters(newsData || []);
         setSubscribers(subData || []);
-        setLoading(false);
     }
 
     async function loadStats() {
@@ -72,12 +113,22 @@ export default function NewsletterAdmin() {
             if (response.ok) {
                 const data = await response.json();
                 if (data.success && data.stats) {
-                    setStats(data.stats);
+                    setStats({
+                        ...stats,
+                        ...data.stats,
+                        subscribers: data.stats.subscribers || subscribers.length
+                    });
                 }
             }
         } catch (err) {
             console.warn('Could not fetch stats:', err);
         }
+    }
+
+    async function handleRefresh() {
+        setRefreshing(true);
+        await Promise.all([loadData(), loadSubscribers(), loadStats()]);
+        setRefreshing(false);
     }
 
     async function handleCreateNewsletter(e) {
@@ -98,7 +149,7 @@ export default function NewsletterAdmin() {
                     content_html: formData.content,
                     scheduled_for: formData.scheduled_for || null,
                     send_now: formData.send_now,
-                    created_by: user.id
+                    created_by: user?.id
                 })
             });
             
@@ -111,14 +162,20 @@ export default function NewsletterAdmin() {
                     content_html: formData.content,
                     status: formData.scheduled_for ? 'scheduled' : (formData.send_now ? 'sending' : 'draft'),
                     scheduled_for: formData.scheduled_for || null,
-                    created_by: user.id
+                    created_by: user?.id
                 });
             }
             
             setShowCreateModal(false);
             setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false });
-            loadData();
-            loadStats();
+            await loadData();
+            await loadStats();
+            
+            if (formData.send_now) {
+                alert('Newsletter created and sending started!');
+            } else {
+                alert('Newsletter created successfully!');
+            }
             
         } catch (error) {
             console.error('Error creating newsletter:', error);
@@ -128,8 +185,29 @@ export default function NewsletterAdmin() {
         }
     }
 
+    async function handleSendNow(newsletterId) {
+        if (!confirm('Send this newsletter now to all subscribers?')) return;
+        
+        try {
+            const response = await fetch('/api/index?action=newsletter-send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newsletterId, test: false })
+            });
+            
+            if (response.ok) {
+                alert('Newsletter sending started!');
+                await loadData();
+            } else {
+                throw new Error('Send failed');
+            }
+        } catch (error) {
+            console.error('Error sending newsletter:', error);
+            alert('Failed to send newsletter. Please try again.');
+        }
+    }
+
     async function handleSendTest(newsletter) {
-        setSelectedNewsletter(newsletter);
         try {
             const response = await fetch('/api/index?action=newsletter-send', {
                 method: 'POST',
@@ -139,6 +217,8 @@ export default function NewsletterAdmin() {
             
             if (response.ok) {
                 alert('Test email sent to admin!');
+            } else {
+                throw new Error('Test send failed');
             }
         } catch (error) {
             console.error('Error sending test:', error);
@@ -147,10 +227,36 @@ export default function NewsletterAdmin() {
     }
 
     async function handleDelete(newsletterId) {
-        if (!confirm('Are you sure you want to delete this newsletter?')) return;
+        if (!confirm('Are you sure you want to delete this newsletter? This cannot be undone.')) return;
         
         await supabase.from('newsletters').delete().eq('id', newsletterId);
-        loadData();
+        await loadData();
+        alert('Newsletter deleted successfully.');
+    }
+
+    async function handleExportSubscribers() {
+        try {
+            const response = await fetch('/api/index?action=newsletter-export', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                // Create CSV
+                const csv = data.subscribers.map(s => `${s.email},${s.name || ''},${s.subscribed_at}`).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `subscribers_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export subscribers.');
+        }
     }
 
     function getStatusBadge(status) {
@@ -193,53 +299,72 @@ export default function NewsletterAdmin() {
         <AdminLayout title="Newsletter Manager" description="Create, schedule, and manage email newsletters">
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Total Newsletters</p>
                             <p className="text-2xl font-bold text-white">{newsletters.length}</p>
                         </div>
-                        <Mail className="w-8 h-8 text-primary-400 opacity-50" />
+                        <Mail className="w-8 h-8 text-primary-400 opacity-50 group-hover:scale-110 transition" />
                     </div>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Active Subscribers</p>
                             <p className="text-2xl font-bold text-white">{subscribers.length}</p>
                         </div>
-                        <Users className="w-8 h-8 text-emerald-400 opacity-50" />
+                        <Users className="w-8 h-8 text-emerald-400 opacity-50 group-hover:scale-110 transition" />
                     </div>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Open Rate</p>
                             <p className="text-2xl font-bold text-white">{stats.openRate}%</p>
                         </div>
-                        <Eye className="w-8 h-8 text-amber-400 opacity-50" />
+                        <Eye className="w-8 h-8 text-amber-400 opacity-50 group-hover:scale-110 transition" />
                     </div>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Click Rate</p>
                             <p className="text-2xl font-bold text-white">{stats.clickRate}%</p>
                         </div>
-                        <TrendingUp className="w-8 h-8 text-purple-400 opacity-50" />
+                        <TrendingUp className="w-8 h-8 text-purple-400 opacity-50 group-hover:scale-110 transition" />
                     </div>
                 </div>
             </div>
 
             {/* Actions Bar */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <button
-                    onClick={() => setShowCreateModal(true)}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
-                >
-                    <Plus className="w-4 h-4" />
-                    Create Newsletter
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Create Newsletter
+                    </button>
+                    <button
+                        onClick={handleExportSubscribers}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
+                        title="Export Subscribers"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export
+                    </button>
+                    <button
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2 disabled:opacity-50"
+                        title="Refresh"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                </div>
                 
                 <div className="flex gap-2">
                     <div className="relative">
@@ -294,7 +419,7 @@ export default function NewsletterAdmin() {
                                 {filteredNewsletters.map(newsletter => (
                                     <tr key={newsletter.id} className="border-b border-slate-800 hover:bg-slate-800/30 transition">
                                         <td className="px-4 py-3">
-                                            <p className="text-white font-medium">{newsletter.title}</p>
+                                            <p className="text-white font-medium line-clamp-1">{newsletter.title}</p>
                                         </td>
                                         <td className="px-4 py-3">
                                             <p className="text-slate-400 text-sm line-clamp-1">{newsletter.subject}</p>
@@ -333,6 +458,13 @@ export default function NewsletterAdmin() {
                                                             <Send className="w-4 h-4" />
                                                         </button>
                                                         <button
+                                                            onClick={() => handleSendNow(newsletter.id)}
+                                                            className="p-1.5 text-emerald-400 hover:text-emerald-300 transition"
+                                                            title="Send Now"
+                                                        >
+                                                            <Zap className="w-4 h-4" />
+                                                        </button>
+                                                        <button
                                                             onClick={() => handleDelete(newsletter.id)}
                                                             className="p-1.5 text-red-400 hover:text-red-300 transition"
                                                             title="Delete"
@@ -341,8 +473,17 @@ export default function NewsletterAdmin() {
                                                         </button>
                                                     </>
                                                 )}
+                                                {newsletter.status === 'scheduled' && (
+                                                    <button
+                                                        onClick={() => handleSendNow(newsletter.id)}
+                                                        className="p-1.5 text-emerald-400 hover:text-emerald-300 transition"
+                                                        title="Send Now (override schedule)"
+                                                    >
+                                                        <Play className="w-4 h-4" />
+                                                    </button>
+                                                )}
                                             </div>
-                                        </td>
+                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -358,7 +499,7 @@ export default function NewsletterAdmin() {
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-bold text-white">Create Newsletter</h2>
-                                <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white">
+                                <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white transition">
                                     <XCircle className="w-5 h-5" />
                                 </button>
                             </div>
@@ -452,7 +593,7 @@ export default function NewsletterAdmin() {
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-bold text-white">Preview: {selectedNewsletter.title}</h2>
-                                <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-white">
+                                <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-white transition">
                                     <XCircle className="w-5 h-5" />
                                 </button>
                             </div>
