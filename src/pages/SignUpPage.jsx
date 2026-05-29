@@ -1,11 +1,19 @@
 // src/pages/SignUpPage.jsx
-// COMPLETE SIGNUP PAGE - Handles tier selection, tester mode, profile creation, and RLS policies
-// FIXED: Correct user_type mapping to match database constraint with proper error handling
+// COMPLETE PROFESSIONAL SIGNUP PAGE - Tier selection, tester mode, profile creation, unified API
+// Features: Password strength meter, email validation, tester mode, company profiles, unlimited admin access
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { UserPlus, Mail, Lock, User, Loader2, AlertCircle, CheckCircle, Briefcase, Building2, Sparkles, Star, Eye, EyeOff } from 'lucide-react';
+import { 
+    UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
+    CheckCircle, Briefcase, Building2, Sparkles, Star, 
+    Eye, EyeOff, ArrowLeft, Shield, Zap
+} from 'lucide-react';
+
+// ============================================
+// CONSTANTS & CONFIGURATION
+// ============================================
 
 // Map tiers to correct user_type values (matching database constraint)
 const TIER_TO_USER_TYPE_MAP = {
@@ -15,6 +23,55 @@ const TIER_TO_USER_TYPE_MAP = {
     'employer': 'employer',
     'business': 'business_owner'
 };
+
+// Email validation regex
+const EMAIL_REGEX = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+
+// Password requirements
+const PASSWORD_REQUIREMENTS = {
+    minLength: 8,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSpecial: true
+};
+
+// Unified API endpoint
+const API_BASE = '/api/index';
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+const validateEmail = (email) => EMAIL_REGEX.test(email);
+
+const validatePasswordStrength = (password) => {
+    let strength = 0;
+    if (password.length >= PASSWORD_REQUIREMENTS.minLength) strength++;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+    if (/[0-9]/.test(password)) strength++;
+    if (/[^a-zA-Z0-9]/.test(password)) strength++;
+    return { strength, isValid: strength >= 3 };
+};
+
+const getPasswordStrengthText = (strength) => {
+    if (strength === 0) return '';
+    if (strength === 1) return 'Weak';
+    if (strength === 2) return 'Fair';
+    if (strength === 3) return 'Good';
+    return 'Strong';
+};
+
+const getPasswordStrengthColor = (strength) => {
+    if (strength <= 1) return 'bg-red-500';
+    if (strength === 2) return 'bg-yellow-500';
+    if (strength === 3) return 'bg-blue-500';
+    return 'bg-green-500';
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function SignUpPage() {
     const navigate = useNavigate();
@@ -38,14 +95,16 @@ export default function SignUpPage() {
         default_tester_uses: 10
     });
     const [passwordStrength, setPasswordStrength] = useState(0);
+    const [touchedFields, setTouchedFields] = useState({});
 
-    // Tiers configuration with display info
+    // Tiers configuration
     const tiers = [
         { 
             id: 'free', 
             name: 'Free', 
             price: '$0', 
             description: 'Browse jobs only',
+            features: ['Job browsing', 'Basic profile', 'Company listings'],
             requiresPayment: false,
             redirect: '/dashboard',
             icon: User,
@@ -56,6 +115,7 @@ export default function SignUpPage() {
             name: 'Registered', 
             price: '$0', 
             description: 'Apply to jobs, submit skills',
+            features: ['Job applications', 'Skill submission', 'Job alerts'],
             requiresPayment: false,
             redirect: '/dashboard',
             icon: UserPlus,
@@ -66,6 +126,7 @@ export default function SignUpPage() {
             name: 'Professional', 
             price: '$39.99', 
             description: 'Unlimited applications, AI features',
+            features: ['Unlimited applications', 'AI resume review', 'Priority support'],
             requiresPayment: true,
             redirect: '/dashboard',
             icon: Star,
@@ -76,6 +137,7 @@ export default function SignUpPage() {
             name: 'Employer', 
             price: '$129.99', 
             description: 'Post jobs, view applicants',
+            features: ['Job posting', 'Applicant tracking', 'Company branding'],
             requiresPayment: true,
             redirect: '/employer/dashboard',
             icon: Briefcase,
@@ -85,7 +147,8 @@ export default function SignUpPage() {
             id: 'business', 
             name: 'Business', 
             price: '$399.99', 
-            description: 'Unlimited jobs, team accounts (5 users)',
+            description: 'Unlimited jobs, team accounts',
+            features: ['Unlimited jobs', '5 team accounts', 'API access', 'Dedicated support'],
             requiresPayment: true,
             redirect: '/employer/dashboard',
             icon: Building2,
@@ -99,36 +162,42 @@ export default function SignUpPage() {
     }, []);
 
     async function checkTestingMode() {
-        const { data } = await supabase
-            .from('system_config')
-            .select('config_value')
-            .eq('config_key', 'testing_mode')
-            .single();
-        
-        if (data?.config_value === 'enabled') {
-            setTestingMode(true);
-            setTestingConfig(prev => ({ ...prev, enabled: true }));
-        } else {
+        try {
+            const { data } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'testing_mode')
+                .single();
+            
+            if (data?.config_value === 'enabled') {
+                setTestingMode(true);
+                setTestingConfig(prev => ({ ...prev, enabled: true }));
+            } else {
+                setTestingMode(false);
+            }
+        } catch (err) {
+            console.error('Error checking testing mode:', err);
             setTestingMode(false);
         }
     }
 
-    // Password validation
-    const validatePassword = (password) => {
-        let strength = 0;
-        if (password.length >= 8) strength++;
-        if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
-        if (password.match(/[0-9]/)) strength++;
-        if (password.match(/[^a-zA-Z0-9]/)) strength++;
-        setPasswordStrength(strength);
-        return strength >= 3;
-    };
-
-    // Email validation
-    const validateEmail = (email) => {
-        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
-        return emailRegex.test(email);
-    };
+    // Send welcome email via unified API
+    async function sendWelcomeEmail(email, fullName, userType) {
+        try {
+            await fetch(`${API_BASE}?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: email,
+                    subject: 'Welcome to ODUSBABA!',
+                    template: 'welcome',
+                    data: { fullName, userType, testingMode }
+                })
+            });
+        } catch (err) {
+            console.warn('Email notification failed:', err);
+        }
+    }
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -142,11 +211,13 @@ export default function SignUpPage() {
             return;
         }
         
-        if (!validatePassword(formData.password)) {
+        const { isValid, strength } = validatePasswordStrength(formData.password);
+        if (!isValid) {
             setError('Password must be at least 8 characters with uppercase, lowercase, number, and special character');
             setLoading(false);
             return;
         }
+        setPasswordStrength(strength);
         
         if (formData.password !== formData.confirmPassword) {
             setError('Passwords do not match');
@@ -157,12 +228,12 @@ export default function SignUpPage() {
         try {
             const selected = tiers.find(t => t.id === formData.selectedTier);
             
-            // Use the correct user_type mapping
+            // Determine user type based on testing mode and tier
             let userType;
             let tier;
             
             if (testingMode) {
-                userType = 'job_seeker';  // Testers are job seekers
+                userType = 'tester';
                 tier = 'free';
             } else {
                 userType = TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker';
@@ -179,13 +250,13 @@ export default function SignUpPage() {
                         user_type: userType,
                         tier: tier,
                         company_name: testingMode ? null : formData.company_name,
-                        is_tester: testingMode || false
+                        is_tester: testingMode || false,
+                        registered_at: new Date().toISOString()
                     }
                 }
             });
 
             if (signUpError) throw signUpError;
-
             if (!authData.user) throw new Error('User creation failed');
 
             // Create profile (fallback if trigger doesn't fire)
@@ -200,7 +271,7 @@ export default function SignUpPage() {
                     country_code: 'GB',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                    ai_credits_remaining: 5,
+                    ai_credits_remaining: testingMode ? 10 : 5,
                     va_credits_balance: testingMode ? 10 : 0
                 });
 
@@ -213,6 +284,8 @@ export default function SignUpPage() {
                 await supabase.from('company_profiles').upsert({
                     user_id: authData.user.id,
                     company_name: formData.company_name || 'My Company',
+                    industry: null,
+                    size: null,
                     created_at: new Date().toISOString()
                 });
             }
@@ -234,6 +307,9 @@ export default function SignUpPage() {
                     });
             }
 
+            // Send welcome email (non-blocking)
+            sendWelcomeEmail(formData.email, formData.full_name, userType);
+
             setSuccess(true);
             
             // Auto redirect after 3 seconds
@@ -241,33 +317,22 @@ export default function SignUpPage() {
                 if (testingMode) {
                     navigate('/tester-login');
                 } else if (selected.requiresPayment) {
-                    navigate('/pricing');
+                    navigate('/pricing', { state: { selectedTier: formData.selectedTier } });
                 } else {
                     navigate('/sign-in');
                 }
             }, 3000);
 
         } catch (err) {
-            setError(err.message);
+            console.error('Signup error:', err);
+            setError(err.message || 'Registration failed. Please try again.');
         } finally {
             setLoading(false);
         }
     }
 
-    // Password strength text
-    const passwordStrengthText = () => {
-        if (passwordStrength === 0) return '';
-        if (passwordStrength === 1) return 'Weak';
-        if (passwordStrength === 2) return 'Fair';
-        if (passwordStrength === 3) return 'Good';
-        return 'Strong';
-    };
-
-    const passwordStrengthColor = () => {
-        if (passwordStrength <= 1) return 'bg-red-500';
-        if (passwordStrength === 2) return 'bg-yellow-500';
-        if (passwordStrength === 3) return 'bg-blue-500';
-        return 'bg-green-500';
+    const handleFieldBlur = (field) => {
+        setTouchedFields(prev => ({ ...prev, [field]: true }));
     };
 
     // Loading state
@@ -298,15 +363,30 @@ export default function SignUpPage() {
                                 ? `Please complete payment for ${selected.name} plan (${selected.price}/month) to activate your account.`
                                 : 'Your account has been created. Please check your email to verify your account.'}
                     </p>
-                    <p className="text-slate-500 text-sm">Redirecting...</p>
+                    <p className="text-slate-500 text-sm">Redirecting to {isTester ? 'tester login' : 'sign in'}...</p>
                 </div>
             </div>
         );
     }
 
+    const { isValid: isPasswordValid, strength } = validatePasswordStrength(formData.password);
+    const isEmailValid = touchedFields.email ? validateEmail(formData.email) : true;
+    const doPasswordsMatch = touchedFields.confirmPassword ? formData.password === formData.confirmPassword : true;
+
     return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
             <div className="max-w-2xl w-full">
+                {/* Back to Home Link */}
+                <div className="mb-6">
+                    <Link 
+                        to="/" 
+                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition text-sm group"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition" />
+                        Back to Home
+                    </Link>
+                </div>
+
                 {/* Header */}
                 <div className="text-center mb-8">
                     <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
@@ -322,7 +402,7 @@ export default function SignUpPage() {
 
                 {/* Testing Mode Banner */}
                 {testingMode && (
-                    <div className="mb-6 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                    <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
                         <p className="text-purple-400 text-sm text-center flex items-center justify-center gap-2">
                             <Sparkles className="w-4 h-4" />
                             <strong>Tester Mode Active</strong> - You will get {testingConfig.default_tester_uses} free uses for {testingConfig.default_tester_days} days
@@ -331,43 +411,58 @@ export default function SignUpPage() {
                 )}
 
                 {/* Sign Up Form */}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Full Name */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Full Name <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type="text"
                                     value={formData.full_name}
                                     onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    onBlur={() => handleFieldBlur('full_name')}
+                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition"
                                     placeholder="John Doe"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
                         </div>
 
                         {/* Email */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Email Address</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Email Address <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type="email"
                                     value={formData.email}
                                     onChange={(e) => setFormData({...formData, email: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    onBlur={() => handleFieldBlur('email')}
+                                    className={`w-full pl-10 pr-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                        touchedFields.email && !isEmailValid ? 'border-red-500' : 'border-slate-700'
+                                    }`}
                                     placeholder="you@example.com"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
+                            {touchedFields.email && !isEmailValid && (
+                                <p className="text-xs text-red-400 mt-1">Please enter a valid email address</p>
+                            )}
                         </div>
 
                         {/* Password */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Password</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Password <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
@@ -375,22 +470,26 @@ export default function SignUpPage() {
                                     value={formData.password}
                                     onChange={(e) => {
                                         setFormData({...formData, password: e.target.value});
-                                        validatePassword(e.target.value);
+                                        const { strength: newStrength } = validatePasswordStrength(e.target.value);
+                                        setPasswordStrength(newStrength);
                                     }}
-                                    className="w-full pl-10 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    onBlur={() => handleFieldBlur('password')}
+                                    className="w-full pl-10 pr-10 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition"
                                     placeholder="••••••••"
                                     required
+                                    disabled={loading}
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition"
+                                    tabIndex={-1}
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
                             
-                            {/* Password Strength */}
+                            {/* Password Strength Indicator */}
                             {formData.password && (
                                 <div className="mt-2">
                                     <div className="flex gap-1 h-1.5 mb-1">
@@ -398,33 +497,44 @@ export default function SignUpPage() {
                                             <div 
                                                 key={level}
                                                 className={`flex-1 rounded-full transition-all ${
-                                                    level <= passwordStrength ? passwordStrengthColor() : 'bg-slate-700'
+                                                    level <= passwordStrength ? getPasswordStrengthColor(passwordStrength) : 'bg-slate-700'
                                                 }`}
                                             />
                                         ))}
                                     </div>
                                     <p className="text-xs text-slate-500">
-                                        Password strength: {passwordStrengthText()}
+                                        Password strength: {getPasswordStrengthText(passwordStrength)}
                                     </p>
+                                    {touchedFields.password && !isPasswordValid && (
+                                        <p className="text-xs text-red-400 mt-1">
+                                            Password must have at least 8 characters, uppercase, lowercase, number, and special character
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
 
                         {/* Confirm Password */}
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">Confirm Password</label>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">
+                                Confirm Password <span className="text-red-400">*</span>
+                            </label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type={showPassword ? "text" : "password"}
                                     value={formData.confirmPassword}
                                     onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    onBlur={() => handleFieldBlur('confirmPassword')}
+                                    className={`w-full pl-10 pr-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                        touchedFields.confirmPassword && !doPasswordsMatch ? 'border-red-500' : 'border-slate-700'
+                                    }`}
                                     placeholder="••••••••"
                                     required
+                                    disabled={loading}
                                 />
                             </div>
-                            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                            {touchedFields.confirmPassword && !doPasswordsMatch && (
                                 <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
                             )}
                         </div>
@@ -432,15 +542,19 @@ export default function SignUpPage() {
                         {/* Company Name (Employer/Business only) */}
                         {!testingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business') && (
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">Company Name</label>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                    Company Name <span className="text-red-400">*</span>
+                                </label>
                                 <div className="relative">
                                     <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                     <input
                                         type="text"
                                         value={formData.company_name}
                                         onChange={(e) => setFormData({...formData, company_name: e.target.value})}
-                                        className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                        className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition"
                                         placeholder="Your company name"
+                                        required={formData.selectedTier === 'employer' || formData.selectedTier === 'business'}
+                                        disabled={loading}
                                     />
                                 </div>
                             </div>
@@ -449,7 +563,7 @@ export default function SignUpPage() {
                         {/* Tier Selection (non-testing mode only) */}
                         {!testingMode && (
                             <div>
-                                <label className="block text-sm text-slate-400 mb-3">Select your plan</label>
+                                <label className="block text-sm font-medium text-slate-400 mb-3">Select your plan</label>
                                 <div className="space-y-3">
                                     {tiers.map(tier => {
                                         const Icon = tier.icon;
@@ -504,8 +618,8 @@ export default function SignUpPage() {
 
                         {/* Error Message */}
                         {error && (
-                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-red-400" />
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                                 <p className="text-red-400 text-sm">{error}</p>
                             </div>
                         )}
@@ -514,10 +628,19 @@ export default function SignUpPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                            className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium shadow-lg shadow-primary-500/20"
                         >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                            {loading ? 'Creating Account...' : testingMode ? 'Register as Tester' : 'Sign Up'}
+                            {loading ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Creating Account...
+                                </>
+                            ) : (
+                                <>
+                                    <UserPlus className="w-4 h-4" />
+                                    {testingMode ? 'Register as Tester' : 'Sign Up'}
+                                </>
+                            )}
                         </button>
                     </form>
 
@@ -525,7 +648,7 @@ export default function SignUpPage() {
                     <div className="mt-6 text-center">
                         <p className="text-sm text-slate-500">
                             Already have an account?{' '}
-                            <Link to="/sign-in" className="text-primary-400 hover:underline">
+                            <Link to="/sign-in" className="text-primary-400 hover:underline transition">
                                 Sign In
                             </Link>
                         </p>
