@@ -143,7 +143,7 @@ export default function ArticleEditor() {
         }
     }, [aiFallbackUsed]);
 
-    // Database Operations
+    // Database Operations - Using Direct Supabase Client (Reliable)
     async function loadArticle() {
         setLoading(true);
         const { data, error } = await supabase
@@ -181,8 +181,10 @@ export default function ArticleEditor() {
         try {
             let result;
             if (id && id !== 'new') {
+                // Update existing article
                 result = await supabase.from('articles').update(articleData).eq('id', id);
             } else {
+                // Create new article
                 const { data, error } = await supabase.from('articles').insert([articleData]).select();
                 result = { error };
                 if (!error && data) {
@@ -224,7 +226,7 @@ export default function ArticleEditor() {
         }
     }
 
-    // AI Functions
+    // AI Functions - Using API endpoints
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
