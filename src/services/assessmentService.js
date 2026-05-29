@@ -1,15 +1,17 @@
 // src/services/assessmentService.js
-// COMPLETE ASSESSMENT SERVICE - AI scoring, unlimited admin access, report generation, AI assessment creation
+// COMPLETE PROFESSIONAL ASSESSMENT SERVICE - Unified API endpoint
+// All AI calls go through /api/index?action=...
 
 import { supabase } from '../lib/supabase';
-
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-const USE_API_ROUTES = import.meta.env.VITE_USE_AI_API_ROUTES === 'true'; // Toggle between direct OpenAI and API routes
 
 // ============================================
 // CONSTANTS & CONFIGURATION
 // ============================================
 
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+const API_BASE = '/api/index'; // Unified API endpoint
+
+// Tier Limits Configuration
 const TIER_LIMITS = {
     free: { assessments_per_month: 3, can_download_report: false, can_retake: false },
     registered: { assessments_per_month: 10, can_download_report: true, can_retake: true },
@@ -22,6 +24,7 @@ const TIER_LIMITS = {
 };
 
 const ADMIN_EMAILS = ['bluskyeconsult@gmail.com'];
+
 const PERFORMANCE_THRESHOLDS = {
     excellent: 80,
     good: 60,
@@ -43,7 +46,48 @@ const getTierLimits = (tier, userType) => {
     return { ...(TIER_LIMITS[tier] || TIER_LIMITS.free), isUnlimited: false };
 };
 
-const callOpenAI = async (messages, options = {}) => {
+/**
+ * Unified API caller - all AI requests go through /api/index
+ */
+const callUnifiedAPI = async (action, payload, options = {}) => {
+    const { method = 'POST', timeout = 30000 } = options;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(`${API_BASE}?action=${action}`, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `API request failed: ${response.status}`);
+        }
+        
+        return await response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Request timeout. Please try again.');
+        }
+        throw error;
+    }
+};
+
+/**
+ * Direct OpenAI call (fallback when unified API is unavailable)
+ */
+const callOpenAIDirect = async (messages, options = {}) => {
+    if (!OPENAI_API_KEY) {
+        throw new Error('OpenAI API key not configured');
+    }
+    
     const defaultOptions = {
         model: 'gpt-4o-mini',
         temperature: 0.7,
@@ -51,16 +95,6 @@ const callOpenAI = async (messages, options = {}) => {
     };
     
     const config = { ...defaultOptions, ...options };
-    
-    if (USE_API_ROUTES) {
-        const response = await fetch('/api/ai/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages, ...config })
-        });
-        if (!response.ok) throw new Error('API request failed');
-        return await response.json();
-    }
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -73,6 +107,29 @@ const callOpenAI = async (messages, options = {}) => {
     
     if (!response.ok) throw new Error('OpenAI API request failed');
     return await response.json();
+};
+
+/**
+ * Smart AI caller - tries unified API first, falls back to direct OpenAI
+ */
+const callAI = async (action, payload, options = {}) => {
+    try {
+        // Try unified API route first
+        return await callUnifiedAPI(action, payload, options);
+    } catch (apiError) {
+        console.warn(`Unified API failed for ${action}, trying direct OpenAI:`, apiError.message);
+        
+        // Fallback to direct OpenAI call for chat-based operations
+        if (action === 'chat' && payload.messages) {
+            const response = await callOpenAIDirect(payload.messages, {
+                temperature: payload.temperature || 0.7,
+                max_tokens: payload.max_tokens || 1000
+            });
+            return response;
+        }
+        
+        throw apiError;
+    }
 };
 
 // ============================================
@@ -115,19 +172,17 @@ export async function getAssessmentWithQuestions(assessmentId) {
 }
 
 // ============================================
-// USER ELIGIBILITY & TRACKING (with unlimited admins)
+// USER ELIGIBILITY & TRACKING
 // ============================================
 
 export async function checkUserEligibility(userId, assessmentId) {
     try {
-        // Get user profile
         let { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('tier, user_type, email')
             .eq('id', userId)
             .single();
         
-        // Handle missing profile - create one if needed
         if (profileError || !profile) {
             const { data: { user } } = await supabase.auth.getUser();
             const isAdmin = ADMIN_EMAILS.includes(user?.email);
@@ -155,7 +210,6 @@ export async function checkUserEligibility(userId, assessmentId) {
         const tier = profile?.tier || profile?.user_type || 'free';
         const limits = getTierLimits(tier, profile?.user_type);
         
-        // Unlimited access for admins
         if (limits.isUnlimited) {
             return {
                 eligible: true,
@@ -168,7 +222,6 @@ export async function checkUserEligibility(userId, assessmentId) {
             };
         }
         
-        // Count assessments taken this month
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
@@ -198,7 +251,6 @@ export async function checkUserEligibility(userId, assessmentId) {
         };
     } catch (error) {
         console.error('Error checking eligibility:', error);
-        // Safe fallback - allow access but log error
         return {
             eligible: true,
             remaining: 5,
@@ -234,12 +286,11 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
 }
 
 // ============================================
-// START ASSESSMENT (wrapper)
+// START ASSESSMENT
 // ============================================
 
 export async function startAssessment(userId, assessmentId) {
     try {
-        // Check eligibility
         const eligibility = await checkUserEligibility(userId, assessmentId);
         
         if (!eligibility.eligible && !eligibility.isUnlimited) {
@@ -251,13 +302,9 @@ export async function startAssessment(userId, assessmentId) {
             };
         }
         
-        // Generate unique session ID
         const sessionId = `${userId}_${assessmentId}_${Date.now()}`;
-        
-        // Create assessment session
         const session = await recordAssessmentStart(userId, assessmentId, sessionId);
         
-        // Get assessment questions with options
         const { data: questions, error: questionsError } = await supabase
             .from('assessment_questions')
             .select('*, options:assessment_options(*)')
@@ -286,7 +333,6 @@ export async function startAssessment(userId, assessmentId) {
 
 export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
     try {
-        // Get current session
         const { data: session, error: sessionError } = await supabase
             .from('user_assessments')
             .select('answers, current_question_index')
@@ -297,7 +343,6 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
         
         let currentAnswers = session.answers || [];
         
-        // Update or add answer
         const existingIndex = currentAnswers.findIndex(a => a.question_id === questionId);
         const answerRecord = {
             question_id: questionId,
@@ -312,7 +357,6 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
             currentAnswers.push(answerRecord);
         }
         
-        // Update session
         const { error: updateError } = await supabase
             .from('user_assessments')
             .update({
@@ -332,22 +376,22 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
 }
 
 // ============================================
-// AI SCORING & INSIGHTS
+// AI SCORING & INSIGHTS (via unified API)
 // ============================================
 
 export async function scoreScenarioAnswer(question, answer) {
-    if (!OPENAI_API_KEY && !USE_API_ROUTES) return 7;
-    
     try {
-        const response = await callOpenAI(
-            [
+        const response = await callUnifiedAPI('chat', {
+            messages: [
                 { role: 'system', content: 'You are an expert assessor. Score the following answer from 1-10. Return ONLY a number.' },
                 { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
             ],
-            { temperature: 0.3, max_tokens: 10 }
-        );
+            temperature: 0.3,
+            max_tokens: 10
+        });
         
-        const score = parseInt(response.choices[0].message.content);
+        const content = response.result || response.choices?.[0]?.message?.content;
+        const score = parseInt(content);
         return isNaN(score) ? 7 : Math.min(10, Math.max(1, score));
     } catch (error) {
         console.error('Error scoring scenario answer:', error);
@@ -363,33 +407,21 @@ export async function generateAssessmentInsights(assessmentTitle, percentage, di
         recommendations: ['Take relevant courses', 'Practice regularly']
     };
     
-    if (!OPENAI_API_KEY && !USE_API_ROUTES) return fallbackInsights;
-    
     try {
-        let response;
+        const response = await callUnifiedAPI('generate-insights', {
+            assessmentTitle,
+            percentage,
+            dimensionScores
+        });
         
-        if (USE_API_ROUTES) {
-            const apiResponse = await fetch('/api/ai/generate-insights', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ assessmentTitle, percentage, dimensionScores })
-            });
-            if (!apiResponse.ok) throw new Error('Insights generation failed');
-            response = await apiResponse.json();
+        if (response.success && response.result) {
+            return response.result;
+        }
+        if (response.summary) {
             return response;
         }
         
-        const openAIResponse = await callOpenAI(
-            [
-                { role: 'system', content: 'You are a career coach. Provide personalized assessment insights as JSON.' },
-                { role: 'user', content: `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array), improvements (array), recommendations (array)` }
-            ],
-            { temperature: 0.7, max_tokens: 500 }
-        );
-        
-        const content = openAIResponse.choices[0].message.content;
-        const cleanResponse = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(cleanResponse);
+        return fallbackInsights;
     } catch (error) {
         console.error('Error generating insights:', error);
         return fallbackInsights;
@@ -402,7 +434,6 @@ export async function generateAssessmentInsights(assessmentTitle, percentage, di
 
 export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpentSeconds) {
     try {
-        // Get user assessment and related data
         const { data: userAssessment, error: uaError } = await supabase
             .from('user_assessments')
             .select('*, assessment:assessments(*)')
@@ -423,7 +454,6 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         const dimensionScores = {};
         const questionResults = [];
         
-        // Calculate scores for each question
         for (const question of questions || []) {
             const userAnswer = answers[question.id];
             const maxPoints = question.points || 1;
@@ -453,7 +483,6 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             
             totalScore += score;
             
-            // Track dimension scores
             if (question.dimension) {
                 if (!dimensionScores[question.dimension]) {
                     dimensionScores[question.dimension] = { score: 0, max: 0 };
@@ -474,29 +503,24 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             });
         }
         
-        // Calculate overall percentage
         const percentage = maxPossibleScore > 0 ? Math.round((totalScore / maxPossibleScore) * 100) : 0;
         
-        // Determine performance level
         let performanceLevel = 'needs_improvement';
         if (percentage >= PERFORMANCE_THRESHOLDS.excellent) performanceLevel = 'excellent';
         else if (percentage >= PERFORMANCE_THRESHOLDS.good) performanceLevel = 'good';
         else if (percentage >= PERFORMANCE_THRESHOLDS.average) performanceLevel = 'average';
         
-        // Calculate dimension percentages
         const dimensionPercentages = {};
         for (const [dim, data] of Object.entries(dimensionScores)) {
             dimensionPercentages[dim] = Math.round((data.score / data.max) * 100);
         }
         
-        // Generate AI insights
         const insights = await generateAssessmentInsights(
             userAssessment.assessment?.title,
             percentage,
             dimensionPercentages
         );
         
-        // Update user assessment
         const { error: updateError } = await supabase
             .from('user_assessments')
             .update({
@@ -532,7 +556,6 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
 
 export async function completeAssessment(sessionId) {
     try {
-        // Get session by session_id
         const { data: session, error: sessionError } = await supabase
             .from('user_assessments')
             .select('id')
@@ -541,7 +564,6 @@ export async function completeAssessment(sessionId) {
         
         if (sessionError) throw sessionError;
         
-        // Build answers object from session answers
         const { data: fullSession } = await supabase
             .from('user_assessments')
             .select('answers')
@@ -553,7 +575,6 @@ export async function completeAssessment(sessionId) {
             answersMap[ans.question_id] = ans.answer;
         });
         
-        // Submit for scoring
         const result = await submitAssessmentAnswers(session.id, answersMap, 0);
         
         return {
@@ -643,8 +664,7 @@ export async function generateAssessmentReport(userAssessmentId, userId) {
         
         return { 
             reportUrl, 
-            html: generateReportHTML(userAssessment, profile),
-            pdf: null // PDF generation can be added separately
+            html: generateReportHTML(userAssessment, profile)
         };
     } catch (error) {
         console.error('Error generating report:', error);
@@ -766,67 +786,26 @@ function generateReportHTML(userAssessment, profile) {
 }
 
 // ============================================
-// AI-ASSISTED ASSESSMENT CREATION
+// AI-ASSISTED ASSESSMENT CREATION (via unified API)
 // ============================================
 
 export async function generateAIAssessment(topic, difficulty, numberOfQuestions, adminId = null) {
-    const hasAIAccess = OPENAI_API_KEY || USE_API_ROUTES;
-    
-    if (!hasAIAccess) {
-        const fallbackData = generateFallbackAssessment(topic, difficulty, numberOfQuestions);
-        return { success: true, fallback: true, ...fallbackData };
-    }
-    
     try {
+        const response = await callUnifiedAPI('generate-assessment', {
+            topic,
+            difficulty,
+            numberOfQuestions
+        });
+        
         let result;
-        
-        if (USE_API_ROUTES) {
-            const response = await fetch('/api/ai/generate-assessment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, difficulty, numberOfQuestions })
-            });
-            
-            if (!response.ok) throw new Error('AI generation failed');
-            result = await response.json();
+        if (response.success && response.result) {
+            result = response.result;
+        } else if (response.title) {
+            result = response;
         } else {
-            const prompt = `Create a professional ${difficulty} level assessment on "${topic}" with ${numberOfQuestions} questions.
-
-Return as JSON with this exact structure:
-{
-    "title": "Assessment title",
-    "description": "2-3 sentence description",
-    "instructions": "Clear instructions for test takers",
-    "category": "one of: personality, emotional_intelligence, leadership, communication, problem_solving, team_collaboration, career_aptitude, general",
-    "time_limit_minutes": 30,
-    "questions": [
-        {
-            "question_text": "Question text?",
-            "question_type": "multiple_choice",
-            "points": 1,
-            "dimension": "relevant_dimension",
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "correct_answer": 0
-        }
-    ]
-}
-
-Make questions professional, insightful, and appropriate. Mix question types when suitable. Return ONLY valid JSON.`;
-
-            const openAIResponse = await callOpenAI(
-                [
-                    { role: 'system', content: 'You are an expert psychometrician and assessment designer.' },
-                    { role: 'user', content: prompt }
-                ],
-                { temperature: 0.7, max_tokens: 4000 }
-            );
-            
-            const content = openAIResponse.choices[0].message.content;
-            const cleanResponse = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-            result = JSON.parse(cleanResponse);
+            throw new Error('Invalid response from AI');
         }
         
-        // If adminId provided, save to database
         if (adminId) {
             const savedAssessment = await saveGeneratedAssessmentToDB(result, difficulty, adminId);
             return { success: true, saved: true, assessmentId: savedAssessment.id, ...result };
@@ -859,7 +838,7 @@ function generateFallbackAssessment(topic, difficulty, numberOfQuestions) {
     return {
         title: `${topic} Assessment`,
         description: `This ${difficulty} level assessment measures your knowledge and skills in ${topic}. Complete all questions to receive your personalized report.`,
-        instructions: 'Please read each question carefully and select the answer that best represents your knowledge or experience. There are no right or wrong answers - be honest for the most accurate results.',
+        instructions: 'Please read each question carefully and select the answer that best represents your knowledge or experience.',
         category: randomCategory,
         time_limit_minutes: Math.min(45, Math.max(15, Math.floor(numberOfQuestions * 1.5))),
         questions: questions
@@ -867,7 +846,6 @@ function generateFallbackAssessment(topic, difficulty, numberOfQuestions) {
 }
 
 async function saveGeneratedAssessmentToDB(assessmentData, difficulty, adminId) {
-    // Create assessment
     const { data: assessment, error: assessmentError } = await supabase
         .from('assessments')
         .insert({
@@ -887,7 +865,6 @@ async function saveGeneratedAssessmentToDB(assessmentData, difficulty, adminId) 
     
     if (assessmentError) throw assessmentError;
     
-    // Add questions and options
     for (let i = 0; i < assessmentData.questions.length; i++) {
         const q = assessmentData.questions[i];
         
@@ -907,7 +884,6 @@ async function saveGeneratedAssessmentToDB(assessmentData, difficulty, adminId) 
         
         if (qError) throw qError;
         
-        // Save options for multiple choice
         if (q.options && q.options.length) {
             for (let j = 0; j < q.options.length; j++) {
                 await supabase
@@ -966,7 +942,10 @@ export async function getAdminAssessmentStats() {
     }
 }
 
-// Export all functions as default object for convenience
+// ============================================
+// DEFAULT EXPORT
+// ============================================
+
 export default {
     getActiveAssessments,
     getAssessmentById,
