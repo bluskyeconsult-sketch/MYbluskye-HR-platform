@@ -1,7 +1,7 @@
 // src/components/ScrollToTop.jsx
 // COMPLETE PROFESSIONAL SCROLL TO TOP - Smooth scrolling, configurable behavior, route tracking
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react'; // ✅ ADDED useState
 import { useLocation } from 'react-router-dom';
 
 // Configuration options
@@ -11,7 +11,8 @@ const DEFAULT_CONFIG = {
     excludePaths: [], // Paths where scroll to top should be disabled
     enableAnalytics: true, // Track scroll to top events
     mobileBreakpoint: 768, // Different behavior on mobile
-    restoreScrollPosition: true // Restore previous scroll position on back/forward navigation
+    restoreScrollPosition: true, // Restore previous scroll position on back/forward navigation
+    showProgressBar: false // Added missing config option
 };
 
 // Scroll position cache for back/forward navigation
@@ -26,11 +27,13 @@ export default function ScrollToTop({ config = {} }) {
     // Track navigation direction (back/forward vs new navigation)
     useEffect(() => {
         // Detect if this is a back/forward navigation
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        if (navigationEntry && (navigationEntry.type === 'back_forward')) {
-            isNavigatingBackRef.current = true;
-        } else {
-            isNavigatingBackRef.current = false;
+        if (typeof performance !== 'undefined') {
+            const navigationEntry = performance.getEntriesByType('navigation')[0];
+            if (navigationEntry && (navigationEntry.type === 'back_forward')) {
+                isNavigatingBackRef.current = true;
+            } else {
+                isNavigatingBackRef.current = false;
+            }
         }
         
         prevPathnameRef.current = pathname;
@@ -38,7 +41,7 @@ export default function ScrollToTop({ config = {} }) {
 
     // Save current scroll position when leaving page
     const saveScrollPosition = useCallback(() => {
-        if (settings.restoreScrollPosition) {
+        if (settings.restoreScrollPosition && typeof window !== 'undefined') {
             scrollPositionCache.set(pathname, {
                 x: window.scrollX,
                 y: window.scrollY,
@@ -68,7 +71,7 @@ export default function ScrollToTop({ config = {} }) {
         }
 
         // Handle hash links (e.g., /page#section)
-        if (window.location.hash) {
+        if (typeof window !== 'undefined' && window.location.hash) {
             const elementId = window.location.hash.substring(1);
             const element = document.getElementById(elementId);
             if (element) {
@@ -83,7 +86,7 @@ export default function ScrollToTop({ config = {} }) {
         }
 
         // Check if it's a mobile device for different behavior
-        const isMobile = window.innerWidth <= settings.mobileBreakpoint;
+        const isMobile = typeof window !== 'undefined' ? window.innerWidth <= settings.mobileBreakpoint : false;
         const scrollBehavior = isMobile ? 'auto' : settings.behavior;
         
         // Perform scroll to top
@@ -93,8 +96,8 @@ export default function ScrollToTop({ config = {} }) {
             behavior: scrollBehavior
         });
 
-        // Track scroll to top event for analytics
-        if (settings.enableAnalytics) {
+        // Track scroll to top event for analytics - NO SUPABASE CALLS
+        if (settings.enableAnalytics && typeof fetch !== 'undefined') {
             try {
                 await fetch('/api/index?action=track-event', {
                     method: 'POST',
@@ -152,7 +155,7 @@ export default function ScrollToTop({ config = {} }) {
         });
         
         // Track manual scroll to top
-        if (settings.enableAnalytics) {
+        if (settings.enableAnalytics && typeof fetch !== 'undefined') {
             fetch('/api/index?action=track-event', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -176,8 +179,7 @@ export default function ScrollToTop({ config = {} }) {
                 >
                     <svg 
                         className="w-5 h-5 group-hover:-translate-y-0.5 transition-transform" 
-                        fill="none" 
-                        stroke="currentColor" 
+                        fill="currentColor" 
                         viewBox="0 0 24 24"
                     >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -225,6 +227,3 @@ export function useScrollPosition() {
     
     return { scrollPosition, scrollToTop, scrollToElement };
 }
-
-// Add missing imports
-import { useState } from 'react';
