@@ -7,7 +7,8 @@ import {
     Users, Search, Loader2, CheckCircle, XCircle, Mail, 
     Calendar, Shield, RefreshCw, Filter, UserPlus, Edit, 
     Trash2, AlertCircle, Download, ChevronDown, Eye,
-    Award, Briefcase, Star, Clock, Ban, UserCheck
+    Award, Briefcase, Star, Clock, Ban, UserCheck,
+    Building2
 } from 'lucide-react';
 
 // ============================================
@@ -60,7 +61,7 @@ export default function AdminUsers() {
         setLoading(true);
         
         try {
-            // ✅ FIXED: Use unified API endpoint
+            // ✅ Use unified API endpoint
             const response = await fetch(`${API_BASE}?action=admin-users`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -370,7 +371,7 @@ export default function AdminUsers() {
                                                 {new Date(user.created_at).toLocaleDateString()}
                                             </span>
                                         </div>
-                                    </td>
+                                    </tr>
                                     <td className="px-4 py-3">
                                         {user.is_suspended ? (
                                             <span className="text-red-400 text-sm flex items-center gap-1">
@@ -499,6 +500,3 @@ export default function AdminUsers() {
         </div>
     );
 }
-
-// Missing import
-import { Building2, XCircle } from 'lucide-react';
