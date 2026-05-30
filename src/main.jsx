@@ -1,12 +1,12 @@
 // src/main.jsx
 // PRODUCTION ENTRY POINT - Optimized for www.bluskyeconsult.com
+// No Supabase calls here - only app initialization
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
-import { supabase, initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
 // CONFIGURATION
@@ -19,7 +19,6 @@ const startTime = performance.now();
 // Prevent double initialization
 let isRendered = false;
 let reactRoot = null;
-let authCleanup = null;
 
 // Performance metrics
 const performanceMetrics = {
@@ -31,112 +30,7 @@ const performanceMetrics = {
 };
 
 // ============================================
-// SAFE SUPABASE ERROR HANDLER (Development only)
-// ============================================
-
-/**
- * Safely execute Supabase queries with development error suppression
- * Only suppresses expected "table does not exist" errors in development
- */
-const safeSupabaseQuery = async (queryFn, tableName) => {
-    try {
-        return await queryFn();
-    } catch (error) {
-        if (isDevelopment && error?.message?.includes('does not exist')) {
-            console.warn(`⚠️ Development: Table "${tableName}" not found - migration may be pending`);
-            return { data: [], error: null };
-        }
-        throw error;
-    }
-};
-
-/**
- * Enhanced Supabase client with development helpers
- */
-const createSafeSupabase = (client) => {
-    if (!isDevelopment) return client;
-    
-    return {
-        ...client,
-        safeFrom: (tableName) => ({
-            select: (columns) => ({
-                then: (callback) => 
-                    safeSupabaseQuery(
-                        () => client.from(tableName).select(columns).then(callback),
-                        tableName
-                    ),
-                eq: (field, value) => ({
-                    then: (callback) =>
-                        safeSupabaseQuery(
-                            () => client.from(tableName).select(columns).eq(field, value).then(callback),
-                            tableName
-                        ),
-                    single: () => ({
-                        then: (callback) =>
-                            safeSupabaseQuery(
-                                () => client.from(tableName).select(columns).eq(field, value).single().then(callback),
-                                tableName
-                            )
-                    })
-                })
-            }),
-            insert: (data) => ({
-                then: (callback) =>
-                    safeSupabaseQuery(
-                        () => client.from(tableName).insert(data).then(callback),
-                        tableName
-                    )
-            }),
-            update: (data) => ({
-                eq: (field, value) => ({
-                    then: (callback) =>
-                        safeSupabaseQuery(
-                            () => client.from(tableName).update(data).eq(field, value).then(callback),
-                            tableName
-                        )
-                })
-            }),
-            delete: () => ({
-                eq: (field, value) => ({
-                    then: (callback) =>
-                        safeSupabaseQuery(
-                            () => client.from(tableName).delete().eq(field, value).then(callback),
-                            tableName
-                        )
-                })
-            })
-        })
-    };
-};
-
-export const safeSupabase = isDevelopment ? createSafeSupabase(supabase) : supabase;
-
-// ============================================
-// AUTH INITIALIZATION
-// ============================================
-
-async function initializeAuth() {
-    try {
-        if (initAuthListener) {
-            authCleanup = initAuthListener();
-            if (isDevelopment) console.log('✅ Auth listener initialized');
-        }
-        
-        if (recoverSession) {
-            const session = await recoverSession();
-            if (session) {
-                if (isDevelopment) console.log('✅ Session active');
-            } else {
-                if (isDevelopment) console.log('ℹ️ No existing session found');
-            }
-        }
-    } catch (error) {
-        console.warn('⚠️ Auth initialization error:', error.message);
-    }
-}
-
-// ============================================
-// PERFORMANCE MONITORING
+// PERFORMANCE MONITORING (Development only)
 // ============================================
 
 function reportPerformanceMetrics() {
@@ -164,10 +58,10 @@ function reportPerformanceMetrics() {
 }
 
 // Paint observer (non-blocking)
-if (typeof PerformanceObserver !== 'undefined') {
+if (typeof PerformanceObserver !== 'undefined' && isDevelopment) {
     const paintObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-            if (entry.name === 'first-paint' && isDevelopment) {
+            if (entry.name === 'first-paint') {
                 performanceMetrics.firstPaint = entry.startTime;
                 console.log(`📊 first-paint: ${entry.startTime.toFixed(0)}ms`);
             }
@@ -177,68 +71,25 @@ if (typeof PerformanceObserver !== 'undefined') {
 }
 
 // ============================================
-// SUPABASE HEALTH CHECK
-// ============================================
-
-async function checkSupabaseConnection() {
-    try {
-        const start = Date.now();
-        const { data, error } = await supabase.auth.getSession();
-        const duration = Date.now() - start;
-        
-        if (error) {
-            console.warn('⚠️ Supabase connection issue:', error.message);
-            return false;
-        }
-        
-        if (isDevelopment) console.log(`✅ Supabase connected (${duration}ms)`);
-        if (data?.session?.user?.email) console.log(`👤 Session: ${data.session.user.email}`);
-        
-        return true;
-    } catch (err) {
-        console.warn('⚠️ Supabase unavailable:', err.message);
-        return false;
-    }
-}
-
-// ============================================
-// SERVICE WORKER CLEANUP
-// ============================================
-
-async function cleanupServiceWorkers() {
-    if (!('serviceWorker' in navigator)) return;
-    
-    try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-            await registration.unregister();
-        }
-        if (registrations.length > 0 && isDevelopment) console.log('✅ Service workers cleaned up');
-    } catch (err) {
-        if (isDevelopment) console.debug('Service worker cleanup:', err.message);
-    }
-}
-
-// ============================================
 // GLOBAL ERROR HANDLING
 // ============================================
 
 window.addEventListener('error', (event) => {
+    // Fix for "object is not extensible" error
     if (event.error?.message?.includes('object is not extensible')) {
-        console.warn('⚠️ Object not extensible error caught - clearing session');
-        localStorage.clear();
-        sessionStorage.clear();
+        console.warn('⚠️ Object not extensible error caught - this is usually harmless');
         return;
     }
     console.error('❌ Global error:', event.error?.message || event.message);
-    if (isDevelopment && event.error) console.debug('Stack:', event.error.stack);
+    if (isDevelopment && event.error) {
+        console.debug('Stack:', event.error.stack);
+    }
 });
 
 window.addEventListener('unhandledrejection', (event) => {
+    // Fix for "object is not extensible" error in promises
     if (event.reason?.message?.includes('object is not extensible')) {
-        console.warn('⚠️ Unhandled rejection: object not extensible - clearing session');
-        localStorage.clear();
-        sessionStorage.clear();
+        console.warn('⚠️ Unhandled rejection: object not extensible - usually harmless');
         return;
     }
     console.error('❌ Unhandled rejection:', event.reason);
@@ -256,18 +107,13 @@ window.addEventListener('offline', () => {
 // ============================================
 
 async function initializeApp() {
-    await initializeAuth();
-    
-    Promise.allSettled([
-        cleanupServiceWorkers(),
-        checkSupabaseConnection()
-    ]).catch(() => {});
-    
     window.addEventListener('load', () => {
         reportPerformanceMetrics();
         console.log('🚀 Application ready - www.bluskyeconsult.com');
         
-        if (!navigator.onLine) console.warn('⚠️ Offline mode - features may be limited');
+        if (!navigator.onLine) {
+            console.warn('⚠️ Offline mode - features may be limited');
+        }
     });
 }
 
@@ -306,7 +152,9 @@ if (!rootElement) {
                 </React.StrictMode>
             );
             
-            if (isDevelopment) console.log('🎯 App rendered successfully');
+            if (isDevelopment) {
+                console.log('🎯 App rendered successfully');
+            }
         } catch (error) {
             console.error('❌ Render failed:', error);
             rootElement.innerHTML = `
@@ -324,16 +172,6 @@ if (!rootElement) {
 }
 
 // ============================================
-// CLEANUP ON PAGE UNLOAD
-// ============================================
-
-window.addEventListener('beforeunload', () => {
-    if (authCleanup && typeof authCleanup === 'function') {
-        authCleanup();
-    }
-});
-
-// ============================================
 // DEVELOPMENT TOOLS
 // ============================================
 
@@ -342,29 +180,13 @@ if (isDevelopment && typeof window !== 'undefined') {
         version: '1.0.0',
         env: import.meta.env.MODE,
         domain: 'www.bluskyeconsult.com',
-        checkSupabase: () => checkSupabaseConnection(),
         reload: () => window.location.reload(),
         clearStorage: () => {
             localStorage.clear();
             sessionStorage.clear();
             console.log('✅ Storage cleared');
         },
-        getMetrics: () => performanceMetrics,
-        cleanupAuth: () => {
-            if (authCleanup) authCleanup();
-            console.log('✅ Auth cleaned up');
-        },
-        checkTable: async (tableName) => {
-            try {
-                const { data, error } = await supabase.from(tableName).select('*').limit(1);
-                if (error) throw error;
-                console.log(`✅ Table "${tableName}" exists`);
-                return { exists: true, data };
-            } catch (err) {
-                console.warn(`⚠️ Table "${tableName}" not found:`, err.message);
-                return { exists: false, error: err.message };
-            }
-        }
+        getMetrics: () => performanceMetrics
     };
     console.log('🐛 Debug: window.__APP_DEBUG__');
 }
@@ -378,9 +200,6 @@ if (isDevelopment && import.meta.hot) {
     console.log('🔥 HMR active');
     
     import.meta.hot.dispose(() => {
-        if (authCleanup && typeof authCleanup === 'function') {
-            authCleanup();
-        }
         console.log('🔥 HMR cleanup completed');
     });
 }
