@@ -1,6 +1,7 @@
 // api/index.js - COMPLETE CONSOLIDATED API FOR HOBBY PLAN
-// INCLUDES: Full health monitoring, IP geolocation, Email with templates, Job fetching from 7+ countries, AI chat, Assessment generation, Course generation
-// RELEASES: api/health.js, api/chat.js, api/fetch-jobs.js, api/send-email.js, api/ai.js
+// INCLUDES: Full health monitoring, IP geolocation, Email with templates, 
+// Job fetching from 7+ countries, AI chat, Assessment generation, Course generation,
+// User applications, Profile updates, Newsletter, Books, Articles, User stats
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -48,8 +49,15 @@ async function safeFetch(url, timeout = 10000) {
     }
 }
 
+function getSupabase() {
+    return createClient(
+        process.env.VITE_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    );
+}
+
 // ============================================
-// EMAIL TEMPLATES (Full from send-email.js)
+// EMAIL TEMPLATES
 // ============================================
 
 const emailTemplates = {
@@ -178,7 +186,7 @@ function getTransporter() {
 }
 
 // ============================================
-// JOB FETCHING (Full from fetch-jobs.js)
+// JOB FETCHING
 // ============================================
 
 async function fetchAllJobs() {
@@ -342,30 +350,7 @@ async function fetchAllJobs() {
         errors.push({ source: 'Germany', error: err.message });
     }
 
-    // 8. France
-    try {
-        const response = await safeFetch('https://candidat.francetravail.fr/offres/search?limit=10&sort=date', timeout);
-        const data = await response.json();
-        if (data?.offres) {
-            const jobs = data.offres.slice(0, 5).map(job => ({
-                title: job.intitule || 'Offre d\'emploi',
-                company: job.entreprise?.nom || 'État français',
-                location: `${job.lieuTravail?.libelle || 'Paris'}, France`,
-                source_country: 'FR',
-                source_name: 'France Travail',
-                description: (job.description || '').substring(0, 500),
-                salary_range: job.salaire?.libelle || 'Compétitif',
-                job_type: 'full_time',
-                external_url: job.url || '',
-                sponsorship_eligible: false
-            }));
-            allJobs.push(...jobs);
-        }
-    } catch (err) {
-        errors.push({ source: 'France', error: err.message });
-    }
-
-    // 9. Nigeria - Fallback Jobs
+    // 8. Nigeria - Fallback Jobs
     const nigeriaJobs = [
         { title: 'Civil Service Officer', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Federal Civil Service', description: 'Join the Federal Civil Service as an Officer. Opportunities in various ministries.', salary_range: '₦3,500,000 - ₦5,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
         { title: 'Policy Analyst', company: 'Ministry of Finance', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Ministry of Finance', description: 'Policy development and economic analysis role.', salary_range: '₦4,000,000 - ₦6,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
@@ -373,7 +358,7 @@ async function fetchAllJobs() {
     ];
     allJobs.push(...nigeriaJobs);
 
-    // 10. Remote/Global Fallback Jobs
+    // 9. Remote/Global Fallback Jobs
     const remoteJobs = [
         { title: 'Remote Software Engineer', company: 'Global Tech', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Full-stack development position. Work from anywhere.', salary_range: '$60,000 - $90,000', job_type: 'remote', external_url: '', sponsorship_eligible: false },
         { title: 'Virtual Assistant', company: 'Global Services', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Administrative support for international clients.', salary_range: '$25,000 - $40,000', job_type: 'remote', external_url: '', sponsorship_eligible: false }
@@ -395,7 +380,7 @@ async function fetchAllJobs() {
 }
 
 // ============================================
-// AI HELPERS (Full from chat.js and ai.js)
+// AI HELPERS
 // ============================================
 
 async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
@@ -417,6 +402,62 @@ async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
 }
 
 // ============================================
+// USER PROFILE UPDATE
+// ============================================
+
+async function updateUserProfile(userId, updates) {
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+        .from('profiles')
+        .update({
+            full_name: updates.full_name,
+            phone: updates.phone,
+            job_title: updates.job_title,
+            years_experience: updates.years_experience,
+            linkedin_url: updates.linkedin_url,
+            github_url: updates.github_url,
+            email_notifications: updates.email_notifications,
+            location: updates.location,
+            bio: updates.bio,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+    
+    if (error) throw error;
+    return data;
+}
+
+// ============================================
+// USER APPLICATIONS FETCH
+// ============================================
+
+async function getUserApplications(userId) {
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+        .from('job_applications')
+        .select(`
+            *,
+            jobs:job_id (
+                id,
+                title,
+                company,
+                location,
+                salary_range,
+                description
+            )
+        `)
+        .eq('applicant_id', userId)
+        .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+}
+
+// ============================================
 // MAIN HANDLER
 // ============================================
 
@@ -424,7 +465,7 @@ export default async function handler(req, res) {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -434,7 +475,7 @@ export default async function handler(req, res) {
     const startTime = Date.now();
 
     // ============================================
-    // ACTION: IP Geolocation (from health.js)
+    // ACTION: IP Geolocation
     // ============================================
     if (action === 'ip') {
         const ip = req.headers['x-forwarded-for']?.split(',')[0] ||
@@ -463,7 +504,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Ping (from health.js)
+    // ACTION: Ping
     // ============================================
     if (action === 'ping') {
         return res.status(200).json({
@@ -474,13 +515,10 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Health Check (Full from health.js)
+    // ACTION: Health Check
     // ============================================
     if (action === 'health') {
-        const supabase = createClient(
-            process.env.VITE_SUPABASE_URL,
-            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-        );
+        const supabase = getSupabase();
 
         const results = {
             status: 'healthy',
@@ -566,13 +604,7 @@ export default async function handler(req, res) {
         } else {
             const emailStart = Date.now();
             try {
-                const nodemailerModule = await import('nodemailer');
-                const transporter = nodemailerModule.createTransport({
-                    host: process.env.VITE_SMTP_HOST || 'smtp.hostinger.com',
-                    port: 465,
-                    secure: true,
-                    auth: { user: emailUser, pass: emailPass }
-                });
+                const transporter = getTransporter();
                 await transporter.verify();
                 results.services.email = { status: 'healthy', responseTime: Date.now() - emailStart };
             } catch (err) {
@@ -583,15 +615,6 @@ export default async function handler(req, res) {
 
         // Vercel
         results.services.vercel = { status: 'healthy', details: `Region: ${process.env.VERCEL_REGION || 'unknown'}` };
-
-        // System
-        const os = await import('os');
-        results.system = {
-            nodeVersion: process.version,
-            platform: process.platform,
-            memoryUsage: process.memoryUsage(),
-            cpuCount: os.cpus().length
-        };
 
         results.responseTime = Date.now() - startTime;
 
@@ -605,7 +628,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Send Email (Full from send-email.js)
+    // ACTION: Send Email
     // ============================================
     if (action === 'email' && req.method === 'POST') {
         const { to, subject, html, type, templateData } = req.body;
@@ -656,7 +679,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Fetch Jobs (Full from fetch-jobs.js)
+    // ACTION: Fetch Jobs
     // ============================================
     if (action === 'jobs') {
         const result = await fetchAllJobs();
@@ -670,7 +693,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: AI Chat (Full from chat.js)
+    // ACTION: AI Chat
     // ============================================
     if (action === 'chat' && req.method === 'POST') {
         const { messages, systemPrompt, temperature = 0.7, maxTokens = 800 } = req.body;
@@ -697,7 +720,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Generate Assessment (from ai.js)
+    // ACTION: Generate Assessment
     // ============================================
     if (action === 'generate-assessment' && req.method === 'POST') {
         const { topic, difficulty = 'intermediate', count = 5 } = req.body;
@@ -723,7 +746,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Generate Course (from ai.js)
+    // ACTION: Generate Course
     // ============================================
     if (action === 'generate-course' && req.method === 'POST') {
         const { topic, level = 'beginner' } = req.body;
@@ -735,12 +758,16 @@ export default async function handler(req, res) {
         try {
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an instructional designer.' },
-                { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Include: title, description, 5-7 modules with lessons, learning objectives, and estimated duration.` }
+                { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Include: title, description, 5-7 modules with lessons, learning objectives, and estimated duration. Return as JSON.` }
             ], 1500, 0.7);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const outline = jsonMatch ? JSON.parse(jsonMatch[0]) : { title: topic, description: '', modules: [] };
 
             return res.status(200).json({
                 success: true,
-                outline: data.choices[0].message.content,
+                outline,
                 usage: data.usage
             });
         } catch (error) {
@@ -749,13 +776,245 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Database Check (Legacy from health.js)
+    // ACTION: User Applications
+    // ============================================
+    if (action === 'user-applications' && req.method === 'POST') {
+        const authHeader = req.headers.authorization;
+        
+        try {
+            const supabase = getSupabase();
+            
+            // Get user from token
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user) throw new Error('Unauthorized');
+            
+            const applications = await getUserApplications(user.id);
+            
+            return res.status(200).json({
+                success: true,
+                data: applications
+            });
+        } catch (error) {
+            return res.status(401).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: User Profile Update
+    // ============================================
+    if (action === 'user-update' && req.method === 'POST') {
+        const authHeader = req.headers.authorization;
+        const { userId, updates } = req.body;
+        
+        try {
+            const supabase = getSupabase();
+            
+            // Verify user
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user || user.id !== userId) throw new Error('Unauthorized');
+            
+            const updatedProfile = await updateUserProfile(userId, updates);
+            
+            return res.status(200).json({
+                success: true,
+                data: updatedProfile
+            });
+        } catch (error) {
+            return res.status(401).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Tester Creation
+    // ============================================
+    if (action === 'tester-create' && req.method === 'POST') {
+        const { email, name, uses = 10, days = 30 } = req.body;
+        
+        try {
+            const supabase = getSupabase();
+            
+            // Create tester record
+            const { data, error } = await supabase
+                .from('tester_allocations')
+                .insert({
+                    email,
+                    name,
+                    allocated_uses: uses,
+                    remaining_uses: uses,
+                    expires_at: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
+                    status: 'active'
+                })
+                .select()
+                .single();
+            
+            if (error) throw error;
+            
+            // Send welcome email
+            await fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: email,
+                    type: 'tester_welcome',
+                    templateData: { name, uses, days }
+                })
+            });
+            
+            return res.status(200).json({ success: true, tester: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Newsletter Subscribe
+    // ============================================
+    if (action === 'newsletter-subscribe' && req.method === 'POST') {
+        const { email, name } = req.body;
+        
+        try {
+            const supabase = getSupabase();
+            
+            const { error } = await supabase
+                .from('newsletter_subscribers')
+                .upsert({
+                    email,
+                    name,
+                    subscribed_at: new Date().toISOString(),
+                    status: 'active'
+                });
+            
+            if (error && error.code !== '23505') throw error;
+            
+            // Send welcome email
+            await fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: email,
+                    type: 'newsletter_welcome',
+                    templateData: { name }
+                })
+            });
+            
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Books List
+    // ============================================
+    if (action === 'books-list') {
+        try {
+            const supabase = getSupabase();
+            
+            const { data, error } = await supabase
+                .from('books')
+                .select('*')
+                .eq('is_published', true)
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            
+            return res.status(200).json({ success: true, books: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Articles List
+    // ============================================
+    if (action === 'articles-list') {
+        try {
+            const supabase = getSupabase();
+            
+            const { data, error } = await supabase
+                .from('articles')
+                .select('*')
+                .eq('is_published', true)
+                .order('published_at', { ascending: false });
+            
+            if (error) throw error;
+            
+            return res.status(200).json({ success: true, articles: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Single Article
+    // ============================================
+    if (action === 'article') {
+        const { slug, id } = req.query;
+        
+        try {
+            const supabase = getSupabase();
+            
+            let query = supabase.from('articles').select('*');
+            
+            if (slug) query = query.eq('slug', slug);
+            if (id) query = query.eq('id', id);
+            
+            const { data, error } = await query.single();
+            
+            if (error) throw error;
+            
+            return res.status(200).json({ success: true, article: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: User Dashboard Stats
+    // ============================================
+    if (action === 'user-stats') {
+        const authHeader = req.headers.authorization;
+        
+        try {
+            const supabase = getSupabase();
+            
+            // Get user from token
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user) throw new Error('Unauthorized');
+            
+            // Get stats
+            const [applications, savedJobs, courses, assessments] = await Promise.all([
+                supabase.from('job_applications').select('id', { count: 'exact' }).eq('applicant_id', user.id),
+                supabase.from('saved_jobs').select('id', { count: 'exact' }).eq('user_id', user.id),
+                supabase.from('course_enrollments').select('id', { count: 'exact' }).eq('user_id', user.id),
+                supabase.from('user_assessments').select('id', { count: 'exact' }).eq('user_id', user.id)
+            ]);
+            
+            return res.status(200).json({
+                success: true,
+                stats: {
+                    applications: applications.count || 0,
+                    savedJobs: savedJobs.count || 0,
+                    coursesEnrolled: courses.count || 0,
+                    assessmentsCompleted: assessments.count || 0
+                }
+            });
+        } catch (error) {
+            return res.status(401).json({ success: false, error: error.message });
+        }
+    }
+
+    // ============================================
+    // ACTION: Database Check
     // ============================================
     if (action === 'db') {
-        const supabase = createClient(
-            process.env.VITE_SUPABASE_URL,
-            process.env.VITE_SUPABASE_ANON_KEY
-        );
+        const supabase = getSupabase();
 
         const dbStart = Date.now();
         try {
@@ -777,14 +1036,11 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // ACTION: Service Check (from health.js)
+    // ACTION: Service Check
     // ============================================
     if (action === 'service' && req.query.service) {
         const service = req.query.service;
-        const supabase = createClient(
-            process.env.VITE_SUPABASE_URL,
-            process.env.VITE_SUPABASE_ANON_KEY
-        );
+        const supabase = getSupabase();
 
         let result = { service, timestamp: new Date().toISOString() };
 
@@ -851,6 +1107,14 @@ export default async function handler(req, res) {
             jobs: '/api/index?action=jobs',
             assessment: 'POST /api/index?action=generate-assessment',
             course: 'POST /api/index?action=generate-course',
+            'user-applications': 'POST /api/index?action=user-applications',
+            'user-update': 'POST /api/index?action=user-update',
+            'user-stats': '/api/index?action=user-stats',
+            'tester-create': 'POST /api/index?action=tester-create',
+            'newsletter-subscribe': 'POST /api/index?action=newsletter-subscribe',
+            'books-list': '/api/index?action=books-list',
+            'articles-list': '/api/index?action=articles-list',
+            article: '/api/index?action=article&slug={slug}',
             db: '/api/index?action=db',
             service: '/api/index?action=service&service=database|auth|openai'
         },
