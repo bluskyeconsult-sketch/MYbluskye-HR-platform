@@ -1,17 +1,59 @@
 // src/services/aiVirtualAssistantService.js
 // COMPLETE - AI-Powered Virtual Assistant Service
-// Features: AI VA generation, task execution engine, credit management, admin unlimited access
+// Features: AI VA generation, task execution engine, credit management, admin unlimited access, unified API
 // Includes: resume, career, interview, skill, legal, and general VA categories
 
 import { supabase } from '../lib/supabase';
 
+// ============================================
+// CONFIGURATION
+// ============================================
+
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+const API_BASE = '/api/index';
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function calculateQualityScore(output, input) {
+    let score = 85;
+    if (output.length > 500) score += 5;
+    if (output.includes('```') || output.includes('•') || output.includes('-')) score += 5;
+    if (output.toLowerCase().includes('recommend') || output.toLowerCase().includes('suggest')) score += 5;
+    if (output.toLowerCase().includes('example') || output.toLowerCase().includes('sample')) score += 3;
+    return Math.min(100, score);
+}
+
+async function callVAExecutionAPI(vaId, input, userId) {
+    // ✅ FIXED: Use unified API endpoint
+    const response = await fetch(`${API_BASE}?action=va-execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            assistantId: vaId,
+            input,
+            userId
+        })
+    });
+    
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'VA execution failed');
+    }
+    
+    return await response.json();
+}
 
 // ============================================
 // AI VA GENERATION
 // ============================================
 
 export async function generateVirtualAssistantWithAI(topic, specialization, tone = 'professional') {
+    if (!OPENAI_API_KEY) {
+        throw new Error('OpenAI API key not configured');
+    }
+    
     const prompt = `Create a complete Virtual Assistant profile for ODUSBABA platform.
 
 Topic/Specialization: ${topic}
@@ -49,7 +91,8 @@ Make it practical, valuable, and engaging. Return ONLY valid JSON.`;
                     { role: 'user', content: prompt }
                 ],
                 temperature: 0.7,
-                max_tokens: 2000
+                max_tokens: 2000,
+                response_format: { type: "json_object" }
             })
         });
 
@@ -90,150 +133,10 @@ export async function createVirtualAssistantFromAI(vaData, adminId) {
 }
 
 // ============================================
-// VA EXECUTION FUNCTIONS (All categories)
-// ============================================
-
-async function executeResumeVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}, a professional career advisor specializing in resume optimization. ${va.description}. Optimize the CV for ATS systems and provide actionable improvements.` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.5,
-            max_tokens: 2000
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-async function executeCareerVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}, a career advisor. ${va.description}. Provide practical, actionable career guidance.` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.7,
-            max_tokens: 1200
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-async function executeInterviewVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}, an interview preparation expert. ${va.description}. Provide sample questions, STAR method guidance, and interview strategies.` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.7,
-            max_tokens: 1500
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-async function executeSkillVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}, a skill development expert. ${va.description}. Provide learning paths, resource recommendations, and skill-building strategies.` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.7,
-            max_tokens: 1000
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-async function executeLegalVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}, a workplace rights and legal information advisor. Provide general guidance only, not legal advice. Include appropriate disclaimers. ${va.description}` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.7,
-            max_tokens: 1200
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-async function executeGeneralVA(input, va) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: `You are ${va.name}. ${va.description}. Be helpful, professional, and concise.` },
-                { role: 'user', content: input }
-            ],
-            temperature: 0.7,
-            max_tokens: 1000
-        })
-    });
-    const data = await response.json();
-    return data.choices[0].message.content;
-}
-
-function calculateQualityScore(output, input) {
-    let score = 85;
-    if (output.length > 500) score += 5;
-    if (output.includes('```') || output.includes('•') || output.includes('-')) score += 5;
-    if (output.toLowerCase().includes('recommend') || output.toLowerCase().includes('suggest')) score += 5;
-    if (output.toLowerCase().includes('example') || output.toLowerCase().includes('sample')) score += 3;
-    return Math.min(100, score);
-}
-
-// ============================================
 // VA CREDIT MANAGEMENT (Unlimited for Admins & Business)
 // ============================================
 
 export async function getVACredits(userId) {
-    // First check if user is admin/super_admin
     const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_type, tier')
@@ -302,7 +205,7 @@ export async function purchaseVACredits(userId, amount) {
 }
 
 // ============================================
-// VA TASK EXECUTION ENGINE (Enhanced with all categories)
+// VA TASK EXECUTION ENGINE (with unified API)
 // ============================================
 
 export async function executeVATask(vaId, userId, input, priority = 'normal') {
@@ -344,30 +247,13 @@ export async function executeVATask(vaId, userId, input, priority = 'normal') {
 
     if (taskError) throw taskError;
 
-    // Execute based on VA category (full category support)
     let output = '';
     let qualityScore = 85;
 
     try {
-        switch (va.category) {
-            case 'resume':
-                output = await executeResumeVA(input, va);
-                break;
-            case 'career':
-                output = await executeCareerVA(input, va);
-                break;
-            case 'interview':
-                output = await executeInterviewVA(input, va);
-                break;
-            case 'skill':
-                output = await executeSkillVA(input, va);
-                break;
-            case 'legal':
-                output = await executeLegalVA(input, va);
-                break;
-            default:
-                output = await executeGeneralVA(input, va);
-        }
+        // ✅ FIXED: Use unified API endpoint for execution
+        const result = await callVAExecutionAPI(vaId, input, userId);
+        output = result.output;
         qualityScore = calculateQualityScore(output, input);
     } catch (error) {
         console.error('VA execution error:', error);
@@ -441,10 +327,29 @@ export async function getVirtualAssistantById(vaId) {
 }
 
 // ============================================
-// GET USER'S VA TASK HISTORY
+// GET USER'S VA TASK HISTORY (with unified API)
 // ============================================
 
 export async function getUserVATasks(userId, limit = 20) {
+    // ✅ FIXED: Try unified API first, fallback to direct Supabase
+    try {
+        const response = await fetch(`${API_BASE}?action=va-tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, limit })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                return data.tasks || [];
+            }
+        }
+    } catch (err) {
+        console.warn('Unified API failed, falling back to direct Supabase:', err);
+    }
+    
+    // Fallback to direct Supabase query
     const { data, error } = await supabase
         .from('va_tasks')
         .select(`
@@ -477,3 +382,80 @@ export async function getVATaskById(taskId, userId) {
     if (error) throw error;
     return data;
 }
+
+// ============================================
+// VA STATISTICS
+// ============================================
+
+export async function getVAStatistics(userId) {
+    try {
+        const tasks = await getUserVATasks(userId, 100);
+        
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.status === 'completed').length;
+        const averageQuality = tasks.reduce((acc, t) => acc + (t.quality_score || 0), 0) / (completedTasks || 1);
+        
+        // Category breakdown
+        const categoryStats = {};
+        for (const task of tasks) {
+            const category = task.virtual_assistants?.category || 'unknown';
+            categoryStats[category] = (categoryStats[category] || 0) + 1;
+        }
+        
+        return {
+            totalTasks,
+            completedTasks,
+            averageQuality: Math.round(averageQuality),
+            categoryBreakdown: categoryStats,
+            mostUsedCategory: Object.keys(categoryStats).reduce((a, b) => 
+                categoryStats[a] > categoryStats[b] ? a : b, 'none'
+            )
+        };
+    } catch (error) {
+        console.error('Error fetching VA statistics:', error);
+        return {
+            totalTasks: 0,
+            completedTasks: 0,
+            averageQuality: 0,
+            categoryBreakdown: {},
+            mostUsedCategory: 'none'
+        };
+    }
+}
+
+// ============================================
+// VA RATING & FEEDBACK
+// ============================================
+
+export async function rateVATask(taskId, userId, rating, feedback = null) {
+    const { error } = await supabase
+        .from('va_tasks')
+        .update({ 
+            user_rating: rating,
+            user_feedback: feedback,
+            rated_at: new Date().toISOString()
+        })
+        .eq('id', taskId)
+        .eq('user_id', userId);
+
+    if (error) throw error;
+    return { success: true };
+}
+
+// ============================================
+// EXPORT DEFAULT
+// ============================================
+
+export default {
+    generateVirtualAssistantWithAI,
+    createVirtualAssistantFromAI,
+    getVACredits,
+    purchaseVACredits,
+    executeVATask,
+    getActiveVirtualAssistants,
+    getVirtualAssistantById,
+    getUserVATasks,
+    getVATaskById,
+    getVAStatistics,
+    rateVATask
+};
