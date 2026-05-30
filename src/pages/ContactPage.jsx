@@ -1,274 +1,451 @@
 // src/pages/ContactPage.jsx
-// COMPLETE - Contact page with ODUSBABA Chat, no phone number
+// COMPLETE PROFESSIONAL CONTACT PAGE - With unified API, form validation, and ODUSBABA Chat integration
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, MapPin, MessageCircle, Send, CheckCircle, Clock, Shield } from 'lucide-react';
+import { 
+    Mail, MapPin, MessageCircle, Send, CheckCircle, Clock, 
+    Shield, AlertCircle, Loader2, Sparkles, Building2, 
+    Globe, Headphones, Star, ChevronRight
+} from 'lucide-react';
+import { apiCall, isAuthenticated, getCurrentUser } from '../lib/supabase';
 
 export default function ContactPage() {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    subject: '',
-    message: ''
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState(null);
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        subject: '',
+        message: '',
+        priority: 'normal'
+    });
+    const [submitting, setSubmitting] = useState(false);
+    const [submitted, setSubmitted] = useState(false);
+    const [error, setError] = useState(null);
+    const [user, setUser] = useState(null);
+    const [validationErrors, setValidationErrors] = useState({});
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+    // Load user data if logged in
+    useEffect(() => {
+        loadUserData();
+    }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      // Send to your email service
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      if (!response.ok) throw new Error('Failed to send message');
-
-      setSubmitted(true);
-      setFormData({ name: '', email: '', subject: '', message: '' });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
+    async function loadUserData() {
+        const isLoggedIn = await isAuthenticated();
+        if (isLoggedIn) {
+            const currentUser = await getCurrentUser();
+            setUser(currentUser);
+            setFormData(prev => ({
+                ...prev,
+                name: currentUser.user_metadata?.full_name || '',
+                email: currentUser.email || ''
+            }));
+        }
     }
-  };
 
-  if (submitted) {
-    return (
-      <div className="min-h-screen bg-slate-950 py-12">
-        <div className="max-w-2xl mx-auto px-4 text-center">
-          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-500" />
-          </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Message Sent!</h1>
-          <p className="text-slate-400 mb-6">
-            Thank you for reaching out. Our team will respond within 24 hours.
-          </p>
-          <p className="text-slate-500 text-sm mb-6">
-            In the meantime, you can chat with ODUSBABA AI for immediate assistance.
-          </p>
-          <Link 
-            to="/" 
-            className="inline-block px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-          >
-            Return Home
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-950 py-12">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    const validateForm = () => {
+        const errors = {};
         
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">Contact Us</h1>
-          <p className="text-slate-400 text-lg max-w-2xl mx-auto">
-            Get in touch with our team. We're here to help!
-          </p>
-        </div>
+        if (!formData.name.trim()) {
+            errors.name = 'Name is required';
+        } else if (formData.name.length < 2) {
+            errors.name = 'Name must be at least 2 characters';
+        }
+        
+        if (!formData.email.trim()) {
+            errors.email = 'Email is required';
+        } else if (!/^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/.test(formData.email)) {
+            errors.email = 'Please enter a valid email address';
+        }
+        
+        if (!formData.subject.trim()) {
+            errors.subject = 'Subject is required';
+        } else if (formData.subject.length < 3) {
+            errors.subject = 'Subject must be at least 3 characters';
+        }
+        
+        if (!formData.message.trim()) {
+            errors.message = 'Message is required';
+        } else if (formData.message.length < 10) {
+            errors.message = 'Message must be at least 10 characters';
+        } else if (formData.message.length > 2000) {
+            errors.message = 'Message cannot exceed 2000 characters';
+        }
+        
+        setValidationErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Contact Information Cards */}
-          <div className="lg:col-span-1 space-y-6">
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+        // Clear validation error for this field when user starts typing
+        if (validationErrors[name]) {
+            setValidationErrors(prev => ({ ...prev, [name]: null }));
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!validateForm()) {
+            return;
+        }
+        
+        setSubmitting(true);
+        setError(null);
+
+        try {
+            // ✅ Using unified API endpoint
+            const result = await apiCall('contact-submit', {
+                name: formData.name,
+                email: formData.email,
+                subject: formData.subject,
+                message: formData.message,
+                priority: formData.priority,
+                userId: user?.id || null
+            });
             
-            {/* ODUSBABA Chat Card - PRIMARY CONTACT METHOD */}
-            <div className="bg-gradient-to-br from-primary-900/30 to-primary-800/10 border border-primary-500/30 rounded-xl p-6 text-center">
-              <div className="w-14 h-14 bg-primary-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <MessageCircle className="w-7 h-7 text-primary-400" />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2">ODUSBABA AI Chat</h2>
-              <p className="text-slate-400 text-sm mb-4">
-                Get instant answers 24/7. Our AI assistant can help with:
-              </p>
-              <ul className="text-sm text-slate-400 space-y-1 mb-4 text-left">
-                <li>• Account questions</li>
-                <li>• Job search assistance</li>
-                <li>• Platform navigation</li>
-                <li>• Technical support</li>
-              </ul>
-              <button
-                onClick={() => {
-                  // Find and open the ODUSBABA chat widget
-                  const chatButton = document.querySelector('button[aria-label*="chat"]') || 
-                                    document.querySelector('.fixed.bottom-6.right-6');
-                  if (chatButton) chatButton.click();
-                }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition font-medium"
-              >
-                <MessageCircle className="w-4 h-4" />
-                Start Chat Now
-              </button>
-              <p className="text-xs text-slate-500 mt-3">
-                Available 24/7 • Instant responses
-              </p>
-            </div>
+            if (!result.success) throw new Error(result.error);
+            
+            setSubmitted(true);
+            setFormData({ name: '', email: '', subject: '', message: '', priority: 'normal' });
+            
+            // Scroll to top to show success message
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+        } catch (err) {
+            console.error('Contact form error:', err);
+            setError(err.message || 'Failed to send message. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
-            {/* Email Card */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center">
-              <div className="w-14 h-14 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Mail className="w-7 h-7 text-primary-400" />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2">Email Us</h2>
-              <div className="space-y-2">
-                <p className="text-slate-300 text-sm">
-                  <span className="text-slate-500">General Inquiries:</span><br />
-                  <a href="mailto:support@bluskyeconsult.com" className="text-primary-400 hover:underline">
-                    support@bluskyeconsult.com
-                  </a>
-                </p>
-                <p className="text-slate-300 text-sm">
-                  <span className="text-slate-500">Legal Matters:</span><br />
-                  <a href="mailto:legal@bluskyeconsult.com" className="text-primary-400 hover:underline">
-                    legal@bluskyeconsult.com
-                  </a>
-                </p>
-                <p className="text-slate-300 text-sm">
-                  <span className="text-slate-500">Partnerships:</span><br />
-                  <a href="mailto:partners@bluskyeconsult.com" className="text-primary-400 hover:underline">
-                    partners@bluskyeconsult.com
-                  </a>
-                </p>
-              </div>
-              <p className="text-xs text-slate-500 mt-3">
-                Response within 24 hours
-              </p>
-            </div>
+    const openChatWidget = () => {
+        // Find and open the ODUSBABA chat widget
+        const chatButton = document.querySelector('button[aria-label*="chat"]') || 
+                          document.querySelector('.fixed.bottom-6.right-6');
+        if (chatButton) {
+            chatButton.click();
+        } else {
+            // Fallback: scroll to chat section or show notification
+            alert('Click the chat icon in the bottom right corner to start chatting with ODUSBABA AI.');
+        }
+    };
 
-            {/* Location Card */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center">
-              <div className="w-14 h-14 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                <MapPin className="w-7 h-7 text-primary-400" />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2">Our Location</h2>
-              <p className="text-slate-300">
-                Oxford, United Kingdom
-              </p>
-              <p className="text-sm text-slate-500 mt-2">
-                Global operations spanning 7 countries
-              </p>
-            </div>
-
-            {/* Trust Badge */}
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Shield className="w-5 h-5 text-emerald-400" />
-                <span className="text-emerald-400 font-semibold text-sm">Trust & Safety</span>
-              </div>
-              <p className="text-xs text-slate-400">
-                All communications are encrypted and secure. We never share your information.
-              </p>
-            </div>
-          </div>
-
-          {/* Contact Form */}
-          <div className="lg:col-span-2">
-            <form onSubmit={handleSubmit} className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-              <h2 className="text-xl font-bold text-white mb-6">Send us a Message</h2>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Your Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
-                    placeholder="John Doe"
-                  />
+    if (submitted) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+                <div className="max-w-2xl mx-auto px-4 text-center">
+                    <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <CheckCircle className="w-10 h-10 text-emerald-500" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-white mb-3">Message Sent Successfully!</h1>
+                    <p className="text-slate-400 mb-4">
+                        Thank you for reaching out to ODUSBABA. Our support team will respond within 24 hours.
+                    </p>
+                    <div className="bg-slate-800/50 rounded-xl p-4 mb-6">
+                        <p className="text-slate-300 text-sm">
+                            <Clock className="w-4 h-4 inline mr-1 text-primary-400" />
+                            We typically respond within 4 hours during business days.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 justify-center">
+                        <Link 
+                            to="/" 
+                            className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition inline-flex items-center gap-2"
+                        >
+                            Return Home
+                            <ChevronRight className="w-4 h-4" />
+                        </Link>
+                        <button
+                            onClick={openChatWidget}
+                            className="px-6 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition inline-flex items-center gap-2"
+                        >
+                            <MessageCircle className="w-4 h-4" />
+                            Chat with ODUSBABA AI
+                        </button>
+                    </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
-                    placeholder="john@example.com"
-                  />
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                
+                {/* Header */}
+                <div className="text-center mb-12">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary-500/10 text-primary-400 rounded-full text-sm mb-4">
+                        <MessageCircle className="w-4 h-4" />
+                        24/7 Support Available
+                    </div>
+                    <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">Get in Touch</h1>
+                    <p className="text-slate-400 text-lg max-w-2xl mx-auto">
+                        Have questions? We'd love to hear from you. Our team is here to help.
+                    </p>
                 </div>
-              </div>
-              
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
-                <input
-                  type="text"
-                  name="subject"
-                  value={formData.subject}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
-                  placeholder="How can we help you?"
-                />
-              </div>
-              
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-300 mb-1">Message</label>
-                <textarea
-                  name="message"
-                  value={formData.message}
-                  onChange={handleChange}
-                  required
-                  rows="5"
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 resize-none"
-                  placeholder="Please describe your question or concern in detail..."
-                />
-              </div>
-              
-              {error && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                  <p className="text-red-400 text-sm">{error}</p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    
+                    {/* Contact Information Cards */}
+                    <div className="lg:col-span-1 space-y-5">
+                        
+                        {/* ODUSBABA Chat Card - PRIMARY CONTACT METHOD */}
+                        <div className="bg-gradient-to-br from-primary-900/30 to-primary-800/10 border border-primary-500/30 rounded-2xl p-6 text-center hover:scale-[1.02] transition-all duration-300">
+                            <div className="w-16 h-16 bg-primary-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Sparkles className="w-8 h-8 text-primary-400" />
+                            </div>
+                            <h2 className="text-xl font-bold text-white mb-2">ODUSBABA AI Chat</h2>
+                            <p className="text-slate-400 text-sm mb-4">
+                                Get instant answers 24/7. Our AI assistant is ready to help with:
+                            </p>
+                            <ul className="text-sm text-slate-400 space-y-2 mb-6 text-left">
+                                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Account & profile questions</li>
+                                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Job search assistance</li>
+                                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Platform navigation</li>
+                                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Technical support</li>
+                            </ul>
+                            <button
+                                onClick={openChatWidget}
+                                className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all duration-200 font-medium shadow-lg shadow-primary-500/20"
+                            >
+                                <MessageCircle className="w-4 h-4" />
+                                Start AI Chat Now
+                            </button>
+                            <p className="text-xs text-slate-500 mt-3">
+                                ✨ Available 24/7 • Instant responses
+                            </p>
+                        </div>
+
+                        {/* Email Support Card */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 text-center hover:border-primary-500/30 transition-all">
+                            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Mail className="w-8 h-8 text-primary-400" />
+                            </div>
+                            <h2 className="text-xl font-bold text-white mb-3">Email Support</h2>
+                            <div className="space-y-3 text-sm">
+                                <div>
+                                    <p className="text-slate-500 text-xs mb-1">General Inquiries</p>
+                                    <a href="mailto:support@bluskyeconsult.com" className="text-primary-400 hover:underline break-all">
+                                        support@bluskyeconsult.com
+                                    </a>
+                                </div>
+                                <div>
+                                    <p className="text-slate-500 text-xs mb-1">Partnerships</p>
+                                    <a href="mailto:partners@bluskyeconsult.com" className="text-primary-400 hover:underline break-all">
+                                        partners@bluskyeconsult.com
+                                    </a>
+                                </div>
+                                <div>
+                                    <p className="text-slate-500 text-xs mb-1">Legal Matters</p>
+                                    <a href="mailto:legal@bluskyeconsult.com" className="text-primary-400 hover:underline break-all">
+                                        legal@bluskyeconsult.com
+                                    </a>
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-4 flex items-center justify-center gap-1">
+                                <Clock className="w-3 h-3" /> Response within 24 hours
+                            </p>
+                        </div>
+
+                        {/* Office Location Card */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 text-center hover:border-primary-500/30 transition-all">
+                            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Building2 className="w-8 h-8 text-primary-400" />
+                            </div>
+                            <h2 className="text-xl font-bold text-white mb-2">Our Location</h2>
+                            <p className="text-slate-300">
+                                Oxford, United Kingdom
+                            </p>
+                            <div className="mt-3 flex items-center justify-center gap-2">
+                                <Globe className="w-4 h-4 text-primary-400" />
+                                <span className="text-sm text-slate-500">Global operations across 7 countries</span>
+                            </div>
+                        </div>
+
+                        {/* Trust & Safety Badge */}
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center">
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                                <Shield className="w-5 h-5 text-emerald-400" />
+                                <span className="text-emerald-400 font-semibold text-sm">Trust & Security</span>
+                            </div>
+                            <p className="text-xs text-slate-400">
+                                All communications are encrypted and secure. We never share your personal information.
+                            </p>
+                            <div className="flex items-center justify-center gap-4 mt-3">
+                                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                                    <CheckCircle className="w-3 h-3" /> GDPR Compliant
+                                </span>
+                                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                                    <Star className="w-3 h-3" /> 4.9/5 Support Rating
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Contact Form */}
+                    <div className="lg:col-span-2">
+                        <form onSubmit={handleSubmit} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 md:p-8">
+                            <h2 className="text-2xl font-bold text-white mb-2">Send us a Message</h2>
+                            <p className="text-slate-400 text-sm mb-6">
+                                Fill out the form below and we'll get back to you as soon as possible.
+                            </p>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                                        Full Name <span className="text-red-400">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="name"
+                                        value={formData.name}
+                                        onChange={handleChange}
+                                        disabled={submitting}
+                                        className={`w-full px-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                            validationErrors.name ? 'border-red-500' : 'border-slate-700'
+                                        }`}
+                                        placeholder="John Doe"
+                                    />
+                                    {validationErrors.name && (
+                                        <p className="text-xs text-red-400 mt-1">{validationErrors.name}</p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                                        Email Address <span className="text-red-400">*</span>
+                                    </label>
+                                    <input
+                                        type="email"
+                                        name="email"
+                                        value={formData.email}
+                                        onChange={handleChange}
+                                        disabled={submitting}
+                                        className={`w-full px-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                            validationErrors.email ? 'border-red-500' : 'border-slate-700'
+                                        }`}
+                                        placeholder="john@example.com"
+                                    />
+                                    {validationErrors.email && (
+                                        <p className="text-xs text-red-400 mt-1">{validationErrors.email}</p>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            <div className="mb-5">
+                                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                                    Subject <span className="text-red-400">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    name="subject"
+                                    value={formData.subject}
+                                    onChange={handleChange}
+                                    disabled={submitting}
+                                    className={`w-full px-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                        validationErrors.subject ? 'border-red-500' : 'border-slate-700'
+                                    }`}
+                                    placeholder="How can we help you?"
+                                />
+                                {validationErrors.subject && (
+                                    <p className="text-xs text-red-400 mt-1">{validationErrors.subject}</p>
+                                )}
+                            </div>
+                            
+                            <div className="mb-5">
+                                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                                    Priority
+                                </label>
+                                <select
+                                    name="priority"
+                                    value={formData.priority}
+                                    onChange={handleChange}
+                                    disabled={submitting}
+                                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                >
+                                    <option value="normal">Normal - General inquiry</option>
+                                    <option value="high">High - Urgent matter</option>
+                                    <option value="low">Low - Just browsing</option>
+                                </select>
+                            </div>
+                            
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                                    Message <span className="text-red-400">*</span>
+                                </label>
+                                <textarea
+                                    name="message"
+                                    value={formData.message}
+                                    onChange={handleChange}
+                                    disabled={submitting}
+                                    rows={6}
+                                    className={`w-full px-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition resize-none ${
+                                        validationErrors.message ? 'border-red-500' : 'border-slate-700'
+                                    }`}
+                                    placeholder="Please describe your question or concern in detail..."
+                                />
+                                <div className="flex justify-between mt-1">
+                                    {validationErrors.message && (
+                                        <p className="text-xs text-red-400">{validationErrors.message}</p>
+                                    )}
+                                    <p className={`text-xs ${formData.message.length > 1900 ? 'text-amber-400' : 'text-slate-500'} ml-auto`}>
+                                        {formData.message.length}/2000 characters
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            {error && (
+                                <div className="mb-5 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4 text-red-400" />
+                                    <p className="text-red-400 text-sm">{error}</p>
+                                </div>
+                            )}
+                            
+                            <button
+                                type="submit"
+                                disabled={submitting}
+                                className="w-full py-3 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-xl hover:from-primary-700 hover:to-sky-700 transition-all duration-200 font-semibold flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-primary-500/20"
+                            >
+                                {submitting ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        Sending message...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send className="w-5 h-5" />
+                                        Send Message
+                                    </>
+                                )}
+                            </button>
+                            
+                            <div className="mt-4 text-center">
+                                <p className="text-xs text-slate-500">
+                                    By submitting this form, you agree to our{' '}
+                                    <Link to="/legal/privacy" className="text-primary-400 hover:underline">
+                                        Privacy Policy
+                                    </Link>
+                                    . We'll never share your information.
+                                </p>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-              )}
-              
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {submitting ? 'Sending...' : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    Send Message
-                  </>
-                )}
-              </button>
-              
-              <p className="text-xs text-slate-500 text-center mt-4">
-                By submitting this form, you agree to our <Link to="/legal/privacy" className="text-primary-400 hover:underline">Privacy Policy</Link>.
-                We'll never share your information.
-              </p>
-            </form>
-          </div>
+                
+                {/* Quick Response Note */}
+                <div className="mt-10 text-center">
+                    <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800/50 rounded-full">
+                        <Headphones className="w-4 h-4 text-primary-400" />
+                        <span className="text-slate-400 text-sm">Average response time: &lt; 4 hours</span>
+                        <div className="w-px h-4 bg-slate-700 mx-2"></div>
+                        <Clock className="w-4 h-4 text-primary-400" />
+                        <span className="text-slate-400 text-sm">24/7 AI Chat available</span>
+                    </div>
+                </div>
+                
+            </div>
         </div>
-        
-        {/* Quick Response Note */}
-        <div className="mt-8 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-full">
-            <Clock className="w-4 h-4 text-primary-400" />
-            <span className="text-slate-400 text-sm">Average response time: &lt; 4 hours</span>
-          </div>
-        </div>
-        
-      </div>
-    </div>
-  );
+    );
 }
