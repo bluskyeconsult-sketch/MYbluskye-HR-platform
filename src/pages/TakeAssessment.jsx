@@ -1,7 +1,7 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE ASSESSMENT TAKING PAGE - Fixed for existing table schema (no option_value)
+// COMPLETE PROFESSIONAL ASSESSMENT TAKING PAGE - With unified API, auto-save, timer, and all question types
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -12,7 +12,8 @@ import {
     completeAssessment,
     startAssessment
 } from '../services/assessmentService';
-import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save, HelpCircle } from 'lucide-react';
+import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save, HelpCircle, Shield, Zap } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function TakeAssessment() {
     const { id } = useParams();
@@ -33,6 +34,8 @@ export default function TakeAssessment() {
     const [user, setUser] = useState(null);
     const [sessionId, setSessionId] = useState(null);
     const [autoSaveStatus, setAutoSaveStatus] = useState(null);
+    const [isLastQuestion, setIsLastQuestion] = useState(false);
+    const [questionStartTime, setQuestionStartTime] = useState(null);
     
     // Refs for cleanup
     const timerRef = useRef(null);
@@ -75,9 +78,26 @@ export default function TakeAssessment() {
         
         autoSaveRef.current = setTimeout(async () => {
             try {
-                await saveAnswer(sessionId, answers);
-                setAutoSaveStatus('saved');
-                setTimeout(() => setAutoSaveStatus(null), 2000);
+                // ✅ Using unified API for auto-save
+                const response = await fetch('/api/index?action=assessment-auto-save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        sessionId, 
+                        answers,
+                        currentIndex,
+                        timeSpent: Math.floor((Date.now() - startTime) / 1000)
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    setAutoSaveStatus('saved');
+                    setTimeout(() => setAutoSaveStatus(null), 2000);
+                } else {
+                    throw new Error(result.error);
+                }
             } catch (err) {
                 console.warn('Auto-save failed:', err);
                 setAutoSaveStatus('error');
@@ -87,9 +107,15 @@ export default function TakeAssessment() {
         return () => {
             if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
         };
-    }, [answers, sessionId]);
+    }, [answers, sessionId, currentIndex, startTime]);
 
-    // Load assessment with proper question fetching
+    // Track time spent per question
+    useEffect(() => {
+        if (currentIndex !== undefined && !loading) {
+            setQuestionStartTime(Date.now());
+        }
+    }, [currentIndex, loading]);
+
     async function loadAssessment() {
         setLoading(true);
         setError(null);
@@ -103,11 +129,21 @@ export default function TakeAssessment() {
             }
             setUser(authUser);
             
-            // 2. Check eligibility
-            let eligibilityData;
+            // 2. Check eligibility via unified API
             try {
-                eligibilityData = await checkUserEligibility(authUser.id, id);
+                const eligibilityResponse = await fetch(`/api/index?action=user-eligibility&userId=${authUser.id}&type=assessment&assessmentId=${id}`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const eligibilityResult = await eligibilityResponse.json();
+                
+                if (eligibilityResult.success) {
+                    setEligibility(eligibilityResult.data);
+                } else {
+                    throw new Error(eligibilityResult.error);
+                }
             } catch (err) {
+                // Fallback to direct check
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('tier, user_type')
@@ -119,7 +155,7 @@ export default function TakeAssessment() {
                                    profile?.user_type === 'super_admin' ||
                                    profile?.user_type === 'admin';
                 
-                eligibilityData = {
+                setEligibility({
                     eligible: isUnlimited,
                     remaining: isUnlimited ? 999 : 3,
                     limit: isUnlimited ? 999 : 3,
@@ -127,74 +163,72 @@ export default function TakeAssessment() {
                     canDownloadReport: true,
                     canRetake: true,
                     isUnlimited: isUnlimited
-                };
+                });
             }
-            setEligibility(eligibilityData);
             
-            if (!eligibilityData.eligible && !eligibilityData.isUnlimited) {
-                setError(`You have used ${eligibilityData.limit - eligibilityData.remaining} of ${eligibilityData.limit} assessments this month. Upgrade to continue.`);
+            const currentEligibility = eligibility || await (async () => {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('tier, user_type')
+                    .eq('id', authUser.id)
+                    .single();
+                return {
+                    eligible: profile?.tier === 'super_admin' || profile?.tier === 'admin',
+                    remaining: 999,
+                    limit: 999,
+                    isUnlimited: true
+                };
+            })();
+            
+            if (!currentEligibility.eligible && !currentEligibility.isUnlimited) {
+                setError(`You have used ${currentEligibility.limit - currentEligibility.remaining} of ${currentEligibility.limit} assessments this month. Upgrade to continue.`);
                 setLoading(false);
                 return;
             }
             
-            // 3. Load assessment details
-            const { data: assessmentData, error: aError } = await supabase
-                .from('assessments')
-                .select('*')
-                .eq('id', id)
-                .single();
+            // 3. Load assessment via unified API
+            const assessmentResponse = await fetch(`/api/index?action=assessment&id=${id}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
             
-            if (aError) throw aError;
+            const assessmentResult = await assessmentResponse.json();
+            
+            if (!assessmentResult.success) throw new Error(assessmentResult.error);
+            
+            const assessmentData = assessmentResult.data;
             setAssessment(assessmentData);
             setTimeLeft(assessmentData.time_limit_minutes * 60);
             setStartTime(Date.now());
             
-            // 4. ✅ FIXED: Load questions with options - ONLY EXISTING COLUMNS
-            // REMOVED: option_value (doesn't exist in your schema)
-            // KEPT: id, option_text, is_correct, sort_order
-            const { data: questionsData, error: qError } = await supabase
-                .from('assessment_questions')
-                .select(`
-                    id,
-                    question_text,
-                    question_type,
-                    points,
-                    dimension,
-                    sort_order,
-                    assessment_options (
-                        id,
-                        option_text,
-                        is_correct,
-                        sort_order
-                    )
-                `)
-                .eq('assessment_id', id)
-                .order('sort_order', { ascending: true });
+            // 4. Load questions with options via unified API
+            const questionsResponse = await fetch(`/api/index?action=assessment-questions&assessmentId=${id}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
             
-            if (qError) {
-                console.error('Questions error:', qError);
-                throw qError;
-            }
+            const questionsResult = await questionsResponse.json();
+            
+            if (!questionsResult.success) throw new Error(questionsResult.error);
+            
+            const questionsData = questionsResult.data || [];
             
             // 5. Process questions - ensure options is an array
-            const processedQuestions = (questionsData || []).map(q => ({
+            const processedQuestions = questionsData.map(q => ({
                 ...q,
-                options: q.assessment_options || []
+                options: q.options || []
             }));
             
-            // 6. Filter questions based on type
+            // 6. Validate questions
             const validQuestions = processedQuestions.filter(q => {
-                // Text-based questions don't need options
                 if (q.question_type === 'text' || q.question_type === 'essay' || q.question_type === 'scenario') {
                     return true;
                 }
-                // Likert and True/False don't need options array
                 if (q.question_type === 'likert_scale' || q.question_type === 'true_false') {
                     return true;
                 }
-                // Multiple choice needs options
                 if (q.question_type === 'multiple_choice') {
-                    const hasOptions = q.options && Array.isArray(q.options) && q.options.length > 0;
+                    const hasOptions = q.options && q.options.length > 0;
                     if (!hasOptions) {
                         console.warn(`Question ${q.id} has no options:`, q.question_text);
                     }
@@ -210,21 +244,24 @@ export default function TakeAssessment() {
             }
             
             setQuestions(validQuestions);
+            setIsLastQuestion(validQuestions.length === 1);
             console.log(`✅ Loaded ${validQuestions.length} questions with options`);
             
-            // 7. Start assessment session
-            const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-            setSessionId(newSessionId);
+            // 7. Start assessment session via unified API
+            const sessionResponse = await fetch('/api/index?action=assessment-start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: authUser.id, assessmentId: id })
+            });
             
-            let record;
-            try {
-                record = await recordAssessmentStart(authUser.id, id, newSessionId);
-            } catch {
-                const result = await startAssessment(authUser.id, id);
-                record = result?.session;
+            const sessionResult = await sessionResponse.json();
+            
+            if (sessionResult.success) {
+                setSessionId(sessionResult.data.sessionId);
+                setUserAssessmentId(sessionResult.data.userAssessmentId);
+            } else {
+                throw new Error(sessionResult.error);
             }
-            
-            setUserAssessmentId(record?.id);
             
         } catch (err) {
             console.error('Error loading assessment:', err);
@@ -241,14 +278,14 @@ export default function TakeAssessment() {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
-    async function handleAnswer(questionId, answerValue) {
-        const newAnswers = { ...answers, [questionId]: answerValue };
-        setAnswers(newAnswers);
-    }
+    const handleAnswer = useCallback((questionId, answerValue) => {
+        setAnswers(prev => ({ ...prev, [questionId]: answerValue }));
+    }, []);
 
     async function handleNext() {
         if (currentIndex < questions.length - 1) {
             setCurrentIndex(currentIndex + 1);
+            setIsLastQuestion(currentIndex + 1 === questions.length - 1);
         } else {
             await handleSubmit();
         }
@@ -257,6 +294,7 @@ export default function TakeAssessment() {
     async function handlePrevious() {
         if (currentIndex > 0) {
             setCurrentIndex(currentIndex - 1);
+            setIsLastQuestion(currentIndex - 1 === questions.length - 1);
         }
     }
 
@@ -267,46 +305,50 @@ export default function TakeAssessment() {
         const timeSpent = Math.floor((Date.now() - startTime) / 1000);
         
         try {
-            let result;
-            if (userAssessmentId) {
-                result = await submitAssessmentAnswers(userAssessmentId, answers, timeSpent);
-            } else if (sessionId) {
-                result = await completeAssessment(sessionId, answers);
-            } else {
-                throw new Error('No active assessment session');
-            }
+            // ✅ Using unified API for submission
+            const response = await fetch('/api/index?action=assessment-submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    userAssessmentId: userAssessmentId || sessionId,
+                    answers,
+                    timeSpent,
+                    sessionId
+                })
+            });
+            
+            const result = await response.json();
             
             if (result.success) {
-                const redirectId = userAssessmentId || sessionId;
+                const redirectId = result.data.redirectId || userAssessmentId || sessionId;
+                toast.success('Assessment submitted successfully!');
                 navigate(`/assessment-results/${redirectId}`);
             } else {
                 setError(result.error || 'Failed to submit assessment. Please try again.');
+                toast.error(result.error || 'Submission failed');
             }
         } catch (err) {
             console.error('Submit error:', err);
             setError(err.message || 'Failed to submit assessment. Please try again.');
+            toast.error(err.message || 'Submission failed');
         } finally {
             setSubmitting(false);
         }
     }
 
-    // Validate question has required content
     function hasValidContent(question) {
         if (!question) return false;
         
-        // Text-based questions don't need options
         if (question.question_type === 'text' || question.question_type === 'essay' || question.question_type === 'scenario') {
             return true;
         }
         
-        // Likert scale and true/false don't need options array
         if (question.question_type === 'likert_scale' || question.question_type === 'true_false') {
             return true;
         }
         
-        // Multiple choice needs options
         if (question.question_type === 'multiple_choice') {
-            return question.options && Array.isArray(question.options) && question.options.length > 0;
+            return question.options && question.options.length > 0;
         }
         
         return false;
@@ -319,7 +361,6 @@ export default function TakeAssessment() {
         const currentAnswer = answers[question.id];
         const hasContent = hasValidContent(question);
         
-        // Safety guard for invalid questions
         if (!hasContent) {
             return (
                 <div className="space-y-4">
@@ -380,7 +421,7 @@ export default function TakeAssessment() {
                     <div className="space-y-3">
                         <p className="text-white text-lg font-medium">{question.question_text}</p>
                         <div className="space-y-2">
-                            {(question.options || []).map(option => (
+                            {question.options.map(option => (
                                 <label
                                     key={option.id}
                                     className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition ${
@@ -439,6 +480,9 @@ export default function TakeAssessment() {
                             className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
                             placeholder="Type your answer here..."
                         />
+                        <p className="text-xs text-slate-500">
+                            {currentAnswer?.length || 0} characters
+                        </p>
                     </div>
                 );
                 
@@ -460,7 +504,7 @@ export default function TakeAssessment() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
                 <div className="text-center">
                     <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
                     <p className="text-slate-400">Loading assessment...</p>
@@ -471,7 +515,7 @@ export default function TakeAssessment() {
 
     if (error) {
         return (
-            <div className="min-h-screen bg-slate-950 py-12">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
                 <div className="max-w-2xl mx-auto px-4 text-center">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Cannot Start Assessment</h1>
@@ -496,7 +540,7 @@ export default function TakeAssessment() {
 
     if (questions.length === 0) {
         return (
-            <div className="min-h-screen bg-slate-950 py-12">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
                 <div className="max-w-2xl mx-auto px-4 text-center">
                     <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">No Questions Available</h1>
@@ -516,13 +560,18 @@ export default function TakeAssessment() {
     const canProceed = hasValidContentFlag ? hasAnswered : true;
 
     return (
-        <div className="min-h-screen bg-slate-950 py-8 md:py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-8 md:py-12">
             <div className="max-w-3xl mx-auto px-4">
                 {/* Header */}
                 <div className="mb-6">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-2">
                         <h1 className="text-xl md:text-2xl font-bold text-white">{assessment?.title}</h1>
                         <div className="flex items-center gap-3">
+                            {eligibility?.isUnlimited && (
+                                <span className="flex items-center gap-1 text-xs text-purple-400">
+                                    <Shield className="w-3 h-3" /> Unlimited
+                                </span>
+                            )}
                             {autoSaveStatus === 'saved' && (
                                 <span className="flex items-center gap-1 text-xs text-emerald-400">
                                     <Save className="w-3 h-3" /> Saved
@@ -597,6 +646,16 @@ export default function TakeAssessment() {
                 {!hasAnswered && hasValidContentFlag && currentQuestion && (
                     <p className="text-xs text-amber-400 text-center mt-4">
                         Please answer this question before continuing
+                    </p>
+                )}
+                
+                {/* Question type indicator */}
+                {currentQuestion && (
+                    <p className="text-xs text-slate-500 text-center mt-3">
+                        {currentQuestion.question_type === 'multiple_choice' && '✓ Select one answer'}
+                        {currentQuestion.question_type === 'likert_scale' && '⭐ Select your level of agreement'}
+                        {currentQuestion.question_type === 'true_false' && '✓ Select True or False'}
+                        {(currentQuestion.question_type === 'text' || currentQuestion.question_type === 'essay') && '✏️ Type your answer'}
                     </p>
                 )}
             </div>
