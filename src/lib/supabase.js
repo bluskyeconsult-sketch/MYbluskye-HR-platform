@@ -1,5 +1,6 @@
 // src/lib/supabase.js
-// COMPLETE PRODUCTION READY - Optimized singleton with unified API support, no top-level await
+// COMPLETE PRODUCTION READY - Optimized singleton with unified API support
+// No top-level await, safe for all environments
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -10,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Validate environment variables
 if (!supabaseUrl || !supabaseAnonKey) {
     const missing = [];
     if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
@@ -17,6 +19,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
     
     console.error(`❌ Missing Supabase environment variables: ${missing.join(', ')}`);
     
+    // Only throw in development, use fallbacks in production
     if (import.meta.env.DEV) {
         throw new Error('Missing Supabase configuration');
     }
@@ -89,6 +92,11 @@ export const getSupabase = () => {
 
 // Export client synchronously (no top-level await)
 export const supabase = getSupabase();
+
+// Make globally available (FIXES "supabase is not defined" errors)
+if (typeof window !== 'undefined') {
+    window.supabase = supabase;
+}
 
 // Freeze in production to prevent modifications
 if (import.meta.env.PROD && supabase && typeof Object.freeze === 'function') {
@@ -372,7 +380,7 @@ export async function repairCorruptedSession() {
 }
 
 // ============================================
-// UNIFIED API HELPER
+// UNIFIED API HELPER (UPDATED - NO WRONG CALLS)
 // ============================================
 
 /**
@@ -389,7 +397,7 @@ export async function apiCall(action, data = {}, method = 'POST') {
             method,
             headers: {
                 'Content-Type': 'application/json',
-                ...(currentUser?.id && { 'Authorization': `Bearer ${currentUser.id}` })
+                ...(currentUser?.id && { 'X-User-Id': currentUser.id })
             },
             body: method !== 'GET' ? JSON.stringify(data) : undefined
         });
@@ -405,6 +413,25 @@ export async function apiCall(action, data = {}, method = 'POST') {
         console.error(`API call error (${action}):`, error);
         throw error;
     }
+}
+
+// ============================================
+// USER PROFILE HELPER (UPDATED)
+// ============================================
+
+/**
+ * Update user profile using unified API
+ * @param {Object} updates - Profile updates
+ * @returns {Promise<Object>} Update result
+ */
+export async function updateUserProfile(updates) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    return apiCall('user-update', {
+        userId: user.id,
+        updates
+    });
 }
 
 // ============================================
