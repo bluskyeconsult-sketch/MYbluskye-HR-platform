@@ -1,5 +1,5 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE ASSESSMENTS PAGE - With search, filters, categories, user results tracking, debugging, error handling, and proper routing
+// COMPLETE PROFESSIONAL ASSESSMENTS PAGE - With unified API, search, filters, user results tracking, and real question counts
 
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
@@ -7,7 +7,8 @@ import { supabase } from '../lib/supabase';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
     AlertCircle, Star, Users, FileText, CheckCircle, Filter,
-    BarChart3, Sparkles, HelpCircle, RefreshCw
+    BarChart3, Sparkles, HelpCircle, RefreshCw, Shield,
+    Zap, Target, ThumbsUp, BookOpen, ChevronRight
 } from 'lucide-react';
 
 export default function AssessmentsPage() {
@@ -22,27 +23,55 @@ export default function AssessmentsPage() {
     const [showDebug, setShowDebug] = useState(false);
     const [questionCounts, setQuestionCounts] = useState({});
     const [refreshing, setRefreshing] = useState(false);
+    const [user, setUser] = useState(null);
+    const [eligibility, setEligibility] = useState({ remaining: 10, limit: 10 });
 
     const categories = [
-        { id: 'all', name: 'All Assessments', icon: Brain },
-        { id: 'personality', name: 'Personality', icon: Star },
-        { id: 'emotional_intelligence', name: 'EQ', icon: Brain },
-        { id: 'leadership', name: 'Leadership', icon: Users },
-        { id: 'communication', name: 'Communication', icon: FileText },
-        { id: 'problem_solving', name: 'Problem Solving', icon: Brain },
-        { id: 'team_collaboration', name: 'Team', icon: Users },
-        { id: 'career_aptitude', name: 'Career', icon: TrendingUp }
+        { id: 'all', name: 'All Assessments', icon: Brain, description: 'View all assessments' },
+        { id: 'personality', name: 'Personality', icon: Star, description: 'Understand your character traits' },
+        { id: 'emotional_intelligence', name: 'EQ', icon: Brain, description: 'Measure emotional awareness' },
+        { id: 'leadership', name: 'Leadership', icon: Users, description: 'Evaluate leadership potential' },
+        { id: 'communication', name: 'Communication', icon: FileText, description: 'Assess communication skills' },
+        { id: 'problem_solving', name: 'Problem Solving', icon: Brain, description: 'Test analytical abilities' },
+        { id: 'team_collaboration', name: 'Team', icon: Users, description: 'Measure teamwork skills' },
+        { id: 'career_aptitude', name: 'Career', icon: TrendingUp, description: 'Discover career paths' }
     ];
 
-    // Load data on mount
     useEffect(() => {
+        checkUser();
         loadAllData();
     }, []);
 
-    // Filter when dependencies change
     useEffect(() => {
         filterAssessments();
     }, [assessments, searchQuery, selectedCategory]);
+
+    async function checkUser() {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
+        
+        if (user) {
+            await loadUserEligibility();
+        }
+    }
+
+    async function loadUserEligibility() {
+        try {
+            // ✅ Using unified API
+            const response = await fetch(`/api/index?action=user-eligibility&userId=${user.id}&type=assessments`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+                setEligibility(result.data);
+            }
+        } catch (err) {
+            console.error('Error loading eligibility:', err);
+        }
+    }
 
     async function loadAllData() {
         setRefreshing(true);
@@ -54,78 +83,56 @@ export default function AssessmentsPage() {
         setRefreshing(false);
     }
 
-    // ✅ Get real question count from database
     async function getRealQuestionCount(assessmentId) {
         try {
-            const { count, error } = await supabase
-                .from('assessment_questions')
-                .select('*', { count: 'exact', head: true })
-                .eq('assessment_id', assessmentId);
+            // ✅ Using unified API for question count
+            const response = await fetch(`/api/index?action=assessment-question-count&assessmentId=${assessmentId}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
             
-            if (error) throw error;
-            return count || 0;
+            const result = await response.json();
+            
+            if (result.success) {
+                return result.count || 0;
+            }
+            return 0;
         } catch (err) {
             console.warn(`Could not get question count for ${assessmentId}:`, err);
             return 0;
         }
     }
 
-    // ✅ Debug function with real question counts
     async function debugDatabase() {
         console.log("🔍 [DEBUG] Starting database diagnostic...");
         
         try {
-            // Check assessments table
-            const { data: assessmentsData, error: assessmentsError } = await supabase
-                .from('assessments')
-                .select('id, title, assessment_type, question_count, time_limit_minutes, is_active');
-            
-            console.log("📊 [DEBUG] Assessments in DB:", assessmentsData);
-            if (assessmentsError) console.error("❌ [DEBUG] Assessments error:", assessmentsError);
-            
-            const countsMap = {};
-            
-            // Check REAL question counts for each assessment
-            if (assessmentsData && assessmentsData.length > 0) {
-                for (const assessment of assessmentsData) {
-                    const realCount = await getRealQuestionCount(assessment.id);
-                    countsMap[assessment.id] = realCount;
-                    
-                    console.log(`📝 [DEBUG] "${assessment.title}" - Stored: ${assessment.question_count || 0}, Actual: ${realCount} questions`);
-                    
-                    if (assessment.question_count !== realCount) {
-                        console.warn(`⚠️ [DEBUG] Mismatch! Update question_count for ${assessment.title} from ${assessment.question_count} to ${realCount}`);
-                    }
-                }
-                setQuestionCounts(countsMap);
-            } else {
-                console.warn("⚠️ [DEBUG] No assessments found in database!");
-            }
-            
-            // Check user_results if user is logged in
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data: userResultsData, error: userResultsError } = await supabase
-                    .from('user_assessments')
-                    .select('assessment_id, percentage, status')
-                    .eq('user_id', user.id);
-                
-                console.log("👤 [DEBUG] User results:", userResultsData);
-                if (userResultsError) console.error("❌ [DEBUG] User results error:", userResultsError);
-            }
-            
-            setDebugInfo({
-                assessmentsCount: assessmentsData?.length || 0,
-                assessmentsList: assessmentsData?.map(a => ({ 
-                    title: a.title, 
-                    storedCount: a.question_count || 0,
-                    realCount: countsMap[a.id] || 0,
-                    needsUpdate: a.question_count !== countsMap[a.id],
-                    isActive: a.is_active 
-                })) || [],
-                timestamp: new Date().toISOString()
+            // ✅ Using unified API
+            const response = await fetch('/api/index?action=assessments-debug', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
             });
             
+            const result = await response.json();
+            
+            if (result.success) {
+                const { assessmentsData, countsMap } = result.data;
+                
+                console.log("📊 [DEBUG] Assessments in DB:", assessmentsData);
+                setQuestionCounts(countsMap || {});
+                
+                setDebugInfo({
+                    assessmentsCount: assessmentsData?.length || 0,
+                    assessmentsList: assessmentsData?.map(a => ({ 
+                        title: a.title, 
+                        storedCount: a.question_count || 0,
+                        realCount: countsMap?.[a.id] || 0,
+                        needsUpdate: a.question_count !== countsMap?.[a.id],
+                        isActive: a.is_active 
+                    })) || [],
+                    timestamp: new Date().toISOString()
+                });
+            }
         } catch (err) {
             console.error("❌ [DEBUG] Unexpected error:", err);
             setDebugInfo({ error: err.message });
@@ -135,20 +142,23 @@ export default function AssessmentsPage() {
     async function loadAssessments() {
         try {
             setLoading(true);
-            console.log("🔄 Loading assessments from Supabase...");
+            console.log("🔄 Loading assessments from API...");
             
-            const { data, error } = await supabase
-                .from('assessments')
-                .select('*')
-                .eq('is_active', true)
-                .order('created_at', { ascending: true });
+            // ✅ Using unified API
+            const response = await fetch('/api/index?action=assessments-list', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
             
-            if (error) throw error;
+            const result = await response.json();
             
-            console.log(`✅ Loaded ${data?.length || 0} assessments`);
+            if (!result.success) throw new Error(result.error);
             
-            // ✅ Get real question counts for each assessment
-            const enhancedData = await Promise.all((data || []).map(async (assessment) => {
+            const data = result.data || [];
+            console.log(`✅ Loaded ${data.length} assessments`);
+            
+            // Get real question counts for each assessment
+            const enhancedData = await Promise.all(data.map(async (assessment) => {
                 const realCount = await getRealQuestionCount(assessment.id);
                 return {
                     ...assessment,
@@ -162,7 +172,7 @@ export default function AssessmentsPage() {
             setFilteredAssessments(safeData);
             
             if (safeData.length === 0) {
-                console.warn("⚠️ No active assessments found. Check if assessments exist and is_active=true");
+                console.warn("⚠️ No active assessments found.");
             }
         } catch (err) {
             console.error('❌ Error loading assessments:', err);
@@ -175,19 +185,20 @@ export default function AssessmentsPage() {
     }
 
     async function loadUserResults() {
-        const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
         try {
-            const { data, error } = await supabase
-                .from('user_assessments')
-                .select('assessment_id, score, percentage, completed_at, performance_level')
-                .eq('user_id', user.id)
-                .eq('status', 'completed');
+            // ✅ Using unified API
+            const response = await fetch(`/api/index?action=user-assessment-results&userId=${user.id}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
             
-            if (!error && data) {
+            const result = await response.json();
+            
+            if (result.success && result.data) {
                 const resultsMap = {};
-                data.forEach(r => {
+                result.data.forEach(r => {
                     resultsMap[r.assessment_id] = {
                         score: r.score,
                         percentage: r.percentage,
@@ -196,7 +207,7 @@ export default function AssessmentsPage() {
                     };
                 });
                 setUserResults(resultsMap);
-                console.log(`✅ Loaded ${data.length} user assessment results`);
+                console.log(`✅ Loaded ${result.data.length} user assessment results`);
             }
         } catch (err) {
             console.warn('Could not load user results:', err);
@@ -206,7 +217,6 @@ export default function AssessmentsPage() {
     function filterAssessments() {
         let filtered = [...assessments];
         
-        // Search filter
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(a => 
@@ -215,12 +225,10 @@ export default function AssessmentsPage() {
             );
         }
         
-        // Category filter
         if (selectedCategory !== 'all') {
             filtered = filtered.filter(a => a.assessment_type === selectedCategory);
         }
         
-        // Safe sort with fallback
         filtered.sort((a, b) => {
             const titleA = a?.title || '';
             const titleB = b?.title || '';
@@ -230,7 +238,6 @@ export default function AssessmentsPage() {
         setFilteredAssessments(filtered);
     }
 
-    // ✅ Get question count safely
     function getDisplayQuestionCount(assessment) {
         if (assessment.display_question_count) return assessment.display_question_count;
         if (assessment.question_count && assessment.question_count > 0) return assessment.question_count;
@@ -264,15 +271,15 @@ export default function AssessmentsPage() {
     }
 
     function getPerformanceBadge(percentage) {
-        if (percentage >= 80) return { label: 'Excellent', color: 'bg-emerald-500/20 text-emerald-400' };
-        if (percentage >= 60) return { label: 'Good', color: 'bg-blue-500/20 text-blue-400' };
-        if (percentage >= 40) return { label: 'Average', color: 'bg-amber-500/20 text-amber-400' };
-        return { label: 'Needs Improvement', color: 'bg-red-500/20 text-red-400' };
+        if (percentage >= 80) return { label: 'Excellent', color: 'bg-emerald-500/20 text-emerald-400', icon: Award };
+        if (percentage >= 60) return { label: 'Good', color: 'bg-blue-500/20 text-blue-400', icon: ThumbsUp };
+        if (percentage >= 40) return { label: 'Average', color: 'bg-amber-500/20 text-amber-400', icon: Target };
+        return { label: 'Needs Improvement', color: 'bg-red-500/20 text-red-400', icon: AlertCircle };
     }
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
                 <div className="text-center">
                     <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
                     <p className="text-slate-400">Loading assessments...</p>
@@ -283,7 +290,7 @@ export default function AssessmentsPage() {
 
     if (error) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center px-4">
                 <div className="text-center max-w-md">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Assessments</h1>
@@ -305,7 +312,7 @@ export default function AssessmentsPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 {/* Header */}
@@ -319,6 +326,22 @@ export default function AssessmentsPage() {
                     <p className="text-lg text-slate-400 max-w-2xl mx-auto">
                         Discover your potential with science-backed assessments
                     </p>
+                    
+                    {/* Credit Info */}
+                    {user && (
+                        <div className={`mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
+                            eligibility.remaining <= 3 
+                                ? 'bg-amber-500/20 text-amber-400' 
+                                : 'bg-emerald-500/20 text-emerald-400'
+                        }`}>
+                            <Shield className="w-3 h-3" />
+                            {eligibility.isUnlimited ? (
+                                'Unlimited assessments'
+                            ) : (
+                                `${eligibility.remaining} of ${eligibility.limit} assessments remaining this month`
+                            )}
+                        </div>
+                    )}
                     
                     {/* Debug and Refresh Buttons */}
                     <div className="flex items-center justify-center gap-3 mt-4">
@@ -360,16 +383,10 @@ export default function AssessmentsPage() {
                             ))}
                             {debugInfo.assessmentsCount === 0 && (
                                 <p className="text-amber-400 mt-2">
-                                    ⚠️ No assessments found! Add assessments via Admin Panel or SQL.
+                                    ⚠️ No assessments found! Add assessments via Admin Panel.
                                 </p>
                             )}
                             <p className="text-slate-500 text-xs mt-2">Last check: {new Date(debugInfo.timestamp).toLocaleTimeString()}</p>
-                            <button 
-                                onClick={debugDatabase}
-                                className="mt-2 text-primary-400 hover:text-primary-300 text-xs"
-                            >
-                                🔄 Refresh Diagnostic
-                            </button>
                         </div>
                     </div>
                 )}
@@ -396,6 +413,7 @@ export default function AssessmentsPage() {
                                         ? 'bg-primary-600 text-white'
                                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                                 }`}
+                                title={cat.description}
                             >
                                 <cat.icon className="w-4 h-4" />
                                 {cat.name}
@@ -467,6 +485,7 @@ export default function AssessmentsPage() {
                             const userResult = userResults[assessment.id];
                             const performanceBadge = userResult ? getPerformanceBadge(userResult.percentage) : null;
                             const questionCount = getDisplayQuestionCount(assessment);
+                            const canTake = !userResult || eligibility.remaining > 0 || eligibility.isUnlimited;
                             
                             return (
                                 <div 
@@ -479,7 +498,8 @@ export default function AssessmentsPage() {
                                         </div>
                                         {userResult && (
                                             <div className="text-right">
-                                                <span className={`text-xs px-2 py-0.5 rounded-full ${performanceBadge.color}`}>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full ${performanceBadge.color} flex items-center gap-1`}>
+                                                    <performanceBadge.icon className="w-3 h-3" />
                                                     {performanceBadge.label}
                                                 </span>
                                                 <p className="text-lg font-bold text-white mt-1">{userResult.percentage}%</p>
@@ -511,25 +531,44 @@ export default function AssessmentsPage() {
                                         </div>
                                     )}
                                     
-                                    {/* ✅ CORRECTED LINK - Now properly routes to /assessments/:id */}
+                                    {/* Assessment Link */}
                                     <Link to={`/assessments/${assessment.id}`}>
                                         <button 
-                                            disabled={questionCount === 0}
-                                            className={`w-full py-2.5 rounded-lg transition ${
-                                                questionCount === 0
+                                            disabled={questionCount === 0 || (!canTake && !userResult)}
+                                            className={`w-full py-2.5 rounded-lg transition flex items-center justify-center gap-2 ${
+                                                questionCount === 0 || (!canTake && !userResult)
                                                     ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
                                                     : 'bg-primary-600 text-white hover:bg-primary-700 group-hover:shadow-lg group-hover:shadow-primary-500/20'
                                             }`}
                                         >
-                                            {questionCount === 0 
-                                                ? 'Unavailable' 
-                                                : (userResult ? 'Retake Assessment →' : 'Start Assessment →')
-                                            }
+                                            {questionCount === 0 ? (
+                                                'Unavailable'
+                                            ) : userResult ? (
+                                                <>Retake Assessment <ChevronRight className="w-4 h-4" /></>
+                                            ) : (
+                                                <>Start Assessment <ChevronRight className="w-4 h-4" /></>
+                                            )}
                                         </button>
                                     </Link>
+                                    
+                                    {/* Credit warning for retake */}
+                                    {userResult && eligibility.remaining === 0 && !eligibility.isUnlimited && (
+                                        <p className="text-xs text-amber-400 text-center mt-2">
+                                            No credits remaining this month
+                                        </p>
+                                    )}
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+                
+                {/* Footer Note */}
+                {user && eligibility.remaining === 0 && !eligibility.isUnlimited && (
+                    <div className="mt-8 text-center">
+                        <Link to="/pricing" className="text-sm text-primary-400 hover:text-primary-300 transition">
+                            Upgrade to continue taking assessments →
+                        </Link>
                     </div>
                 )}
             </div>
