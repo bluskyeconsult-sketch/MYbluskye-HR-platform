@@ -1,5 +1,5 @@
 // src/pages/admin/AdminDashboard.jsx
-// COMPLETE ADMIN DASHBOARD - Stats dashboard + sidebar navigation + unlimited access
+// COMPLETE ADMIN DASHBOARD - Stats dashboard + sidebar navigation + unlimited access + unified API
 
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -10,14 +10,26 @@ import {
     Shield, Settings, LogOut, Menu, X, Bell, Activity,
     BarChart3, Server, HardDrive, Globe, ShoppingBag, Gift,
     Award, CheckCircle, Clock, AlertCircle, TrendingUp,
-    Calendar, UserPlus, Eye, Zap, Wifi, Download, Loader2
+    Calendar, UserPlus, Eye, Zap, Wifi, Download, Loader2,
+    RefreshCw, Filter, Search
 } from 'lucide-react';
+
+// ============================================
+// CONFIGURATION
+// ============================================
+
+const API_BASE = '/api/index';
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function AdminDashboard() {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalJobs: 0,
@@ -26,8 +38,10 @@ export default function AdminDashboard() {
         totalVAs: 24,
         pendingJobs: 0,
         pendingReports: 0,
-        systemHealth: 'healthy'
+        systemHealth: 'healthy',
+        recentActivities: []
     });
+    const [lastUpdated, setLastUpdated] = useState(null);
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -62,7 +76,44 @@ export default function AdminDashboard() {
             return;
         }
         
-        // Load stats in parallel
+        await loadStats();
+        setLoading(false);
+    }
+
+    async function loadStats() {
+        setRefreshing(true);
+        
+        try {
+            // ✅ FIXED: Use unified API endpoint for stats
+            const response = await fetch(`${API_BASE}?action=admin-stats`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user?.id })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    setStats({
+                        totalUsers: data.totalUsers || 0,
+                        totalJobs: data.totalJobs || 0,
+                        totalCourses: data.totalCourses || 1,
+                        totalAssessments: data.totalAssessments || 7,
+                        totalVAs: data.totalVAs || 24,
+                        pendingJobs: data.pendingJobs || 0,
+                        pendingReports: data.pendingReports || 0,
+                        systemHealth: data.systemHealth || 'healthy',
+                        recentActivities: data.recentActivities || []
+                    });
+                    setLastUpdated(new Date());
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('Unified API failed, falling back to direct Supabase:', err);
+        }
+        
+        // Fallback to direct Supabase queries
         const [userCount, jobCount, pendingJobs, pendingReports] = await Promise.all([
             supabase.from('profiles').select('*', { count: 'exact', head: true }),
             supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
@@ -70,18 +121,16 @@ export default function AdminDashboard() {
             supabase.from('fraud_reports').select('*', { count: 'exact', head: true }).eq('status', 'pending')
         ]);
         
-        setStats({
+        setStats(prev => ({
+            ...prev,
             totalUsers: userCount.count || 0,
             totalJobs: jobCount.count || 0,
-            totalCourses: 1,
-            totalAssessments: 7,
-            totalVAs: 24,
             pendingJobs: pendingJobs.count || 0,
-            pendingReports: pendingReports.count || 0,
-            systemHealth: 'healthy'
-        });
+            pendingReports: pendingReports.count || 0
+        }));
+        setLastUpdated(new Date());
         
-        setLoading(false);
+        setRefreshing(false);
     }
 
     async function handleLogout() {
@@ -177,12 +226,27 @@ export default function AdminDashboard() {
                             <h1 className="text-xl font-bold text-white">{currentPage}</h1>
                             <p className="text-slate-400 text-sm">Welcome back, {user?.email}</p>
                         </div>
-                        {isSuperAdmin && (
-                            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-                                <Award className="w-4 h-4 text-emerald-400" />
-                                <span className="text-emerald-400 text-xs font-semibold">Super Admin</span>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                            {lastUpdated && (
+                                <span className="text-xs text-slate-500 hidden sm:inline">
+                                    Last updated: {lastUpdated.toLocaleTimeString()}
+                                </span>
+                            )}
+                            <button
+                                onClick={loadStats}
+                                disabled={refreshing}
+                                className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
+                                title="Refresh stats"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                            </button>
+                            {isSuperAdmin && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                                    <Award className="w-4 h-4 text-emerald-400" />
+                                    <span className="text-emerald-400 text-xs font-semibold">Super Admin</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -271,6 +335,27 @@ export default function AdminDashboard() {
                             <Link to="/admin/fraud-reports" className="text-xs text-primary-400 hover:underline mt-2 inline-block">View →</Link>
                         </div>
                     </div>
+
+                    {/* Recent Activities (Optional) */}
+                    {stats.recentActivities.length > 0 && (
+                        <div className="mb-8">
+                            <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                                <Activity className="w-4 h-4 text-primary-400" />
+                                Recent Activities
+                            </h3>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                                <div className="divide-y divide-slate-800">
+                                    {stats.recentActivities.slice(0, 5).map((activity, idx) => (
+                                        <div key={idx} className="px-4 py-3 flex items-center gap-3">
+                                            <div className="w-2 h-2 rounded-full bg-primary-400"></div>
+                                            <p className="text-slate-300 text-sm flex-1">{activity.description}</p>
+                                            <span className="text-xs text-slate-500">{activity.time}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Quick Actions */}
                     <div className="mt-4">
