@@ -274,9 +274,11 @@ function AppContent() {
     useEffect(() => {
         const cleanup = initAuthListener();
         
-        recoverSession().then(session => {
-            if (session && isDevelopment) {
-                console.log('✅ Session active');
+        recoverSession().then(({ session, isValid }) => {
+            if (session && isValid && isDevelopment) {
+                console.log('✅ Session active and valid');
+            } else if (isDevelopment) {
+                console.log('ℹ️ No active session');
             }
         }).catch(() => {});
         
