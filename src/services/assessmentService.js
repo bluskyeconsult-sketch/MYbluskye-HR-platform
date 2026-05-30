@@ -2,13 +2,12 @@
 // COMPLETE PROFESSIONAL ASSESSMENT SERVICE - Unified API endpoint
 // All AI calls go through /api/index?action=...
 
-import { supabase } from '../lib/supabase';
+import { supabase, apiCall } from '../lib/supabase';
 
 // ============================================
 // CONSTANTS & CONFIGURATION
 // ============================================
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const API_BASE = '/api/index'; // Unified API endpoint
 
 // Tier Limits Configuration
@@ -46,8 +45,12 @@ const getTierLimits = (tier, userType) => {
     return { ...(TIER_LIMITS[tier] || TIER_LIMITS.free), isUnlimited: false };
 };
 
+// ============================================
+// UNIFIED API CALLER (using lib/supabase apiCall)
+// ============================================
+
 /**
- * Unified API caller - all AI requests go through /api/index
+ * Unified API caller with fallback for AI operations
  */
 const callUnifiedAPI = async (action, payload, options = {}) => {
     const { method = 'POST', timeout = 30000 } = options;
@@ -70,65 +73,19 @@ const callUnifiedAPI = async (action, payload, options = {}) => {
             throw new Error(errorData.error || `API request failed: ${response.status}`);
         }
         
-        return await response.json();
+        const result = await response.json();
+        
+        if (!result.success && !result.result) {
+            throw new Error(result.error || 'Unknown API error');
+        }
+        
+        return result;
     } catch (error) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
             throw new Error('Request timeout. Please try again.');
         }
         throw error;
-    }
-};
-
-/**
- * Direct OpenAI call (fallback when unified API is unavailable)
- */
-const callOpenAIDirect = async (messages, options = {}) => {
-    if (!OPENAI_API_KEY) {
-        throw new Error('OpenAI API key not configured');
-    }
-    
-    const defaultOptions = {
-        model: 'gpt-4o-mini',
-        temperature: 0.7,
-        max_tokens: 1000
-    };
-    
-    const config = { ...defaultOptions, ...options };
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ messages, ...config })
-    });
-    
-    if (!response.ok) throw new Error('OpenAI API request failed');
-    return await response.json();
-};
-
-/**
- * Smart AI caller - tries unified API first, falls back to direct OpenAI
- */
-const callAI = async (action, payload, options = {}) => {
-    try {
-        // Try unified API route first
-        return await callUnifiedAPI(action, payload, options);
-    } catch (apiError) {
-        console.warn(`Unified API failed for ${action}, trying direct OpenAI:`, apiError.message);
-        
-        // Fallback to direct OpenAI call for chat-based operations
-        if (action === 'chat' && payload.messages) {
-            const response = await callOpenAIDirect(payload.messages, {
-                temperature: payload.temperature || 0.7,
-                max_tokens: payload.max_tokens || 1000
-            });
-            return response;
-        }
-        
-        throw apiError;
     }
 };
 
