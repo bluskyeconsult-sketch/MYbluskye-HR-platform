@@ -8,7 +8,7 @@ import {
     Calendar, Shield, RefreshCw, Filter, UserPlus, Edit, 
     Trash2, AlertCircle, Download, ChevronDown, Eye,
     Award, Briefcase, Star, Clock, Ban, UserCheck,
-    Building2
+    Building2, X
 } from 'lucide-react';
 
 // ============================================
@@ -371,7 +371,7 @@ export default function AdminUsers() {
                                                 {new Date(user.created_at).toLocaleDateString()}
                                             </span>
                                         </div>
-                                    </tr>
+                                    </td>
                                     <td className="px-4 py-3">
                                         {user.is_suspended ? (
                                             <span className="text-red-400 text-sm flex items-center gap-1">
@@ -441,7 +441,7 @@ export default function AdminUsers() {
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold text-white">Change User Role</h2>
                             <button onClick={() => setShowRoleModal(false)} className="text-slate-400 hover:text-white">
-                                <XCircle className="w-5 h-5" />
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
                         
