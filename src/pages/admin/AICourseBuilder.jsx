@@ -10,18 +10,38 @@ import {
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
     Brain, Wand2, Image, Music, FileQuestion, Award, TrendingUp,
     Eye, Globe, Shield, Zap, Settings, DollarSign, Star,
-    ChevronRight, ChevronLeft, PlayCircle, List, Layout
+    ChevronRight, ChevronLeft, PlayCircle, List, Layout,
+    Heart, Share2, Copy, Download, Calendar
 } from 'lucide-react';
-import { autoCreateCourse, generateCourseAudio, generateLessonImage } from '../../lib/courseBuilderService';
+
+// ============================================
+// UNIFIED API ENDPOINTS
+// ============================================
+
+const API_BASE = '/api/index';
+const GENERATE_ENDPOINT = `${API_BASE}?action=generate-course`;
+const PREVIEW_ENDPOINT = `${API_BASE}?action=preview-course`;
+const SAVE_ENDPOINT = `${API_BASE}?action=save-course`;
 
 // ============================================
 // CONFIGURATION
 // ============================================
 
-// ✅ FIXED: Unified API endpoint
-const API_BASE = '/api/index';
-const GENERATE_ENDPOINT = `${API_BASE}?action=generate-course`;
-const PREVIEW_ENDPOINT = `${API_BASE}?action=preview-course`;
+const difficultyLevels = [
+    { value: 'beginner', label: 'Beginner', color: 'bg-emerald-500/20 text-emerald-400', icon: Star, description: 'No prior experience needed', badge: '🌱' },
+    { value: 'intermediate', label: 'Intermediate', color: 'bg-blue-500/20 text-blue-400', icon: TrendingUp, description: 'Some basic knowledge required', badge: '📚' },
+    { value: 'advanced', label: 'Advanced', color: 'bg-purple-500/20 text-purple-400', icon: Award, description: 'In-depth expertise expected', badge: '🎓' },
+    { value: 'expert', label: 'Expert', color: 'bg-amber-500/20 text-amber-400', icon: Zap, description: 'Master-level content', badge: '🏆' }
+];
+
+const categories = [
+    { id: 'technology', name: 'Technology & Programming', icon: Brain },
+    { id: 'business', name: 'Business & Management', icon: Briefcase },
+    { id: 'design', name: 'Design & Creative', icon: Palette },
+    { id: 'marketing', name: 'Marketing & Sales', icon: TrendingUp },
+    { id: 'personal', name: 'Personal Development', icon: Users },
+    { id: 'language', name: 'Language Learning', icon: Globe }
+];
 
 // ============================================
 // MAIN COMPONENT
@@ -36,11 +56,13 @@ export default function AICourseBuilder() {
     const [durationHours, setDurationHours] = useState(5);
     const [targetAudience, setTargetAudience] = useState('');
     const [learningObjectives, setLearningObjectives] = useState('');
+    const [category, setCategory] = useState('technology');
     
     // Feature Toggles
     const [includeImages, setIncludeImages] = useState(true);
     const [includeAudio, setIncludeAudio] = useState(true);
     const [includeQuizzes, setIncludeQuizzes] = useState(true);
+    const [includeAssignments, setIncludeAssignments] = useState(true);
     
     // UI State
     const [loading, setLoading] = useState(false);
@@ -50,13 +72,17 @@ export default function AICourseBuilder() {
     const [generatedOutline, setGeneratedOutline] = useState(null);
     const [showPreview, setShowPreview] = useState(false);
     const [generationProgress, setGenerationProgress] = useState(0);
+    const [generationStatus, setGenerationStatus] = useState('');
     const [activeStep, setActiveStep] = useState('form'); // form, preview, generating, complete
     const [expandedModule, setExpandedModule] = useState(null);
     const [recentCourses, setRecentCourses] = useState([]);
+    const [savedCourses, setSavedCourses] = useState([]);
+    const [selectedTemplate, setSelectedTemplate] = useState('standard');
 
     useEffect(() => {
         checkAdmin();
         loadRecentCourses();
+        loadSavedCourses();
     }, []);
 
     async function checkAdmin() {
@@ -86,7 +112,7 @@ export default function AICourseBuilder() {
         try {
             const { data, error } = await supabase
                 .from('courses')
-                .select('id, title, created_at, is_published')
+                .select('id, title, created_at, is_published, view_count, category, level')
                 .order('created_at', { ascending: false })
                 .limit(5);
             
@@ -95,6 +121,23 @@ export default function AICourseBuilder() {
             }
         } catch (err) {
             console.error('Failed to load recent courses:', err);
+        }
+    }
+
+    async function loadSavedCourses() {
+        try {
+            const { data, error } = await supabase
+                .from('courses')
+                .select('id, title, created_at, is_published')
+                .eq('is_published', true)
+                .order('view_count', { ascending: false })
+                .limit(10);
+            
+            if (!error && data) {
+                setSavedCourses(data);
+            }
+        } catch (err) {
+            console.error('Failed to load saved courses:', err);
         }
     }
 
@@ -109,7 +152,7 @@ export default function AICourseBuilder() {
         setActiveStep('preview');
         
         try {
-            // ✅ FIXED: Use unified API endpoint
+            // ✅ UNIFIED API ENDPOINT
             const response = await fetch(PREVIEW_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -118,7 +161,8 @@ export default function AICourseBuilder() {
                     level,
                     durationHours,
                     targetAudience,
-                    learningObjectives
+                    learningObjectives,
+                    category
                 })
             });
             
@@ -147,14 +191,32 @@ export default function AICourseBuilder() {
         setResult(null);
         setActiveStep('generating');
         setGenerationProgress(0);
+        setGenerationStatus('Initializing AI...');
         
         try {
-            // Progress simulation
-            const progressInterval = setInterval(() => {
-                setGenerationProgress(prev => Math.min(prev + 3, 90));
-            }, 300);
+            // Progress simulation with status updates
+            const statusUpdates = [
+                { progress: 10, status: 'Analyzing topic...' },
+                { progress: 20, status: 'Creating course structure...' },
+                { progress: 35, status: 'Writing module content...' },
+                { progress: 50, status: 'Generating lessons...' },
+                { progress: 65, status: 'Creating quizzes and assessments...' },
+                { progress: 80, status: 'Optimizing content...' },
+                { progress: 90, status: 'Finalizing course...' }
+            ];
             
-            // ✅ FIXED: Use unified API endpoint
+            let statusIndex = 0;
+            const progressInterval = setInterval(() => {
+                if (statusIndex < statusUpdates.length) {
+                    setGenerationProgress(statusUpdates[statusIndex].progress);
+                    setGenerationStatus(statusUpdates[statusIndex].status);
+                    statusIndex++;
+                } else {
+                    setGenerationProgress(prev => Math.min(prev + 2, 90));
+                }
+            }, 800);
+            
+            // ✅ UNIFIED API ENDPOINT
             const response = await fetch(GENERATE_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -164,10 +226,13 @@ export default function AICourseBuilder() {
                     durationHours,
                     targetAudience,
                     learningObjectives,
+                    category,
                     includeImages,
                     includeAudio,
                     includeQuizzes,
-                    userId: user?.id
+                    includeAssignments,
+                    userId: user?.id,
+                    template: selectedTemplate
                 })
             });
             
@@ -181,20 +246,24 @@ export default function AICourseBuilder() {
             
             if (data.success) {
                 setGenerationProgress(100);
+                setGenerationStatus('Course created successfully!');
                 setResult({ 
                     courseId: data.courseId, 
                     courseSlug: data.courseSlug,
                     lessonCount: data.lessonCount,
                     moduleCount: data.moduleCount,
+                    quizCount: data.quizCount,
                     message: data.message,
                     estimatedTime: data.estimatedTime
                 });
                 setActiveStep('complete');
                 await loadRecentCourses();
                 // Reset form but keep success visible
-                setTopic('');
-                setTargetAudience('');
-                setLearningObjectives('');
+                setTimeout(() => {
+                    setTopic('');
+                    setTargetAudience('');
+                    setLearningObjectives('');
+                }, 500);
             } else {
                 throw new Error(data.error || 'Failed to create course');
             }
@@ -207,26 +276,48 @@ export default function AICourseBuilder() {
         }
     }
 
+    async function handleSaveAsDraft() {
+        if (!result?.courseId) return;
+        
+        try {
+            const response = await fetch(SAVE_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    courseId: result.courseId,
+                    action: 'draft'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('Course saved as draft successfully!');
+                navigate(`/admin/courses/edit/${result.courseId}`);
+            } else {
+                throw new Error(data.error);
+            }
+        } catch (err) {
+            console.error('Save draft error:', err);
+            alert('Failed to save draft: ' + err.message);
+        }
+    }
+
     const resetForm = () => {
         setTopic('');
         setLevel('intermediate');
         setDurationHours(5);
         setTargetAudience('');
         setLearningObjectives('');
+        setCategory('technology');
         setResult(null);
         setError('');
         setActiveStep('form');
         setShowPreview(false);
         setGeneratedOutline(null);
         setGenerationProgress(0);
+        setGenerationStatus('');
     };
-
-    const difficultyLevels = [
-        { value: 'beginner', label: 'Beginner', color: 'bg-emerald-500/20 text-emerald-400', icon: Star, description: 'No prior experience needed' },
-        { value: 'intermediate', label: 'Intermediate', color: 'bg-blue-500/20 text-blue-400', icon: TrendingUp, description: 'Some basic knowledge required' },
-        { value: 'advanced', label: 'Advanced', color: 'bg-purple-500/20 text-purple-400', icon: Award, description: 'In-depth expertise expected' },
-        { value: 'expert', label: 'Expert', color: 'bg-amber-500/20 text-amber-400', icon: Zap, description: 'Master-level content' }
-    ];
 
     const steps = [
         { step: 'form', label: 'Course Details', icon: BookOpen },
@@ -245,6 +336,7 @@ export default function AICourseBuilder() {
 
     const currentStepIndex = steps.findIndex(s => s.step === activeStep);
     const currentDifficulty = difficultyLevels.find(l => l.value === level);
+    const selectedCategory = categories.find(c => c.id === category);
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900">
@@ -337,6 +429,18 @@ export default function AICourseBuilder() {
                                 <span>Generate In-Lesson Quizzes</span>
                             </span>
                         </label>
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                            <input 
+                                type="checkbox" 
+                                checked={includeAssignments} 
+                                onChange={(e) => setIncludeAssignments(e.target.checked)} 
+                                className="w-4 h-4 rounded border-slate-600 text-primary-500 focus:ring-primary-500"
+                            />
+                            <span className="text-slate-300 group-hover:text-white transition flex items-center gap-2">
+                                <Clipboard className="w-4 h-4" /> 
+                                <span>Generate Assignments</span>
+                            </span>
+                        </label>
                     </div>
                     <p className="text-xs text-slate-500 mt-3 border-t border-primary-500/20 pt-3">
                         💡 Tip: AI-generated images and audio consume API credits. Disable features to save credits during testing.
@@ -367,8 +471,8 @@ export default function AICourseBuilder() {
                             />
                         </div>
                         
-                        {/* Level & Duration */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Level & Duration & Category */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-1">Difficulty Level</label>
                                 <select 
@@ -378,12 +482,25 @@ export default function AICourseBuilder() {
                                     disabled={loading}
                                 >
                                     {difficultyLevels.map(lvl => (
-                                        <option key={lvl.value} value={lvl.value}>{lvl.label}</option>
+                                        <option key={lvl.value} value={lvl.value}>{lvl.badge} {lvl.label}</option>
                                     ))}
                                 </select>
                                 {currentDifficulty && (
                                     <p className="text-xs text-slate-500 mt-1">{currentDifficulty.description}</p>
                                 )}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
+                                <select 
+                                    value={category} 
+                                    onChange={(e) => setCategory(e.target.value)} 
+                                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500 transition"
+                                    disabled={loading}
+                                >
+                                    {categories.map(cat => (
+                                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-1">Duration (hours)</label>
@@ -465,7 +582,7 @@ export default function AICourseBuilder() {
                     {activeStep === 'generating' && generationProgress > 0 && generationProgress < 100 && (
                         <div className="mt-6 pt-4 border-t border-slate-800">
                             <div className="flex justify-between text-sm text-slate-400 mb-2">
-                                <span>Generating course content...</span>
+                                <span>{generationStatus}</span>
                                 <span>{generationProgress}%</span>
                             </div>
                             <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
@@ -497,14 +614,18 @@ export default function AICourseBuilder() {
                                 <CheckCircle className="w-5 h-5 text-emerald-400" />
                                 <p className="text-emerald-400 font-semibold">{result.message}</p>
                             </div>
-                            <div className="grid grid-cols-3 gap-3 text-sm">
+                            <div className="grid grid-cols-4 gap-3 text-sm">
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                    <p className="text-slate-400 text-xs">Modules</p>
+                                    <p className="text-white font-bold text-lg">{result.moduleCount}</p>
+                                </div>
                                 <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                                     <p className="text-slate-400 text-xs">Lessons</p>
                                     <p className="text-white font-bold text-lg">{result.lessonCount}</p>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                    <p className="text-slate-400 text-xs">Modules</p>
-                                    <p className="text-white font-bold text-lg">{result.moduleCount}</p>
+                                    <p className="text-slate-400 text-xs">Quizzes</p>
+                                    <p className="text-white font-bold text-lg">{result.quizCount || 0}</p>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                                     <p className="text-slate-400 text-xs">Est. Time</p>
@@ -520,12 +641,12 @@ export default function AICourseBuilder() {
                                 >
                                     <PlayCircle className="w-3 h-3" /> View Course
                                 </a>
-                                <a 
-                                    href={`/admin/courses/edit/${result.courseId}`} 
+                                <button
+                                    onClick={handleSaveAsDraft}
                                     className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600 transition flex items-center gap-1"
                                 >
-                                    <Edit2 className="w-3 h-3" /> Edit Course
-                                </a>
+                                    <Edit2 className="w-3 h-3" /> Save as Draft
+                                </button>
                                 <button
                                     onClick={resetForm}
                                     className="px-3 py-1.5 border border-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-800 transition flex items-center gap-1"
@@ -549,7 +670,12 @@ export default function AICourseBuilder() {
                                 <div key={course.id} className="bg-slate-900/30 border border-slate-800 rounded-lg p-3 flex justify-between items-center hover:bg-slate-900/50 transition">
                                     <div>
                                         <p className="text-white font-medium">{course.title}</p>
-                                        <p className="text-xs text-slate-500">{new Date(course.created_at).toLocaleDateString()}</p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-xs text-slate-500">{new Date(course.created_at).toLocaleDateString()}</span>
+                                            {course.level && (
+                                                <span className="text-xs px-1.5 py-0.5 bg-slate-700 rounded text-slate-300">{course.level}</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex gap-2">
                                         {course.is_published && (
@@ -585,6 +711,10 @@ export default function AICourseBuilder() {
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
                                 <span>AI creates in-lesson quizzes to test understanding</span>
                             </li>
+                            <li className="flex items-start gap-2">
+                                <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                                <span>Generates practical assignments and projects</span>
+                            </li>
                         </ul>
                         <ul className="space-y-2">
                             <li className="flex items-start gap-2">
@@ -598,6 +728,10 @@ export default function AICourseBuilder() {
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
                                 <span>Course is saved as DRAFT - review before publishing</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                                <span>AI-powered recommendations for improving course quality</span>
                             </li>
                         </ul>
                     </div>
@@ -630,6 +764,7 @@ export default function AICourseBuilder() {
                                     <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {generatedOutline.estimated_minutes} minutes</span>
                                     <span className="flex items-center gap-1"><BookOpen className="w-4 h-4" /> {generatedOutline.total_lessons} lessons</span>
                                     <span className="flex items-center gap-1"><TrendingUp className="w-4 h-4" /> {currentDifficulty?.label}</span>
+                                    <span className="flex items-center gap-1"><Globe className="w-4 h-4" /> {selectedCategory?.name}</span>
                                 </div>
                                 
                                 <div className="border-t border-slate-800 pt-4">
@@ -653,6 +788,16 @@ export default function AICourseBuilder() {
                                                 {expandedModule === idx && mod.description && (
                                                     <div className="p-3 pt-0 border-t border-slate-700/50">
                                                         <p className="text-slate-500 text-sm">{mod.description}</p>
+                                                        {mod.objectives && (
+                                                            <ul className="mt-2 space-y-1">
+                                                                {mod.objectives.map((obj, objIdx) => (
+                                                                    <li key={objIdx} className="text-xs text-slate-400 flex items-center gap-1">
+                                                                        <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                                                        {obj}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -663,7 +808,7 @@ export default function AICourseBuilder() {
                                 <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/20 rounded-lg p-3">
                                     <p className="text-purple-400 text-sm flex items-center gap-2">
                                         <Sparkles className="w-4 h-4" />
-                                        AI will generate: detailed lessons, quizzes, images, and audio narration
+                                        AI will generate: detailed lessons, quizzes, assignments, images, and audio narration
                                     </p>
                                 </div>
                             </div>
@@ -693,3 +838,6 @@ export default function AICourseBuilder() {
         </div>
     );
 }
+
+// Required import for Briefcase and Clipboard
+import { Briefcase, Palette, Clipboard } from 'lucide-react';
