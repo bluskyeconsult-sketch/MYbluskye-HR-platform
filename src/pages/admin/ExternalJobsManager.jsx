@@ -2,7 +2,7 @@
 // PROFESSIONAL ADMIN UI - Manage jobs from government RSS feeds, Jobicy API, and commercial sources
 // Features: Multi-tab views, batch approval, stats dashboard, connection testing, force refresh, unified API
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
     getPendingExternalJobs, 
@@ -31,16 +31,45 @@ import {
     Sparkles,
     Settings,
     Rss,
-    Filter,
     Search,
     Download,
-    Trash2,
     X
 } from 'lucide-react';
 
-// Unified API endpoint
+// ============================================
+// UNIFIED API ENDPOINTS
+// ============================================
+
 const API_BASE = '/api/index';
-const JOBS_ENDPOINT = `${API_BASE}?action=external-jobs-fetch`;
+const API_ACTIONS = {
+    FETCH_JOBS: `${API_BASE}?action=jobs`,
+    SYNC_JOBS: `${API_BASE}?action=jobs-sync`,
+    EXTERNAL_FETCH: `${API_BASE}?action=external-jobs-fetch`
+};
+
+// ============================================
+// RSS FEED SOURCES CONFIGURATION
+// ============================================
+
+const RSS_FEEDS = [
+    { name: 'UK Civil Service Jobs', url: 'https://www.civilservicejobs.service.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
+    { name: 'NHS Jobs', url: 'https://www.jobs.nhs.uk/feeds/jobs.xml', country: 'UK', active: true },
+    { name: 'Find a Job - UK Government', url: 'https://www.findajob.dwp.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
+    { name: 'Public Jobs Ireland', url: 'https://www.publicjobs.ie/feeds/jobs.xml', country: 'Ireland', active: true },
+    { name: 'GC Jobs Canada', url: 'https://www.jobs-emplois.gc.ca/feeds/jobs.xml', country: 'Canada', active: true },
+    { name: 'APS Jobs Australia', url: 'https://www.apsjobs.gov.au/feeds/jobs.xml', country: 'Australia', active: true },
+    { name: 'USAJobs', url: 'https://www.usajobs.gov/feeds/jobs.xml', country: 'USA', active: true },
+    { name: 'Bund.de', url: 'https://www.bund.de/feeds/jobs.xml', country: 'Germany', active: true },
+    { name: 'Jobicy', url: 'https://jobicy.com/api/v2/remote-jobs', country: 'Global', active: true, isApi: true },
+    { name: 'Remote OK', url: 'https://remoteok.com/api', country: 'Global', active: true, isApi: true },
+    { name: 'We Work Remotely', url: 'https://weworkremotely.com/feed.xml', country: 'Global', active: true },
+    { name: 'Stack Overflow', url: 'https://stackoverflow.com/jobs/feed', country: 'Global', active: true },
+    { name: 'Zapier', url: 'https://zapier.com/feeds/jobs.xml', country: 'Global', active: true }
+];
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function ExternalJobsManager() {
     // State Management
@@ -59,23 +88,6 @@ export default function ExternalJobsManager() {
     const [showSettings, setShowSettings] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [sourceFilter, setSourceFilter] = useState('all');
-
-    // RSS Feed Sources Configuration
-    const rssFeeds = [
-        { name: 'UK Civil Service Jobs', url: 'https://www.civilservicejobs.service.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
-        { name: 'NHS Jobs', url: 'https://www.jobs.nhs.uk/feeds/jobs.xml', country: 'UK', active: true },
-        { name: 'Find a Job - UK Government', url: 'https://www.findajob.dwp.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
-        { name: 'Public Jobs Ireland', url: 'https://www.publicjobs.ie/feeds/jobs.xml', country: 'Ireland', active: true },
-        { name: 'GC Jobs Canada', url: 'https://www.jobs-emplois.gc.ca/feeds/jobs.xml', country: 'Canada', active: true },
-        { name: 'APS Jobs Australia', url: 'https://www.apsjobs.gov.au/feeds/jobs.xml', country: 'Australia', active: true },
-        { name: 'USAJobs', url: 'https://www.usajobs.gov/feeds/jobs.xml', country: 'USA', active: true },
-        { name: 'Bund.de', url: 'https://www.bund.de/feeds/jobs.xml', country: 'Germany', active: true },
-        { name: 'Jobicy', url: 'https://jobicy.com/api/v2/remote-jobs', country: 'Global', active: true, isApi: true },
-        { name: 'Remote OK', url: 'https://remoteok.com/api', country: 'Global', active: true, isApi: true },
-        { name: 'We Work Remotely', url: 'https://weworkremotely.com/feed.xml', country: 'Global', active: true },
-        { name: 'Stack Overflow', url: 'https://stackoverflow.com/jobs/feed', country: 'Global', active: true },
-        { name: 'Zapier', url: 'https://zapier.com/feeds/jobs.xml', country: 'Global', active: true }
-    ];
 
     useEffect(() => {
         loadJobs();
@@ -147,7 +159,104 @@ export default function ExternalJobsManager() {
         setFilteredJobs(filtered);
     }
 
-    async function handleSync() {
+    // ✅ Unified API: Fetch RSS Jobs (using action=jobs)
+    async function handleFetchRSSJobs() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const response = await fetch(API_ACTIONS.FETCH_JOBS, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                setSyncResult({ 
+                    success: true, 
+                    inserted: data.added || data.totalAdded || 0, 
+                    message: data.message || `Added ${data.added || data.totalAdded || 0} new jobs` 
+                });
+                await loadJobs();
+                await loadStats();
+            } else {
+                throw new Error(data.error || 'Fetch failed');
+            }
+        } catch (error) {
+            console.error('Fetch RSS error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    // ✅ Unified API: Sync External Jobs (using action=jobs-sync)
+    async function handleSyncJobs() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const response = await fetch(API_ACTIONS.SYNC_JOBS, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                setSyncResult({ 
+                    success: true, 
+                    inserted: data.synced || data.added || 0, 
+                    message: data.message || `Synced ${data.synced || data.added || 0} jobs` 
+                });
+                await loadJobs();
+                await loadStats();
+            } else {
+                throw new Error(data.error || 'Sync failed');
+            }
+        } catch (error) {
+            console.error('Sync error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    // ✅ Unified API: External Jobs Fetch (using action=external-jobs-fetch)
+    async function handleExternalFetch() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const response = await fetch(API_ACTIONS.EXTERNAL_FETCH, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                setSyncResult({ 
+                    success: true, 
+                    inserted: data.added || data.totalAdded || 0, 
+                    message: data.message || `Added ${data.added || data.totalAdded || 0} external jobs` 
+                });
+                await loadJobs();
+                await loadStats();
+            } else {
+                throw new Error(data.error || 'External fetch failed');
+            }
+        } catch (error) {
+            console.error('External fetch error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    // Fallback: Direct service call (if API fails)
+    async function handleDirectFetch() {
         setSyncing(true);
         setSyncResult(null);
         
@@ -157,33 +266,6 @@ export default function ExternalJobsManager() {
             await loadJobs();
             await loadStats();
         } catch (error) {
-            setSyncResult({ success: false, error: error.message });
-        } finally {
-            setSyncing(false);
-        }
-    }
-
-    async function handleServerFetch() {
-        setSyncing(true);
-        setSyncResult(null);
-        
-        try {
-            const response = await fetch(JOBS_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                setSyncResult({ success: true, inserted: data.added || data.totalAdded || 0, message: data.message || `Added ${data.added || data.totalAdded || 0} new jobs` });
-                await loadJobs();
-                await loadStats();
-            } else {
-                throw new Error(data.error || 'Server fetch failed');
-            }
-        } catch (error) {
-            console.error('Server fetch error:', error);
             setSyncResult({ success: false, error: error.message });
         } finally {
             setSyncing(false);
@@ -398,20 +480,28 @@ export default function ExternalJobsManager() {
                         Force Refresh
                     </button>
                     <button
-                        onClick={handleSync}
+                        onClick={handleFetchRSSJobs}
                         disabled={syncing}
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2 transition"
                     >
-                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        {syncing ? 'Syncing...' : 'Fetch RSS'}
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rss className="w-4 h-4" />}
+                        {syncing ? 'Fetching...' : 'Fetch RSS'}
                     </button>
                     <button
-                        onClick={handleServerFetch}
+                        onClick={handleExternalFetch}
                         disabled={syncing}
                         className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition"
                     >
                         {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         {syncing ? 'Fetching...' : 'Fetch API'}
+                    </button>
+                    <button
+                        onClick={handleSyncJobs}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        {syncing ? 'Syncing...' : 'Sync Jobs'}
                     </button>
                 </div>
             </div>
@@ -421,10 +511,10 @@ export default function ExternalJobsManager() {
                 <div className="p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
                     <h3 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
                         <Rss className="w-4 h-4" />
-                        Active RSS Feed Sources ({rssFeeds.filter(f => f.active).length} of {rssFeeds.length})
+                        Active RSS Feed Sources ({RSS_FEEDS.filter(f => f.active).length} of {RSS_FEEDS.length})
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
-                        {rssFeeds.map(feed => (
+                        {RSS_FEEDS.map(feed => (
                             <div key={feed.name} className="flex items-center gap-2 text-slate-400">
                                 <span className={feed.active ? 'text-emerald-400' : 'text-red-400'}>
                                     {feed.active ? '✅' : '❌'}
@@ -490,7 +580,7 @@ export default function ExternalJobsManager() {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Active RSS Feeds</p>
-                            <p className="text-2xl font-bold text-white">{rssFeeds.filter(f => f.active).length}</p>
+                            <p className="text-2xl font-bold text-white">{RSS_FEEDS.filter(f => f.active).length}</p>
                         </div>
                         <TrendingUp className="w-8 h-8 text-primary-400 opacity-70" />
                     </div>
@@ -683,7 +773,7 @@ export default function ExternalJobsManager() {
                                             rel="noopener noreferrer" 
                                             className="inline-flex items-center gap-1 mt-3 text-primary-400 text-sm hover:underline"
                                         >
-                                            View original posting →
+            View original posting →
                                         </a>
                                     )}
                                 </div>
