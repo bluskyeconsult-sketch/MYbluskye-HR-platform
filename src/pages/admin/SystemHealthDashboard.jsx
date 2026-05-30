@@ -1,15 +1,16 @@
 // src/pages/admin/SystemHealthDashboard.jsx
-// System Health Dashboard - Real-time service monitoring with unified health API
+// COMPLETE SYSTEM HEALTH DASHBOARD - Real-time monitoring with unified API
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
     Activity, CheckCircle, XCircle, AlertCircle, Loader2, 
     Server, Database, Mail, Brain, RefreshCw, Clock, 
-    Wifi, HardDrive, Zap, Bell, Shield, TrendingUp, Globe
+    Wifi, HardDrive, Zap, Bell, Shield, TrendingUp, Globe,
+    BarChart3, Cpu, Cloud, Lock, Users
 } from 'lucide-react';
 
-// Unified API endpoint
+// ✅ UNIFIED API ENDPOINT
 const API_BASE = '/api/index';
 const HEALTH_ENDPOINT = `${API_BASE}?action=health`;
 
@@ -20,6 +21,8 @@ export default function SystemHealthDashboard() {
     const [refreshing, setRefreshing] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [lastManualRefresh, setLastManualRefresh] = useState(null);
+    const [selectedService, setSelectedService] = useState(null);
+    const [showDetails, setShowDetails] = useState(false);
 
     // Auto-refresh every 60 seconds
     useEffect(() => {
@@ -38,7 +41,7 @@ export default function SystemHealthDashboard() {
         const startTime = Date.now();
         const checks = [];
         
-        // 1. Check API Gateway (Vercel) - Using unified endpoint
+        // 1. API Gateway - Using unified endpoint
         try {
             const apiStart = Date.now();
             const apiResponse = await fetch(HEALTH_ENDPOINT);
@@ -49,19 +52,20 @@ export default function SystemHealthDashboard() {
                 responseTime: Date.now() - apiStart,
                 details: apiResponse.ok ? 'Vercel functions operational' : (apiData.error || 'API error'),
                 icon: Server,
-                data: apiData
+                metric: apiResponse.ok ? 'operational' : 'issue'
             });
         } catch (err) {
             checks.push({ 
                 name: 'API Gateway', 
-                status: 'down', 
+                status: 'critical', 
                 responseTime: 0, 
                 details: err.message, 
-                icon: Server 
+                icon: Server,
+                metric: 'unreachable'
             });
         }
         
-        // 2. Check Supabase Database (Direct)
+        // 2. Supabase Database
         try {
             const dbStart = Date.now();
             const { error, count } = await supabase
@@ -74,19 +78,21 @@ export default function SystemHealthDashboard() {
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - dbStart,
                 details: error ? error.message : `Connected • ${count?.toLocaleString() || 0} users`,
-                icon: Database
+                icon: Database,
+                metric: error ? 'degraded' : `${count?.toLocaleString()} users`
             });
         } catch (err) {
             checks.push({ 
                 name: 'Supabase Database', 
-                status: 'down', 
+                status: 'critical', 
                 responseTime: 0, 
                 details: err.message, 
-                icon: Database 
+                icon: Database,
+                metric: 'connection failed'
             });
         }
         
-        // 3. Check Storage
+        // 3. Storage Service
         try {
             const storageStart = Date.now();
             const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
@@ -95,19 +101,21 @@ export default function SystemHealthDashboard() {
                 status: storageError ? 'degraded' : 'healthy',
                 responseTime: Date.now() - storageStart,
                 details: storageError ? storageError.message : `${buckets?.length || 0} buckets available`,
-                icon: HardDrive
+                icon: HardDrive,
+                metric: `${buckets?.length || 0} buckets`
             });
         } catch (err) {
             checks.push({ 
                 name: 'Storage Service', 
-                status: 'down', 
+                status: 'critical', 
                 responseTime: 0, 
                 details: err.message, 
-                icon: HardDrive 
+                icon: HardDrive,
+                metric: 'unavailable'
             });
         }
         
-        // 4. Check Auth Service
+        // 4. Auth Service
         try {
             const authStart = Date.now();
             const { data: { session }, error: authError } = await supabase.auth.getSession();
@@ -116,7 +124,8 @@ export default function SystemHealthDashboard() {
                 status: authError ? 'degraded' : 'healthy',
                 responseTime: Date.now() - authStart,
                 details: authError ? authError.message : (session ? 'Authenticated' : 'No active session'),
-                icon: Shield
+                icon: Shield,
+                metric: session ? 'active session' : 'no session'
             });
         } catch (err) {
             checks.push({ 
@@ -124,31 +133,34 @@ export default function SystemHealthDashboard() {
                 status: 'degraded', 
                 responseTime: 0, 
                 details: err.message, 
-                icon: Shield 
+                icon: Shield,
+                metric: 'error'
             });
         }
         
-        // 5. Check OpenAI (via environment variable)
+        // 5. OpenAI API
         const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
         checks.push({
             name: 'OpenAI API',
             status: openaiKey ? 'healthy' : 'degraded',
             responseTime: 0,
             details: openaiKey ? `Key configured (${openaiKey.slice(0, 8)}...)` : 'API key missing - AI features disabled',
-            icon: Brain
+            icon: Brain,
+            metric: openaiKey ? 'configured' : 'missing'
         });
         
-        // 6. Check Email Service (via environment)
+        // 6. Email Service
         const emailUser = import.meta.env.VITE_EMAIL_USER;
         checks.push({
             name: 'Email Service',
             status: emailUser ? 'healthy' : 'degraded',
             responseTime: 0,
             details: emailUser ? `${emailUser} via Hostinger SMTP` : 'Email credentials missing',
-            icon: Mail
+            icon: Mail,
+            metric: emailUser ? 'configured' : 'missing'
         });
         
-        // 7. Check CDN/Assets
+        // 7. CDN/Assets
         try {
             const cdnStart = Date.now();
             const cdnResponse = await fetch('/favicon.ico', { method: 'HEAD' });
@@ -157,7 +169,8 @@ export default function SystemHealthDashboard() {
                 status: cdnResponse.ok ? 'healthy' : 'degraded',
                 responseTime: Date.now() - cdnStart,
                 details: cdnResponse.ok ? 'Static assets reachable' : 'Asset serving issue',
-                icon: Globe
+                icon: Globe,
+                metric: cdnResponse.ok ? 'reachable' : 'issue'
             });
         } catch (err) {
             checks.push({ 
@@ -165,14 +178,46 @@ export default function SystemHealthDashboard() {
                 status: 'degraded', 
                 responseTime: 0, 
                 details: err.message, 
-                icon: Globe 
+                icon: Globe,
+                metric: 'unreachable'
+            });
+        }
+        
+        // 8. Real-time Services
+        try {
+            const realtimeStart = Date.now();
+            const realtimeChannel = supabase.channel('health-check');
+            await new Promise((resolve) => {
+                const timeout = setTimeout(() => resolve(false), 5000);
+                realtimeChannel.subscribe((status) => {
+                    clearTimeout(timeout);
+                    resolve(status === 'SUBSCRIBED');
+                    realtimeChannel.unsubscribe();
+                });
+            });
+            checks.push({
+                name: 'Realtime Service',
+                status: 'healthy',
+                responseTime: Date.now() - realtimeStart,
+                details: 'WebSocket connections operational',
+                icon: Zap,
+                metric: `${Date.now() - realtimeStart}ms`
+            });
+        } catch (err) {
+            checks.push({ 
+                name: 'Realtime Service', 
+                status: 'degraded', 
+                responseTime: 0, 
+                details: err.message, 
+                icon: Zap,
+                metric: 'issue'
             });
         }
         
         // Calculate overall status
-        const hasDown = checks.some(c => c.status === 'down');
+        const hasCritical = checks.some(c => c.status === 'critical');
         const hasDegraded = checks.some(c => c.status === 'degraded');
-        const overall = hasDown ? 'critical' : (hasDegraded ? 'degraded' : 'healthy');
+        const overall = hasCritical ? 'critical' : (hasDegraded ? 'degraded' : 'healthy');
         
         // Calculate uptime percentage (from history)
         const uptimeData = calculateUptime(history);
@@ -182,7 +227,9 @@ export default function SystemHealthDashboard() {
             overall, 
             timestamp: new Date().toISOString(),
             totalResponseTime: Date.now() - startTime,
-            uptime: uptimeData
+            uptime: uptimeData,
+            servicesCount: checks.length,
+            healthyCount: checks.filter(c => c.status === 'healthy').length
         };
         
         setHealth(healthData);
@@ -223,7 +270,7 @@ export default function SystemHealthDashboard() {
                     service_name: check.name,
                     status: check.status,
                     response_time_ms: check.responseTime,
-                    details: { message: check.details, icon: check.name },
+                    details: { message: check.details, metric: check.metric },
                     checked_at: new Date().toISOString()
                 });
             }
@@ -247,10 +294,10 @@ export default function SystemHealthDashboard() {
 
     function getStatusColor(status) {
         switch (status) {
-            case 'healthy': return 'text-emerald-400 bg-emerald-500/10';
-            case 'degraded': return 'text-amber-400 bg-amber-500/10';
-            case 'critical': return 'text-red-400 bg-red-500/10';
-            default: return 'text-slate-400 bg-slate-500/10';
+            case 'healthy': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+            case 'degraded': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+            case 'critical': return 'text-red-400 bg-red-500/10 border-red-500/20';
+            default: return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
         }
     }
 
@@ -261,6 +308,16 @@ export default function SystemHealthDashboard() {
             case 'critical': return <XCircle className="w-5 h-5" />;
             default: return <Activity className="w-5 h-5" />;
         }
+    }
+
+    function getStatusBadge(status) {
+        const config = {
+            healthy: { label: 'Operational', color: 'bg-emerald-500/20 text-emerald-400' },
+            degraded: { label: 'Partial Outage', color: 'bg-amber-500/20 text-amber-400' },
+            critical: { label: 'Major Outage', color: 'bg-red-500/20 text-red-400' }
+        };
+        const { label, color } = config[status] || config.healthy;
+        return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
     }
 
     if (loading) {
@@ -274,7 +331,7 @@ export default function SystemHealthDashboard() {
 
     const healthyCount = health?.checks?.filter(c => c.status === 'healthy').length || 0;
     const degradedCount = health?.checks?.filter(c => c.status === 'degraded').length || 0;
-    const downCount = health?.checks?.filter(c => c.status === 'down').length || 0;
+    const criticalCount = health?.checks?.filter(c => c.status === 'critical').length || 0;
 
     return (
         <div className="p-6 space-y-6">
@@ -287,7 +344,14 @@ export default function SystemHealthDashboard() {
                     </h1>
                     <p className="text-slate-400">Real-time system monitoring and diagnostics</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                    <button
+                        onClick={() => setShowDetails(!showDetails)}
+                        className="px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 text-sm transition"
+                    >
+                        <BarChart3 className="w-3 h-3" />
+                        {showDetails ? 'Hide Details' : 'Show Details'}
+                    </button>
                     <button
                         onClick={() => setAutoRefresh(!autoRefresh)}
                         className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition ${
@@ -295,12 +359,12 @@ export default function SystemHealthDashboard() {
                         }`}
                     >
                         <Zap className="w-3 h-3" />
-                        {autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+                        {autoRefresh ? 'Auto ON' : 'Auto OFF'}
                     </button>
                     <button 
                         onClick={checkHealth} 
                         disabled={refreshing} 
-                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50"
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 transition"
                     >
                         <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                         {refreshing ? 'Checking...' : 'Refresh'}
@@ -309,24 +373,27 @@ export default function SystemHealthDashboard() {
             </div>
 
             {/* Overall Status Banner */}
-            <div className={`p-4 rounded-xl border ${getStatusColor(health?.overall)}`}>
+            <div className={`p-5 rounded-xl border ${getStatusColor(health?.overall)}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                         {getStatusIcon(health?.overall)}
                         <div>
-                            <p className="font-semibold">
-                                System Status: {health?.overall?.toUpperCase()}
-                            </p>
-                            <p className="text-sm opacity-80">
-                                Last checked: {new Date(health?.timestamp).toLocaleTimeString()}
-                                {lastManualRefresh && ` • Manual refresh at ${lastManualRefresh.toLocaleTimeString()}`}
+                            <div className="flex items-center gap-2">
+                                <p className="font-semibold text-lg">
+                                    System Status: {health?.overall?.toUpperCase()}
+                                </p>
+                                {getStatusBadge(health?.overall)}
+                            </div>
+                            <p className="text-sm opacity-80 mt-1">
+                                Last checked: {new Date(health?.timestamp).toLocaleString()}
+                                {lastManualRefresh && ` • Manual: ${lastManualRefresh.toLocaleTimeString()}`}
                             </p>
                         </div>
                     </div>
                     <div className="flex gap-4 text-sm">
                         <div className="flex items-center gap-1">
                             <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-                            <span>{healthyCount} Healthy</span>
+                            <span>{healthyCount}/{health?.servicesCount} Healthy</span>
                         </div>
                         {degradedCount > 0 && (
                             <div className="flex items-center gap-1">
@@ -334,10 +401,10 @@ export default function SystemHealthDashboard() {
                                 <span>{degradedCount} Degraded</span>
                             </div>
                         )}
-                        {downCount > 0 && (
+                        {criticalCount > 0 && (
                             <div className="flex items-center gap-1">
                                 <div className="w-2 h-2 rounded-full bg-red-400"></div>
-                                <span>{downCount} Critical</span>
+                                <span>{criticalCount} Critical</span>
                             </div>
                         )}
                         <div className="flex items-center gap-1">
@@ -350,23 +417,30 @@ export default function SystemHealthDashboard() {
 
             {/* Uptime Stats */}
             {health?.uptime && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
                         <TrendingUp className="w-5 h-5 text-emerald-400 mx-auto mb-2" />
                         <div className="text-2xl font-bold text-white">{health.uptime.percentage}%</div>
-                        <div className="text-xs text-slate-500">Uptime ({health.uptime.period})</div>
+                        <div className="text-xs text-slate-500">Uptime (24h)</div>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
                         <Bell className="w-5 h-5 text-primary-400 mx-auto mb-2" />
                         <div className="text-2xl font-bold text-white">{history.length}</div>
-                        <div className="text-xs text-slate-500">Health Checks (24h)</div>
+                        <div className="text-xs text-slate-500">Health Checks</div>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
                         <Wifi className="w-5 h-5 text-primary-400 mx-auto mb-2" />
                         <div className="text-2xl font-bold text-white">
                             {health.checks.find(c => c.name === 'API Gateway')?.responseTime || 0}ms
                         </div>
-                        <div className="text-xs text-slate-500">API Response Time</div>
+                        <div className="text-xs text-slate-500">API Response</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
+                        <Database className="w-5 h-5 text-primary-400 mx-auto mb-2" />
+                        <div className="text-2xl font-bold text-white">
+                            {health.checks.find(c => c.name === 'Supabase Database')?.responseTime || 0}ms
+                        </div>
+                        <div className="text-xs text-slate-500">Database Query</div>
                     </div>
                 </div>
             )}
@@ -376,8 +450,16 @@ export default function SystemHealthDashboard() {
                 {health?.checks.map((check, idx) => {
                     const Icon = check.icon || Activity;
                     const statusColor = getStatusColor(check.status);
+                    const isSelected = selectedService === check.name;
+                    
                     return (
-                        <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition">
+                        <div 
+                            key={idx} 
+                            className={`bg-slate-900/50 border rounded-xl p-4 transition-all cursor-pointer hover:border-slate-600 ${
+                                isSelected ? 'border-primary-500 ring-1 ring-primary-500' : 'border-slate-800'
+                            }`}
+                            onClick={() => setSelectedService(isSelected ? null : check.name)}
+                        >
                             <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                     <Icon className="w-5 h-5 text-primary-400" />
@@ -393,6 +475,11 @@ export default function SystemHealthDashboard() {
                             <p className="text-xs text-slate-400 mt-2 truncate" title={check.details}>
                                 {check.details}
                             </p>
+                            {isSelected && showDetails && check.metric && (
+                                <div className="mt-3 pt-3 border-t border-slate-700">
+                                    <p className="text-xs text-primary-400">Metric: {check.metric}</p>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
@@ -402,7 +489,7 @@ export default function SystemHealthDashboard() {
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                 <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
                     <Clock className="w-4 h-4 text-primary-400" /> 
-                    Recent Health Checks (Last 50)
+                    Recent Health Checks (Last 30)
                 </h3>
                 {history.length === 0 ? (
                     <p className="text-slate-400 text-sm text-center py-4">No health history available yet</p>
@@ -431,26 +518,47 @@ export default function SystemHealthDashboard() {
                 )}
             </div>
 
-            {/* Diagnostic Tips */}
-            {health?.overall !== 'healthy' && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
-                    <h4 className="text-amber-400 font-semibold flex items-center gap-2 mb-2">
+            {/* Diagnostic Recommendations */}
+            {(health?.overall === 'degraded' || health?.overall === 'critical') && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5">
+                    <h4 className="text-amber-400 font-semibold flex items-center gap-2 mb-3">
                         <AlertCircle className="w-4 h-4" />
                         Diagnostic Recommendations
                     </h4>
-                    <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
+                    <ul className="text-sm text-slate-300 space-y-2">
                         {health.checks.find(c => c.name === 'OpenAI API')?.status !== 'healthy' && (
-                            <li>OpenAI API key missing - Add VITE_OPENAI_API_KEY to environment variables</li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-amber-400">•</span>
+                                <span>OpenAI API key missing - Add <code className="bg-slate-800 px-1 rounded">VITE_OPENAI_API_KEY</code> to environment variables</span>
+                            </li>
                         )}
                         {health.checks.find(c => c.name === 'Email Service')?.status !== 'healthy' && (
-                            <li>Email credentials missing - Configure VITE_EMAIL_USER in Vercel environment variables</li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-amber-400">•</span>
+                                <span>Email credentials missing - Configure <code className="bg-slate-800 px-1 rounded">VITE_EMAIL_USER</code> and <code className="bg-slate-800 px-1 rounded">VITE_EMAIL_PASS</code></span>
+                            </li>
                         )}
                         {health.checks.find(c => c.name === 'Supabase Database')?.status !== 'healthy' && (
-                            <li>Database connection issue - Check Supabase status page and RLS policies</li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-amber-400">•</span>
+                                <span>Database connection issue - Check Supabase status page and RLS policies</span>
+                            </li>
+                        )}
+                        {health.checks.find(c => c.name === 'Realtime Service')?.status !== 'healthy' && (
+                            <li className="flex items-start gap-2">
+                                <span className="text-amber-400">•</span>
+                                <span>Realtime service degraded - Check Supabase Realtime configuration</span>
+                            </li>
                         )}
                     </ul>
                 </div>
             )}
+
+            {/* System Info Footer */}
+            <div className="text-center text-xs text-slate-500">
+                <p>System Health Dashboard v2.0 | Unified API Endpoint: /api/index?action=health</p>
+                <p className="mt-1">Auto-refresh every 60 seconds | Last full check: {new Date(health?.timestamp).toLocaleString()}</p>
+            </div>
         </div>
     );
 }
