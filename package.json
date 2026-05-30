@@ -9,7 +9,7 @@
   "homepage": "https://www.bluskyeconsult.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bluskye/hr-platform.git"
+    "url": "https://github.com/bluskyeconsult-sketch/MYbluskye-HR-platform.git"
   },
   "keywords": [
     "hr-platform",
@@ -17,7 +17,11 @@
     "ai-powered",
     "job-board",
     "course-platform",
-    "bluskye"
+    "bluskye",
+    "odusbaba",
+    "virtual-assistant",
+    "career-advisor",
+    "resume-optimizer"
   ],
   "scripts": {
     "dev": "vite --port 3000 --host",
@@ -27,40 +31,55 @@
     "preview:prod": "npm run build && npm run preview",
     "clean": "rm -rf dist .vite node_modules/.cache build",
     "clean:all": "npm run clean && rm -rf node_modules",
-    "deploy": "npm run build && npm run deploy:netlify",
-    "deploy:netlify": "netlify deploy --prod --dir=dist",
+    "deploy": "npm run build && npm run deploy:vercel",
     "deploy:vercel": "vercel --prod",
-    "lint": "echo 'No linter configured'",
+    "deploy:netlify": "netlify deploy --prod --dir=dist",
+    "lint": "eslint src --ext .js,.jsx --fix",
+    "format": "prettier --write 'src/**/*.{js,jsx,css,md}'",
     "type-check": "tsc --noEmit",
     "postinstall": "echo '✅ Dependencies installed'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.7.2",
+    "chart.js": "^4.4.0",
     "framer-motion": "^10.16.16",
     "lucide-react": "^0.292.0",
+    "nodemailer": "^6.9.7",
+    "openai": "^4.52.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.1"
-  },
-  "optionalDependencies": {
-    "chart.js": "^4.4.0",
+    "react-chartjs-2": "^5.2.0",
     "react-countup": "^6.4.2",
+    "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "react-intersection-observer": "^9.5.3",
-    "react-markdown": "^9.0.1"
+    "react-markdown": "^9.0.1",
+    "react-router-dom": "^6.20.1",
+    "speakeasy": "^2.0.0",
+    "xml2js": "^0.6.2"
+  },
+  "optionalDependencies": {
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {
+    "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "postcss": "^8.4.32",
+    "prettier": "^3.1.1",
     "tailwindcss": "^3.3.6",
     "terser": "^5.31.0",
+    "typescript": "^5.3.3",
     "vite": "^5.0.8"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
   "browserslist": {
     "production": [
