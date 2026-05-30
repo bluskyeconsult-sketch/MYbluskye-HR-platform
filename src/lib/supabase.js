@@ -1,5 +1,5 @@
 // src/lib/supabase.js
-// COMPLETE PRODUCTION READY - No top-level await, optimized for Vite build
+// COMPLETE PRODUCTION READY - Optimized singleton with unified API support, no top-level await
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -114,7 +114,8 @@ export function clearAuthStorage() {
                 'supabase-auth-token',
                 'sb-auth-token',
                 'bluskye-auth-token',
-                'bluskye_prod_auth'
+                'bluskye_prod_auth',
+                'bluskye-auth' // Legacy key from simple version
             ];
             
             altKeys.forEach(key => {
@@ -166,6 +167,7 @@ export async function recoverSession() {
             return { session: null, isValid: false };
         }
         
+        // Check if session is expired
         const expiresAt = session.expires_at;
         if (expiresAt && Date.now() >= expiresAt * 1000) {
             return { session: null, isValid: false };
@@ -178,24 +180,38 @@ export async function recoverSession() {
     }
 }
 
+/**
+ * Check current session (simplified)
+ * @returns {Promise<import('@supabase/supabase-js').Session | null>}
+ */
 export async function checkSession() {
     const { session } = await recoverSession();
     return session;
 }
 
+/**
+ * Check if session is valid
+ * @returns {Promise<boolean>}
+ */
 export async function isSessionValid() {
     const { isValid } = await recoverSession();
     return isValid;
 }
 
+/**
+ * Get current user with session recovery
+ * @returns {Promise<import('@supabase/supabase-js').User | null>}
+ */
 export async function getCurrentUser() {
     try {
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (error || !user) {
+            // Try to recover session first
             const { isValid } = await recoverSession();
             if (!isValid) return null;
             
+            // Retry getting user
             const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
             if (retryError || !retryUser) return null;
             return retryUser;
@@ -208,6 +224,10 @@ export async function getCurrentUser() {
     }
 }
 
+/**
+ * Check if user is authenticated
+ * @returns {Promise<boolean>}
+ */
 export async function isAuthenticated() {
     const user = await getCurrentUser();
     return !!user;
@@ -220,7 +240,12 @@ export async function isAuthenticated() {
 let authSubscription = null;
 let authEventListeners = new Map();
 
+/**
+ * Initialize auth state listener
+ * @returns {Function} Cleanup function
+ */
 export function initAuthListener() {
+    // Prevent duplicate listeners
     if (authSubscription) {
         return () => {
             if (authSubscription) {
@@ -235,6 +260,7 @@ export function initAuthListener() {
             console.log(`🔐 Auth event: ${event}`, session?.user?.email || 'no user');
         }
         
+        // Notify registered listeners
         authEventListeners.forEach((callback) => {
             try {
                 callback(event, session);
@@ -243,10 +269,12 @@ export function initAuthListener() {
             }
         });
         
+        // Clear storage on sign out
         if (event === 'SIGNED_OUT') {
             clearAuthStorage();
         }
         
+        // Log token refresh
         if (event === 'TOKEN_REFRESHED' && import.meta.env.DEV) {
             console.log('✅ Token refreshed');
         }
@@ -263,12 +291,20 @@ export function initAuthListener() {
     };
 }
 
+/**
+ * Register auth state change listener
+ * @param {Function} callback - Callback(event, session)
+ * @returns {Function} Unsubscribe function
+ */
 export function onAuthStateChange(callback) {
     const id = Date.now().toString() + Math.random();
     authEventListeners.set(id, callback);
     return () => authEventListeners.delete(id);
 }
 
+/**
+ * Clean up auth listener
+ */
 export function cleanupAuthListener() {
     if (authSubscription) {
         authSubscription.unsubscribe();
@@ -281,12 +317,18 @@ export function cleanupAuthListener() {
 // CORRUPTION DETECTION & RECOVERY
 // ============================================
 
+/**
+ * Check if auth state might be corrupted
+ * @returns {Promise<boolean>}
+ */
 export async function isAuthCorrupted() {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
+        // If there's a session but error, it's corrupted
         if (session && error) return true;
         
+        // Check for invalid token format
         if (typeof localStorage !== 'undefined') {
             const token = localStorage.getItem(STORAGE_KEY);
             if (token && (!token.includes('.') || token.split('.').length !== 3)) return true;
@@ -298,6 +340,10 @@ export async function isAuthCorrupted() {
     }
 }
 
+/**
+ * Force refresh the current session
+ * @returns {Promise<boolean>}
+ */
 export async function forceRefreshSession() {
     try {
         const { data: { session }, error } = await supabase.auth.refreshSession();
@@ -309,13 +355,18 @@ export async function forceRefreshSession() {
     }
 }
 
+/**
+ * Repair corrupted session (clear and reload)
+ */
 export async function repairCorruptedSession() {
     console.warn('🔧 Attempting to repair corrupted session...');
     clearAuthStorage();
     
     try {
         await supabase.auth.signOut();
-    } catch (e) {}
+    } catch (e) {
+        // Ignore
+    }
     
     window.location.reload();
 }
@@ -324,6 +375,13 @@ export async function repairCorruptedSession() {
 // UNIFIED API HELPER
 // ============================================
 
+/**
+ * Make authenticated API call to unified endpoint
+ * @param {string} action - API action name
+ * @param {Object} data - Request data
+ * @param {string} method - HTTP method (default: 'POST')
+ * @returns {Promise<Object>} API response
+ */
 export async function apiCall(action, data = {}, method = 'POST') {
     try {
         const currentUser = await getCurrentUser();
