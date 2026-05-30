@@ -34,12 +34,13 @@ import {
     Filter,
     Search,
     Download,
-    Trash2
+    Trash2,
+    X
 } from 'lucide-react';
 
 // Unified API endpoint
 const API_BASE = '/api/index';
-const JOBS_ENDPOINT = `${API_BASE}?action=jobs`;
+const JOBS_ENDPOINT = `${API_BASE}?action=external-jobs-fetch`;
 
 export default function ExternalJobsManager() {
     // State Management
@@ -175,13 +176,14 @@ export default function ExternalJobsManager() {
             const data = await response.json();
             
             if (data.success) {
-                setSyncResult({ success: true, inserted: data.added || 0, message: data.message || `Added ${data.added || 0} new jobs` });
+                setSyncResult({ success: true, inserted: data.added || data.totalAdded || 0, message: data.message || `Added ${data.added || data.totalAdded || 0} new jobs` });
                 await loadJobs();
                 await loadStats();
             } else {
                 throw new Error(data.error || 'Server fetch failed');
             }
         } catch (error) {
+            console.error('Server fetch error:', error);
             setSyncResult({ success: false, error: error.message });
         } finally {
             setSyncing(false);
@@ -301,6 +303,8 @@ export default function ExternalJobsManager() {
             salary: job.salary_range,
             source: job.source_name,
             status: job.status,
+            job_type: job.job_type,
+            sponsorship_eligible: job.sponsorship_eligible,
             created_at: job.created_at
         }));
         
