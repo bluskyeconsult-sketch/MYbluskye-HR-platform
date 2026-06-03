@@ -1,9 +1,4 @@
 // src/App.jsx - COMPLETE PRODUCTION READY
-// ✅ No top-level Supabase calls - all auth in useEffect
-// ✅ Optimized lazy loading with proper error boundaries
-// ✅ Professional route organization
-// ✅ Fixed scroll-locking issues
-
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -24,12 +19,12 @@ import BrainstormPartner from './components/BrainstormPartner';
 import TermsPopup from './components/TermsPopup';
 
 // ============================================
-// AUTH UTILITIES - ✅ Only imported, not called at top level
+// AUTH UTILITIES
 // ============================================
-import { initAuthListener, recoverSession } from './lib/supabase';
+import { initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
-// LAZY LOADED PAGES (Code splitting for performance)
+// LAZY LOADED PAGES
 // ============================================
 
 // Public Pages
@@ -126,13 +121,13 @@ const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'))
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
 
 // ============================================
-// OPTIMIZED LOADING FALLBACK
+// LOADING FALLBACK
 // ============================================
 const PageLoader = () => (
     <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4" />
-            <p className="text-slate-400 animate-pulse">Loading...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
+            <p className="text-slate-400">Loading...</p>
         </div>
     </div>
 );
@@ -152,7 +147,7 @@ const AnimatedPage = ({ children }) => (
 );
 
 // ============================================
-// 404 NOT FOUND PAGE
+// 404 PAGE
 // ============================================
 const NotFoundPage = () => (
     <AnimatedPage>
@@ -161,24 +156,16 @@ const NotFoundPage = () => (
                 <h1 className="text-6xl font-bold text-white mb-4">404</h1>
                 <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
                 <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
-                <div className="flex gap-3 justify-center">
-                    <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
-                        Go Home
-                    </a>
-                    <button 
-                        onClick={() => window.history.back()} 
-                        className="inline-block px-6 py-3 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors"
-                    >
-                        Go Back
-                    </button>
-                </div>
+                <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+                    Go Home
+                </a>
             </div>
         </div>
     </AnimatedPage>
 );
 
 // ============================================
-// ROUTE CONFIGURATION (Centralized & Maintainable)
+// ROUTE CONFIGURATION
 // ============================================
 const routeGroups = {
     public: [
@@ -276,40 +263,29 @@ const routeGroups = {
 };
 
 // ============================================
-// APP CONTENT - ✅ All Supabase calls are inside useEffect
-// ✅ Fixed scroll issues - removed problematic code
+// APP CONTENT
 // ============================================
 function AppContent() {
     const location = useLocation();
     const mountCount = useRef(0);
     const isDevelopment = import.meta.env.DEV;
-    const authCleanupRef = useRef(null);
 
-    // ✅ CORRECT: Auth initialization inside useEffect (not at top level)
+    // Auth listener initialization
     useEffect(() => {
-        // Initialize auth listener
         const cleanup = initAuthListener();
-        authCleanupRef.current = cleanup;
         
-        // Recover session - ✅ Only called inside useEffect
         recoverSession().then(({ session, isValid }) => {
             if (session && isValid && isDevelopment) {
                 console.log('✅ Session active and valid');
             } else if (isDevelopment) {
                 console.log('ℹ️ No active session');
             }
-        }).catch((err) => {
-            if (isDevelopment) console.warn('Session recovery:', err?.message);
-        });
+        }).catch(() => {});
         
-        return () => {
-            if (authCleanupRef.current) {
-                authCleanupRef.current();
-            }
-        };
+        return cleanup;
     }, []);
 
-    // App mount tracking (development only)
+    // App mount tracking
     useEffect(() => {
         mountCount.current++;
         if (isDevelopment) {
@@ -321,33 +297,6 @@ function AppContent() {
             }
         };
     }, []);
-
-    // Route change tracking (development only)
-    useEffect(() => {
-        if (isDevelopment) {
-            console.log(`📍 Route: ${location.pathname}`);
-        }
-    }, [location.pathname, isDevelopment]);
-
-    // ✅ FIXED: Simple scroll restoration - no scroll-locking
-    // This ensures normal browser scroll behavior without overriding
-    useEffect(() => {
-        // Reset any potential scroll-locking on mount
-        if (document.body.style.overflow === 'hidden') {
-            document.body.style.overflow = '';
-        }
-        if (document.body.style.position === 'fixed') {
-            document.body.style.position = '';
-        }
-        if (document.body.style.height === '100%') {
-            document.body.style.height = '';
-        }
-        
-        // Only scroll to top when navigating to a new page (not on initial load)
-        if (location.pathname !== '/' && window.scrollY > 0) {
-            window.scrollTo(0, 0);
-        }
-    }, [location.pathname]);
 
     const renderRouteGroup = (routes) => 
         routes.map(({ path, element }) => (
@@ -392,7 +341,7 @@ function AppContent() {
 }
 
 // ============================================
-// MAIN APP COMPONENT
+// MAIN APP
 // ============================================
 function App() {
     return (
