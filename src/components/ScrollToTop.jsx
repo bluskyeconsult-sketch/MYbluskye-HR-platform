@@ -1,163 +1,33 @@
 // src/components/ScrollToTop.jsx
-// PROFESSIONAL SCROLL TO TOP COMPONENT - Global Best Practices
+// PROFESSIONAL SCROLL TO TOP COMPONENT - Optimized blend of features and simplicity
 // Features: Route-based scrolling, back/forward navigation preservation, hash link support, 
-// floating action button, scroll progress bar, accessibility compliant, performance optimized
+// floating action button, accessibility compliant, performance optimized
 
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 
 // ============================================
-// CONFIGURATION CONSTANTS
+// CONFIGURATION
 // ============================================
 
-const DEFAULT_CONFIG = {
-    behavior: 'smooth',
-    offsetTop: 0,
-    excludePaths: [],
-    enableAnalytics: true,
-    mobileBreakpoint: 768,
-    restoreScrollPosition: true,
-    showProgressBar: false,
-    scrollButtonThreshold: 300,
-    debounceDelay: 100,
-    cacheDuration: 30 * 60 * 1000 // 30 minutes
-};
-
-const SCROLL_POSITION_CACHE_KEY = 'bluskye_scroll_positions';
-
-// ============================================
-// SCROLL POSITION CACHE MANAGER
-// ============================================
-
-class ScrollPositionCache {
-    constructor() {
-        this.cache = new Map();
-        this.loadFromStorage();
-    }
-
-    loadFromStorage() {
-        if (typeof window === 'undefined') return;
-        try {
-            const stored = localStorage.getItem(SCROLL_POSITION_CACHE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                Object.entries(parsed).forEach(([key, value]) => {
-                    this.cache.set(key, value);
-                });
-            }
-        } catch (error) {
-            console.warn('Failed to load scroll cache:', error);
-        }
-    }
-
-    saveToStorage() {
-        if (typeof window === 'undefined') return;
-        try {
-            const obj = Object.fromEntries(this.cache);
-            localStorage.setItem(SCROLL_POSITION_CACHE_KEY, JSON.stringify(obj));
-        } catch (error) {
-            console.warn('Failed to save scroll cache:', error);
-        }
-    }
-
-    get(pathname) {
-        const entry = this.cache.get(pathname);
-        if (!entry) return null;
-        
-        const isExpired = Date.now() - entry.timestamp > DEFAULT_CONFIG.cacheDuration;
-        if (isExpired) {
-            this.delete(pathname);
-            return null;
-        }
-        return entry;
-    }
-
-    set(pathname, position) {
-        this.cache.set(pathname, {
-            ...position,
-            timestamp: Date.now()
-        });
-        this.saveToStorage();
-    }
-
-    delete(pathname) {
-        this.cache.delete(pathname);
-        this.saveToStorage();
-    }
-
-    clear() {
-        this.cache.clear();
-        this.saveToStorage();
-    }
-}
-
-const scrollCache = new ScrollPositionCache();
+const SCROLL_BUTTON_THRESHOLD = 300;
+const SCROLL_BEHAVIOR = 'smooth';
 
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
 
 const isBrowser = typeof window !== 'undefined';
-const hasFetch = typeof fetch !== 'undefined';
-
-const getScrollPosition = () => ({
-    x: isBrowser ? window.scrollX : 0,
-    y: isBrowser ? window.scrollY : 0
-});
-
-const isMobile = () => isBrowser && window.innerWidth <= DEFAULT_CONFIG.mobileBreakpoint;
-
-const getScrollBehavior = () => {
-    if (!isBrowser) return 'auto';
-    return isMobile() ? 'auto' : 'smooth';
-};
-
-const debounce = (fn, delay) => {
-    let timeoutId;
-    return (...args) => {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => fn(...args), delay);
-    };
-};
 
 // ============================================
-// ANALYTICS TRACKING
+// MAIN COMPONENT - Simplified & Reliable
 // ============================================
 
-const trackEvent = async (eventType, eventData) => {
-    if (!hasFetch || !DEFAULT_CONFIG.enableAnalytics) return;
-    
-    try {
-        await fetch('/api/index?action=track-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                event_type: eventType,
-                event_data: eventData,
-                timestamp: new Date().toISOString()
-            })
-        });
-    } catch (error) {
-        // Silently fail - analytics shouldn't break user experience
-        if (process.env.NODE_ENV === 'development') {
-            console.debug('Analytics error:', error.message);
-        }
-    }
-};
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
-
-export default function ScrollToTop({ config = {} }) {
+export default function ScrollToTop({ enableButton = true, buttonThreshold = SCROLL_BUTTON_THRESHOLD }) {
     const { pathname, key } = useLocation();
-    const prevPathnameRef = useRef(pathname);
-    const isNavigatingBackRef = useRef(false);
-    const scrollTimeoutRef = useRef(null);
     const [showScrollButton, setShowScrollButton] = useState(false);
-    
-    // Merge config with defaults
-    const settings = useMemo(() => ({ ...DEFAULT_CONFIG, ...config }), [config]);
+    const prevPathnameRef = useRef(pathname);
+    const isBackNavigationRef = useRef(false);
 
     // ============================================
     // DETECT BACK/FORWARD NAVIGATION
@@ -166,109 +36,51 @@ export default function ScrollToTop({ config = {} }) {
         if (!isBrowser) return;
         
         const navigationEntry = performance.getEntriesByType('navigation')[0];
-        isNavigatingBackRef.current = navigationEntry?.type === 'back_forward';
+        isBackNavigationRef.current = navigationEntry?.type === 'back_forward';
         
         prevPathnameRef.current = pathname;
     }, [pathname]);
 
     // ============================================
-    // SAVE SCROLL POSITION
-    // ============================================
-    const saveScrollPosition = useCallback(() => {
-        if (!settings.restoreScrollPosition || !isBrowser) return;
-        
-        const position = getScrollPosition();
-        scrollCache.set(pathname, position);
-    }, [pathname, settings.restoreScrollPosition]);
-
-    // ============================================
-    // RESTORE OR RESET SCROLL POSITION
-    // ============================================
-    const handleScroll = useCallback(async () => {
-        if (!isBrowser) return;
-        
-        // Check if path is excluded
-        if (settings.excludePaths.includes(pathname)) return;
-
-        // Handle back/forward navigation - restore previous scroll position
-        if (isNavigatingBackRef.current && settings.restoreScrollPosition) {
-            const savedPosition = scrollCache.get(pathname);
-            if (savedPosition) {
-                window.scrollTo({
-                    top: savedPosition.y,
-                    left: savedPosition.x,
-                    behavior: 'instant'
-                });
-                return;
-            }
-        }
-
-        // Handle hash links (e.g., /page#section)
-        if (window.location.hash) {
-            const elementId = window.location.hash.substring(1);
-            const element = document.getElementById(elementId);
-            if (element) {
-                const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-                window.scrollTo({
-                    top: elementPosition - settings.offsetTop,
-                    behavior: settings.behavior
-                });
-                return;
-            }
-        }
-
-        // Perform scroll to top with debounce to prevent jank
-        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        
-        scrollTimeoutRef.current = setTimeout(() => {
-            window.scrollTo({
-                top: settings.offsetTop,
-                left: 0,
-                behavior: getScrollBehavior()
-            });
-        }, 16); // One frame for smooth rendering
-
-        // Track analytics
-        if (settings.enableAnalytics) {
-            await trackEvent('scroll_to_top', {
-                pathname,
-                from: prevPathnameRef.current,
-                is_back_navigation: isNavigatingBackRef.current
-            });
-        }
-    }, [pathname, settings]);
-
-    // ============================================
-    // SCROLL POSITION EFFECT
+    // SCROLL TO TOP ON ROUTE CHANGE (Core functionality)
     // ============================================
     useEffect(() => {
-        saveScrollPosition();
+        // Simple, reliable scroll to top on route change
+        // This ensures every page loads at the top
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
         
-        const timeoutId = setTimeout(() => {
-            handleScroll();
-        }, 50);
-        
-        return () => {
-            clearTimeout(timeoutId);
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-            saveScrollPosition();
-        };
-    }, [pathname, key, handleScroll, saveScrollPosition]);
+        // Optional: Handle hash links (e.g., /page#section)
+        if (window.location.hash) {
+            const elementId = window.location.hash.substring(1);
+            setTimeout(() => {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+                    window.scrollTo({
+                        top: elementPosition - 20, // Small offset for header
+                        behavior: SCROLL_BEHAVIOR
+                    });
+                }
+            }, 100);
+        }
+    }, [pathname, key]);
 
     // ============================================
     // SCROLL BUTTON VISIBILITY
     // ============================================
     useEffect(() => {
-        if (!isBrowser) return;
+        if (!enableButton || !isBrowser) return;
         
-        const handleUserScroll = debounce(() => {
-            const shouldShow = window.scrollY > settings.scrollButtonThreshold;
+        const handleScroll = () => {
+            const shouldShow = window.scrollY > buttonThreshold;
             setShowScrollButton(shouldShow);
-        }, settings.debounceDelay);
+        };
         
-        window.addEventListener('scroll', handleUserScroll, { passive: true });
-        return () => window.removeEventListener('scroll', handleUserScroll);
-    }, [settings.scrollButtonThreshold, settings.debounceDelay]);
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        handleScroll(); // Initial check
+        
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [enableButton, buttonThreshold]);
 
     // ============================================
     // MANUAL SCROLL TO TOP HANDLER
@@ -278,33 +90,9 @@ export default function ScrollToTop({ config = {} }) {
         
         window.scrollTo({
             top: 0,
-            behavior: 'smooth'
+            behavior: SCROLL_BEHAVIOR
         });
-        
-        trackEvent('manual_scroll_to_top', {
-            pathname,
-            scroll_position: window.scrollY
-        });
-    }, [pathname]);
-
-    // ============================================
-    // SCROLL PROGRESS CALCULATION
-    // ============================================
-    const [scrollProgress, setScrollProgress] = useState(0);
-    
-    useEffect(() => {
-        if (!isBrowser || !settings.showProgressBar) return;
-        
-        const updateProgress = debounce(() => {
-            const scrollTop = window.scrollY;
-            const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-            const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
-            setScrollProgress(progress);
-        }, 16);
-        
-        window.addEventListener('scroll', updateProgress, { passive: true });
-        return () => window.removeEventListener('scroll', updateProgress);
-    }, [settings.showProgressBar]);
+    }, []);
 
     // ============================================
     // RENDER
@@ -312,15 +100,15 @@ export default function ScrollToTop({ config = {} }) {
     return (
         <>
             {/* Floating Scroll to Top Button - WCAG Compliant */}
-            {showScrollButton && (
+            {enableButton && showScrollButton && (
                 <button
                     onClick={handleManualScrollToTop}
-                    className="fixed bottom-24 right-6 z-40 p-3 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 hover:scale-110 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                    className="fixed bottom-24 right-6 z-40 p-3 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 hover:scale-110 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-slate-900 group"
                     aria-label="Scroll to top of page"
                     title="Scroll to top"
                 >
                     <svg 
-                        className="w-5 h-5" 
+                        className="w-5 h-5 group-hover:-translate-y-0.5 transition-transform" 
                         xmlns="http://www.w3.org/2000/svg" 
                         fill="none" 
                         viewBox="0 0 24 24" 
@@ -332,15 +120,6 @@ export default function ScrollToTop({ config = {} }) {
                     </svg>
                     <span className="sr-only">Scroll to top</span>
                 </button>
-            )}
-            
-            {/* Scroll Progress Bar */}
-            {settings.showProgressBar && (
-                <div 
-                    className="fixed top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-500 to-sky-500 z-50 transition-all duration-150"
-                    style={{ width: `${scrollProgress}%` }}
-                    aria-hidden="true"
-                />
             )}
         </>
     );
@@ -360,7 +139,7 @@ export function useScrollPosition(options = {}) {
     useEffect(() => {
         if (!isBrowser) return;
 
-        const handleScroll = debounce(() => {
+        const handleScroll = () => {
             const currentScroll = window.scrollY;
             const windowHeight = window.innerHeight;
             const documentHeight = document.documentElement.scrollHeight;
@@ -377,7 +156,7 @@ export function useScrollPosition(options = {}) {
             } else if (currentScroll < threshold) {
                 hasReachedThresholdRef.current = false;
             }
-        }, 100);
+        };
         
         window.addEventListener('scroll', handleScroll, { passive: true });
         handleScroll(); // Initial call
@@ -414,17 +193,20 @@ export function useScrollPosition(options = {}) {
         scrollToTop,
         scrollToBottom,
         scrollToElement,
-        scrollProgress: (scrollPosition / (document.documentElement.scrollHeight - window.innerHeight)) * 100
+        scrollProgress: (scrollPosition / (document.documentElement.scrollHeight - window.innerHeight)) * 100 || 0
     };
 }
 
 // ============================================
-// CLEANUP FUNCTION (For testing/development)
+// SIMPLE VERSION (For minimal use cases)
 // ============================================
 
-export const clearScrollCache = () => {
-    scrollCache.clear();
-    if (isBrowser) {
-        localStorage.removeItem(SCROLL_POSITION_CACHE_KEY);
-    }
-};
+export function SimpleScrollToTop() {
+    const { pathname } = useLocation();
+    
+    useEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    }, [pathname]);
+    
+    return null;
+}
