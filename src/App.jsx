@@ -1,260 +1,387 @@
-// src/components/ScrollToTop.jsx
-// OPTIMIZED: Preserves scroll positions between navigations, scrolls to top only on refresh/new page
-// Features: Back/forward navigation preservation, hash link support, optional scroll button
+// src/App.jsx - OPTIMIZED PRODUCTION READY
+// ✅ No top-level Supabase calls - all auth in useEffect
+// ✅ Optimized lazy loading with proper error boundaries
+// ✅ Professional route organization
+// ✅ Preserves scroll position between navigations
+// ✅ No scroll-locking issues
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
-
-// ============================================
-// CONFIGURATION
-// ============================================
-
-const SCROLL_BUTTON_THRESHOLD = 300;
-const SCROLL_BEHAVIOR = 'smooth';
-const isBrowser = typeof window !== 'undefined';
-
-// Simple scroll position storage
-const scrollPositions = new Map();
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { useEffect, lazy, Suspense, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
-// MAIN COMPONENT
+// CORE COMPONENTS
+// ============================================
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import ScrollingBanner from './components/ScrollingBanner';
+import CookieConsent from './components/CookieConsent';
+import ODUSBABAChat from './components/ODUSBABAChat';
+import ErrorBoundary from './components/ErrorBoundary';
+import FraudSafetyBanner from './components/FraudSafetyBanner';
+import ScrollToTop from './components/ScrollToTop';
+import PremiumTermsPopup from './components/PremiumTermsPopup';
+import BrainstormPartner from './components/BrainstormPartner';
+import TermsPopup from './components/TermsPopup';
+
+// ============================================
+// AUTH UTILITIES - ✅ Only imported, not called at top level
+// ============================================
+import { initAuthListener, recoverSession } from './lib/supabase';
+
+// ============================================
+// LAZY LOADED PAGES (Code splitting for performance)
 // ============================================
 
-export default function ScrollToTop({ enableButton = true, buttonThreshold = SCROLL_BUTTON_THRESHOLD }) {
-    const { pathname, key } = useLocation();
-    const [showScrollButton, setShowScrollButton] = useState(false);
-    const isInitialMount = useRef(true);
-    const previousPathname = useRef(pathname);
-    const isBackNavigation = useRef(false);
+// Public Pages
+const HomePage = lazy(() => import('./pages/HomePage'));
+const JobsPage = lazy(() => import('./pages/JobsPage'));
+const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
+const CoursesPage = lazy(() => import('./pages/CoursesPage'));
+const BooksPage = lazy(() => import('./pages/BooksPage'));
+const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
+const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
+const AboutPage = lazy(() => import('./pages/AboutPage'));
+const ContactPage = lazy(() => import('./pages/ContactPage'));
+const PricingPage = lazy(() => import('./pages/PricingPage'));
+const SignInPage = lazy(() => import('./pages/SignInPage'));
+const SignUpPage = lazy(() => import('./pages/SignUpPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const FAQPage = lazy(() => import('./pages/FAQPage'));
+const BlogPage = lazy(() => import('./pages/BlogPage'));
 
-    // ============================================
-    // DETECT BACK/FORWARD NAVIGATION
-    // ============================================
+// Assessment Pages
+const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
+const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
+const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
+
+// Article Pages
+const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
+const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
+
+// Auth Pages
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
+
+// User Dashboard Pages
+const UserDashboard = lazy(() => import('./pages/UserDashboard'));
+const UserProfile = lazy(() => import('./pages/UserProfile'));
+const UserApplications = lazy(() => import('./pages/UserApplications'));
+const UserSkills = lazy(() => import('./pages/UserSkills'));
+const UserMessages = lazy(() => import('./pages/UserMessages'));
+const UserSettings = lazy(() => import('./pages/UserSettings'));
+const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
+const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
+const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
+const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
+const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
+const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
+
+// Employer Pages
+const PostJob = lazy(() => import('./pages/employer/PostJob'));
+const ManageJobs = lazy(() => import('./pages/employer/ManageJobs'));
+
+// Tester Pages
+const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
+const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
+const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
+
+// Admin Pages
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
+const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
+const AdminFraudReports = lazy(() => import('./pages/admin/AdminFraudReports'));
+const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
+const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
+const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
+const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
+const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
+const ExternalJobs = lazy(() => import('./pages/admin/ExternalJobs'));
+const ExternalJobsManager = lazy(() => import('./pages/admin/ExternalJobsManager'));
+const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
+const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
+const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
+const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
+const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
+const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
+const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
+const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
+
+// Dashboard Pages
+const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
+const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
+const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
+
+// Legal Pages
+const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
+const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
+const DisclaimerPage = lazy(() => import('./pages/legal/DisclaimerPage'));
+const AcceptableUsePage = lazy(() => import('./pages/legal/AcceptableUsePage'));
+const FraudPreventionPage = lazy(() => import('./pages/legal/FraudPreventionPage'));
+const SafetyTipsPage = lazy(() => import('./pages/legal/SafetyTipsPage'));
+const ReportFraudPage = lazy(() => import('./pages/ReportFraudPage'));
+
+// Workforce Components
+const WorkforceOnboarding = lazy(() => import('./components/workforce/WorkforceOnboarding'));
+const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'));
+const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
+
+// ============================================
+// OPTIMIZED LOADING FALLBACK
+// ============================================
+const PageLoader = () => (
+    <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4" />
+            <p className="text-slate-400 animate-pulse">Loading...</p>
+        </div>
+    </div>
+);
+
+// ============================================
+// ANIMATED PAGE WRAPPER
+// ============================================
+const AnimatedPage = ({ children }) => (
+    <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.2, ease: 'easeInOut' }}
+    >
+        {children}
+    </motion.div>
+);
+
+// ============================================
+// 404 NOT FOUND PAGE
+// ============================================
+const NotFoundPage = () => (
+    <AnimatedPage>
+        <div className="min-h-[60vh] flex items-center justify-center px-4">
+            <div className="text-center">
+                <h1 className="text-6xl font-bold text-white mb-4">404</h1>
+                <p className="text-xl text-slate-400 mb-4">Page Not Found</p>
+                <p className="text-slate-500 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+                <div className="flex gap-3 justify-center">
+                    <a href="/" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+                        Go Home
+                    </a>
+                    <button 
+                        onClick={() => window.history.back()} 
+                        className="inline-block px-6 py-3 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                        Go Back
+                    </button>
+                </div>
+            </div>
+        </div>
+    </AnimatedPage>
+);
+
+// ============================================
+// ROUTE CONFIGURATION (Centralized & Maintainable)
+// ============================================
+const routeGroups = {
+    public: [
+        { path: '/', element: <HomePage /> },
+        { path: '/jobs', element: <JobsPage /> },
+        { path: '/workforce', element: <WorkforceMarketplace /> },
+        { path: '/courses', element: <CoursesPage /> },
+        { path: '/books', element: <BooksPage /> },
+        { path: '/newsletter', element: <NewsletterPage /> },
+        { path: '/hire-va', element: <HireVirtualAssistant /> },
+        { path: '/about', element: <AboutPage /> },
+        { path: '/contact', element: <ContactPage /> },
+        { path: '/pricing', element: <PricingPage /> },
+        { path: '/sign-in', element: <SignInPage /> },
+        { path: '/sign-up', element: <SignUpPage /> },
+        { path: '/products', element: <ProductsPage /> },
+        { path: '/faq', element: <FAQPage /> },
+        { path: '/blog', element: <BlogPage /> }
+    ],
+    assessments: [
+        { path: '/assessments', element: <AssessmentsPage /> },
+        { path: '/assessments/:id', element: <TakeAssessment /> },
+        { path: '/assessment-results/:id', element: <AssessmentResults /> }
+    ],
+    articles: [
+        { path: '/articles', element: <ArticlesPage /> },
+        { path: '/articles/:slug', element: <ArticleDetail /> }
+    ],
+    auth: [
+        { path: '/admin-login', element: <AdminLogin /> }
+    ],
+    user: [
+        { path: '/dashboard', element: <UserDashboard /> },
+        { path: '/profile', element: <UserProfile /> },
+        { path: '/applications', element: <UserApplications /> },
+        { path: '/skills', element: <UserSkills /> },
+        { path: '/messages', element: <UserMessages /> },
+        { path: '/settings', element: <UserSettings /> },
+        { path: '/saved-jobs', element: <SavedJobsPage /> },
+        { path: '/job-alerts', element: <JobAlertsPage /> },
+        { path: '/affiliate', element: <AffiliateDashboard /> },
+        { path: '/learning', element: <LearnerDashboard /> },
+        { path: '/company-profile', element: <CompanyProfile /> },
+        { path: '/workforce/dashboard', element: <WorkforceDashboard /> }
+    ],
+    employer: [
+        { path: '/post-job', element: <PostJob /> },
+        { path: '/manage-jobs', element: <ManageJobs /> }
+    ],
+    tester: [
+        { path: '/tester-login', element: <TesterLoginPage /> },
+        { path: '/tester-register', element: <TesterRegisterPage /> },
+        { path: '/tester/dashboard', element: <TesterDashboard /> }
+    ],
+    admin: [
+        { path: '/admin/dashboard', element: <AdminDashboard /> },
+        { path: '/admin/users', element: <AdminUsers /> },
+        { path: '/admin/jobs', element: <AdminJobs /> },
+        { path: '/admin/fraud-reports', element: <AdminFraudReports /> },
+        { path: '/admin/articles', element: <AdminArticles /> },
+        { path: '/admin/articles/new', element: <ArticleEditor /> },
+        { path: '/admin/articles/:id', element: <ArticleEditor /> },
+        { path: '/admin/testing-mode', element: <TestingModeSettings /> },
+        { path: '/admin/settings/tester-visibility', element: <TesterVisibilitySettings /> },
+        { path: '/admin/email-test', element: <EmailTest /> },
+        { path: '/admin/external-jobs', element: <ExternalJobs /> },
+        { path: '/admin/external-jobs-manager', element: <ExternalJobsManager /> },
+        { path: '/admin/knowledge-sources', element: <KnowledgeSourceManager /> },
+        { path: '/admin/books', element: <ManageBooks /> },
+        { path: '/admin/newsletter', element: <NewsletterAdmin /> },
+        { path: '/admin/assessments', element: <AssessmentManager /> },
+        { path: '/admin/assessments/:id/edit', element: <AssessmentEditor /> },
+        { path: '/admin/virtual-assistants', element: <VirtualAssistantManager /> },
+        { path: '/admin/ai-course-builder', element: <AICourseBuilder /> },
+        { path: '/admin/skills', element: <AdminSkills /> },
+        { path: '/admin/health', element: <SystemHealthDashboard /> },
+        { path: '/admin/security', element: <SecurityDashboard /> },
+        { path: '/admin/analytics', element: <AnalyticsDashboard /> }
+    ],
+    workforce: [
+        { path: '/workforce/setup', element: <WorkforceOnboarding /> },
+        { path: '/workforce/proposals', element: <ProposalsList /> },
+        { path: '/workforce/engagements', element: <EngagementsDashboard /> }
+    ],
+    legal: [
+        { path: '/legal/terms', element: <TermsPage /> },
+        { path: '/legal/privacy', element: <PrivacyPage /> },
+        { path: '/legal/cookies', element: <CookiesPage /> },
+        { path: '/legal/disclaimer', element: <DisclaimerPage /> },
+        { path: '/legal/acceptable-use', element: <AcceptableUsePage /> },
+        { path: '/legal/fraud-prevention', element: <FraudPreventionPage /> },
+        { path: '/safety-tips', element: <SafetyTipsPage /> },
+        { path: '/report-fraud', element: <ReportFraudPage /> }
+    ]
+};
+
+// ============================================
+// APP CONTENT - ✅ All Supabase calls are inside useEffect
+// ✅ No forced scroll to top on navigation
+// ============================================
+function AppContent() {
+    const location = useLocation();
+    const mountCount = useRef(0);
+    const isDevelopment = import.meta.env.DEV;
+    const authCleanupRef = useRef(null);
+
+    // ✅ Auth initialization inside useEffect (not at top level)
     useEffect(() => {
-        if (!isBrowser) return;
+        const cleanup = initAuthListener();
+        authCleanupRef.current = cleanup;
         
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        isBackNavigation.current = navigationEntry?.type === 'back_forward';
-    }, [pathname]);
-
-    // ============================================
-    // SAVE SCROLL POSITION BEFORE LEAVING
-    // ============================================
-    useEffect(() => {
-        const savePosition = () => {
-            if (previousPathname.current && !isBackNavigation.current) {
-                scrollPositions.set(previousPathname.current, window.scrollY);
+        // Recover session - ✅ Only called inside useEffect
+        recoverSession().then(({ session, isValid }) => {
+            if (session && isValid && isDevelopment) {
+                console.log('✅ Session active and valid');
+            } else if (isDevelopment) {
+                console.log('ℹ️ No active session');
+            }
+        }).catch((err) => {
+            if (isDevelopment) console.warn('Session recovery:', err?.message);
+        });
+        
+        return () => {
+            if (authCleanupRef.current) {
+                authCleanupRef.current();
             }
         };
-        
-        window.addEventListener('beforeunload', savePosition);
-        return () => window.removeEventListener('beforeunload', savePosition);
     }, []);
 
-    // ============================================
-    // HANDLE SCROLL ON ROUTE CHANGE - CORE LOGIC
-    // ============================================
+    // App mount tracking (development only)
     useEffect(() => {
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        const navigationType = navigationEntry?.type;
-        
-        const isPageRefresh = navigationType === 'reload';
-        const isNewPage = navigationType === 'navigate' && document.referrer === '';
-        
-        // Save current position before navigation
-        if (!isInitialMount.current && previousPathname.current !== pathname) {
-            scrollPositions.set(previousPathname.current, window.scrollY);
+        mountCount.current++;
+        if (isDevelopment) {
+            console.log(`✅ App mounted (mount #${mountCount.current})`);
         }
-        
-        // Case 1: Page refresh or new page - scroll to top
-        if (isPageRefresh || isNewPage || isInitialMount.current) {
-            window.scrollTo({ top: 0, behavior: 'instant' });
-        }
-        // Case 2: Back/forward navigation - restore position
-        else if (isBackNavigation.current && scrollPositions.has(pathname)) {
-            const savedPosition = scrollPositions.get(pathname);
-            window.scrollTo({ top: savedPosition, behavior: 'instant' });
-        }
-        // Case 3: Regular navigation - try to restore or stay
-        else if (scrollPositions.has(pathname)) {
-            const savedPosition = scrollPositions.get(pathname);
-            window.scrollTo({ top: savedPosition, behavior: 'instant' });
-        }
-        
-        // Handle hash links (e.g., /page#section)
-        if (window.location.hash) {
-            const elementId = window.location.hash.substring(1);
-            setTimeout(() => {
-                const element = document.getElementById(elementId);
-                if (element) {
-                    const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-                    window.scrollTo({
-                        top: elementPosition - 20,
-                        behavior: SCROLL_BEHAVIOR
-                    });
-                }
-            }, 100);
-        }
-        
-        previousPathname.current = pathname;
-        isInitialMount.current = false;
-        
-    }, [pathname, key]);
-
-    // ============================================
-    // SCROLL BUTTON VISIBILITY
-    // ============================================
-    useEffect(() => {
-        if (!enableButton || !isBrowser) return;
-        
-        const handleScroll = () => {
-            setShowScrollButton(window.scrollY > buttonThreshold);
+        return () => {
+            if (isDevelopment) {
+                console.log(`🔄 App unmounting`);
+            }
         };
-        
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        handleScroll();
-        
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, [enableButton, buttonThreshold]);
-
-    // ============================================
-    // MANUAL SCROLL TO TOP
-    // ============================================
-    const handleManualScrollToTop = useCallback(() => {
-        if (!isBrowser) return;
-        window.scrollTo({ top: 0, behavior: SCROLL_BEHAVIOR });
     }, []);
 
-    // ============================================
-    // RENDER
-    // ============================================
+    // Route change tracking (development only)
+    useEffect(() => {
+        if (isDevelopment) {
+            console.log(`📍 Route: ${location.pathname}`);
+        }
+    }, [location.pathname, isDevelopment]);
+
+    const renderRouteGroup = (routes) => 
+        routes.map(({ path, element }) => (
+            <Route key={path} path={path} element={<AnimatedPage>{element}</AnimatedPage>} />
+        ));
+
     return (
         <>
-            {enableButton && showScrollButton && (
-                <button
-                    onClick={handleManualScrollToTop}
-                    className="fixed bottom-24 right-6 z-40 p-3 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 hover:scale-110 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-slate-900 group"
-                    aria-label="Scroll to top"
-                    title="Scroll to top"
-                >
-                    <svg 
-                        className="w-5 h-5 group-hover:-translate-y-0.5 transition-transform" 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor" 
-                        strokeWidth={2}
-                        aria-hidden="true"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                    </svg>
-                    <span className="sr-only">Scroll to top</span>
-                </button>
-            )}
+            <ScrollToTop />
+            <Navbar />
+            <ScrollingBanner />
+            
+            <main className="min-h-screen bg-slate-950">
+                <Suspense fallback={<PageLoader />}>
+                    <AnimatePresence mode="wait">
+                        <Routes location={location} key={location.pathname}>
+                            {renderRouteGroup(routeGroups.public)}
+                            {renderRouteGroup(routeGroups.assessments)}
+                            {renderRouteGroup(routeGroups.articles)}
+                            {renderRouteGroup(routeGroups.auth)}
+                            {renderRouteGroup(routeGroups.user)}
+                            {renderRouteGroup(routeGroups.employer)}
+                            {renderRouteGroup(routeGroups.tester)}
+                            {renderRouteGroup(routeGroups.admin)}
+                            {renderRouteGroup(routeGroups.workforce)}
+                            {renderRouteGroup(routeGroups.legal)}
+                            <Route path="*" element={<NotFoundPage />} />
+                        </Routes>
+                    </AnimatePresence>
+                </Suspense>
+            </main>
+            
+            <Footer />
+            <PremiumTermsPopup />
+            <CookieConsent />
+            <ODUSBABAChat />
+            <BrainstormPartner />
+            <TermsPopup />
+            <FraudSafetyBanner />
         </>
     );
 }
 
 // ============================================
-// SIMPLE VERSION (No button, just scroll behavior)
+// MAIN APP COMPONENT
 // ============================================
-
-export function SimpleScrollToTop() {
-    const { pathname } = useLocation();
-    const isInitialMount = useRef(true);
-    const scrollPositions = useRef(new Map());
-
-    useEffect(() => {
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        const navigationType = navigationEntry?.type;
-        
-        const isPageRefresh = navigationType === 'reload';
-        const isNewPage = navigationType === 'navigate' && document.referrer === '';
-        
-        if (!isInitialMount.current) {
-            scrollPositions.current.set(pathname, window.scrollY);
-        }
-        
-        if (isPageRefresh || isNewPage) {
-            window.scrollTo({ top: 0, behavior: 'instant' });
-        } else if (scrollPositions.current.has(pathname)) {
-            const savedPosition = scrollPositions.current.get(pathname);
-            window.scrollTo({ top: savedPosition, behavior: 'instant' });
-        }
-        
-        isInitialMount.current = false;
-    }, [pathname]);
-
-    return null;
+function App() {
+    return (
+        <ErrorBoundary>
+            <BrowserRouter>
+                <AppContent />
+            </BrowserRouter>
+        </ErrorBoundary>
+    );
 }
 
-// ============================================
-// CUSTOM HOOK: useScrollPosition
-// ============================================
-
-export function useScrollPosition(options = {}) {
-    const { threshold = 0, onScrollReached } = options;
-    const [scrollPosition, setScrollPosition] = useState(0);
-    const [isAtTop, setIsAtTop] = useState(true);
-    const [isAtBottom, setIsAtBottom] = useState(false);
-    const hasReachedThresholdRef = useRef(false);
-
-    useEffect(() => {
-        if (!isBrowser) return;
-
-        const handleScroll = () => {
-            const currentScroll = window.scrollY;
-            const windowHeight = window.innerHeight;
-            const documentHeight = document.documentElement.scrollHeight;
-            const bottomReached = currentScroll + windowHeight >= documentHeight - 50;
-            
-            setScrollPosition(currentScroll);
-            setIsAtTop(currentScroll <= 10);
-            setIsAtBottom(bottomReached);
-            
-            if (threshold > 0 && currentScroll >= threshold && !hasReachedThresholdRef.current) {
-                hasReachedThresholdRef.current = true;
-                onScrollReached?.();
-            } else if (currentScroll < threshold) {
-                hasReachedThresholdRef.current = false;
-            }
-        };
-        
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        handleScroll();
-        
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, [threshold, onScrollReached]);
-
-    const scrollToTop = useCallback((behavior = 'smooth') => {
-        if (!isBrowser) return;
-        window.scrollTo({ top: 0, behavior });
-    }, []);
-
-    const scrollToBottom = useCallback((behavior = 'smooth') => {
-        if (!isBrowser) return;
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior });
-    }, []);
-
-    const scrollToElement = useCallback((elementId, offset = 0, behavior = 'smooth') => {
-        if (!isBrowser) return;
-        const element = document.getElementById(elementId);
-        if (element) {
-            const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-            window.scrollTo({
-                top: elementPosition - offset,
-                behavior
-            });
-        }
-    }, []);
-
-    return {
-        scrollPosition,
-        isAtTop,
-        isAtBottom,
-        scrollToTop,
-        scrollToBottom,
-        scrollToElement,
-        scrollProgress: (scrollPosition / (document.documentElement.scrollHeight - window.innerHeight)) * 100 || 0
-    };
-}
+export default App;
