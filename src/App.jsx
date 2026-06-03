@@ -1,9 +1,7 @@
-// src/App.jsx - OPTIMIZED PRODUCTION READY
+// src/App.jsx - COMPLETE PRODUCTION READY
 // ✅ No top-level Supabase calls - all auth in useEffect
 // ✅ Optimized lazy loading with proper error boundaries
 // ✅ Professional route organization
-// ✅ Preserves scroll position between navigations
-// ✅ No scroll-locking issues
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
@@ -27,7 +25,7 @@ import TermsPopup from './components/TermsPopup';
 // ============================================
 // AUTH UTILITIES - ✅ Only imported, not called at top level
 // ============================================
-import { initAuthListener, recoverSession } from './lib/supabase';
+import { initAuthListener, cleanupAuthListener, recoverSession } from './lib/supabase';
 
 // ============================================
 // LAZY LOADED PAGES (Code splitting for performance)
@@ -278,7 +276,6 @@ const routeGroups = {
 
 // ============================================
 // APP CONTENT - ✅ All Supabase calls are inside useEffect
-// ✅ No forced scroll to top on navigation
 // ============================================
 function AppContent() {
     const location = useLocation();
@@ -286,8 +283,9 @@ function AppContent() {
     const isDevelopment = import.meta.env.DEV;
     const authCleanupRef = useRef(null);
 
-    // ✅ Auth initialization inside useEffect (not at top level)
+    // ✅ CORRECT: Auth initialization inside useEffect (not at top level)
     useEffect(() => {
+        // Initialize auth listener
         const cleanup = initAuthListener();
         authCleanupRef.current = cleanup;
         
