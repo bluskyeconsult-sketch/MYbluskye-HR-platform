@@ -2,7 +2,8 @@
 // ✅ No top-level Supabase calls - all auth in useEffect
 // ✅ Optimized lazy loading with proper error boundaries
 // ✅ Professional route organization
-// ✅ Fixed scroll-locking issues
+// ✅ Preserves scroll position between navigations
+// ✅ No scroll-locking issues
 
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
@@ -277,7 +278,7 @@ const routeGroups = {
 
 // ============================================
 // APP CONTENT - ✅ All Supabase calls are inside useEffect
-// ✅ Fixed scroll issues - removed problematic code
+// ✅ No forced scroll to top on navigation
 // ============================================
 function AppContent() {
     const location = useLocation();
@@ -287,7 +288,6 @@ function AppContent() {
 
     // ✅ CORRECT: Auth initialization inside useEffect (not at top level)
     useEffect(() => {
-        // Initialize auth listener
         const cleanup = initAuthListener();
         authCleanupRef.current = cleanup;
         
@@ -328,26 +328,6 @@ function AppContent() {
             console.log(`📍 Route: ${location.pathname}`);
         }
     }, [location.pathname, isDevelopment]);
-
-    // ✅ FIXED: Simple scroll restoration - no scroll-locking
-    // This ensures normal browser scroll behavior without overriding
-    useEffect(() => {
-        // Reset any potential scroll-locking on mount
-        if (document.body.style.overflow === 'hidden') {
-            document.body.style.overflow = '';
-        }
-        if (document.body.style.position === 'fixed') {
-            document.body.style.position = '';
-        }
-        if (document.body.style.height === '100%') {
-            document.body.style.height = '';
-        }
-        
-        // Only scroll to top when navigating to a new page (not on initial load)
-        if (location.pathname !== '/' && window.scrollY > 0) {
-            window.scrollTo(0, 0);
-        }
-    }, [location.pathname]);
 
     const renderRouteGroup = (routes) => 
         routes.map(({ path, element }) => (
