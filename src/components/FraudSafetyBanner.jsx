@@ -1,333 +1,220 @@
 // src/components/FraudSafetyBanner.jsx
-// COMPLETE PROFESSIONAL FRAUD SAFETY BANNER - Dynamic content, unified API, enhanced security tips
+// PROFESSIONAL SAFETY BANNER - Fraud prevention awareness with persistent dismissal
 
-import { useState, useEffect, useCallback } from 'react';
-import { Shield, AlertTriangle, CheckCircle, X, Eye, Lock, FileText, Phone, Mail, ExternalLink, Bell, Clock } from 'lucide-react';
-import { Link } from 'react-router-dom';
-
-// Default safety tips (fallback if API fails)
-const DEFAULT_SAFETY_TIPS = [
-    {
-        id: 1,
-        type: 'warning',
-        icon: Shield,
-        title: 'Verify Employers',
-        message: 'Always verify employer details before sharing personal information',
-        actionText: 'Learn More',
-        actionLink: '/safety-tips'
-    },
-    {
-        id: 2,
-        type: 'critical',
-        icon: AlertTriangle,
-        title: 'Never Pay for Jobs',
-        message: 'Never pay money to secure a job or for "training materials"',
-        actionText: 'Report Fraud',
-        actionLink: '/report-fraud'
-    },
-    {
-        id: 3,
-        type: 'info',
-        icon: Eye,
-        title: 'Report Suspicious Activity',
-        message: 'Report suspicious job posts or messages immediately',
-        actionText: 'File Report',
-        actionLink: '/report-fraud'
-    },
-    {
-        id: 4,
-        type: 'warning',
-        icon: Lock,
-        title: 'Protect Your Credentials',
-        message: 'We will NEVER ask for your banking passwords or OTPs',
-        actionText: 'Security Tips',
-        actionLink: '/safety-tips'
-    }
-];
-
-const DISMISSAL_DURATION_DAYS = 7; // Banner reappears after 7 days
+import { useState, useEffect } from 'react';
+import { Shield, AlertTriangle, X, ExternalLink, Bell, Lock, CheckCircle } from 'lucide-react';
 
 export default function FraudSafetyBanner() {
-    const [isVisible, setIsVisible] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [safetyTips, setSafetyTips] = useState(DEFAULT_SAFETY_TIPS);
-    const [showDetailed, setShowDetailed] = useState(false);
-    const [lastChecked, setLastChecked] = useState(null);
+    const [isVisible, setIsVisible] = useState(true);
+    const [isDismissed, setIsDismissed] = useState(false);
+    const [showPermanent, setShowPermanent] = useState(false);
+    const [dismissCount, setDismissCount] = useState(0);
+
+    // Banner variants for rotation
+    const safetyTips = [
+        {
+            icon: Shield,
+            title: "Stay Safe",
+            message: "ODUSBABA verifies all employers. Never share personal financial information.",
+            color: "amber",
+            link: "/safety-tips",
+            linkText: "Safety Tips"
+        },
+        {
+            icon: AlertTriangle,
+            title: "Watch for Scams",
+            message: "Legitimate employers will never ask for payment during the hiring process.",
+            color: "red",
+            link: "/fraud-prevention",
+            linkText: "Fraud Prevention"
+        },
+        {
+            icon: Lock,
+            title: "Protect Your Data",
+            message: "Keep your login credentials secure. Enable 2FA for extra protection.",
+            color: "blue",
+            link: "/settings/security",
+            linkText: "Security Settings"
+        },
+        {
+            icon: Bell,
+            title: "Report Suspicious Activity",
+            message: "See something suspicious? Report it immediately to our safety team.",
+            color: "purple",
+            link: "/report-fraud",
+            linkText: "Report Now"
+        }
+    ];
 
     useEffect(() => {
-        loadBannerStatus();
-        fetchSafetyTips();
+        // Load dismissal state
+        const dismissed = localStorage.getItem('fraud_banner_dismissed');
+        const permanent = localStorage.getItem('fraud_banner_permanent');
+        const count = parseInt(localStorage.getItem('fraud_banner_dismiss_count') || '0');
+        
+        setDismissCount(count);
+        
+        if (permanent === 'true') {
+            setShowPermanent(true);
+            setIsDismissed(true);
+        } else if (dismissed === 'true') {
+            setIsDismissed(true);
+        }
+        
+        // Show banner again after 7 days if dismissed (but not permanently)
+        if (dismissed === 'true' && !permanent) {
+            const dismissedTime = localStorage.getItem('fraud_banner_dismissed_time');
+            if (dismissedTime) {
+                const daysSinceDismiss = (Date.now() - parseInt(dismissedTime)) / (1000 * 60 * 60 * 24);
+                if (daysSinceDismiss >= 7) {
+                    setIsDismissed(false);
+                    localStorage.removeItem('fraud_banner_dismissed');
+                }
+            }
+        }
+        
+        // Rotate tip every 10 seconds
+        const interval = setInterval(() => {
+            setCurrentTipIndex((prev) => (prev + 1) % safetyTips.length);
+        }, 10000);
+        
+        return () => clearInterval(interval);
     }, []);
 
-    async function loadBannerStatus() {
-        try {
-            // Check if banner was dismissed
-            const dismissedData = localStorage.getItem('fraud-banner-dismissed');
+    const [currentTipIndex, setCurrentTipIndex] = useState(0);
+    const currentTip = safetyTips[currentTipIndex];
+    const Icon = currentTip.icon;
+
+    const handleDismiss = () => {
+        const newCount = dismissCount + 1;
+        setDismissCount(newCount);
+        localStorage.setItem('fraud_banner_dismiss_count', newCount.toString());
+        localStorage.setItem('fraud_banner_dismissed_time', Date.now().toString());
+        
+        // After 3 dismissals, offer permanent hide option
+        if (newCount >= 3) {
+            const userWantsPermanent = window.confirm(
+                "You've dismissed this safety reminder multiple times.\n\n" +
+                "Would you like to permanently hide these safety tips?\n" +
+                "You can always re-enable them in your account settings."
+            );
             
-            if (dismissedData) {
-                const { dismissedAt, expiresAt } = JSON.parse(dismissedData);
-                
-                // Check if dismissal has expired
-                if (expiresAt && new Date(expiresAt) > new Date()) {
-                    setIsVisible(false);
-                    setLoading(false);
-                    return;
-                } else if (expiresAt && new Date(expiresAt) <= new Date()) {
-                    // Dismissal expired, remove from storage
-                    localStorage.removeItem('fraud-banner-dismissed');
-                }
+            if (userWantsPermanent) {
+                localStorage.setItem('fraud_banner_permanent', 'true');
+                setShowPermanent(true);
+                setIsDismissed(true);
+            } else {
+                localStorage.setItem('fraud_banner_dismissed', 'true');
+                setIsDismissed(true);
             }
-            
-            // Check if user has acknowledged safety tips recently
-            const acknowledged = localStorage.getItem('safety-tips-acknowledged');
-            if (acknowledged) {
-                const ackData = JSON.parse(acknowledged);
-                if (new Date(ackData.acknowledgedAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) {
-                    setLastChecked(ackData.acknowledgedAt);
-                }
-            }
-            
-            setIsVisible(true);
-        } catch (error) {
-            console.warn('Error loading banner status:', error);
-            setIsVisible(true);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    async function fetchSafetyTips() {
-        try {
-            const response = await fetch('/api/index?action=safety-tips', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success && result.data && result.data.length > 0) {
-                    setSafetyTips(result.data);
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to fetch safety tips, using defaults:', error);
-        }
-    }
-
-    const handleDismiss = useCallback(async () => {
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + DISMISSAL_DURATION_DAYS);
-        
-        const dismissalData = {
-            dismissedAt: new Date().toISOString(),
-            expiresAt: expiresAt.toISOString(),
-            reason: 'user_dismissed'
-        };
-        
-        localStorage.setItem('fraud-banner-dismissed', JSON.stringify(dismissalData));
-        setIsVisible(false);
-        
-        // Report dismissal to API
-        try {
-            await fetch('/api/index?action=track-banner-dismissal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    banner_type: 'fraud_safety',
-                    dismissed_at: new Date().toISOString()
-                })
-            });
-        } catch (error) {
-            console.warn('Failed to report dismissal:', error);
-        }
-    }, []);
-
-    const handleAcknowledge = useCallback(async () => {
-        const ackData = {
-            acknowledgedAt: new Date().toISOString(),
-            acknowledgedTips: safetyTips.map(t => t.id)
-        };
-        
-        localStorage.setItem('safety-tips-acknowledged', JSON.stringify(ackData));
-        setLastChecked(ackData.acknowledgedAt);
-        setShowDetailed(false);
-        
-        // Report acknowledgment to API
-        try {
-            await fetch('/api/index?action=acknowledge-safety-tips', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(ackData)
-            });
-        } catch (error) {
-            console.warn('Failed to report acknowledgment:', error);
-        }
-    }, [safetyTips]);
-
-    const getTypeStyles = (type) => {
-        switch (type) {
-            case 'critical':
-                return {
-                    bg: 'from-red-900/30 to-red-800/20',
-                    border: 'border-red-500/30',
-                    iconBg: 'bg-red-500/20',
-                    iconColor: 'text-red-400',
-                    badge: 'bg-red-500/20 text-red-400',
-                    badgeText: 'Critical'
-                };
-            case 'warning':
-                return {
-                    bg: 'from-amber-900/30 to-amber-800/20',
-                    border: 'border-amber-500/30',
-                    iconBg: 'bg-amber-500/20',
-                    iconColor: 'text-amber-400',
-                    badge: 'bg-amber-500/20 text-amber-400',
-                    badgeText: 'Warning'
-                };
-            default:
-                return {
-                    bg: 'from-blue-900/30 to-blue-800/20',
-                    border: 'border-blue-500/30',
-                    iconBg: 'bg-blue-500/20',
-                    iconColor: 'text-blue-400',
-                    badge: 'bg-blue-500/20 text-blue-400',
-                    badgeText: 'Info'
-                };
+        } else {
+            localStorage.setItem('fraud_banner_dismissed', 'true');
+            setIsDismissed(true);
         }
     };
 
-    if (!isVisible || loading) return null;
+    const handleReopen = () => {
+        setIsDismissed(false);
+        localStorage.removeItem('fraud_banner_dismissed');
+        localStorage.removeItem('fraud_banner_dismissed_time');
+        // Reset count but don't remove permanent preference
+        localStorage.setItem('fraud_banner_dismiss_count', '0');
+        setDismissCount(0);
+    };
 
-    const styles = getTypeStyles('warning'); // Default style for main banner
+    const getColorClasses = (color) => {
+        const colors = {
+            amber: {
+                bg: 'bg-amber-500/10',
+                border: 'border-amber-500/20',
+                text: 'text-amber-400',
+                hover: 'hover:bg-amber-500/20',
+                icon: 'text-amber-400'
+            },
+            red: {
+                bg: 'bg-red-500/10',
+                border: 'border-red-500/20',
+                text: 'text-red-400',
+                hover: 'hover:bg-red-500/20',
+                icon: 'text-red-400'
+            },
+            blue: {
+                bg: 'bg-blue-500/10',
+                border: 'border-blue-500/20',
+                text: 'text-blue-400',
+                hover: 'hover:bg-blue-500/20',
+                icon: 'text-blue-400'
+            },
+            purple: {
+                bg: 'bg-purple-500/10',
+                border: 'border-purple-500/20',
+                text: 'text-purple-400',
+                hover: 'hover:bg-purple-500/20',
+                icon: 'text-purple-400'
+            }
+        };
+        return colors[color] || colors.amber;
+    };
+
+    const colorClasses = getColorClasses(currentTip.color);
+
+    if (!isVisible || isDismissed || showPermanent) return null;
 
     return (
-        <div className={`bg-gradient-to-r ${styles.bg} border ${styles.border} rounded-xl p-4 mb-6 relative overflow-hidden group transition-all duration-300 hover:shadow-lg`}>
-            {/* Animated background effect */}
-            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none" />
-            
-            <div className="relative z-10">
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                    <div className="flex-1">
-                        <div className="flex items-start gap-3">
-                            <div className={`p-2 rounded-lg ${styles.iconBg} flex-shrink-0`}>
-                                <Shield className={`w-5 h-5 ${styles.iconColor}`} />
+        <div className={`${colorClasses.bg} border-b ${colorClasses.border} transition-all duration-300 animate-slide-down`} data-fraud-banner>
+            <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* Left Section - Icon + Message */}
+                    <div className="flex items-start sm:items-center gap-3">
+                        <div className={`flex-shrink-0 p-1 rounded-full ${colorClasses.bg}`}>
+                            <Icon className={`w-5 h-5 ${colorClasses.icon}`} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className={`${colorClasses.text} text-sm font-semibold`}>
+                                    {currentTip.title}
+                                </p>
+                                <span className="text-slate-600 text-xs">•</span>
+                                <p className="text-slate-300 text-sm">
+                                    {currentTip.message}
+                                </p>
                             </div>
-                            <div className="flex-1">
-                                <div className="flex flex-wrap items-center gap-2 mb-2">
-                                    <h3 className="text-white font-semibold flex items-center gap-2">
-                                        Stay Safe on ODUSBABA
-                                    </h3>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${styles.badge}`}>
-                                        {styles.badgeText}
-                                    </span>
-                                    {lastChecked && (
-                                        <span className="text-xs text-emerald-400 flex items-center gap-1">
-                                            <CheckCircle className="w-3 h-3" />
-                                            Acknowledged recently
-                                        </span>
-                                    )}
-                                </div>
-                                
-                                <div className="space-y-2">
-                                    {/* Primary safety tips - always visible */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        {safetyTips.slice(0, 2).map((tip) => {
-                                            const TipIcon = tip.icon;
-                                            return (
-                                                <div key={tip.id} className="flex items-start gap-2 text-sm">
-                                                    <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                                                    <span className="text-slate-300">{tip.message}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    
-                                    {/* Detailed tips - toggleable */}
-                                    {showDetailed && (
-                                        <div className="mt-3 pt-3 border-t border-slate-700/50">
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                {safetyTips.slice(2).map((tip) => {
-                                                    const TipIcon = tip.icon;
-                                                    return (
-                                                        <div key={tip.id} className="flex items-start gap-2 text-sm">
-                                                            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                                                            <span className="text-slate-300">{tip.message}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                            
-                                            <div className="mt-3 p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
-                                                <p className="text-xs text-amber-400 flex items-center gap-1">
-                                                    <AlertTriangle className="w-3 h-3" />
-                                                    ⚠️ BluSkye Consult is not responsible for transactions made outside our platform
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                {/* Action Buttons */}
-                                <div className="flex flex-wrap gap-3 mt-4">
+                            {/* Progress dots */}
+                            <div className="flex gap-1 mt-1.5">
+                                {safetyTips.map((_, idx) => (
                                     <button
-                                        onClick={() => setShowDetailed(!showDetailed)}
-                                        className="text-xs text-primary-400 hover:text-primary-300 transition flex items-center gap-1"
-                                    >
-                                        {showDetailed ? 'Show Less' : 'View All Safety Tips'}
-                                    </button>
-                                    
-                                    <Link
-                                        to="/safety-tips"
-                                        className="text-xs text-primary-400 hover:text-primary-300 transition flex items-center gap-1"
-                                    >
-                                        <ExternalLink className="w-3 h-3" />
-                                        Full Safety Guide
-                                    </Link>
-                                    
-                                    <Link
-                                        to="/report-fraud"
-                                        className="text-xs text-red-400 hover:text-red-300 transition flex items-center gap-1"
-                                    >
-                                        <AlertTriangle className="w-3 h-3" />
-                                        Report Suspicious Activity
-                                    </Link>
-                                    
-                                    {!lastChecked && !showDetailed && (
-                                        <button
-                                            onClick={handleAcknowledge}
-                                            className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
-                                        >
-                                            <CheckCircle className="w-3 h-3" />
-                                            I Understand
-                                        </button>
-                                    )}
-                                </div>
+                                        key={idx}
+                                        onClick={() => setCurrentTipIndex(idx)}
+                                        className={`h-1 rounded-full transition-all ${
+                                            idx === currentTipIndex 
+                                                ? `w-4 ${colorClasses.bg} ${colorClasses.text} bg-opacity-100` 
+                                                : 'w-1 bg-slate-600 hover:bg-slate-500'
+                                        }`}
+                                        aria-label={`View tip ${idx + 1}`}
+                                    />
+                                ))}
                             </div>
                         </div>
                     </div>
-                    
-                    {/* Dismiss Button */}
-                    <button
-                        onClick={handleDismiss}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                        aria-label="Dismiss banner"
-                        title={`Dismiss for ${DISMISSAL_DURATION_DAYS} days`}
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
-                </div>
-                
-                {/* Timestamp of last update */}
-                <div className="mt-3 pt-2 border-t border-slate-700/30 flex justify-between items-center">
-                    <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        Safety information updated regularly
-                    </p>
-                    {lastChecked && (
-                        <p className="text-[10px] text-emerald-500/70">
-                            Last acknowledged: {new Date(lastChecked).toLocaleDateString()}
-                        </p>
-                    )}
+
+                    {/* Right Section - Actions */}
+                    <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                        <a
+                            href={currentTip.link}
+                            className={`flex items-center gap-1 ${colorClasses.text} text-sm hover:underline transition`}
+                        >
+                            {currentTip.linkText}
+                            <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                            onClick={handleDismiss}
+                            className={`p-1 rounded-lg ${colorClasses.hover} transition-colors`}
+                            aria-label="Dismiss banner"
+                            title="Dismiss"
+                        >
+                            <X className="w-4 h-4 text-slate-400" />
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
