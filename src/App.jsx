@@ -1,9 +1,10 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V6
+// src/App.jsx - COMPLETE PRODUCTION READY V7
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
 // ✅ Authentication works
 // ✅ Single API endpoint
+// ✅ Integrated FraudSafetyBanner & CookieConsent
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
@@ -12,6 +13,12 @@ import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react'
 // SUPABASE CLIENT (Direct import for reliability)
 // ============================================
 import { supabase } from './lib/supabase';
+
+// ============================================
+// COMPONENT IMPORTS (No external dependencies)
+// ============================================
+import FraudSafetyBanner from './components/FraudSafetyBanner';
+import CookieConsent from './components/CookieConsent';
 
 // ============================================
 // SIMPLE SCROLL TO TOP
@@ -529,7 +536,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
     }, [requireAdmin]);
     
     if (authState.loading) return <PageLoader />;
-    if (!authState.isAuthenticated) return <Navigate to="/sign-in?redirect=' + window.location.pathname + '" replace />;
+    if (!authState.isAuthenticated) return <Navigate to="/sign-in?redirect=" + window.location.pathname + "" replace />;
     if (requireAdmin && !authState.isAdmin) return <Navigate to="/dashboard" replace />;
     
     return children;
@@ -634,6 +641,7 @@ function AppContent() {
         <>
             <ScrollToTop />
             <Navbar />
+            <FraudSafetyBanner />
             <main className="min-h-screen bg-slate-950">
                 <Suspense fallback={<PageLoader />}>
                     <Routes location={location} key={location.pathname}>
@@ -736,6 +744,7 @@ function AppContent() {
             </main>
             <NewsletterSignup />
             <AIChat />
+            <CookieConsent />
             <Footer />
         </>
     );
