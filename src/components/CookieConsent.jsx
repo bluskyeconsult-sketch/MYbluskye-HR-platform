@@ -1,8 +1,7 @@
 // src/components/CookieConsent.jsx
-// PROFESSIONAL COOKIE CONSENT - GDPR compliant with granular settings
+// PROFESSIONAL COOKIE CONSENT - GDPR compliant with granular settings (No external dependencies)
 
 import { useState, useEffect } from 'react';
-import { Cookie, Settings, X, Check, Shield, ExternalLink } from 'lucide-react';
 
 export default function CookieConsent() {
     const [isVisible, setIsVisible] = useState(false);
@@ -115,13 +114,16 @@ export default function CookieConsent() {
     return (
         <>
             {/* Main Cookie Banner */}
-            <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-sm border-t border-slate-800 shadow-2xl animate-slide-up" data-cookie-consent>
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-sm border-t border-slate-800 shadow-2xl" data-cookie-consent>
                 <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
                     <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
                         {/* Left Section - Icon & Message */}
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 p-2 bg-primary-500/10 rounded-full">
-                                <Cookie className="w-5 h-5 text-primary-400" />
+                                <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
                             </div>
                             <div>
                                 <h3 className="text-white font-semibold text-sm sm:text-base">
@@ -137,14 +139,18 @@ export default function CookieConsent() {
                                         className="text-xs text-slate-500 hover:text-primary-400 transition flex items-center gap-1"
                                     >
                                         Privacy Policy
-                                        <ExternalLink className="w-3 h-3" />
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
                                     </a>
                                     <a 
                                         href="/legal/cookies" 
                                         className="text-xs text-slate-500 hover:text-primary-400 transition flex items-center gap-1"
                                     >
                                         Cookie Policy
-                                        <ExternalLink className="w-3 h-3" />
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
                                     </a>
                                 </div>
                             </div>
@@ -156,7 +162,10 @@ export default function CookieConsent() {
                                 onClick={openSettings}
                                 className="px-3 py-1.5 text-slate-400 hover:text-white text-sm transition flex items-center gap-1"
                             >
-                                <Settings className="w-4 h-4" />
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
                                 Customize
                             </button>
                             <button
@@ -184,13 +193,15 @@ export default function CookieConsent() {
 
             {/* Cookie Preferences Modal */}
             {showSettings && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full shadow-2xl animate-scale-in">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full shadow-2xl">
                         {/* Modal Header */}
                         <div className="flex items-center justify-between p-5 border-b border-slate-800">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-primary-500/10 rounded-full">
-                                    <Shield className="w-5 h-5 text-primary-400" />
+                                    <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                    </svg>
                                 </div>
                                 <div>
                                     <h2 className="text-lg font-bold text-white">Cookie Preferences</h2>
@@ -201,7 +212,9 @@ export default function CookieConsent() {
                                 onClick={closeSettings}
                                 className="p-1 text-slate-400 hover:text-white transition"
                             >
-                                <X className="w-5 h-5" />
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
                             </button>
                         </div>
 
@@ -220,7 +233,9 @@ export default function CookieConsent() {
                                         </p>
                                     </div>
                                     <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                                        <Check className="w-3 h-3 text-emerald-400" />
+                                        <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
                                     </div>
                                 </div>
                             </div>
