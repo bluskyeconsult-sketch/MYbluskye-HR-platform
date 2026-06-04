@@ -502,7 +502,7 @@ const PageLoader = () => (
 );
 
 // ============================================
-// PROTECTED ROUTE WRAPPER
+// PROTECTED ROUTE WRAPPER (FIXED)
 // ============================================
 function ProtectedRoute({ children, requireAdmin = false }) {
     const [authState, setAuthState] = useState({ loading: true, isAuthenticated: false, isAdmin: false });
@@ -536,7 +536,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
     }, [requireAdmin]);
     
     if (authState.loading) return <PageLoader />;
-    if (!authState.isAuthenticated) return <Navigate to="/sign-in?redirect=" + window.location.pathname + "" replace />;
+    if (!authState.isAuthenticated) return <Navigate to={`/sign-in?redirect=${window.location.pathname}`} replace />;
     if (requireAdmin && !authState.isAdmin) return <Navigate to="/dashboard" replace />;
     
     return children;
