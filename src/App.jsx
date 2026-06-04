@@ -1,14 +1,13 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V5
-// ✅ All original features preserved
-// ✅ Single API endpoint architecture
-// ✅ No top-level Supabase calls
-// ✅ No scroll-locking issues
+// src/App.jsx - COMPLETE PRODUCTION READY V5 (With Clickable Dropdowns)
+// ✅ Dropdown menus now clickable
+// ✅ All features included
+// ✅ Single API endpoint
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, useRef } from 'react';
 
 // ============================================
-// SIMPLE SCROLL TO TOP (Working - No conflicts)
+// SIMPLE SCROLL TO TOP
 // ============================================
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -84,7 +83,7 @@ function SimpleNewsletterSignup() {
 }
 
 // ============================================
-// AI CHAT COMPONENT (ODUSBABAChat replacement)
+// AI CHAT COMPONENT
 // ============================================
 function AIChat() {
     const [isOpen, setIsOpen] = useState(false);
@@ -166,12 +165,17 @@ function AIChat() {
 }
 
 // ============================================
-// COMPLETE NAVBAR (All Menus)
+// COMPLETE NAVBAR (With Clickable Dropdowns)
 // ============================================
 function Navbar() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
+    const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+    
+    const adminDropdownRef = useRef(null);
+    const accountDropdownRef = useRef(null);
     
     useEffect(() => {
         const checkAuth = async () => {
@@ -195,6 +199,20 @@ function Navbar() {
             }
         };
         checkAuth();
+    }, []);
+
+    // Close dropdowns when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (adminDropdownRef.current && !adminDropdownRef.current.contains(event.target)) {
+                setAdminDropdownOpen(false);
+            }
+            if (accountDropdownRef.current && !accountDropdownRef.current.contains(event.target)) {
+                setAccountDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const handleLogout = async () => {
@@ -233,50 +251,72 @@ function Navbar() {
                             </a>
                         ))}
                         
+                        {/* Admin Dropdown - Clickable */}
                         {isAdmin && (
-                            <div className="relative group">
-                                <button className="text-amber-400 hover:text-amber-300 text-sm">Admin ▼</button>
-                                <div className="absolute hidden group-hover:block bg-slate-800 rounded-lg shadow-lg mt-2 py-2 w-56">
-                                    <a href="/admin/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>
-                                    <a href="/admin/users" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Users</a>
-                                    <a href="/admin/jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Jobs</a>
-                                    <a href="/admin/assessments" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Assessments</a>
-                                    <a href="/admin/ai-course-builder" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">AI Course Builder</a>
-                                    <a href="/admin/virtual-assistants" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Virtual Assistants</a>
-                                    <a href="/admin/external-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">External Jobs</a>
-                                    <a href="/admin/newsletter" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Newsletter</a>
-                                    <a href="/admin/books" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Books</a>
-                                    <a href="/admin/articles" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Articles</a>
-                                    <a href="/admin/knowledge-sources" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Knowledge Sources</a>
-                                    <a href="/admin/health" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">System Health</a>
-                                    <a href="/admin/security" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Security</a>
-                                    <a href="/admin/analytics" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Analytics</a>
-                                    <a href="/admin/skills" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Skills</a>
-                                    <a href="/admin/fraud-reports" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Fraud Reports</a>
-                                    <a href="/admin/testing-mode" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Testing Mode</a>
-                                    <a href="/admin/email-test" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Email Test</a>
-                                </div>
+                            <div className="relative" ref={adminDropdownRef}>
+                                <button 
+                                    onClick={() => setAdminDropdownOpen(!adminDropdownOpen)}
+                                    className="text-amber-400 hover:text-amber-300 text-sm flex items-center gap-1"
+                                >
+                                    Admin 
+                                    <svg className={`w-3 h-3 transition-transform ${adminDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </button>
+                                {adminDropdownOpen && (
+                                    <div className="absolute right-0 mt-2 bg-slate-800 rounded-lg shadow-lg py-2 w-56 z-50 border border-slate-700">
+                                        <a href="/admin/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Dashboard</a>
+                                        <a href="/admin/users" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Users</a>
+                                        <a href="/admin/jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Jobs</a>
+                                        <a href="/admin/assessments" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Assessments</a>
+                                        <a href="/admin/ai-course-builder" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>AI Course Builder</a>
+                                        <a href="/admin/virtual-assistants" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Virtual Assistants</a>
+                                        <a href="/admin/external-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>External Jobs</a>
+                                        <a href="/admin/newsletter" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Newsletter</a>
+                                        <a href="/admin/books" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Books</a>
+                                        <a href="/admin/articles" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Articles</a>
+                                        <a href="/admin/knowledge-sources" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Knowledge Sources</a>
+                                        <a href="/admin/health" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>System Health</a>
+                                        <a href="/admin/security" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Security</a>
+                                        <a href="/admin/analytics" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Analytics</a>
+                                        <a href="/admin/skills" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Skills</a>
+                                        <a href="/admin/fraud-reports" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Fraud Reports</a>
+                                        <a href="/admin/testing-mode" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Testing Mode</a>
+                                        <a href="/admin/email-test" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAdminDropdownOpen(false)}>Email Test</a>
+                                    </div>
+                                )}
                             </div>
                         )}
                         
+                        {/* Account Dropdown - Clickable */}
                         {isLoggedIn ? (
-                            <div className="relative group">
-                                <button className="text-primary-400 hover:text-primary-300 text-sm">My Account ▼</button>
-                                <div className="absolute hidden group-hover:block bg-slate-800 rounded-lg shadow-lg mt-2 py-2 w-48 right-0">
-                                    <a href="/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>
-                                    <a href="/profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Profile</a>
-                                    <a href="/applications" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Applications</a>
-                                    <a href="/skills" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Skills</a>
-                                    <a href="/saved-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Saved Jobs</a>
-                                    <a href="/job-alerts" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Job Alerts</a>
-                                    <a href="/messages" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Messages</a>
-                                    <a href="/learning" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">My Learning</a>
-                                    <a href="/affiliate" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Affiliate</a>
-                                    <a href="/company-profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Company Profile</a>
-                                    <a href="/workforce/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Workforce Dashboard</a>
-                                    <hr className="border-slate-700 my-1" />
-                                    <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-red-400 hover:bg-slate-700 text-sm">Logout</button>
-                                </div>
+                            <div className="relative" ref={accountDropdownRef}>
+                                <button 
+                                    onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                                    className="text-primary-400 hover:text-primary-300 text-sm flex items-center gap-1"
+                                >
+                                    My Account 
+                                    <svg className={`w-3 h-3 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </button>
+                                {accountDropdownOpen && (
+                                    <div className="absolute right-0 mt-2 bg-slate-800 rounded-lg shadow-lg py-2 w-48 z-50 border border-slate-700">
+                                        <a href="/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Dashboard</a>
+                                        <a href="/profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Profile</a>
+                                        <a href="/applications" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Applications</a>
+                                        <a href="/skills" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Skills</a>
+                                        <a href="/saved-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Saved Jobs</a>
+                                        <a href="/job-alerts" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Job Alerts</a>
+                                        <a href="/messages" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Messages</a>
+                                        <a href="/learning" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>My Learning</a>
+                                        <a href="/affiliate" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Affiliate</a>
+                                        <a href="/company-profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Company Profile</a>
+                                        <a href="/workforce/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm" onClick={() => setAccountDropdownOpen(false)}>Workforce Dashboard</a>
+                                        <hr className="border-slate-700 my-1" />
+                                        <button onClick={() => { handleLogout(); setAccountDropdownOpen(false); }} className="w-full text-left px-4 py-2 text-red-400 hover:bg-slate-700 text-sm">Logout</button>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="flex gap-3">
@@ -434,7 +474,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 }
 
 // ============================================
-// LAZY LOADED PAGES (Complete - All features)
+// LAZY LOADED PAGES (Complete)
 // ============================================
 
 // Public Pages
@@ -463,7 +503,7 @@ const AssessmentResults = lazy(() => import('./pages/AssessmentResults'));
 const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
 const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
 
-// User Dashboard Pages
+// User Pages
 const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const UserApplications = lazy(() => import('./pages/UserApplications'));
@@ -581,7 +621,7 @@ function AppContent() {
                         {/* Admin Login */}
                         <Route path="/admin-login" element={<AdminLogin />} />
                         
-                        {/* Admin Routes - Protected */}
+                        {/* Admin Routes */}
                         <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
                         <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
                         <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
@@ -606,7 +646,7 @@ function AppContent() {
                         <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                         <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
                         
-                        {/* User Routes - Protected */}
+                        {/* User Routes */}
                         <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
                         <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
                         <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
@@ -620,7 +660,7 @@ function AppContent() {
                         <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
                         <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
                         
-                        {/* Employer Routes - Protected */}
+                        {/* Employer Routes */}
                         <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
                         <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
                         
