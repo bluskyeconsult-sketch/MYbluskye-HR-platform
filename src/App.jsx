@@ -609,4 +609,62 @@ function AppContent() {
                         {/* User Routes - Protected */}
                         <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
                         <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                        <Route path="/applications" element={<Protected
+                        <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
+                        <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
+                        <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
+                        <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
+                        <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
+                        <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
+                        <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
+                        <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
+                        <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
+                        <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
+                        
+                        {/* Employer Routes - Protected */}
+                        <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
+                        <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
+                        
+                        {/* Tester Routes */}
+                        <Route path="/tester-login" element={<TesterLoginPage />} />
+                        <Route path="/tester-register" element={<TesterRegisterPage />} />
+                        <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
+                        
+                        {/* Workforce Routes */}
+                        <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
+                        <Route path="/workforce/proposals" element={<ProposalsList />} />
+                        <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
+                        
+                        {/* Legal Routes */}
+                        <Route path="/legal/terms" element={<TermsPage />} />
+                        <Route path="/legal/privacy" element={<PrivacyPage />} />
+                        <Route path="/legal/cookies" element={<CookiesPage />} />
+                        <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
+                        <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
+                        <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
+                        <Route path="/safety-tips" element={<SafetyTipsPage />} />
+                        <Route path="/report-fraud" element={<ReportFraudPage />} />
+                        
+                        {/* 404 */}
+                        <Route path="*" element={<NotFoundPage />} />
+                    </Routes>
+                </Suspense>
+            </main>
+            <SimpleNewsletterSignup />
+            <AIChat />
+            <Footer />
+        </>
+    );
+}
+
+// ============================================
+// MAIN APP
+// ============================================
+function App() {
+    return (
+        <BrowserRouter>
+            <AppContent />
+        </BrowserRouter>
+    );
+}
+
+export default App;
