@@ -1,6 +1,9 @@
 // src/lib/supabase.js
-// COMPLETE PRODUCTION READY - Optimized singleton with unified API support
-// No top-level await, safe for all environments
+// ODUSBABA SUPABASE CLIENT v3.0 - PRODUCTION READY
+// ✅ Singleton pattern with environment validation
+// ✅ Auth storage management with corruption detection
+// ✅ Unified API helper with retry logic
+// ✅ No top-level await, safe for all environments
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -67,12 +70,13 @@ export const getSupabase = () => {
                 flowType: 'pkce',
                 debug: import.meta.env.DEV && false
             },
-            db: { schema: 'public' },
+            db: {
+                schema: 'public'
+            },
             global: {
                 headers: {
                     'x-application-name': 'bluskye-consult',
-                    'x-client-info': 'bluskye@1.0.0',
-                    'x-version': '2.0.0'
+                    'x-client-info': 'bluskye@3.0.0'
                 }
             }
         });
@@ -123,7 +127,8 @@ export function clearAuthStorage() {
                 'sb-auth-token',
                 'bluskye-auth-token',
                 'bluskye_prod_auth',
-                'bluskye-auth' // Legacy key from simple version
+                'bluskye-auth', // Legacy key from simple version
+                'lastPath' // From RUTH Standard
             ];
             
             altKeys.forEach(key => {
@@ -145,6 +150,7 @@ export function clearAuthStorage() {
  * Force clear authentication and redirect to login
  */
 export async function clearAuthAndRetry() {
+    console.warn('🔄 Clearing corrupted auth state...');
     clearAuthStorage();
     
     try {
@@ -280,11 +286,12 @@ export function initAuthListener() {
         // Clear storage on sign out
         if (event === 'SIGNED_OUT') {
             clearAuthStorage();
+            localStorage.removeItem('lastPath');
         }
         
         // Log token refresh
         if (event === 'TOKEN_REFRESHED' && import.meta.env.DEV) {
-            console.log('✅ Token refreshed');
+            console.log('✅ Token refreshed successfully');
         }
     });
     
@@ -338,7 +345,7 @@ export async function isAuthCorrupted() {
         
         // Check for invalid token format
         if (typeof localStorage !== 'undefined') {
-            const token = localStorage.getItem(STORAGE_KEY);
+            const token = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('supabase-auth-token');
             if (token && (!token.includes('.') || token.split('.').length !== 3)) return true;
         }
         
@@ -380,7 +387,45 @@ export async function repairCorruptedSession() {
 }
 
 // ============================================
-// UNIFIED API HELPER (UPDATED - NO WRONG CALLS)
+// PERFORMANCE OPTIMIZATIONS (RUTH Standard)
+// ============================================
+
+/**
+ * Execute query with automatic retry on network failures
+ * @param {Function} queryFn - Async function to execute
+ * @param {number} retries - Number of retry attempts (default: 3)
+ * @param {number} delay - Initial delay in ms (default: 1000)
+ * @returns {Promise<any>} Query result
+ */
+export const supabaseWithRetry = async (queryFn, retries = 3, delay = 1000) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await queryFn();
+        } catch (error) {
+            if (i === retries - 1) throw error;
+            if (error.message?.includes('fetch failed') || error.message?.includes('network')) {
+                await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+                continue;
+            }
+            throw error;
+        }
+    }
+};
+
+/**
+ * Batch update VA credits for multiple users
+ * @param {Array<{userId: string, balance: number}>} updates - Array of user credit updates
+ * @returns {Promise<Array>} Results of all updates
+ */
+export async function batchUpdateVACredits(updates) {
+    const promises = updates.map(({ userId, balance }) => 
+        supabase.from('va_credits').upsert({ user_id: userId, balance }, { onConflict: 'user_id' })
+    );
+    return Promise.all(promises);
+}
+
+// ============================================
+// UNIFIED API HELPER
 // ============================================
 
 /**
@@ -416,7 +461,7 @@ export async function apiCall(action, data = {}, method = 'POST') {
 }
 
 // ============================================
-// USER PROFILE HELPER (UPDATED)
+// USER PROFILE HELPER
 // ============================================
 
 /**
@@ -435,7 +480,7 @@ export async function updateUserProfile(updates) {
 }
 
 // ============================================
-// EXPORTS
+// DEFAULT EXPORT
 // ============================================
 
 export default supabase;
