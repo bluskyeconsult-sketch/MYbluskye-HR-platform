@@ -1,10 +1,11 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V7
+// src/App.jsx - COMPLETE PRODUCTION READY V8
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
 // ✅ Authentication works
 // ✅ Single API endpoint
 // ✅ Integrated FraudSafetyBanner & CookieConsent
+// ✅ Assessment Results page integrated
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
