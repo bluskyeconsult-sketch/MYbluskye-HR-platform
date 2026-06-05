@@ -1,18 +1,44 @@
 // src/pages/HireVirtualAssistant.jsx
-// RUTH STANDARD v2.0 - COMPLETE PRODUCTION PAGE
-// Developer 2: Frontend & UI/UX Specialist
-// Reviewed by: Developer 4 (Lead)
-// Status: ✅ APPROVED
+// ODUSBABA VIRTUAL ASSISTANT PAGE v3.0 - PRODUCTION READY
+// ✅ 24 AI-powered career assistants
+// ✅ Credit-based access system
+// ✅ Full task history with feedback
+// ✅ Unified API integration
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-    Bot, Sparkles, DollarSign, Clock, CheckCircle, Loader2, 
-    History, Play, FileText, Briefcase, Users, Award, TrendingUp,
-    Star, Zap, Shield, MessageCircle, ChevronRight, Filter, Search,
-    ThumbsUp, ThumbsDown, Eye, Copy, X, Crown, Gift, RefreshCw
+    Bot, Sparkles, DollarSign, Clock, Loader2, Star, Shield, 
+    FileText, Briefcase, Users, Award, TrendingUp, 
+    Search, X, Eye, CheckCircle, History, Play, 
+    ThumbsUp, ThumbsDown, ChevronRight, Copy, Crown,
+    Zap, MessageCircle, Filter, RefreshCw
 } from 'lucide-react';
-import { VIRTUAL_ASSISTANTS, checkVAEligibility, executeVATask, getUserVATasks } from '../services/vaService';
+import { 
+    VIRTUAL_ASSISTANTS, 
+    checkVAEligibility, 
+    executeVATask, 
+    getUserVATasks,
+    getVACredits
+} from '../services/vaService';
+
+// ============================================
+// CATEGORIES CONFIGURATION
+// ============================================
+
+const CATEGORIES = [
+    { id: 'all', name: 'All Assistants', icon: Bot, color: 'primary', count: VIRTUAL_ASSISTANTS.length },
+    { id: 'resume', name: 'Resume & CV', icon: FileText, color: 'blue', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'resume').length },
+    { id: 'interview', name: 'Interview Prep', icon: Users, color: 'emerald', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'interview').length },
+    { id: 'career', name: 'Career Advice', icon: Briefcase, color: 'amber', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'career').length },
+    { id: 'skills', name: 'Skill Development', icon: TrendingUp, color: 'cyan', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'skills').length },
+    { id: 'job', name: 'Job Search', icon: Search, color: 'purple', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'job').length },
+    { id: 'legal', name: 'Legal & Rights', icon: Shield, color: 'pink', count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'legal').length }
+];
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function HireVirtualAssistant() {
     const [selectedVA, setSelectedVA] = useState(null);
@@ -25,10 +51,16 @@ export default function HireVirtualAssistant() {
     const [activeTab, setActiveTab] = useState('assistants');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [expandedTask, setExpandedTask] = useState(null);
+    const [feedback, setFeedback] = useState({});
+    const [loadingHistory, setLoadingHistory] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [processingProgress, setProcessingProgress] = useState(0);
-    const [expandedTask, setExpandedTask] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
+
+    // ============================================
+    // LOAD USER DATA
+    // ============================================
 
     useEffect(() => {
         loadUserAndEligibility();
@@ -39,7 +71,6 @@ export default function HireVirtualAssistant() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
-                window.location.href = '/sign-in?redirect=/hire-va';
                 return;
             }
             setUser(user);
@@ -47,14 +78,55 @@ export default function HireVirtualAssistant() {
             const eligibilityData = await checkVAEligibility(user.id);
             setEligibility(eligibilityData);
             
-            const history = await getUserVATasks(user.id, 10);
-            setTaskHistory(history);
+            await loadTaskHistory(user.id);
         } catch (error) {
             console.error('Error loading data:', error);
         } finally {
             setRefreshing(false);
         }
     }
+
+    async function loadTaskHistory(userId) {
+        setLoadingHistory(true);
+        try {
+            const result = await getUserVATasks(userId, 20);
+            setTaskHistory(result.tasks || []);
+        } catch (error) {
+            console.error('Error loading task history:', error);
+        } finally {
+            setLoadingHistory(false);
+        }
+    }
+
+    // ============================================
+    // SUBMIT FEEDBACK
+    // ============================================
+
+    async function submitFeedback(taskId, rating) {
+        setFeedback({ ...feedback, [taskId]: rating });
+        await supabase
+            .from('va_tasks')
+            .update({ user_rating: rating === 'positive' ? 5 : 1 })
+            .eq('id', taskId);
+    }
+
+    // ============================================
+    // COPY TO CLIPBOARD
+    // ============================================
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        // Show temporary notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed bottom-4 right-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+        notification.textContent = 'Copied to clipboard!';
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 2000);
+    };
+
+    // ============================================
+    // EXECUTE VA TASK
+    // ============================================
 
     async function handleExecute(e) {
         e.preventDefault();
@@ -92,7 +164,7 @@ export default function HireVirtualAssistant() {
                 setOutput(result.output);
                 await loadUserAndEligibility();
             } else {
-                alert(result.error);
+                alert(result.error || 'Failed to execute task. Please try again.');
             }
         } catch (error) {
             console.error('VA execution error:', error);
@@ -104,52 +176,31 @@ export default function HireVirtualAssistant() {
         }
     }
 
-    const categories = [
-        { id: 'all', name: 'All Assistants', icon: Bot, count: VIRTUAL_ASSISTANTS.length },
-        { id: 'resume', name: 'Resume & CV', icon: FileText, count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'resume').length },
-        { id: 'interview', name: 'Interview Prep', icon: Briefcase, count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'interview').length },
-        { id: 'career', name: 'Career Advice', icon: TrendingUp, count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'career').length },
-        { id: 'skills', name: 'Skill Development', icon: Award, count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'skills').length },
-        { id: 'social', name: 'Social Media', icon: Users, count: VIRTUAL_ASSISTANTS.filter(v => v.category === 'social').length }
-    ];
+    // ============================================
+    // FILTER ASSISTANTS
+    // ============================================
 
     const filteredVAs = VIRTUAL_ASSISTANTS.filter(va => {
         const matchesSearch = va.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                              va.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                              va.longDescription.toLowerCase().includes(searchTerm.toLowerCase());
+                             va.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                             (va.longDescription && va.longDescription.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesCategory = selectedCategory === 'all' || va.category === selectedCategory;
         return matchesSearch && matchesCategory;
     });
 
-    // Check if VA is accessible based on user tier
-    const isVAAccessible = (vaTier) => {
-        const tierLevels = { free: 0, registered: 1, professional: 2, employer: 2, business: 3, admin: 3, super_admin: 3 };
-        const userLevel = tierLevels[eligibility?.tier || 'free'];
-        const vaLevel = tierLevels[vaTier || 'free'];
-        return userLevel >= vaLevel;
-    };
-
-    const getTierBadge = (vaTier) => {
-        const badges = {
-            free: { text: 'Free', color: 'bg-emerald-500/20 text-emerald-400' },
-            registered: { text: 'Registered', color: 'bg-blue-500/20 text-blue-400' },
-            professional: { text: 'Professional', color: 'bg-purple-500/20 text-purple-400' }
-        };
-        return badges[vaTier] || badges.free;
-    };
-
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
-    };
+    // ============================================
+    // RENDER SIGN IN PAGE
+    // ============================================
 
     if (!user) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
                 <div className="text-center max-w-md mx-auto px-4">
-                    <Bot className="w-20 h-20 text-primary-400 mx-auto mb-4 animate-pulse" />
+                    <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
+                        <Bot className="w-10 h-10 text-white" />
+                    </div>
                     <h1 className="text-2xl font-bold text-white mb-2">Sign in to use Virtual Assistants</h1>
-                    <p className="text-slate-400 mb-6">Access AI-powered career helpers for CV optimization, interview prep, and more.</p>
+                    <p className="text-slate-400 mb-6">Access 24 AI-powered career helpers for CV optimization, interview prep, and more.</p>
                     <div className="flex gap-3 justify-center">
                         <a href="/sign-in" className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">Sign In</a>
                         <a href="/sign-up" className="px-6 py-2.5 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-800 transition">Create Account</a>
@@ -159,6 +210,10 @@ export default function HireVirtualAssistant() {
         );
     }
 
+    // ============================================
+    // RENDER MAIN COMPONENT
+    // ============================================
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -166,12 +221,13 @@ export default function HireVirtualAssistant() {
                 {/* Header */}
                 <div className="text-center mb-8">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 mb-4">
-                        <Bot className="w-4 h-4 text-primary-400" />
-                        <span className="text-primary-400 text-sm">AI-Powered Career Assistants</span>
+                        <Sparkles className="w-4 h-4 text-primary-400" />
+                        <span className="text-primary-400 text-sm">24 AI-Powered Career Assistants</span>
                     </div>
                     <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">Hire a Virtual Assistant</h1>
                     <p className="text-slate-400 max-w-2xl mx-auto">
                         Professional AI helpers for CV optimization, interview prep, salary negotiation, and career development.
+                        Available 24/7 to help you succeed.
                     </p>
                 </div>
 
@@ -193,9 +249,11 @@ export default function HireVirtualAssistant() {
                             </p>
                         ) : (
                             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                                <p>
+                                <p className="text-sm sm:text-base">
                                     You have <span className="font-bold text-2xl">{eligibility.remaining}</span> VA credits remaining
-                                    {eligibility.limit && <span className="text-sm text-slate-500"> / {eligibility.limit} total</span>}
+                                    {eligibility.limit && eligibility.limit < 999999 && (
+                                        <span className="text-sm text-slate-500"> / {eligibility.limit} total</span>
+                                    )}
                                 </p>
                                 {eligibility.remaining <= 5 && eligibility.remaining > 0 && (
                                     <span className="text-xs text-amber-400 bg-amber-500/20 px-2 py-1 rounded-full">⚠️ Low credits - use wisely!</span>
@@ -210,56 +268,56 @@ export default function HireVirtualAssistant() {
 
                 {/* Tabs */}
                 <div className="flex border-b border-slate-800 mb-6">
-                    <button
-                        onClick={() => setActiveTab('assistants')}
-                        className={`px-4 py-2 text-sm font-medium transition ${
-                            activeTab === 'assistants' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'
-                        }`}
+                    <button 
+                        onClick={() => setActiveTab('assistants')} 
+                        className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'assistants' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
                     >
                         <Bot className="w-4 h-4 inline mr-1" /> Virtual Assistants
                         <span className="ml-1 text-xs text-slate-500">({VIRTUAL_ASSISTANTS.length})</span>
                     </button>
-                    <button
-                        onClick={() => setActiveTab('history')}
-                        className={`px-4 py-2 text-sm font-medium transition ${
-                            activeTab === 'history' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'
-                        }`}
+                    <button 
+                        onClick={() => setActiveTab('history')} 
+                        className={`px-4 py-2 text-sm font-medium transition ${activeTab === 'history' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
                     >
                         <History className="w-4 h-4 inline mr-1" /> History
                         {taskHistory.length > 0 && <span className="ml-1 text-xs text-slate-500">({taskHistory.length})</span>}
                     </button>
                 </div>
 
+                {/* ASSISTANTS TAB */}
                 {activeTab === 'assistants' && (
                     <>
                         {/* Search and Filter */}
                         <div className="flex flex-col sm:flex-row gap-4 mb-6">
                             <div className="flex-1 relative">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
-                                <input
-                                    type="text"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    placeholder="Search assistants by name, description, or specialty..."
-                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                <input 
+                                    type="text" 
+                                    value={searchTerm} 
+                                    onChange={(e) => setSearchTerm(e.target.value)} 
+                                    placeholder="Search assistants by name or description..." 
+                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500" 
                                 />
                             </div>
-                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-                                {categories.map(cat => (
-                                    <button
-                                        key={cat.id}
-                                        onClick={() => setSelectedCategory(cat.id)}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
-                                            selectedCategory === cat.id
-                                                ? 'bg-primary-600 text-white'
-                                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                        }`}
-                                    >
-                                        <cat.icon className="w-4 h-4" />
-                                        {cat.name}
-                                        <span className="text-xs opacity-70">({cat.count})</span>
-                                    </button>
-                                ))}
+                            <div className="flex flex-wrap gap-2">
+                                {CATEGORIES.map(cat => {
+                                    const Icon = cat.icon;
+                                    return (
+                                        <button 
+                                            key={cat.id} 
+                                            onClick={() => setSelectedCategory(cat.id)} 
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
+                                                selectedCategory === cat.id 
+                                                    ? 'bg-primary-600 text-white' 
+                                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                        >
+                                            <Icon className="w-4 h-4" /> 
+                                            {cat.name} 
+                                            <span className="text-xs opacity-70">({cat.count})</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 
@@ -271,10 +329,7 @@ export default function HireVirtualAssistant() {
                         {/* VA Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                             {filteredVAs.map(va => {
-                                const isAccessible = isVAAccessible(va.tier);
-                                const tierBadge = getTierBadge(va.tier);
                                 const isSelected = selectedVA?.id === va.id;
-                                
                                 return (
                                     <div 
                                         key={va.id} 
@@ -282,44 +337,29 @@ export default function HireVirtualAssistant() {
                                             isSelected 
                                                 ? 'ring-2 ring-primary-500 border-primary-500 shadow-lg shadow-primary-500/20' 
                                                 : 'border-slate-700 hover:border-primary-500/50 hover:-translate-y-1'
-                                        } ${!isAccessible ? 'opacity-60' : ''}`}
-                                        onClick={() => isAccessible && setSelectedVA(va)}
+                                        }`}
+                                        onClick={() => setSelectedVA(va)}
                                     >
                                         <div className="flex items-start justify-between mb-4">
-                                            <div className="text-4xl">{va.icon}</div>
+                                            <div className="text-4xl group-hover:scale-110 transition">{va.icon}</div>
                                             <div className="text-right">
                                                 <p className="text-2xl font-bold text-primary-400">{va.price}</p>
                                                 <p className="text-xs text-slate-500">credits</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h3 className="text-lg font-semibold text-white">{va.name}</h3>
-                                            <span className={`text-xs px-2 py-0.5 rounded-full ${tierBadge.color}`}>
-                                                {tierBadge.text}
-                                            </span>
-                                        </div>
+                                        <h3 className="text-lg font-semibold text-white mb-1">{va.name}</h3>
                                         <p className="text-slate-400 text-sm mb-3 line-clamp-2">{va.description}</p>
                                         <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
                                             <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> {va.rating}</span>
                                             <span>({va.reviews} reviews)</span>
-                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {va.processingTime}</span>
+                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {va.responseTime || va.processingTime || '2-3 min'}</span>
                                         </div>
-                                        {!isAccessible && (
-                                            <div className="mt-2 p-2 bg-amber-500/10 rounded-lg text-center">
-                                                <p className="text-amber-400 text-xs flex items-center justify-center gap-1">
-                                                    <Crown className="w-3 h-3" /> Upgrade to {va.tier} tier to access
-                                                </p>
-                                            </div>
+                                        {va.featured && (
+                                            <span className="inline-block text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">⭐ Featured</span>
                                         )}
                                         {isSelected && (
                                             <div className="mt-3 pt-3 border-t border-slate-700">
-                                                <p className="text-xs text-slate-400 line-clamp-2">{va.longDescription}</p>
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); setInput(va.samplePrompt); }}
-                                                    className="mt-2 text-xs text-primary-400 hover:text-primary-300"
-                                                >
-                                                    Try: "{va.samplePrompt.substring(0, 50)}..."
-                                                </button>
+                                                <p className="text-xs text-slate-400">{va.longDescription || va.description}</p>
                                             </div>
                                         )}
                                     </div>
@@ -351,7 +391,7 @@ export default function HireVirtualAssistant() {
                                             <h3 className="text-xl font-bold text-white">{selectedVA.name}</h3>
                                             <span className="text-sm text-slate-400">({selectedVA.price} credits)</span>
                                         </div>
-                                        <p className="text-slate-400 text-sm mt-1">{selectedVA.longDescription}</p>
+                                        <p className="text-slate-400 text-sm mt-1">{selectedVA.longDescription || selectedVA.description}</p>
                                     </div>
                                     <button
                                         onClick={() => {
@@ -372,7 +412,7 @@ export default function HireVirtualAssistant() {
                                             value={input}
                                             onChange={(e) => setInput(e.target.value)}
                                             rows={5}
-                                            placeholder={`Example: "${selectedVA.samplePrompt}"`}
+                                            placeholder={`Describe what you need help with...\n\nExample: "I'm applying for a Senior Software Engineer role at Google. Please help optimize my CV."`}
                                             className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                                             required
                                         />
@@ -440,9 +480,10 @@ export default function HireVirtualAssistant() {
                     </>
                 )}
 
+                {/* HISTORY TAB */}
                 {activeTab === 'history' && (
                     <div className="space-y-4">
-                        {refreshing && taskHistory.length === 0 ? (
+                        {(loadingHistory || refreshing) && taskHistory.length === 0 ? (
                             <div className="text-center py-12">
                                 <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
                                 <p className="text-slate-400">Loading history...</p>
@@ -457,7 +498,7 @@ export default function HireVirtualAssistant() {
                             <>
                                 <div className="flex justify-end mb-2">
                                     <button 
-                                        onClick={loadUserAndEligibility}
+                                        onClick={() => loadUserAndEligibility()}
                                         className="text-xs text-slate-500 hover:text-primary-400 flex items-center gap-1"
                                     >
                                         <RefreshCw className="w-3 h-3" /> Refresh
@@ -472,21 +513,22 @@ export default function HireVirtualAssistant() {
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-2xl">{va?.icon || '🤖'}</div>
                                                     <div>
-                                                        <h3 className="text-white font-semibold">{va?.name || task.va_id}</h3>
-                                                        <p className="text-xs text-slate-500">
-                                                            {new Date(task.created_at).toLocaleString()}
-                                                        </p>
+                                                        <h3 className="text-white font-semibold">{va?.name || task.va_name || task.va_id}</h3>
+                                                        <p className="text-xs text-slate-500">{new Date(task.created_at).toLocaleString()}</p>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <span className={`text-xs px-2 py-1 rounded-full ${
-                                                        task.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                                                        task.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                                        task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                                                        'bg-amber-500/20 text-amber-400'
                                                     }`}>
-                                                        {task.status === 'completed' ? '✓ Completed' : 'Processing'}
+                                                        {task.status === 'completed' ? '✓ Completed' : 
+                                                         task.status === 'failed' ? '❌ Failed' : '⏳ Processing'}
                                                     </span>
                                                     {task.output && (
-                                                        <button
-                                                            onClick={() => setExpandedTask(isExpanded ? null : task.id)}
+                                                        <button 
+                                                            onClick={() => setExpandedTask(isExpanded ? null : task.id)} 
                                                             className="p-1 text-slate-400 hover:text-white transition"
                                                         >
                                                             <Eye className="w-4 h-4" />
@@ -494,23 +536,10 @@ export default function HireVirtualAssistant() {
                                                     )}
                                                 </div>
                                             </div>
-                                            
                                             <p className="text-slate-400 text-sm mt-2 line-clamp-2">{task.input}</p>
-                                            
-                                            {task.quality_score && (
-                                                <div className="mt-2 flex items-center gap-1">
-                                                    <span className="text-xs text-slate-500">Quality score:</span>
-                                                    <div className="flex gap-0.5">
-                                                        {[1, 2, 3, 4, 5].map(i => (
-                                                            <div key={i} className={`w-1.5 h-1.5 rounded-full ${
-                                                                i <= Math.ceil(task.quality_score / 20) ? 'bg-emerald-400' : 'bg-slate-600'
-                                                            }`} />
-                                                        ))}
-                                                    </div>
-                                                    <span className="text-xs text-emerald-400 ml-1">{task.quality_score}%</span>
-                                                </div>
+                                            {task.execution_time_ms && (
+                                                <p className="text-xs text-slate-500 mt-1">Completed in {(task.execution_time_ms / 1000).toFixed(1)}s</p>
                                             )}
-                                            
                                             {isExpanded && task.output && (
                                                 <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
                                                     <p className="text-slate-300 text-sm whitespace-pre-wrap">{task.output.substring(0, 500)}...</p>
@@ -524,6 +553,35 @@ export default function HireVirtualAssistant() {
                                                     )}
                                                 </div>
                                             )}
+                                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-800">
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={() => submitFeedback(task.id, 'positive')} 
+                                                        className={`text-xs flex items-center gap-1 px-2 py-1 rounded transition ${
+                                                            feedback[task.id] === 'positive' || task.user_rating === 5 
+                                                                ? 'bg-emerald-500/20 text-emerald-400' 
+                                                                : 'text-slate-500 hover:text-emerald-400'
+                                                        }`}
+                                                    >
+                                                        <ThumbsUp className="w-3 h-3" /> Helpful
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => submitFeedback(task.id, 'negative')} 
+                                                        className={`text-xs flex items-center gap-1 px-2 py-1 rounded transition ${
+                                                            feedback[task.id] === 'negative' || (task.user_rating && task.user_rating < 3)
+                                                                ? 'bg-red-500/20 text-red-400' 
+                                                                : 'text-slate-500 hover:text-red-400'
+                                                        }`}
+                                                    >
+                                                        <ThumbsDown className="w-3 h-3" /> Not Helpful
+                                                    </button>
+                                                </div>
+                                                {task.output && !isExpanded && (
+                                                    <button onClick={() => setExpandedTask(task.id)} className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1">
+                                                        View result <ChevronRight className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })}
