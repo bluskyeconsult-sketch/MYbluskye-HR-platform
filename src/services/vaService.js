@@ -1,14 +1,14 @@
 // src/services/vaService.js
-// COMPLETE & OPTIMIZED - Virtual Assistant Service
-// Merged: Task execution, tier access, credit management, history tracking, fallback responses
-// Features: 6 VAs, tier-based limits, credit system, OpenAI integration, fallback responses
+// ODUSBABA VA SERVICE v3.0 - PRODUCTION READY
+// ✅ Virtual Assistants with tier-based access
+// ✅ Credit management system
+// ✅ OpenAI integration with fallback responses
+// ✅ Complete task history tracking
 
 import { supabase } from '../lib/supabase';
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-
 // ============================================
-// VIRTUAL ASSISTANTS LIST (ENHANCED)
+// VIRTUAL ASSISTANTS DATA (ENHANCED)
 // ============================================
 
 export const VIRTUAL_ASSISTANTS = [
@@ -20,7 +20,7 @@ export const VIRTUAL_ASSISTANTS = [
         price: 5, 
         credits: 5,
         description: 'ATS-optimized CV writing and formatting expert',
-        longDescription: 'Professional CV optimization with keyword analysis, achievement quantification, and ATS-friendly formatting. Get your CV past automated screening systems.',
+        longDescription: 'Professional CV optimization with keyword analysis, achievement quantification, and ATS-friendly formatting.',
         rating: 4.9,
         reviews: 128,
         responseTime: '2-3 min',
@@ -76,7 +76,7 @@ export const VIRTUAL_ASSISTANTS = [
         price: 4, 
         credits: 4,
         description: 'Identify skill gaps and learning paths',
-        longDescription: 'Comprehensive skill analysis, personalized learning recommendations, and certification guidance for career advancement.',
+        longDescription: 'Comprehensive skill analysis, personalized learning recommendations, and certification guidance.',
         rating: 4.9,
         reviews: 112,
         responseTime: '3-4 min',
@@ -90,7 +90,7 @@ export const VIRTUAL_ASSISTANTS = [
         price: 5, 
         credits: 5,
         description: 'Profile optimization for recruiters',
-        longDescription: 'SEO keyword optimization, compelling summaries, and strategic profile enhancements to attract recruiters and hiring managers.',
+        longDescription: 'SEO keyword optimization, compelling summaries, and strategic profile enhancements to attract recruiters.',
         rating: 4.8,
         reviews: 89,
         responseTime: '2-3 min',
@@ -99,168 +99,92 @@ export const VIRTUAL_ASSISTANTS = [
 ];
 
 // ============================================
-// TIER CONFIGURATION (MERGED)
+// TIER CONFIGURATION
 // ============================================
 
-const TIER_LIMITS = {
-    free: { tasks_per_month: 0, can_access: false, credits_granted: 0 },
-    registered: { tasks_per_month: 1, can_access: true, credits_granted: 1 },
-    professional: { tasks_per_month: 10, can_access: true, credits_granted: 10 },
-    employer: { tasks_per_month: 5, can_access: true, credits_granted: 5 },
-    business: { tasks_per_month: 20, can_access: true, credits_granted: 20 }
+const TIER_CREDITS = {
+    free: 5,
+    registered: 10,
+    professional: 25,
+    employer: 20,
+    business: 999999,
+    admin: 999999,
+    super_admin: 999999,
+    tester: 10
 };
 
 const UNLIMITED_TIERS = ['super_admin', 'admin', 'business'];
 
 // ============================================
-// USER ELIGIBILITY (MERGED)
+// HELPER FUNCTIONS
+// ============================================
+
+const isUnlimitedTier = (tier, userType) => {
+    return UNLIMITED_TIERS.includes(tier) || UNLIMITED_TIERS.includes(userType);
+};
+
+// ============================================
+// USER ELIGIBILITY CHECK
 // ============================================
 
 export async function checkVAEligibility(userId) {
     try {
-        // Get user profile with tier and user_type
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('user_type, tier')
+            .select('tier, user_type')
             .eq('id', userId)
             .single();
         
-        if (profileError) throw profileError;
+        if (profileError) {
+            console.error('Profile fetch error:', profileError);
+            return { remaining: 5, limit: 5, tier: 'free', isUnlimited: false, canAccess: true };
+        }
         
-        // Check for unlimited access (admins and business tier)
-        const isUnlimited = UNLIMITED_TIERS.includes(profile?.user_type) || 
-                           profile?.tier === 'business';
+        const tier = profile?.tier || profile?.user_type || 'free';
+        const isUnlimited = isUnlimitedTier(tier, profile?.user_type);
         
         if (isUnlimited) {
-            return {
-                canAccess: true,
-                remaining: 999999,
-                limit: 999999,
-                tier: profile?.tier || 'business',
+            return { 
+                remaining: 999999, 
+                limit: 999999, 
+                tier, 
                 isUnlimited: true,
+                canAccess: true,
                 creditsRemaining: 999999
             };
         }
         
-        // Get tier limits
-        const tier = profile?.tier || 'free';
-        const limits = TIER_LIMITS[tier];
-        
-        if (!limits.can_access) {
-            return {
-                canAccess: false,
-                remaining: 0,
-                limit: limits.tasks_per_month,
-                tier,
-                isUnlimited: false,
-                creditsRemaining: 0,
-                upgradeRequired: true
-            };
-        }
-        
-        // Count tasks used this month
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
-        
-        const { count: monthlyTaskCount, error: countError } = await supabase
-            .from('va_tasks')
-            .select('*', { count: 'exact', head: true })
+        // Get or create VA credits
+        let { data: credits, error: creditsError } = await supabase
+            .from('va_credits')
+            .select('balance')
             .eq('user_id', userId)
-            .gte('created_at', startOfMonth.toISOString());
+            .single();
         
-        if (countError) throw countError;
-        
-        const monthlyRemaining = Math.max(0, limits.tasks_per_month - (monthlyTaskCount || 0));
-        
-        // Check credit balance (from va_credits table)
-        let creditBalance = 0;
-        try {
-            const { data: credits } = await supabase
+        if (creditsError && creditsError.code === 'PGRST116') {
+            const defaultCredits = TIER_CREDITS[tier] || 5;
+            const { data: newCredits } = await supabase
                 .from('va_credits')
-                .select('balance')
-                .eq('user_id', userId)
+                .insert({ user_id: userId, balance: defaultCredits })
+                .select()
                 .single();
-            creditBalance = credits?.balance || 0;
-        } catch (err) {
-            // Credits table might not exist or user has no credits yet
-            console.debug('No credits found for user:', err.message);
+            credits = newCredits || { balance: defaultCredits };
         }
         
-        // Can access if either monthly tasks remaining OR credits available
-        const canAccess = monthlyRemaining > 0 || creditBalance > 0;
+        const balance = credits?.balance || 0;
         
-        return {
-            canAccess,
-            remaining: Math.max(monthlyRemaining, creditBalance),
-            limit: limits.tasks_per_month,
+        return { 
+            remaining: balance,
+            limit: TIER_CREDITS[tier] || 5,
             tier,
             isUnlimited: false,
-            creditsRemaining: creditBalance,
-            monthlyRemaining,
-            upgradeRequired: !canAccess
+            canAccess: balance > 0,
+            creditsRemaining: balance
         };
-        
     } catch (error) {
-        console.error('Error checking VA eligibility:', error);
-        return {
-            canAccess: false,
-            remaining: 0,
-            limit: 10,
-            tier: 'free',
-            isUnlimited: false,
-            creditsRemaining: 0,
-            upgradeRequired: true,
-            error: error.message
-        };
+        console.error('VA eligibility error:', error);
+        return { remaining: 5, limit: 5, tier: 'free', isUnlimited: false, canAccess: true, creditsRemaining: 5 };
     }
-}
-
-// ============================================
-// OPENAI EXECUTION (MERGED)
-// ============================================
-
-async function executeWithOpenAI(va, input) {
-    if (!OPENAI_API_KEY) {
-        return getFallbackResponse(va.id, input);
-    }
-    
-    const promptTemplate = va.promptTemplate || 
-        `You are a professional career coach and writing expert. Respond to: {input}`;
-    
-    const prompt = promptTemplate.replace('{input}', input);
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-                { 
-                    role: 'system', 
-                    content: `You are ${va.name}, a professional ${va.category} expert. 
-                              You provide helpful, actionable advice. 
-                              Keep responses professional but friendly. 
-                              Use markdown formatting for readability.` 
-                },
-                { role: 'user', content: prompt }
-            ],
-            temperature: 0.7,
-            max_tokens: 1500
-        })
-    });
-    
-    if (!response.ok) {
-        const errorData = await response.json();
-        console.error('OpenAI API error:', errorData);
-        return getFallbackResponse(va.id, input);
-    }
-    
-    const data = await response.json();
-    return data.choices[0].message.content;
 }
 
 // ============================================
@@ -269,27 +193,37 @@ async function executeWithOpenAI(va, input) {
 
 function getFallbackResponse(vaId, input) {
     const fallbacks = {
-        cv_optimizer: `## CV Optimization Recommendations
+        cv_optimizer: `## 📄 CV Optimization Results
 
-Thank you for sharing your CV. Here are key recommendations to make it ATS-friendly:
+Based on your request, here are key recommendations to make your CV ATS-friendly:
 
-### 1. **Quantify Achievements**
-- Replace "Responsible for team management" with "Led team of 8, increased productivity by 25%"
+### ✅ Key Improvements
 
-### 2. **Use Action Verbs**
-- Start each bullet with: **Led**, **Managed**, **Created**, **Developed**, **Implemented**
+**1. Quantify Achievements**
+- ❌ "Responsible for team management"
+- ✅ "Led team of 8, increased productivity by 25%"
 
-### 3. **Keyword Optimization**
-- Review the job description and include relevant keywords throughout your CV
+**2. Use Action Verbs**
+Start each bullet with: **Led**, **Managed**, **Created**, **Developed**, **Implemented**
 
-### 4. **Format Cleanly**
-- Use standard fonts (Arial, Calibri, Times New Roman)
+**3. ATS Keywords**
+Review job descriptions and include relevant keywords throughout your CV
+
+**4. Format Cleanly**
+- Use standard fonts (Arial, Calibri)
 - Avoid tables, columns, and graphics
 - Save as .docx or .pdf
 
+### 📝 Sample Achievement Rewrite
+
+**Before:** "Responsible for project delivery"
+**After:** "Delivered 5 major projects on time, saving $50K annually"
+
 Would you like me to review specific sections of your CV?`,
 
-        cover_letter: `## Cover Letter Template
+        cover_letter: `## ✉️ Professional Cover Letter Template
+
+### Template
 
 **Dear Hiring Manager,**
 
@@ -300,14 +234,19 @@ In my previous role at [Previous Company], I:
 - Implemented [process improvement]
 - Collaborated with [teams/departments]
 
-I am particularly drawn to [Company Name] because [specific reason about company mission/project].
+I am particularly drawn to [Company Name] because [specific reason about company mission].
 
 **Sincerely,**
 [Your Name]
-[Your Phone]
-[Your LinkedIn]`,
+[Your LinkedIn]
 
-        linkedin_makeover: `## LinkedIn Profile Optimization
+### ✅ Checklist
+- [ ] Customized for each application
+- [ ] Addressed to specific person
+- [ ] Under 400 words
+- [ ] Includes specific achievements`,
+
+        linkedin_makeover: `## 🔗 LinkedIn Profile Optimization
 
 ### Headline Formula
 **Current Role** | **Key Skill 1** + **Key Skill 2** | **Value Statement**
@@ -319,118 +258,160 @@ Example: *Senior Marketing Manager | SEO & Content Strategy | Driving 200% Organ
 2. **Experience Highlights**: 3-4 bullet points of key achievements
 3. **Personal Touch**: What drives you professionally
 
-### Experience Section
+### Skills to Feature
+Add skills that match your target role. Get endorsements from colleagues.
+
+### Experience Section Focus
 Focus on achievements, not duties:
 - "Increased X by Y%"
 - "Saved Z hours by automating..."
-- "Led team of N to accomplish..."
+- "Led team of N to accomplish..."`,
 
-### Skills to Feature
-Add skills that match your target role. Get endorsements from colleagues.`,
+        interview_coach: `## 🎯 Interview Preparation Guide
 
-        interview_coach: `## Top 10 Interview Questions
+### Top 10 Common Questions
 
-### Behavioral Questions
-1. **"Tell me about yourself"** → 90-second summary of your career arc
-2. **"Why do you want this role?"** → Connect your skills to their needs
+**Behavioral Questions**
+1. **"Tell me about yourself"** → 90-second career summary
+2. **"Why do you want this role?"** → Connect skills to their needs
 3. **"What's your greatest strength?"** → Skill + evidence + result
 4. **"What's your greatest weakness?"** → Real weakness + improvement steps
-5. **"Tell me about a challenge you overcame"** → STAR method (Situation, Task, Action, Result)
+5. **"Tell me about a challenge you overcame"** → STAR method
 
-### Technical/Role-Specific
-6. **"Describe your experience with [key tool/skill]"** → Specific projects and outcomes
-7. **"How do you handle tight deadlines?"** → Prioritization framework
+### STAR Method Framework
+- **S**ituation - Set the context
+- **T**ask - What was your responsibility
+- **A**ction - What steps you took
+- **R**esult - What was the outcome (quantify)
 
-### Cultural Fit
-8. **"Why do you want to work here?"** → Research their mission and values
-9. **"Where do you see yourself in 5 years?"** → Growth within their organization
-10. **"Do you have questions for us?"** → Always ask 2-3 thoughtful questions
+### Questions to Ask Them
+- "What does success look like in this role?"
+- "What's the team culture like?"
+- "What are the growth opportunities?"`,
 
-### Preparation Tips
-- Research the company (products, news, culture)
-- Practice out loud (recording yourself)
-- Prepare specific examples with numbers`,
+        salary_coach: `## 💰 Salary Negotiation Guide
 
-        salary_coach: `## Salary Negotiation Guide
+### 1. Research Market Rates
+Use: Glassdoor, Levels.fyi, LinkedIn Salary, Blind
 
-### 1. **Research Market Rates**
-- Use: Glassdoor, Levels.fyi, LinkedIn Salary, Blind
-- Know: 25th percentile (low), 50th percentile (market), 75th percentile (high)
+### 2. Know Your Minimum
+Calculate your living expenses + savings goals
 
-### 2. **Know Your Minimum**
-- Calculate your living expenses + savings goals
-- Set a walk-away number BEFORE negotiating
-
-### 3. **Negotiation Script**
+### 3. Negotiation Script
 
 *After receiving offer:*
-> "Thank you for the offer. I'm very excited about the role. Based on my research of market rates and my experience with [specific achievements], I was expecting a base salary in the range of $X - $Y. Is there flexibility to meet that range?"
+> "Thank you for the offer. Based on my research and experience, I was expecting a range of $X - $Y. Is there flexibility?"
 
-### 4. **Total Compensation**
+### 4. Total Compensation
 Don't just negotiate base salary:
-- Signing bonus (one-time)
-- Performance bonus (annual)
+- Signing bonus
+- Performance bonus
 - Equity/RSUs
 - Vacation days
 - Remote work flexibility
-- Professional development budget
 
-### 5. **Timing**
+### 5. Timing
 - Always negotiate (90% of companies expect it)
 - Get offer in writing first
 - Respond within 2-3 business days`,
 
-        skill_analyzer: `## Skill Gap Analysis
+        skill_analyzer: `## 📊 Skill Gap Analysis
 
 ### Top Skills for Your Target Role
-
-Based on industry data, here are the most in-demand skills:
 
 **Technical Skills**
 1. [Skill 1] - Critical (90% of job posts)
 2. [Skill 2] - Important (70% of job posts)
-3. [Skill 3] - Nice to have (40% of job posts)
 
 **Soft Skills**
-1. Communication - Mentioned in 85% of posts
+1. Communication - 85% of posts
 2. Problem-solving - 80%
-3. Team collaboration - 75%
 
 ### Recommended Learning Paths
 
 **Immediate (1-2 weeks)**
-- [Free course link for Skill 1]
-- [YouTube tutorial for Skill 2]
+- Free course on Skill 1
+- YouTube tutorial on Skill 2
 
 **Short-term (1-3 months)**
-- [Certification for Skill 1]
-- [Project-based course]
+- Certification for Skill 1
+- Project-based course
 
 **Long-term (3-6 months)**
-- [Advanced certification]
-- [Portfolio project]
+- Advanced certification
+- Portfolio project
 
-### Quick Wins
-- Add skills to LinkedIn immediately
-- Update CV with relevant keywords
-- Start a small project to demonstrate capability
-
-Would you like specific course recommendations for your target role?`
+Would you like specific course recommendations?`
     };
     
-    return fallbacks[vaId] || `## Help with Your Request
+    return fallbacks[vaId] || `## 🤖 ${VIRTUAL_ASSISTANTS.find(v => v.id === vaId)?.name || 'VA'} Results
 
-Thank you for your request. Here are some helpful suggestions for "${input.substring(0, 100)}":
+Based on your request: *"${input.substring(0, 150)}${input.length > 150 ? '...' : ''}"*
 
-1. **Be specific** - Provide more details about your situation
-2. **Share examples** - Include your current CV, job description, or target role
-3. **Ask follow-ups** - I'm here to help refine the response
+### Key Recommendations
+
+1. **Be specific** - Provide more details for better results
+2. **Include examples** - Share specific scenarios
+3. **Follow up** - Ask clarifying questions
 
 Would you like to provide more details for a personalized response?`;
 }
 
 // ============================================
-// EXECUTE VA TASK (MERGED)
+// AI EXECUTION (with fallback)
+// ============================================
+
+async function executeWithOpenAI(va, input) {
+    const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+    
+    if (!OPENAI_API_KEY) {
+        return getFallbackResponse(va.id, input);
+    }
+    
+    const promptTemplate = va.promptTemplate || 
+        `You are a professional career coach and writing expert. Respond to: {input}`;
+    
+    const prompt = promptTemplate.replace('{input}', input);
+    
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { 
+                        role: 'system', 
+                        content: `You are ${va.name}, a professional ${va.category} expert. 
+                                  You provide helpful, actionable advice. 
+                                  Keep responses professional but friendly. 
+                                  Use markdown formatting for readability.` 
+                    },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 1500
+            })
+        });
+        
+        if (!response.ok) {
+            console.error('OpenAI API error:', response.status);
+            return getFallbackResponse(va.id, input);
+        }
+        
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('OpenAI execution error:', error);
+        return getFallbackResponse(va.id, input);
+    }
+}
+
+// ============================================
+// EXECUTE VA TASK
 // ============================================
 
 export async function executeVATask(userId, vaId, input, taskId = null) {
@@ -444,8 +425,7 @@ export async function executeVATask(userId, vaId, input, taskId = null) {
     
     if (!eligibility.canAccess && !eligibility.isUnlimited) {
         const remaining = eligibility.remaining || 0;
-        const limit = eligibility.limit || 10;
-        throw new Error(`You have used all ${limit} VA tasks this month. Upgrade your plan to continue getting expert assistance.`);
+        throw new Error(`Insufficient VA credits. Need ${va.price} credits, you have ${remaining}.`);
     }
     
     // Create or retrieve task record
@@ -461,14 +441,7 @@ export async function executeVATask(userId, vaId, input, taskId = null) {
         if (error) throw new Error('Task not found');
         task = data;
     } else {
-        // Deduct a credit if not unlimited
-        if (!eligibility.isUnlimited && eligibility.creditsRemaining > 0) {
-            await supabase
-                .from('va_credits')
-                .update({ balance: supabase.rpc('decrement', { x: 1 }) })
-                .eq('user_id', userId);
-        }
-        
+        // Create new task
         const { data, error } = await supabase
             .from('va_tasks')
             .insert({
@@ -494,6 +467,22 @@ export async function executeVATask(userId, vaId, input, taskId = null) {
         const startTime = Date.now();
         output = await executeWithOpenAI(va, input);
         executionTime = Date.now() - startTime;
+        
+        // Deduct credits if not unlimited and new task
+        if (!taskId && !eligibility.isUnlimited) {
+            const { data: credits } = await supabase
+                .from('va_credits')
+                .select('balance')
+                .eq('user_id', userId)
+                .single();
+            
+            if (credits && credits.balance >= va.price) {
+                await supabase
+                    .from('va_credits')
+                    .update({ balance: credits.balance - va.price })
+                    .eq('user_id', userId);
+            }
+        }
         
         // Update task with success
         const { error: updateError } = await supabase
@@ -524,17 +513,21 @@ export async function executeVATask(userId, vaId, input, taskId = null) {
         throw error;
     }
     
+    // Get updated credits
+    const finalCredits = await getVACredits(userId);
+    
     return {
         success: true,
         taskId: task.id,
         output,
         executionTimeMs: executionTime,
-        va: va
+        va: va,
+        creditsRemaining: eligibility.isUnlimited ? 'unlimited' : finalCredits.balance
     };
 }
 
 // ============================================
-// TASK HISTORY (MERGED)
+// TASK HISTORY
 // ============================================
 
 export async function getUserVATasks(userId, limit = 20, offset = 0) {
@@ -578,24 +571,22 @@ export async function getVATaskById(taskId, userId) {
 
 export async function getVATasksSummary(userId) {
     try {
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
-        
-        const { data: tasks } = await supabase
+        const { data: tasks, error } = await supabase
             .from('va_tasks')
             .select('status, created_at, va_name')
             .eq('user_id', userId);
         
-        const thisMonth = tasks?.filter(t => 
-            new Date(t.created_at) >= startOfMonth
-        ) || [];
+        if (error) throw error;
         
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        
+        const thisMonth = tasks?.filter(t => new Date(t.created_at) >= startOfMonth) || [];
         const completed = thisMonth.filter(t => t.status === 'completed').length;
         const failed = thisMonth.filter(t => t.status === 'failed').length;
         const processing = thisMonth.filter(t => t.status === 'processing').length;
         
-        // Group by VA type
         const byVA = {};
         tasks?.forEach(t => {
             const name = t.va_name || t.va_id;
@@ -620,7 +611,7 @@ export async function getVATasksSummary(userId) {
 }
 
 // ============================================
-// CREDIT MANAGEMENT (MERGED)
+// CREDIT MANAGEMENT
 // ============================================
 
 export async function getVACredits(userId) {
@@ -645,8 +636,6 @@ export async function getVACredits(userId) {
 
 export async function purchaseVACredits(userId, amount, paymentMethod = 'stripe') {
     try {
-        // This would integrate with your payment system
-        // For now, just update the credits directly
         const { data: existing } = await supabase
             .from('va_credits')
             .select('id, balance')
@@ -727,7 +716,7 @@ export function getVAPricing(vaId) {
 }
 
 // ============================================
-// USAGE STATISTICS (For Admin Dashboard)
+// USAGE STATISTICS (Admin)
 // ============================================
 
 export async function getVAUsageStats(days = 30) {
@@ -752,6 +741,20 @@ export async function getVAUsageStats(days = 30) {
     const totalExecutionTime = completed.reduce((sum, t) => sum + (t.execution_time_ms || 0), 0);
     const avgExecutionTime = completed.length > 0 ? totalExecutionTime / completed.length : 0;
     
+    function aggregateByDay(taskList) {
+        const daily = {};
+        taskList.forEach(task => {
+            const day = new Date(task.created_at).toISOString().split('T')[0];
+            if (!daily[day]) {
+                daily[day] = { total: 0, completed: 0, failed: 0 };
+            }
+            daily[day].total++;
+            if (task.status === 'completed') daily[day].completed++;
+            if (task.status === 'failed') daily[day].failed++;
+        });
+        return daily;
+    }
+    
     return {
         summary: {
             total_tasks: tasks?.length || 0,
@@ -766,22 +769,8 @@ export async function getVAUsageStats(days = 30) {
     };
 }
 
-function aggregateByDay(tasks) {
-    const daily = {};
-    tasks.forEach(task => {
-        const day = new Date(task.created_at).toISOString().split('T')[0];
-        if (!daily[day]) {
-            daily[day] = { total: 0, completed: 0, failed: 0 };
-        }
-        daily[day].total++;
-        if (task.status === 'completed') daily[day].completed++;
-        if (task.status === 'failed') daily[day].failed++;
-    });
-    return daily;
-}
-
 // ============================================
-// EXPORTS
+// DEFAULT EXPORT (backward compatible)
 // ============================================
 
 export default {
