@@ -1,25 +1,26 @@
 // src/services/assessmentService.js
-// COMPLETE PROFESSIONAL ASSESSMENT SERVICE - Unified API endpoint
-// All AI calls go through /api/index?action=...
+// COMPLETE PROFESSIONAL ASSESSMENT SERVICE - Unified API endpoint with fallbacks
+// All AI calls go through /api/index?action=... with fallback to direct OpenAI if needed
 
-import { supabase, apiCall } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 // ============================================
 // CONSTANTS & CONFIGURATION
 // ============================================
 
 const API_BASE = '/api/index'; // Unified API endpoint
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
 // Tier Limits Configuration
 const TIER_LIMITS = {
-    free: { assessments_per_month: 3, can_download_report: false, can_retake: false },
-    registered: { assessments_per_month: 10, can_download_report: true, can_retake: true },
-    professional: { assessments_per_month: 50, can_download_report: true, can_retake: true },
-    employer: { assessments_per_month: 30, can_download_report: true, can_retake: true },
-    business: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
-    admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
-    super_admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true },
-    tester: { assessments_per_month: 5, can_download_report: false, can_retake: true }
+    free: { assessments_per_month: 3, can_download_report: false, can_retake: false, ai_insights: false },
+    registered: { assessments_per_month: 10, can_download_report: true, can_retake: true, ai_insights: true },
+    professional: { assessments_per_month: 50, can_download_report: true, can_retake: true, ai_insights: true },
+    employer: { assessments_per_month: 30, can_download_report: true, can_retake: true, ai_insights: true },
+    business: { assessments_per_month: 999999, can_download_report: true, can_retake: true, ai_insights: true },
+    admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true, ai_insights: true },
+    super_admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true, ai_insights: true },
+    tester: { assessments_per_month: 5, can_download_report: false, can_retake: true, ai_insights: false }
 };
 
 const ADMIN_EMAILS = ['bluskyeconsult@gmail.com'];
@@ -35,7 +36,7 @@ const PERFORMANCE_THRESHOLDS = {
 // ============================================
 
 const isUnlimitedTier = (tier, userType) => {
-    return tier === 'super_admin' || tier === 'admin' || userType === 'super_admin';
+    return tier === 'super_admin' || tier === 'admin' || tier === 'business' || userType === 'super_admin';
 };
 
 const getTierLimits = (tier, userType) => {
@@ -46,7 +47,7 @@ const getTierLimits = (tier, userType) => {
 };
 
 // ============================================
-// UNIFIED API CALLER (using lib/supabase apiCall)
+// UNIFIED API CALLER (with fallback)
 // ============================================
 
 /**
@@ -86,6 +87,62 @@ const callUnifiedAPI = async (action, payload, options = {}) => {
             throw new Error('Request timeout. Please try again.');
         }
         throw error;
+    }
+};
+
+/**
+ * Direct OpenAI call as fallback when unified API fails
+ */
+const callOpenAIDirect = async (messages, options = {}) => {
+    if (!OPENAI_API_KEY) {
+        throw new Error('OpenAI API key not configured');
+    }
+    
+    const { temperature = 0.3, max_tokens = 100 } = options;
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages,
+            temperature,
+            max_tokens
+        })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.choices[0].message.content;
+};
+
+/**
+ * AI caller with fallback chain: Unified API → Direct OpenAI → Fallback
+ */
+const callAIWithFallback = async (action, payload, directMessages, fallbackValue) => {
+    try {
+        // Try unified API first
+        const response = await callUnifiedAPI(action, payload);
+        return response.result || response.response;
+    } catch (apiError) {
+        console.warn(`Unified API failed for ${action}, trying direct OpenAI:`, apiError);
+        
+        try {
+            // Try direct OpenAI as fallback
+            if (OPENAI_API_KEY && directMessages) {
+                return await callOpenAIDirect(directMessages);
+            }
+            throw new Error('Direct OpenAI not available');
+        } catch (openaiError) {
+            console.warn(`Direct OpenAI failed for ${action}, using fallback:`, openaiError);
+            return fallbackValue;
+        }
     }
 };
 
@@ -175,6 +232,7 @@ export async function checkUserEligibility(userId, assessmentId) {
                 tier,
                 canDownloadReport: true,
                 canRetake: true,
+                aiInsights: true,
                 isUnlimited: true
             };
         }
@@ -204,6 +262,7 @@ export async function checkUserEligibility(userId, assessmentId) {
             tier,
             canDownloadReport: limits.can_download_report,
             canRetake: limits.can_retake,
+            aiInsights: limits.ai_insights,
             isUnlimited: false
         };
     } catch (error) {
@@ -215,6 +274,7 @@ export async function checkUserEligibility(userId, assessmentId) {
             tier: 'free',
             canDownloadReport: false,
             canRetake: true,
+            aiInsights: false,
             isUnlimited: false,
             error: error.message
         };
@@ -333,49 +393,75 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
 }
 
 // ============================================
-// AI SCORING & INSIGHTS (via unified API)
+// AI SCORING & INSIGHTS (with fallback chain)
 // ============================================
 
 export async function scoreScenarioAnswer(question, answer) {
+    const fallbackScore = 7;
+    
     try {
-        const response = await callUnifiedAPI('chat', {
-            messages: [
-                { role: 'system', content: 'You are an expert assessor. Score the following answer from 1-10. Return ONLY a number.' },
+        const result = await callAIWithFallback(
+            'chat',
+            {
+                messages: [
+                    { role: 'system', content: 'You are an expert assessor. Score the following answer from 1-10. Return ONLY a number.' },
+                    { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
+                ],
+                temperature: 0.3,
+                max_tokens: 10
+            },
+            [
+                { role: 'system', content: 'Score the following answer from 1-10. Return ONLY a number.' },
                 { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
             ],
-            temperature: 0.3,
-            max_tokens: 10
-        });
+            fallbackScore.toString()
+        );
         
-        const content = response.result || response.choices?.[0]?.message?.content;
-        const score = parseInt(content);
-        return isNaN(score) ? 7 : Math.min(10, Math.max(1, score));
+        const score = parseInt(result);
+        return isNaN(score) ? fallbackScore : Math.min(10, Math.max(1, score));
     } catch (error) {
         console.error('Error scoring scenario answer:', error);
-        return 7;
+        return fallbackScore;
     }
 }
 
-export async function generateAssessmentInsights(assessmentTitle, percentage, dimensionScores) {
+export async function generateAssessmentInsights(assessmentTitle, percentage, dimensionScores, questionResults = []) {
     const fallbackInsights = {
-        summary: `You scored ${percentage}% on this assessment.`,
-        strengths: ['Self-awareness', 'Willingness to grow'],
-        improvements: ['Review areas with lower scores'],
-        recommendations: ['Take relevant courses', 'Practice regularly']
+        summary: `You scored ${percentage}% on this assessment. ${percentage >= 70 ? 'Great work!' : 'Keep practicing to improve your scores.'}`,
+        strengths: ['Self-awareness', 'Willingness to grow', 'Engagement with material'],
+        improvements: ['Review areas with lower scores', 'Practice regularly', 'Seek additional resources'],
+        recommendations: ['Take relevant courses', 'Join study groups', 'Practice with real-world scenarios']
     };
     
     try {
-        const response = await callUnifiedAPI('generate-insights', {
-            assessmentTitle,
-            percentage,
-            dimensionScores
-        });
+        const result = await callAIWithFallback(
+            'generate-insights',
+            {
+                assessmentTitle,
+                percentage,
+                dimensionScores,
+                questionResults: questionResults.slice(0, 10)
+            },
+            [
+                { role: 'system', content: 'You are a career coach. Provide personalized assessment insights as JSON. Return ONLY valid JSON.' },
+                { role: 'user', content: `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings)` }
+            ],
+            null
+        );
         
-        if (response.success && response.result) {
-            return response.result;
+        if (typeof result === 'string') {
+            try {
+                const parsed = JSON.parse(result.replace(/```json\n?/g, '').replace(/```\n?/g, ''));
+                if (parsed.summary && parsed.strengths && parsed.recommendations) {
+                    return parsed;
+                }
+            } catch (parseError) {
+                console.warn('Failed to parse AI insights response:', parseError);
+            }
         }
-        if (response.summary) {
-            return response;
+        
+        if (result && typeof result === 'object' && result.summary) {
+            return result;
         }
         
         return fallbackInsights;
@@ -432,10 +518,12 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 const likertValue = typeof userAnswer === 'number' ? userAnswer : parseInt(userAnswer) || 3;
                 score = likertValue * (maxPoints / 5);
                 isCorrect = true;
+                userAnswerText = `Rating: ${likertValue}/5`;
             } else if (question.question_type === 'scenario') {
                 const aiScore = await scoreScenarioAnswer(question.question_text, userAnswer);
                 score = aiScore * (maxPoints / 10);
                 isCorrect = score >= maxPoints * 0.7;
+                userAnswerText = userAnswer;
             }
             
             totalScore += score;
@@ -473,9 +561,10 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         }
         
         const insights = await generateAssessmentInsights(
-            userAssessment.assessment?.title,
+            userAssessment.assessment?.title || 'Professional Assessment',
             percentage,
-            dimensionPercentages
+            dimensionPercentages,
+            questionResults
         );
         
         const { error: updateError } = await supabase
@@ -714,22 +803,6 @@ function generateReportHTML(userAssessment, profile) {
                 <ul class="recommendation-list">
                     ${insights.recommendations.map(r => `<li>${r}</li>`).join('')}
                 </ul>
-            ` : ''}
-            
-            ${answers.length > 0 ? `
-                <div class="section-title">Question Summary</div>
-                <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-top: 10px;">
-                    ${answers.slice(0, 5).map((ans, idx) => `
-                        <div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #334155;">
-                            <div style="font-size: 13px; color: #94a3b8;">Q${idx + 1}</div>
-                            <div style="font-size: 14px; margin: 5px 0;">${ans.question_text?.substring(0, 100)}${ans.question_text?.length > 100 ? '...' : ''}</div>
-                            <div style="font-size: 12px; color: ${ans.is_correct ? '#10b981' : '#ef4444'}">
-                                Score: ${Math.round(ans.score)}/${ans.max_score}
-                            </div>
-                        </div>
-                    `).join('')}
-                    ${answers.length > 5 ? '<div style="text-align: center; font-size: 12px; color: #64748b;">+ ' + (answers.length - 5) + ' more questions</div>' : ''}
-                </div>
             ` : ''}
             
             <div class="footer">
