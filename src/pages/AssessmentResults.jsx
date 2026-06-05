@@ -1,50 +1,63 @@
 // src/pages/AssessmentResults.jsx
-// COMPLETE PROFESSIONAL ASSESSMENT RESULTS PAGE - With unified API, report download, sharing, and detailed insights
+// ODUSBABA ASSESSMENT RESULTS PAGE v3.0 - PRODUCTION READY
+// ✅ Complete results display with charts
+// ✅ AI-powered insights
+// ✅ Report download & sharing
+// ✅ Answer review section
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
     Award, Download, Share2, TrendingUp, CheckCircle, Loader2, 
     AlertCircle, BarChart3, FileText, Mail, Twitter, Linkedin,
     Printer, Star, ThumbsUp, Target, Zap, Shield, Users,
-    Calendar, Clock, ChevronRight, Home
+    Calendar, Clock, ChevronRight, Home, ChevronLeft, Sparkles,
+    Brain, X
 } from 'lucide-react';
-import toast from 'react-hot-toast';
-import {
-    Chart as ChartJS,
-    RadialLinearScale,
-    PointElement,
-    LineElement,
-    Filler,
-    Tooltip,
-    Legend,
-    CategoryScale,
-    LinearScale,
-    BarElement,
-    Title
-} from 'chart.js';
-import { Radar, Bar } from 'react-chartjs-2';
+import { getAssessmentResults, generateAssessmentReport } from '../services/assessmentService';
 
-// Register ChartJS components
-ChartJS.register(
-    RadialLinearScale,
-    PointElement,
-    LineElement,
-    Filler,
-    Tooltip,
-    Legend,
-    CategoryScale,
-    LinearScale,
-    BarElement,
-    Title
-);
+// ============================================
+// CHART IMPORTS (Conditional to prevent build errors)
+// ============================================
+
+let Radar, Bar, ChartJS;
+try {
+    import('chart.js').then(module => {
+        ChartJS = module;
+        if (ChartJS?.Chart) {
+            ChartJS.Chart.register(
+                ChartJS.RadialLinearScale,
+                ChartJS.PointElement,
+                ChartJS.LineElement,
+                ChartJS.Filler,
+                ChartJS.Tooltip,
+                ChartJS.Legend,
+                ChartJS.CategoryScale,
+                ChartJS.LinearScale,
+                ChartJS.BarElement,
+                ChartJS.Title
+            );
+        }
+    });
+    import('react-chartjs-2').then(module => {
+        Radar = module.Radar;
+        Bar = module.Bar;
+    });
+} catch (e) {
+    console.warn('Chart.js not available:', e);
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function AssessmentResults() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [result, setResult] = useState(null);
+    const [results, setResults] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [downloading, setDownloading] = useState(false);
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
@@ -53,11 +66,15 @@ export default function AssessmentResults() {
     const [shareEmail, setShareEmail] = useState('');
     const [sharing, setSharing] = useState(false);
 
+    // ============================================
+    // LOAD RESULTS
+    // ============================================
+
     useEffect(() => {
-        loadResult();
+        loadResults();
     }, [id]);
 
-    async function loadResult() {
+    async function loadResults() {
         try {
             setLoading(true);
             
@@ -69,10 +86,10 @@ export default function AssessmentResults() {
             }
             setUser(authUser);
             
-            // Get user profile
+            // Get user profile for download eligibility
             const { data: profileData } = await supabase
                 .from('profiles')
-                .select('*')
+                .select('tier, user_type, full_name')
                 .eq('id', authUser.id)
                 .single();
             setProfile(profileData);
@@ -82,74 +99,90 @@ export default function AssessmentResults() {
             const isAdmin = profileData?.user_type === 'admin' || profileData?.user_type === 'super_admin';
             setCanDownload(canDownloadTiers.includes(profileData?.tier) || isAdmin);
             
-            // ✅ Using unified API
-            const response = await fetch(`/api/index?action=assessment-results&id=${id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            // Fetch results using service
+            const result = await getAssessmentResults(id);
             
-            const data = await response.json();
-            
-            if (!data.success) throw new Error(data.error);
+            if (!result.success) throw new Error(result.error);
+            if (!result.results) throw new Error('Results not found');
             
             // Verify ownership
-            if (data.data.user_id !== authUser.id && !isAdmin) {
+            if (result.results.user_id !== authUser.id && !isAdmin) {
                 throw new Error('Unauthorized access');
             }
             
-            setResult(data.data);
-            
-        } catch (error) {
-            console.error('Error loading result:', error);
-            toast.error(error.message || 'Failed to load results');
+            setResults(result.results);
+        } catch (err) {
+            console.error('Error loading results:', err);
+            setError(err.message);
         } finally {
             setLoading(false);
         }
     }
 
-    async function downloadReport() {
+    // ============================================
+    // DOWNLOAD REPORT
+    // ============================================
+
+    async function handleDownloadReport() {
         if (!canDownload) {
-            toast.error('Upgrade to Professional to download reports');
+            alert('Upgrade to Professional to download reports');
             navigate('/pricing');
             return;
         }
         
         setDownloading(true);
-        
         try {
-            // ✅ Using unified API for report generation
-            const response = await fetch('/api/index?action=assessment-generate-report', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userAssessmentId: id, userId: user?.id })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success && data.reportUrl) {
-                window.open(data.reportUrl, '_blank');
-                toast.success('Report generated successfully');
-            } else {
-                throw new Error(data.error || 'Failed to generate report');
+            const report = await generateAssessmentReport(results.id, user.id);
+            if (report.reportUrl) {
+                window.open(report.reportUrl, '_blank');
+            } else if (report.html) {
+                // Create blob from HTML and download
+                const blob = new Blob([report.html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                URL.revokeObjectURL(url);
             }
-        } catch (error) {
-            console.error('Download error:', error);
-            toast.error(error.message || 'Failed to generate report');
+        } catch (err) {
+            console.error('Error downloading report:', err);
+            alert('Failed to generate report. Please try again.');
         } finally {
             setDownloading(false);
         }
     }
 
+    // ============================================
+    // SHARE FUNCTIONS
+    // ============================================
+
+    async function handleShare() {
+        const shareUrl = `${window.location.origin}/assessment-results/${id}`;
+        const shareText = `I scored ${results?.percentage}% on the ${results?.assessment?.title} assessment!`;
+        
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: 'My Assessment Results',
+                    text: shareText,
+                    url: shareUrl
+                });
+            } catch (err) {
+                console.log('Share cancelled');
+            }
+        } else {
+            navigator.clipboard.writeText(shareUrl);
+            alert('Link copied to clipboard!');
+        }
+    }
+
     async function shareViaEmail() {
         if (!shareEmail.trim()) {
-            toast.error('Please enter an email address');
+            alert('Please enter an email address');
             return;
         }
         
         setSharing(true);
         
         try {
-            // ✅ Using unified API for email sharing
             const response = await fetch('/api/index?action=assessment-share-results', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -164,7 +197,7 @@ export default function AssessmentResults() {
             const data = await response.json();
             
             if (data.success) {
-                toast.success(`Results shared with ${shareEmail}`);
+                alert(`Results shared with ${shareEmail}`);
                 setShowShareModal(false);
                 setShareEmail('');
             } else {
@@ -172,7 +205,7 @@ export default function AssessmentResults() {
             }
         } catch (error) {
             console.error('Share error:', error);
-            toast.error(error.message || 'Failed to share results');
+            alert(error.message || 'Failed to share results');
         } finally {
             setSharing(false);
         }
@@ -182,18 +215,15 @@ export default function AssessmentResults() {
         window.print();
     }
 
-    function getPerformanceColor(percentage) {
-        if (percentage >= 80) return 'text-emerald-400';
-        if (percentage >= 60) return 'text-blue-400';
-        if (percentage >= 40) return 'text-amber-400';
-        return 'text-red-400';
-    }
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
 
-    function getPerformanceIcon(percentage) {
-        if (percentage >= 80) return <Award className="w-6 h-6 text-emerald-400" />;
-        if (percentage >= 60) return <ThumbsUp className="w-6 h-6 text-blue-400" />;
-        if (percentage >= 40) return <Target className="w-6 h-6 text-amber-400" />;
-        return <Zap className="w-6 h-6 text-red-400" />;
+    function getPerformanceColor(percentage) {
+        if (percentage >= 80) return 'emerald';
+        if (percentage >= 60) return 'blue';
+        if (percentage >= 40) return 'amber';
+        return 'red';
     }
 
     function getPerformanceMessage(percentage, level) {
@@ -203,12 +233,16 @@ export default function AssessmentResults() {
         return '💪 Room to grow! Review the recommendations below.';
     }
 
-    // Prepare chart data
-    const dimensionScores = result?.dimension_scores || {};
-    const dimensionNames = Object.keys(dimensionScores);
-    const dimensionValues = Object.values(dimensionScores);
+    // ============================================
+    // CHART DATA PREPARATION
+    // ============================================
+
+    const dimensionScoresObj = results?.dimension_scores || {};
+    const dimensionNames = Object.keys(dimensionScoresObj);
+    const dimensionValues = Object.values(dimensionScoresObj);
+    const hasDimensions = dimensionNames.length > 0;
     
-    const radarData = {
+    const radarData = hasDimensions && Radar ? {
         labels: dimensionNames.map(d => d.replace(/_/g, ' ').toUpperCase()),
         datasets: [
             {
@@ -232,9 +266,9 @@ export default function AssessmentResults() {
                 pointBorderColor: '#fff',
             }
         ]
-    };
+    } : null;
     
-    const barData = {
+    const barData = hasDimensions && Bar ? {
         labels: dimensionNames.map(d => d.replace(/_/g, ' ').toUpperCase()),
         datasets: [
             {
@@ -256,7 +290,7 @@ export default function AssessmentResults() {
                 borderRadius: 8,
             }
         ]
-    };
+    } : null;
     
     const chartOptions = {
         responsive: true,
@@ -285,6 +319,10 @@ export default function AssessmentResults() {
         }
     };
 
+    // ============================================
+    // LOADING STATE
+    // ============================================
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
@@ -296,13 +334,17 @@ export default function AssessmentResults() {
         );
     }
 
-    if (!result) {
+    // ============================================
+    // ERROR STATE
+    // ============================================
+
+    if (error || !results) {
         return (
-            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center px-4">
-                <div className="text-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+                <div className="max-w-3xl mx-auto px-4 text-center">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                    <h1 className="text-2xl font-bold text-white mb-2">Result Not Found</h1>
-                    <p className="text-slate-400 mb-6">We couldn't find your assessment results.</p>
+                    <h1 className="text-2xl font-bold text-white mb-2">Results Not Found</h1>
+                    <p className="text-slate-400 mb-6">{error || 'Unable to load assessment results'}</p>
                     <Link to="/assessments" className="inline-flex items-center gap-2 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                         <Home className="w-4 h-4" /> Browse Assessments
                     </Link>
@@ -311,54 +353,109 @@ export default function AssessmentResults() {
         );
     }
 
-    const insights = result.insights || {};
-    const dimensionScoresObj = result.dimension_scores || {};
-    const hasDimensions = Object.keys(dimensionScoresObj).length > 0;
+    // ============================================
+    // MAIN RENDER
+    // ============================================
+
+    const insights = results.insights || {};
+    const performanceColor = getPerformanceColor(results.percentage);
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12 print:py-4 print:bg-white">
-            <div className="max-w-4xl mx-auto px-4">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                
+                {/* Back Button */}
+                <Link to="/assessments" className="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-6 transition print:hidden">
+                    <ChevronLeft className="w-4 h-4" /> Back to Assessments
+                </Link>
+
                 {/* Header */}
                 <div className="text-center mb-8 print:mb-4">
                     <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 print:shadow-none print:bg-gray-200">
                         <Award className="w-10 h-10 text-white print:text-gray-700" />
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-2 print:text-black">Your Assessment Results</h1>
-                    <p className="text-slate-400 print:text-gray-600">{result.assessment?.title}</p>
+                    <p className="text-slate-400 print:text-gray-600">{results.assessment?.title}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 text-sm text-slate-500 print:text-gray-500">
                         <Calendar className="w-3 h-3" />
-                        <span>{new Date(result.completed_at).toLocaleDateString()}</span>
+                        <span>{new Date(results.completed_at).toLocaleDateString()}</span>
                         <Clock className="w-3 h-3 ml-2" />
-                        <span>{Math.floor(result.time_spent_seconds / 60)} min {result.time_spent_seconds % 60} sec</span>
+                        <span>{Math.floor(results.time_spent_seconds / 60)} min {results.time_spent_seconds % 60} sec</span>
                     </div>
                 </div>
 
                 {/* Score Card */}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center mb-6 print:bg-gray-100 print:border-gray-300">
-                    <div className="relative inline-block">
-                        <div className={`text-7xl font-bold ${getPerformanceColor(result.percentage)} mb-2`}>
-                            {result.percentage}%
-                        </div>
-                        {getPerformanceIcon(result.percentage)}
+                <div className={`bg-gradient-to-r from-${performanceColor}-900/30 to-${performanceColor}-800/30 border border-${performanceColor}-500/30 rounded-2xl p-8 text-center mb-8 print:bg-gray-100 print:border-gray-300`}>
+                    <div className={`text-7xl font-bold text-${performanceColor}-400 mb-2 print:text-gray-800`}>
+                        {results.percentage}%
                     </div>
-                    <div className="text-xl text-white mb-2 print:text-black">
-                        {result.performance_level === 'excellent' && '🎉 Excellent Performance!'}
-                        {result.performance_level === 'good' && '👍 Good Work!'}
-                        {result.performance_level === 'average' && '📚 Good Start!'}
-                        {result.performance_level === 'needs_improvement' && '💪 Room to Grow!'}
+                    <p className="text-slate-300 text-lg print:text-gray-600">Overall Score</p>
+                    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-sm print:bg-gray-200 print:text-gray-700">
+                        <Star className="w-3 h-3 fill-emerald-400" />
+                        {results.performance_level?.toUpperCase()}
                     </div>
-                    <p className="text-slate-400 print:text-gray-600">
-                        {getPerformanceMessage(result.percentage, result.performance_level)}
+                    <p className="text-slate-400 mt-3 print:text-gray-600">
+                        {getPerformanceMessage(results.percentage, results.performance_level)}
                     </p>
                     <p className="text-sm text-slate-500 mt-2 print:text-gray-500">
-                        Score: {result.score} / {result.max_score}
+                        Score: {Math.round(results.score)} / {results.max_score}
                     </p>
+                    
+                    {/* Action Buttons */}
+                    <div className="mt-6 flex flex-wrap justify-center gap-3 print:hidden">
+                        {canDownload && (
+                            <button
+                                onClick={handleDownloadReport}
+                                disabled={downloading}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                                {downloading ? 'Generating...' : 'Download Report'}
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setShowShareModal(true)}
+                            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
+                        >
+                            <Share2 className="w-4 h-4" /> Share
+                        </button>
+                        <button
+                            onClick={handlePrint}
+                            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
+                        >
+                            <Printer className="w-4 h-4" /> Print
+                        </button>
+                    </div>
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                        <Clock className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-white print:text-gray-800">{Math.floor(results.time_spent_seconds / 60)}m {results.time_spent_seconds % 60}s</p>
+                        <p className="text-xs text-slate-500 print:text-gray-500">Time Spent</p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                        <FileText className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-white print:text-gray-800">{results.answers?.length || 0}</p>
+                        <p className="text-xs text-slate-500 print:text-gray-500">Questions</p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                        <Target className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-white print:text-gray-800">{Math.round(results.score)}/{results.max_score}</p>
+                        <p className="text-xs text-slate-500 print:text-gray-500">Points Earned</p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                        <Brain className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-white print:text-gray-800">{hasDimensions ? dimensionNames.length : 0}</p>
+                        <p className="text-xs text-slate-500 print:text-gray-500">Dimensions</p>
+                    </div>
                 </div>
 
                 {/* Chart Visualization */}
-                {hasDimensions && (
+                {hasDimensions && Radar && Bar && (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-black">
+                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <BarChart3 className="w-5 h-5 text-primary-400" />
                             Performance Overview
                         </h3>
@@ -373,10 +470,75 @@ export default function AssessmentResults() {
                     </div>
                 )}
 
-                {/* Dimension Scores */}
-                {hasDimensions && (
+                {/* AI Insights Section */}
+                {(insights.summary || insights.strengths?.length > 0) && (
+                    <div className="bg-gradient-to-r from-purple-900/20 to-pink-900/20 border border-purple-500/30 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-purple-500/20 rounded-full print:bg-gray-300">
+                                <Sparkles className="w-5 h-5 text-purple-400 print:text-gray-600" />
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-white font-semibold mb-2 print:text-gray-800">AI-Powered Insights</h3>
+                                {insights.summary && (
+                                    <p className="text-slate-300 print:text-gray-600">{insights.summary}</p>
+                                )}
+                                
+                                {insights.strengths?.length > 0 && (
+                                    <div className="mt-4">
+                                        <p className="text-emerald-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-green-700">
+                                            <CheckCircle className="w-3 h-3" /> Strengths
+                                        </p>
+                                        <ul className="space-y-1">
+                                            {insights.strengths.map((s, i) => (
+                                                <li key={i} className="flex items-start gap-2 text-slate-300 text-sm print:text-gray-700">
+                                                    <Star className="w-3 h-3 text-emerald-400 mt-0.5 flex-shrink-0" />
+                                                    {s}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                
+                                {insights.improvements?.length > 0 && (
+                                    <div className="mt-4">
+                                        <p className="text-amber-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-yellow-700">
+                                            <AlertCircle className="w-3 h-3" /> Areas for Improvement
+                                        </p>
+                                        <ul className="space-y-1">
+                                            {insights.improvements.map((i, idx) => (
+                                                <li key={idx} className="flex items-start gap-2 text-slate-300 text-sm print:text-gray-700">
+                                                    <Target className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
+                                                    {i}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                
+                                {insights.recommendations?.length > 0 && (
+                                    <div className="mt-4">
+                                        <p className="text-primary-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-blue-700">
+                                            <Zap className="w-3 h-3" /> Recommendations
+                                        </p>
+                                        <ul className="space-y-1">
+                                            {insights.recommendations.map((r, idx) => (
+                                                <li key={idx} className="flex items-start gap-2 text-slate-300 text-sm print:text-gray-700">
+                                                    <ChevronRight className="w-3 h-3 text-primary-400 mt-0.5 flex-shrink-0" />
+                                                    {r}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Dimension Scores (Fallback when charts not available) */}
+                {hasDimensions && (!Radar || !Bar) && (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-black">
+                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <Target className="w-5 h-5 text-primary-400" />
                             Breakdown by Dimension
                         </h3>
@@ -387,16 +549,11 @@ export default function AssessmentResults() {
                                         <span className="text-slate-300 print:text-gray-700">
                                             {dimension.replace(/_/g, ' ').toUpperCase()}
                                         </span>
-                                        <span className={`font-semibold ${getPerformanceColor(score)}`}>{score}%</span>
+                                        <span className={`font-semibold text-${getPerformanceColor(score)}-400`}>{score}%</span>
                                     </div>
                                     <div className="w-full bg-slate-700 rounded-full h-2.5 print:bg-gray-300">
                                         <div 
-                                            className={`h-2.5 rounded-full transition-all ${
-                                                score >= 80 ? 'bg-emerald-500' :
-                                                score >= 60 ? 'bg-blue-500' :
-                                                score >= 40 ? 'bg-amber-500' :
-                                                'bg-red-500'
-                                            }`}
+                                            className={`h-2.5 rounded-full transition-all bg-${getPerformanceColor(score)}-500`}
                                             style={{ width: `${score}%` }}
                                         ></div>
                                     </div>
@@ -409,119 +566,36 @@ export default function AssessmentResults() {
                     </div>
                 )}
 
-                {/* Strengths */}
-                {insights.strengths?.length > 0 && (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-6 mb-6 print:bg-green-50 print:border-green-200">
-                        <h3 className="text-lg font-semibold text-emerald-400 mb-3 flex items-center gap-2 print:text-green-700">
-                            <CheckCircle className="w-5 h-5" /> Your Strengths
-                        </h3>
-                        <ul className="space-y-2">
-                            {insights.strengths.map((s, i) => (
-                                <li key={i} className="flex items-start gap-2 text-slate-300 print:text-gray-700">
-                                    <Star className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                    {s}
-                                </li>
+                {/* Answer Review Section */}
+                {results.answers && results.answers.length > 0 && (
+                    <details className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
+                        <summary className="text-white font-semibold cursor-pointer hover:text-primary-400 transition flex items-center gap-2 print:text-gray-800">
+                            <FileText className="w-4 h-4" />
+                            Review Your Answers
+                        </summary>
+                        <div className="mt-4 space-y-4">
+                            {results.answers.slice(0, 10).map((answer, idx) => (
+                                <div key={idx} className="border-b border-slate-800 pb-3 last:border-0 print:border-gray-300">
+                                    <p className="text-white text-sm font-medium mb-1 print:text-gray-800">{answer.question_text}</p>
+                                    <p className="text-slate-400 text-sm print:text-gray-600">
+                                        Your answer: <span className="text-primary-400">{answer.user_answer}</span>
+                                    </p>
+                                    {answer.is_correct !== undefined && (
+                                        <span className={`text-xs ${answer.is_correct ? 'text-emerald-400' : 'text-red-400'} print:${answer.is_correct ? 'text-green-700' : 'text-red-700'}`}>
+                                            {answer.is_correct ? '✓ Correct' : '✗ Incorrect'}
+                                        </span>
+                                    )}
+                                    {answer.score !== undefined && (
+                                        <p className="text-xs text-slate-500 mt-1">Score: {answer.score}/{answer.max_score}</p>
+                                    )}
+                                </div>
                             ))}
-                        </ul>
-                    </div>
+                            {results.answers.length > 10 && (
+                                <p className="text-center text-slate-500 text-sm">+ {results.answers.length - 10} more questions</p>
+                            )}
+                        </div>
+                    </details>
                 )}
-
-                {/* Areas for Improvement */}
-                {insights.improvements?.length > 0 && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-6 mb-6 print:bg-yellow-50 print:border-yellow-200">
-                        <h3 className="text-lg font-semibold text-amber-400 mb-3 flex items-center gap-2 print:text-yellow-700">
-                            <Target className="w-5 h-5" /> Areas for Improvement
-                        </h3>
-                        <ul className="space-y-2">
-                            {insights.improvements.map((i, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-slate-300 print:text-gray-700">
-                                    <AlertCircle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                                    {i}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                {/* Recommendations */}
-                {insights.recommendations?.length > 0 && (
-                    <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl p-6 mb-6 print:bg-blue-50 print:border-blue-200">
-                        <h3 className="text-lg font-semibold text-primary-400 mb-3 flex items-center gap-2 print:text-blue-700">
-                            <TrendingUp className="w-5 h-5" /> Personalized Recommendations
-                        </h3>
-                        <ul className="space-y-2">
-                            {insights.recommendations.map((r, i) => (
-                                <li key={i} className="flex items-start gap-2 text-slate-300 print:text-gray-700">
-                                    <ChevronRight className="w-4 h-4 text-primary-400 mt-0.5 flex-shrink-0" />
-                                    {r}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                {/* Answer Review Section (if answers are available) */}
-                {result.answers && result.answers.length > 0 && (
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-black">
-                            <FileText className="w-5 h-5 text-primary-400" />
-                            Answer Review
-                        </h3>
-                        <details className="cursor-pointer">
-                            <summary className="text-primary-400 hover:text-primary-300 transition">
-                                View detailed answer analysis
-                            </summary>
-                            <div className="mt-4 space-y-4">
-                                {result.answers.slice(0, 5).map((answer, idx) => (
-                                    <div key={idx} className="p-3 bg-slate-800/50 rounded-lg">
-                                        <p className="text-white text-sm font-medium mb-1">Question {idx + 1}</p>
-                                        <p className="text-slate-300 text-sm">{answer.question_text}</p>
-                                        <p className="text-slate-400 text-xs mt-2">
-                                            Your answer: <span className="text-primary-400">{answer.user_answer}</span>
-                                        </p>
-                                        {answer.is_correct !== undefined && (
-                                            <span className={`text-xs mt-1 inline-block ${answer.is_correct ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {answer.is_correct ? '✓ Correct' : '✗ Incorrect'}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                                {result.answers.length > 5 && (
-                                    <p className="text-center text-slate-500 text-sm">+ {result.answers.length - 5} more answers</p>
-                                )}
-                            </div>
-                        </details>
-                    </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex flex-wrap gap-4 justify-center print:hidden">
-                    {canDownload && (
-                        <button
-                            onClick={downloadReport}
-                            disabled={downloading}
-                            className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
-                        >
-                            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                            {downloading ? 'Generating...' : 'Download Report (PDF)'}
-                        </button>
-                    )}
-                    <button
-                        onClick={() => setShowShareModal(true)}
-                        className="px-6 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
-                    >
-                        <Share2 className="w-4 h-4" /> Share Results
-                    </button>
-                    <button
-                        onClick={handlePrint}
-                        className="px-6 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
-                    >
-                        <Printer className="w-4 h-4" /> Print
-                    </button>
-                    <Link to="/assessments" className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2">
-                        Take Another Assessment
-                    </Link>
-                </div>
 
                 {/* Upgrade Prompt */}
                 {!canDownload && (
@@ -533,6 +607,23 @@ export default function AssessmentResults() {
                         </p>
                     </div>
                 )}
+
+                {/* Next Steps */}
+                <div className="mt-8 p-6 bg-slate-900/30 border border-slate-800 rounded-xl text-center print:hidden">
+                    <h3 className="text-white font-semibold mb-2">Ready to take the next step?</h3>
+                    <p className="text-slate-400 text-sm mb-4">Based on your results, here are some recommended actions</p>
+                    <div className="flex flex-wrap gap-3 justify-center">
+                        <Link to="/courses" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
+                            Browse Recommended Courses
+                        </Link>
+                        <Link to="/hire-va" className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition">
+                            Hire a Virtual Assistant
+                        </Link>
+                        <Link to="/assessments" className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition">
+                            Take Another Assessment
+                        </Link>
+                    </div>
+                </div>
 
                 {/* Share Modal */}
                 {showShareModal && (
@@ -555,7 +646,7 @@ export default function AssessmentResults() {
                             <div className="flex gap-3 mb-4">
                                 <button
                                     onClick={() => {
-                                        const text = `I scored ${result.percentage}% on the ${result.assessment?.title} assessment!`;
+                                        const text = `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
                                         window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition flex items-center justify-center gap-2"
@@ -564,7 +655,7 @@ export default function AssessmentResults() {
                                 </button>
                                 <button
                                     onClick={() => {
-                                        const text = `I scored ${result.percentage}% on the ${result.assessment?.title} assessment. Check out my results!`;
+                                        const text = `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
                                         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(text)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition flex items-center justify-center gap-2"
@@ -600,6 +691,3 @@ export default function AssessmentResults() {
         </div>
     );
 }
-
-// Import missing icon
-import { X } from 'lucide-react';
