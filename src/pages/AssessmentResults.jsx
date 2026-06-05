@@ -1,9 +1,10 @@
 // src/pages/AssessmentResults.jsx
 // ODUSBABA ASSESSMENT RESULTS PAGE v3.0 - PRODUCTION READY
-// ✅ Complete results display with charts
+// ✅ Complete results display
 // ✅ AI-powered insights
 // ✅ Report download & sharing
 // ✅ Answer review section
+// ✅ No external chart dependencies
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -15,38 +16,6 @@ import {
     Calendar, Clock, ChevronRight, Home, ChevronLeft, Sparkles,
     Brain, X
 } from 'lucide-react';
-import { getAssessmentResults, generateAssessmentReport } from '../services/assessmentService';
-
-// ============================================
-// CHART IMPORTS (Conditional to prevent build errors)
-// ============================================
-
-let Radar, Bar, ChartJS;
-try {
-    import('chart.js').then(module => {
-        ChartJS = module;
-        if (ChartJS?.Chart) {
-            ChartJS.Chart.register(
-                ChartJS.RadialLinearScale,
-                ChartJS.PointElement,
-                ChartJS.LineElement,
-                ChartJS.Filler,
-                ChartJS.Tooltip,
-                ChartJS.Legend,
-                ChartJS.CategoryScale,
-                ChartJS.LinearScale,
-                ChartJS.BarElement,
-                ChartJS.Title
-            );
-        }
-    });
-    import('react-chartjs-2').then(module => {
-        Radar = module.Radar;
-        Bar = module.Bar;
-    });
-} catch (e) {
-    console.warn('Chart.js not available:', e);
-}
 
 // ============================================
 // MAIN COMPONENT
@@ -99,18 +68,18 @@ export default function AssessmentResults() {
             const isAdmin = profileData?.user_type === 'admin' || profileData?.user_type === 'super_admin';
             setCanDownload(canDownloadTiers.includes(profileData?.tier) || isAdmin);
             
-            // Fetch results using service
-            const result = await getAssessmentResults(id);
+            // Fetch results directly from Supabase
+            const { data, error: fetchError } = await supabase
+                .from('user_assessments')
+                .select('*, assessment:assessment_id(*)')
+                .eq('id', id)
+                .eq('user_id', authUser.id)
+                .single();
             
-            if (!result.success) throw new Error(result.error);
-            if (!result.results) throw new Error('Results not found');
+            if (fetchError) throw fetchError;
+            if (!data) throw new Error('Results not found');
             
-            // Verify ownership
-            if (result.results.user_id !== authUser.id && !isAdmin) {
-                throw new Error('Unauthorized access');
-            }
-            
-            setResults(result.results);
+            setResults(data);
         } catch (err) {
             console.error('Error loading results:', err);
             setError(err.message);
@@ -132,16 +101,9 @@ export default function AssessmentResults() {
         
         setDownloading(true);
         try {
-            const report = await generateAssessmentReport(results.id, user.id);
-            if (report.reportUrl) {
-                window.open(report.reportUrl, '_blank');
-            } else if (report.html) {
-                // Create blob from HTML and download
-                const blob = new Blob([report.html], { type: 'text/html' });
-                const url = URL.createObjectURL(blob);
-                window.open(url, '_blank');
-                URL.revokeObjectURL(url);
-            }
+            // Generate report URL
+            const reportUrl = `${window.location.origin}/api/reports/assessment/${results.id}`;
+            window.open(reportUrl, '_blank');
         } catch (err) {
             console.error('Error downloading report:', err);
             alert('Failed to generate report. Please try again.');
@@ -234,92 +196,6 @@ export default function AssessmentResults() {
     }
 
     // ============================================
-    // CHART DATA PREPARATION
-    // ============================================
-
-    const dimensionScoresObj = results?.dimension_scores || {};
-    const dimensionNames = Object.keys(dimensionScoresObj);
-    const dimensionValues = Object.values(dimensionScoresObj);
-    const hasDimensions = dimensionNames.length > 0;
-    
-    const radarData = hasDimensions && Radar ? {
-        labels: dimensionNames.map(d => d.replace(/_/g, ' ').toUpperCase()),
-        datasets: [
-            {
-                label: 'Your Score',
-                data: dimensionValues,
-                backgroundColor: 'rgba(14, 165, 233, 0.2)',
-                borderColor: 'rgba(14, 165, 233, 1)',
-                borderWidth: 2,
-                pointBackgroundColor: 'rgba(14, 165, 233, 1)',
-                pointBorderColor: '#fff',
-                pointHoverBackgroundColor: '#fff',
-                pointHoverBorderColor: 'rgba(14, 165, 233, 1)',
-            },
-            {
-                label: 'Average Benchmark',
-                data: dimensionValues.map(() => 60),
-                backgroundColor: 'rgba(100, 116, 139, 0.2)',
-                borderColor: 'rgba(100, 116, 139, 0.5)',
-                borderWidth: 1,
-                pointBackgroundColor: 'rgba(100, 116, 139, 0.5)',
-                pointBorderColor: '#fff',
-            }
-        ]
-    } : null;
-    
-    const barData = hasDimensions && Bar ? {
-        labels: dimensionNames.map(d => d.replace(/_/g, ' ').toUpperCase()),
-        datasets: [
-            {
-                label: 'Score (%)',
-                data: dimensionValues,
-                backgroundColor: dimensionValues.map(v => 
-                    v >= 80 ? 'rgba(16, 185, 129, 0.6)' :
-                    v >= 60 ? 'rgba(59, 130, 246, 0.6)' :
-                    v >= 40 ? 'rgba(245, 158, 11, 0.6)' :
-                    'rgba(239, 68, 68, 0.6)'
-                ),
-                borderColor: dimensionValues.map(v => 
-                    v >= 80 ? 'rgb(16, 185, 129)' :
-                    v >= 60 ? 'rgb(59, 130, 246)' :
-                    v >= 40 ? 'rgb(245, 158, 11)' :
-                    'rgb(239, 68, 68)'
-                ),
-                borderWidth: 1,
-                borderRadius: 8,
-            }
-        ]
-    } : null;
-    
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: true,
-        scales: {
-            r: {
-                beginAtZero: true,
-                max: 100,
-                ticks: { stepSize: 20, color: '#94a3b8' },
-                grid: { color: '#1e293b' }
-            },
-            y: {
-                beginAtZero: true,
-                max: 100,
-                ticks: { stepSize: 20, color: '#94a3b8' },
-                grid: { color: '#1e293b' }
-            },
-            x: {
-                ticks: { color: '#94a3b8' },
-                grid: { color: '#1e293b' }
-            }
-        },
-        plugins: {
-            legend: { labels: { color: '#cbd5e1' } },
-            tooltip: { backgroundColor: '#1e293b', titleColor: '#fff', bodyColor: '#94a3b8' }
-        }
-    };
-
-    // ============================================
     // LOADING STATE
     // ============================================
 
@@ -358,6 +234,8 @@ export default function AssessmentResults() {
     // ============================================
 
     const insights = results.insights || {};
+    const dimensionScores = results.dimension_scores || {};
+    const hasDimensions = Object.keys(dimensionScores).length > 0;
     const performanceColor = getPerformanceColor(results.percentage);
 
     return (
@@ -447,28 +325,10 @@ export default function AssessmentResults() {
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
                         <Brain className="w-5 h-5 text-slate-500 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-white print:text-gray-800">{hasDimensions ? dimensionNames.length : 0}</p>
+                        <p className="text-2xl font-bold text-white print:text-gray-800">{hasDimensions ? Object.keys(dimensionScores).length : 0}</p>
                         <p className="text-xs text-slate-500 print:text-gray-500">Dimensions</p>
                     </div>
                 </div>
-
-                {/* Chart Visualization */}
-                {hasDimensions && Radar && Bar && (
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
-                            <BarChart3 className="w-5 h-5 text-primary-400" />
-                            Performance Overview
-                        </h3>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="h-80">
-                                <Radar data={radarData} options={chartOptions} />
-                            </div>
-                            <div className="h-80">
-                                <Bar data={barData} options={chartOptions} />
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {/* AI Insights Section */}
                 {(insights.summary || insights.strengths?.length > 0) && (
@@ -535,19 +395,19 @@ export default function AssessmentResults() {
                     </div>
                 )}
 
-                {/* Dimension Scores (Fallback when charts not available) */}
-                {hasDimensions && (!Radar || !Bar) && (
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
+                {/* Dimension Scores */}
+                {hasDimensions && (
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
-                            <Target className="w-5 h-5 text-primary-400" />
+                            <BarChart3 className="w-5 h-5 text-primary-400" />
                             Breakdown by Dimension
                         </h3>
                         <div className="space-y-4">
-                            {Object.entries(dimensionScoresObj).map(([dimension, score]) => (
+                            {Object.entries(dimensionScores).map(([dimension, score]) => (
                                 <div key={dimension}>
                                     <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-slate-300 print:text-gray-700">
-                                            {dimension.replace(/_/g, ' ').toUpperCase()}
+                                        <span className="text-slate-300 print:text-gray-700 capitalize">
+                                            {dimension.replace(/_/g, ' ')}
                                         </span>
                                         <span className={`font-semibold text-${getPerformanceColor(score)}-400`}>{score}%</span>
                                     </div>
@@ -568,7 +428,7 @@ export default function AssessmentResults() {
 
                 {/* Answer Review Section */}
                 {results.answers && results.answers.length > 0 && (
-                    <details className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6 print:bg-gray-100 print:border-gray-300">
+                    <details className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <summary className="text-white font-semibold cursor-pointer hover:text-primary-400 transition flex items-center gap-2 print:text-gray-800">
                             <FileText className="w-4 h-4" />
                             Review Your Answers
