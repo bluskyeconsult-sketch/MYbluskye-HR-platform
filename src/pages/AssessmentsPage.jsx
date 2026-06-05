@@ -1,15 +1,39 @@
 // src/pages/AssessmentsPage.jsx
-// COMPLETE PROFESSIONAL ASSESSMENTS PAGE - With unified API, search, filters, user results tracking, and real question counts
+// ODUSBABA ASSESSMENTS PAGE v3.0 - PRODUCTION READY
+// ✅ Unified API integration
+// ✅ Search, filters, user results tracking
+// ✅ Real question counts from database
+// ✅ Eligibility checking with service layer
 
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
-    AlertCircle, Star, Users, FileText, CheckCircle, Filter,
+    AlertCircle, Star, Users, FileText, CheckCircle, 
     BarChart3, Sparkles, HelpCircle, RefreshCw, Shield,
     Zap, Target, ThumbsUp, BookOpen, ChevronRight
 } from 'lucide-react';
+import { checkAssessmentEligibility } from '../services/assessmentService';
+
+// ============================================
+// CATEGORIES CONFIGURATION
+// ============================================
+
+const CATEGORIES = [
+    { id: 'all', name: 'All Assessments', icon: Brain, description: 'View all assessments' },
+    { id: 'personality', name: 'Personality', icon: Star, description: 'Understand your character traits' },
+    { id: 'emotional_intelligence', name: 'EQ', icon: Brain, description: 'Measure emotional awareness' },
+    { id: 'leadership', name: 'Leadership', icon: Users, description: 'Evaluate leadership potential' },
+    { id: 'communication', name: 'Communication', icon: FileText, description: 'Assess communication skills' },
+    { id: 'problem_solving', name: 'Problem Solving', icon: Brain, description: 'Test analytical abilities' },
+    { id: 'team_collaboration', name: 'Team', icon: Users, description: 'Measure teamwork skills' },
+    { id: 'career_aptitude', name: 'Career', icon: TrendingUp, description: 'Discover career paths' }
+];
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function AssessmentsPage() {
     const [assessments, setAssessments] = useState([]);
@@ -19,23 +43,16 @@ export default function AssessmentsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [userResults, setUserResults] = useState({});
-    const [debugInfo, setDebugInfo] = useState(null);
-    const [showDebug, setShowDebug] = useState(false);
     const [questionCounts, setQuestionCounts] = useState({});
     const [refreshing, setRefreshing] = useState(false);
     const [user, setUser] = useState(null);
-    const [eligibility, setEligibility] = useState({ remaining: 10, limit: 10 });
+    const [eligibility, setEligibility] = useState(null);
+    const [debugInfo, setDebugInfo] = useState(null);
+    const [showDebug, setShowDebug] = useState(false);
 
-    const categories = [
-        { id: 'all', name: 'All Assessments', icon: Brain, description: 'View all assessments' },
-        { id: 'personality', name: 'Personality', icon: Star, description: 'Understand your character traits' },
-        { id: 'emotional_intelligence', name: 'EQ', icon: Brain, description: 'Measure emotional awareness' },
-        { id: 'leadership', name: 'Leadership', icon: Users, description: 'Evaluate leadership potential' },
-        { id: 'communication', name: 'Communication', icon: FileText, description: 'Assess communication skills' },
-        { id: 'problem_solving', name: 'Problem Solving', icon: Brain, description: 'Test analytical abilities' },
-        { id: 'team_collaboration', name: 'Team', icon: Users, description: 'Measure teamwork skills' },
-        { id: 'career_aptitude', name: 'Career', icon: TrendingUp, description: 'Discover career paths' }
-    ];
+    // ============================================
+    // INITIALIZATION
+    // ============================================
 
     useEffect(() => {
         checkUser();
@@ -45,6 +62,10 @@ export default function AssessmentsPage() {
     useEffect(() => {
         filterAssessments();
     }, [assessments, searchQuery, selectedCategory]);
+
+    // ============================================
+    // USER AND ELIGIBILITY FUNCTIONS
+    // ============================================
 
     async function checkUser() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -57,21 +78,17 @@ export default function AssessmentsPage() {
 
     async function loadUserEligibility() {
         try {
-            // ✅ Using unified API
-            const response = await fetch(`/api/index?action=user-eligibility&userId=${user.id}&type=assessments`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success && result.data) {
-                setEligibility(result.data);
-            }
+            const eligibilityData = await checkAssessmentEligibility(user.id);
+            setEligibility(eligibilityData);
         } catch (err) {
             console.error('Error loading eligibility:', err);
+            setEligibility({ remaining: 5, limit: 5, isUnlimited: false });
         }
     }
+
+    // ============================================
+    // DATA LOADING FUNCTIONS
+    // ============================================
 
     async function loadAllData() {
         setRefreshing(true);
@@ -83,82 +100,30 @@ export default function AssessmentsPage() {
         setRefreshing(false);
     }
 
-    async function getRealQuestionCount(assessmentId) {
-        try {
-            // ✅ Using unified API for question count
-            const response = await fetch(`/api/index?action=assessment-question-count&assessmentId=${assessmentId}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                return result.count || 0;
-            }
-            return 0;
-        } catch (err) {
-            console.warn(`Could not get question count for ${assessmentId}:`, err);
-            return 0;
-        }
-    }
-
-    async function debugDatabase() {
-        console.log("🔍 [DEBUG] Starting database diagnostic...");
-        
-        try {
-            // ✅ Using unified API
-            const response = await fetch('/api/index?action=assessments-debug', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                const { assessmentsData, countsMap } = result.data;
-                
-                console.log("📊 [DEBUG] Assessments in DB:", assessmentsData);
-                setQuestionCounts(countsMap || {});
-                
-                setDebugInfo({
-                    assessmentsCount: assessmentsData?.length || 0,
-                    assessmentsList: assessmentsData?.map(a => ({ 
-                        title: a.title, 
-                        storedCount: a.question_count || 0,
-                        realCount: countsMap?.[a.id] || 0,
-                        needsUpdate: a.question_count !== countsMap?.[a.id],
-                        isActive: a.is_active 
-                    })) || [],
-                    timestamp: new Date().toISOString()
-                });
-            }
-        } catch (err) {
-            console.error("❌ [DEBUG] Unexpected error:", err);
-            setDebugInfo({ error: err.message });
-        }
-    }
-
     async function loadAssessments() {
         try {
             setLoading(true);
-            console.log("🔄 Loading assessments from API...");
             
-            // ✅ Using unified API
-            const response = await fetch('/api/index?action=assessments-list', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            // Get user eligibility first
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+            if (authUser) {
+                const eligibilityData = await checkAssessmentEligibility(authUser.id);
+                setEligibility(eligibilityData);
+            }
             
-            const result = await response.json();
+            // Load assessments from Supabase
+            const { data, error: supabaseError } = await supabase
+                .from('assessments')
+                .select('*')
+                .eq('is_active', true)
+                .order('created_at', { ascending: true });
             
-            if (!result.success) throw new Error(result.error);
+            if (supabaseError) throw supabaseError;
             
-            const data = result.data || [];
-            console.log(`✅ Loaded ${data.length} assessments`);
+            console.log(`✅ Loaded ${data?.length || 0} assessments`);
             
             // Get real question counts for each assessment
-            const enhancedData = await Promise.all(data.map(async (assessment) => {
+            const enhancedData = await Promise.all((data || []).map(async (assessment) => {
                 const realCount = await getRealQuestionCount(assessment.id);
                 return {
                     ...assessment,
@@ -184,35 +149,87 @@ export default function AssessmentsPage() {
         }
     }
 
+    async function getRealQuestionCount(assessmentId) {
+        try {
+            const { data, error } = await supabase
+                .from('assessment_questions')
+                .select('id', { count: 'exact', head: true })
+                .eq('assessment_id', assessmentId);
+            
+            if (error) throw error;
+            return data?.length || 0;
+        } catch (err) {
+            console.warn(`Could not get question count for ${assessmentId}:`, err);
+            return 0;
+        }
+    }
+
     async function loadUserResults() {
         if (!user) return;
         
         try {
-            // ✅ Using unified API
-            const response = await fetch(`/api/index?action=user-assessment-results&userId=${user.id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+            const { data, error } = await supabase
+                .from('user_assessments')
+                .select('assessment_id, score, percentage, completed_at, performance_level')
+                .eq('user_id', user.id)
+                .eq('status', 'completed');
+            
+            if (error) throw error;
+            
+            const resultsMap = {};
+            (data || []).forEach(r => {
+                resultsMap[r.assessment_id] = {
+                    score: r.score,
+                    percentage: r.percentage,
+                    completed_at: r.completed_at,
+                    performance_level: r.performance_level
+                };
             });
-            
-            const result = await response.json();
-            
-            if (result.success && result.data) {
-                const resultsMap = {};
-                result.data.forEach(r => {
-                    resultsMap[r.assessment_id] = {
-                        score: r.score,
-                        percentage: r.percentage,
-                        completed_at: r.completed_at,
-                        performance_level: r.performance_level
-                    };
-                });
-                setUserResults(resultsMap);
-                console.log(`✅ Loaded ${result.data.length} user assessment results`);
-            }
+            setUserResults(resultsMap);
+            console.log(`✅ Loaded ${data?.length || 0} user assessment results`);
         } catch (err) {
             console.warn('Could not load user results:', err);
         }
     }
+
+    async function debugDatabase() {
+        console.log("🔍 [DEBUG] Starting database diagnostic...");
+        
+        try {
+            const { data: assessmentsData, error } = await supabase
+                .from('assessments')
+                .select('id, title, question_count, is_active')
+                .eq('is_active', true);
+            
+            if (error) throw error;
+            
+            const countsMap = {};
+            for (const assessment of assessmentsData || []) {
+                const count = await getRealQuestionCount(assessment.id);
+                countsMap[assessment.id] = count;
+            }
+            
+            setQuestionCounts(countsMap);
+            setDebugInfo({
+                assessmentsCount: assessmentsData?.length || 0,
+                assessmentsList: assessmentsData?.map(a => ({ 
+                    title: a.title, 
+                    storedCount: a.question_count || 0,
+                    realCount: countsMap[a.id] || 0,
+                    needsUpdate: a.question_count !== countsMap[a.id],
+                    isActive: a.is_active 
+                })) || [],
+                timestamp: new Date().toISOString()
+            });
+        } catch (err) {
+            console.error("❌ [DEBUG] Unexpected error:", err);
+            setDebugInfo({ error: err.message });
+        }
+    }
+
+    // ============================================
+    // FILTERING FUNCTIONS
+    // ============================================
 
     function filterAssessments() {
         let filtered = [...assessments];
@@ -237,6 +254,10 @@ export default function AssessmentsPage() {
         
         setFilteredAssessments(filtered);
     }
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
 
     function getDisplayQuestionCount(assessment) {
         if (assessment.display_question_count) return assessment.display_question_count;
@@ -277,6 +298,10 @@ export default function AssessmentsPage() {
         return { label: 'Needs Improvement', color: 'bg-red-500/20 text-red-400', icon: AlertCircle };
     }
 
+    // ============================================
+    // LOADING STATE
+    // ============================================
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
@@ -287,6 +312,10 @@ export default function AssessmentsPage() {
             </div>
         );
     }
+
+    // ============================================
+    // ERROR STATE
+    // ============================================
 
     if (error) {
         return (
@@ -311,6 +340,10 @@ export default function AssessmentsPage() {
         );
     }
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -328,9 +361,9 @@ export default function AssessmentsPage() {
                     </p>
                     
                     {/* Credit Info */}
-                    {user && (
+                    {user && eligibility && (
                         <div className={`mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
-                            eligibility.remaining <= 3 
+                            eligibility.remaining <= 3 && !eligibility.isUnlimited
                                 ? 'bg-amber-500/20 text-amber-400' 
                                 : 'bg-emerald-500/20 text-emerald-400'
                         }`}>
@@ -363,6 +396,26 @@ export default function AssessmentsPage() {
                     </div>
                 </div>
 
+                {/* Eligibility Banner */}
+                {eligibility && !eligibility.isUnlimited && eligibility.remaining < 3 && (
+                    <div className={`mb-6 p-4 rounded-xl text-center ${
+                        eligibility.remaining > 0 
+                            ? 'bg-amber-500/10 border border-amber-500/20' 
+                            : 'bg-red-500/10 border border-red-500/20'
+                    }`}>
+                        {eligibility.remaining > 0 ? (
+                            <p className="text-amber-400">
+                                ⚠️ You have <span className="font-bold">{eligibility.remaining}</span> assessment{eligibility.remaining !== 1 ? 's' : ''} remaining this month.
+                            </p>
+                        ) : (
+                            <p className="text-red-400">
+                                ❌ You've used all {eligibility.limit} assessments this month. 
+                                <a href="/pricing" className="underline ml-1 hover:text-red-300">Upgrade to continue</a>
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 {/* Debug Panel */}
                 {showDebug && debugInfo && (
                     <div className="mb-6 p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
@@ -372,7 +425,7 @@ export default function AssessmentsPage() {
                         </h3>
                         <div className="text-xs text-slate-400 space-y-1">
                             <p>📊 Total Assessments: {debugInfo.assessmentsCount}</p>
-                            {debugInfo.assessmentsList?.map((a, i) => (
+                            {debugInfo.assessmentsList?.slice(0, 5).map((a, i) => (
                                 <p key={i} className="ml-4">
                                     • {a.title}: Stored: {a.storedCount} questions, Actual: {a.realCount} questions
                                     {a.needsUpdate && (
@@ -381,6 +434,9 @@ export default function AssessmentsPage() {
                                     {!a.isActive && <span className="text-red-400 ml-2">❌ Inactive</span>}
                                 </p>
                             ))}
+                            {debugInfo.assessmentsList?.length > 5 && (
+                                <p className="ml-4 text-slate-500">+ {debugInfo.assessmentsList.length - 5} more assessments</p>
+                            )}
                             {debugInfo.assessmentsCount === 0 && (
                                 <p className="text-amber-400 mt-2">
                                     ⚠️ No assessments found! Add assessments via Admin Panel.
@@ -404,21 +460,24 @@ export default function AssessmentsPage() {
                         />
                     </div>
                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-                        {categories.map(cat => (
-                            <button
-                                key={cat.id}
-                                onClick={() => setSelectedCategory(cat.id)}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
-                                    selectedCategory === cat.id
-                                        ? 'bg-primary-600 text-white'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                }`}
-                                title={cat.description}
-                            >
-                                <cat.icon className="w-4 h-4" />
-                                {cat.name}
-                            </button>
-                        ))}
+                        {CATEGORIES.map(cat => {
+                            const Icon = cat.icon;
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => setSelectedCategory(cat.id)}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
+                                        selectedCategory === cat.id
+                                            ? 'bg-primary-600 text-white'
+                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                    }`}
+                                    title={cat.description}
+                                >
+                                    <Icon className="w-4 h-4" />
+                                    {cat.name}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -485,7 +544,8 @@ export default function AssessmentsPage() {
                             const userResult = userResults[assessment.id];
                             const performanceBadge = userResult ? getPerformanceBadge(userResult.percentage) : null;
                             const questionCount = getDisplayQuestionCount(assessment);
-                            const canTake = !userResult || eligibility.remaining > 0 || eligibility.isUnlimited;
+                            const canTake = (!userResult && eligibility && (eligibility.remaining > 0 || eligibility.isUnlimited)) || 
+                                           (userResult && eligibility?.canRetake);
                             
                             return (
                                 <div 
@@ -499,7 +559,7 @@ export default function AssessmentsPage() {
                                         {userResult && (
                                             <div className="text-right">
                                                 <span className={`text-xs px-2 py-0.5 rounded-full ${performanceBadge.color} flex items-center gap-1`}>
-                                                    <performanceBadge.icon className="w-3 h-3" />
+                                                    {performanceBadge.icon && <performanceBadge.icon className="w-3 h-3" />}
                                                     {performanceBadge.label}
                                                 </span>
                                                 <p className="text-lg font-bold text-white mt-1">{userResult.percentage}%</p>
@@ -534,9 +594,9 @@ export default function AssessmentsPage() {
                                     {/* Assessment Link */}
                                     <Link to={`/assessments/${assessment.id}`}>
                                         <button 
-                                            disabled={questionCount === 0 || (!canTake && !userResult)}
+                                            disabled={questionCount === 0 || (!canTake && !userResult && eligibility?.remaining === 0)}
                                             className={`w-full py-2.5 rounded-lg transition flex items-center justify-center gap-2 ${
-                                                questionCount === 0 || (!canTake && !userResult)
+                                                questionCount === 0 || (!canTake && !userResult && eligibility?.remaining === 0)
                                                     ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
                                                     : 'bg-primary-600 text-white hover:bg-primary-700 group-hover:shadow-lg group-hover:shadow-primary-500/20'
                                             }`}
@@ -552,7 +612,7 @@ export default function AssessmentsPage() {
                                     </Link>
                                     
                                     {/* Credit warning for retake */}
-                                    {userResult && eligibility.remaining === 0 && !eligibility.isUnlimited && (
+                                    {userResult && eligibility && eligibility.remaining === 0 && !eligibility.isUnlimited && !eligibility.canRetake && (
                                         <p className="text-xs text-amber-400 text-center mt-2">
                                             No credits remaining this month
                                         </p>
@@ -564,7 +624,7 @@ export default function AssessmentsPage() {
                 )}
                 
                 {/* Footer Note */}
-                {user && eligibility.remaining === 0 && !eligibility.isUnlimited && (
+                {user && eligibility && eligibility.remaining === 0 && !eligibility.isUnlimited && (
                     <div className="mt-8 text-center">
                         <Link to="/pricing" className="text-sm text-primary-400 hover:text-primary-300 transition">
                             Upgrade to continue taking assessments →
