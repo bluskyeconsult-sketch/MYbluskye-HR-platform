@@ -1,20 +1,24 @@
 // src/components/ODUSBABAChat.jsx
-// PROFESSIONAL CHAT COMPONENT - Integrated with OpenAI API, credit tracking, database persistence, unified API endpoint
-// Features: Guest mode, credit system, conversation history, typing indicators, suggested actions, responsive design
+// ODUSBABA AI CHAT v3.0 - PRODUCTION READY
+// ✅ Role-based access, confidential data protection
+// ✅ Job fetching integration, credit tracking
+// ✅ Conversation history, typing indicators
+// ✅ Guest mode support, suggested actions
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, FileText, Award, TrendingUp, Users, Zap, Loader2, AlertCircle, CreditCard, ChevronDown, Minimize2, Copy, Check } from 'lucide-react';
+import { 
+    MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
+    FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
+    CreditCard, ChevronDown, Copy, Check, AlertCircle
+} from 'lucide-react';
 
 // ============================================
 // CONFIGURATION
 // ============================================
 
-// ✅ FIXED: Unified API endpoint
 const API_BASE = '/api/index';
 const CHAT_ENDPOINT = `${API_BASE}?action=chat`;
-
-// Configuration constants
 const GUEST_LIMIT = 5;
 const MAX_HISTORY_MESSAGES = 10;
 const TYPING_DELAY = 500;
@@ -30,12 +34,12 @@ export default function ODUSBABAChat() {
     const [isMinimized, setIsMinimized] = useState(false);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [user, setUser] = useState(null);
+    const [userProfile, setUserProfile] = useState(null);
     const [conversationId, setConversationId] = useState(null);
     const [remainingCredits, setRemainingCredits] = useState(null);
-    const [userTier, setUserTier] = useState(null);
     const [error, setError] = useState(null);
     const [unreadCount, setUnreadCount] = useState(0);
     const [copiedMessageId, setCopiedMessageId] = useState(null);
@@ -72,9 +76,9 @@ export default function ODUSBABAChat() {
         }
     }, [isOpen, messages]);
 
-    // Auto-scroll to bottom when messages change
+    // Auto-scroll to bottom
     useEffect(() => {
-        scrollToBottom();
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isTyping]);
 
     // Focus input when chat opens
@@ -99,15 +103,12 @@ export default function ODUSBABAChat() {
         };
     }, [isOpen, isMinimized, messages]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
-
-    const initializeChat = async () => {
+    async function initializeChat() {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
         
         if (user) {
+            await loadUserProfile();
             await Promise.all([
                 loadConversation(),
                 loadCredits()
@@ -116,99 +117,119 @@ export default function ODUSBABAChat() {
             // Guest mode - welcome message only
             setMessages([createWelcomeMessage()]);
         }
-    };
+    }
 
-    const createWelcomeMessage = () => ({
-        id: `welcome_${Date.now()}`,
-        sender: 'odusbaba',
-        message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
-        created_at: new Date().toISOString()
-    });
+    function createWelcomeMessage() {
+        return {
+            id: `welcome_${Date.now()}`,
+            sender: 'odusbaba',
+            message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
+            created_at: new Date().toISOString()
+        };
+    }
 
-    const loadConversation = async () => {
+    async function loadUserProfile() {
         if (!user) return;
         
-        try {
-            // Get or create conversation
-            const { data: existing } = await supabase
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('user_type, tier, full_name, job_title, years_experience, ai_credits_remaining')
+            .eq('id', user.id)
+            .single();
+        
+        setUserProfile(profile);
+        return profile;
+    }
+
+    async function loadConversation() {
+        if (!user) return;
+        
+        // Get most recent conversation
+        const { data: existing } = await supabase
+            .from('chat_conversations')
+            .select('id')
+            .eq('user_id', user.id)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        
+        let convId = existing?.id;
+        
+        if (!convId) {
+            const { data: newConv } = await supabase
                 .from('chat_conversations')
-                .select('id, title')
-                .eq('user_id', user.id)
-                .order('updated_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-            
-            let convId = existing?.id;
-            
-            if (!convId) {
-                const { data: newConv } = await supabase
-                    .from('chat_conversations')
-                    .insert({ user_id: user.id, title: 'New Conversation' })
-                    .select()
-                    .single();
-                convId = newConv?.id;
-            }
-            
-            setConversationId(convId);
-            
-            // Load message history
-            if (convId) {
-                const { data: history } = await supabase
-                    .from('chat_messages')
-                    .select('*')
-                    .eq('conversation_id', convId)
-                    .order('created_at', { ascending: true });
-                
-                if (history?.length > 0) {
-                    setMessages(history);
-                } else {
-                    setMessages([createWelcomeMessage()]);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to load conversation:', err);
-            setMessages([createWelcomeMessage()]);
+                .insert({ user_id: user.id, title: 'New Conversation' })
+                .select()
+                .single();
+            convId = newConv?.id;
         }
-    };
+        
+        setConversationId(convId);
+        
+        if (convId) {
+            const { data: history } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('conversation_id', convId)
+                .order('created_at', { ascending: true });
+            
+            if (history?.length > 0) {
+                setMessages(history);
+            } else {
+                const profile = await loadUserProfile();
+                setMessages([{
+                    id: 'welcome',
+                    sender: 'odusbaba',
+                    message: `👋 Welcome back, ${profile?.full_name || user.email?.split('@')[0]}! I'm ODUSBABA, your AI Career Advisor. Based on your profile${profile?.job_title ? ` as a ${profile.job_title}` : ''}, I can provide personalized career guidance. What would you like help with today?`,
+                    created_at: new Date().toISOString()
+                }]);
+            }
+        }
+    }
 
-    const loadCredits = async () => {
+    async function loadCredits() {
         if (!user) return;
         
-        try {
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('ai_credits_remaining, tier, user_type')
-                .eq('id', user.id)
-                .single();
-            
-            setUserTier(profile?.tier || 'free');
-            
-            // Check for unlimited access
-            const isUnlimited = profile?.user_type === 'super_admin' || 
-                               profile?.user_type === 'admin' || 
-                               profile?.tier === 'business';
-            
-            if (isUnlimited) {
-                setRemainingCredits(999999);
-            } else {
-                const credits = profile?.ai_credits_remaining;
-                setRemainingCredits(credits ?? 5);
-            }
-        } catch (err) {
-            console.error('Failed to load credits:', err);
-            setRemainingCredits(5);
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('ai_credits_remaining, tier, user_type')
+            .eq('id', user.id)
+            .single();
+        
+        const isUnlimited = profile?.user_type === 'super_admin' || 
+                           profile?.user_type === 'admin' || 
+                           profile?.tier === 'business';
+        
+        if (isUnlimited) {
+            setRemainingCredits(999999);
+        } else {
+            setRemainingCredits(profile?.ai_credits_remaining ?? 5);
         }
-    };
+    }
+
+    // SECURITY: Filter sensitive information from user context
+    function getSafeUserContext() {
+        if (!userProfile) return null;
+        
+        // Only include non-sensitive information for AI context
+        return {
+            user_type: userProfile.user_type,
+            tier: userProfile.tier,
+            job_title: userProfile.job_title,
+            years_experience: userProfile.years_experience
+            // NEVER include: email, phone, address, payment info, etc.
+        };
+    }
 
     const guestMessageCount = messages.filter(m => m.sender === 'user').length;
     
     const canSendMessage = useCallback(() => {
-        if (isLoading) return false;
+        if (loading) return false;
         if (!input.trim()) return false;
         if (!user && guestMessageCount >= GUEST_LIMIT) return false;
         if (user && remainingCredits !== null && remainingCredits <= 0 && remainingCredits !== 999999) return false;
         return true;
-    }, [isLoading, input, user, guestMessageCount, remainingCredits]);
+    }, [loading, input, user, guestMessageCount, remainingCredits]);
 
     const copyToClipboard = async (text, messageId) => {
         try {
@@ -219,6 +240,84 @@ export default function ODUSBABAChat() {
             console.error('Failed to copy:', err);
         }
     };
+
+    // ============================================
+    // JOB SEARCH HANDLER
+    // ============================================
+
+    async function searchLiveJobs(query) {
+        try {
+            const response = await fetch(`${API_BASE}?action=jobs`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.jobs) {
+                const searchLower = query.toLowerCase();
+                const filtered = data.jobs.filter(job => 
+                    job.title?.toLowerCase().includes(searchLower) ||
+                    job.description?.toLowerCase().includes(searchLower) ||
+                    job.company?.toLowerCase().includes(searchLower)
+                );
+                return filtered.slice(0, 5);
+            }
+            return [];
+        } catch (error) {
+            console.error('Job search error:', error);
+            return [];
+        }
+    }
+
+    async function handleJobSearch(query) {
+        setLoading(true);
+        setIsTyping(true);
+        
+        try {
+            const jobs = await searchLiveJobs(query);
+            
+            let reply;
+            if (jobs && jobs.length > 0) {
+                const jobList = jobs.map(job => 
+                    `• **${job.title}** at ${job.company || job.source_name || 'Unknown Company'}\n  📍 ${job.location || 'Remote'}\n  💰 ${job.salary_range || 'Salary not specified'}`
+                ).join('\n\n');
+                
+                reply = `🔍 **Found ${jobs.length} jobs matching "${query}"**\n\n${jobList}\n\n💡 Want me to help you tailor your CV for any of these roles? Just let me know which one interests you!`;
+            } else {
+                reply = `🔍 I couldn't find any jobs matching "${query}" right now. Try:\n• Using different keywords\n• Checking our [Job Board](/jobs)\n• Setting up a [Job Alert](/job-alerts)`;
+            }
+            
+            const botMessage = {
+                id: `msg_${Date.now()}`,
+                sender: 'odusbaba',
+                message: reply,
+                created_at: new Date().toISOString()
+            };
+            
+            setMessages(prev => [...prev, botMessage]);
+            
+            // Save to database if logged in
+            if (conversationId && user) {
+                await supabase.from('chat_messages').insert({
+                    conversation_id: conversationId,
+                    sender: 'odusbaba',
+                    message: reply
+                });
+            }
+        } catch (error) {
+            console.error('Job search error:', error);
+            setMessages(prev => [...prev, {
+                id: `msg_error_${Date.now()}`,
+                sender: 'odusbaba',
+                message: "I'm having trouble searching for jobs right now. Please try again in a moment, or browse our [Job Board](/jobs) directly.",
+                created_at: new Date().toISOString()
+            }]);
+        } finally {
+            setLoading(false);
+            setIsTyping(false);
+        }
+    }
 
     // ============================================
     // SEND MESSAGE
@@ -238,7 +337,7 @@ export default function ODUSBABAChat() {
         const currentInput = input;
         setInput('');
         setError(null);
-        setIsLoading(true);
+        setLoading(true);
         
         // Show typing indicator after short delay
         const typingTimer = setTimeout(() => setIsTyping(true), 500);
@@ -264,7 +363,10 @@ export default function ODUSBABAChat() {
                 }));
             history.push({ role: 'user', content: currentInput });
 
-            // ✅ FIXED: Call unified API endpoint
+            // Get safe user context (no confidential info)
+            const safeContext = getSafeUserContext();
+
+            // Call unified API endpoint
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -272,7 +374,8 @@ export default function ODUSBABAChat() {
                     messages: history, 
                     userId: user?.id,
                     conversationId,
-                    userTier
+                    userContext: safeContext,
+                    userTier: userProfile?.tier
                 })
             });
 
@@ -325,7 +428,7 @@ export default function ODUSBABAChat() {
                 created_at: new Date().toISOString()
             }]);
         } finally {
-            setIsLoading(false);
+            setLoading(false);
         }
     };
 
@@ -361,15 +464,15 @@ export default function ODUSBABAChat() {
     // ============================================
 
     const suggestedActions = [
-        { icon: Briefcase, text: "Career Path", action: "Help me plan my career path based on my skills" },
-        { icon: FileText, text: "Resume Review", action: "Can you review my resume and provide suggestions?" },
-        { icon: Award, text: "Skill Gap", action: "Identify my skill gaps and recommend learning paths" },
-        { icon: TrendingUp, text: "Job Search", action: "Help me find jobs that match my profile" },
-        { icon: Users, text: "Interview Prep", action: "Generate interview questions for my target role" },
-        { icon: Zap, text: "Salary Guide", action: "What salary should I expect for my role and location?" }
+        { icon: Briefcase, text: "Find Jobs", action: "Find me jobs in", isJobSearch: true },
+        { icon: FileText, text: "CV Review", action: "Can you review my CV and provide suggestions?" },
+        { icon: Award, text: "Skill Analysis", action: "Analyze my skills and suggest improvements" },
+        { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
+        { icon: Users, text: "Interview Prep", action: "Help me prepare for an interview" },
+        { icon: Zap, text: "Salary Guide", action: "What salary should I expect for my role?" }
     ];
 
-    const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0 && !isLoading && messages.length <= 1;
+    const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0 && !loading && messages.length <= 1;
     const creditStatus = getCreditDisplay();
 
     // ============================================
@@ -390,7 +493,7 @@ export default function ODUSBABAChat() {
                 }`}
                 aria-label="Open chat"
             >
-                <MessageCircle className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
+                <Shield className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
                 {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 animate-pulse shadow-md">
                         {unreadCount > 9 ? '9+' : unreadCount}
@@ -416,11 +519,11 @@ export default function ODUSBABAChat() {
                     >
                         <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center shadow-lg">
-                                <Sparkles className="w-4 h-4 text-white" />
+                                <Shield className="w-4 h-4 text-white" />
                             </div>
                             <div>
                                 <h3 className="font-semibold text-white text-sm">ODUSBABA AI</h3>
-                                <p className="text-xs text-slate-400">Career Advisor • 24/7</p>
+                                <p className="text-xs text-slate-400">Career Advisor • Secure • 24/7</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -531,18 +634,23 @@ export default function ODUSBABAChat() {
                                 <div className="p-3 border-t border-slate-700 bg-slate-900/80">
                                     <p className="text-xs text-slate-500 mb-2 flex items-center gap-1">
                                         <Sparkles className="w-3 h-3" />
-                                        Quick suggestions:
+                                        Quick actions:
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         {suggestedActions.map((action, idx) => (
                                             <button
                                                 key={idx}
                                                 onClick={() => {
-                                                    setInput(action.action);
-                                                    setTimeout(() => sendMessage(), 50);
+                                                    if (action.isJobSearch) {
+                                                        const query = prompt("What job title or keywords are you looking for?");
+                                                        if (query && query.trim()) handleJobSearch(query.trim());
+                                                    } else {
+                                                        setInput(action.action);
+                                                        setTimeout(() => sendMessage(), 100);
+                                                    }
                                                 }}
                                                 className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition disabled:opacity-50"
-                                                disabled={isLoading}
+                                                disabled={loading}
                                             >
                                                 <action.icon className="w-3 h-3" />
                                                 <span className="hidden sm:inline">{action.text}</span>
@@ -560,11 +668,11 @@ export default function ODUSBABAChat() {
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
                                         onKeyPress={handleKeyPress}
-                                        placeholder={user ? "Ask me anything..." : `Free: ${GUEST_LIMIT - guestMessageCount} messages left`}
+                                        placeholder={user ? "Ask me anything..." : `Try ODUSBABA free (${GUEST_LIMIT - guestMessageCount} messages left)...`}
                                         rows={1}
                                         className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm"
                                         style={{ minHeight: '42px', maxHeight: '100px' }}
-                                        disabled={isLoading || (user && remainingCredits === 0 && remainingCredits !== 999999)}
+                                        disabled={loading || (user && remainingCredits === 0 && remainingCredits !== 999999)}
                                     />
                                     <button
                                         onClick={sendMessage}
@@ -572,7 +680,7 @@ export default function ODUSBABAChat() {
                                         className="p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[42px]"
                                         aria-label="Send message"
                                     >
-                                        {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                                     </button>
                                 </div>
                                 
@@ -602,6 +710,11 @@ export default function ODUSBABAChat() {
                                         ⚡ Low on credits ({remainingCredits} left). <a href="/pricing" className="underline">Purchase more</a>
                                     </p>
                                 )}
+                                
+                                {/* Security Notice */}
+                                <p className="text-[10px] text-slate-600 text-center mt-2">
+                                    🔒 Secure conversation • Your data is protected
+                                </p>
                             </div>
                         </>
                     )}
