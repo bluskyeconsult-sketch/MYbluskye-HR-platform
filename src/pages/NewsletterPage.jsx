@@ -1,10 +1,17 @@
 // src/pages/NewsletterPage.jsx
-// COMPLETE PROFESSIONAL NEWSLETTER PAGE - With API integration, enhanced UI, and benefits showcase
+// ODUSBABA NEWSLETTER PAGE v3.0 - PRODUCTION READY
+// ✅ Professional newsletter subscription with preferences
+// ✅ Stats display, benefits showcase, testimonial
+// ✅ Enhanced UI with preference toggles
+// ✅ Complete error handling and success states
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, CheckCircle, AlertCircle, Send, Users, TrendingUp, Calendar, Loader2, Star, Shield, Zap, Heart, BookOpen, Briefcase } from 'lucide-react';
-import { subscribeToNewsletter } from '../services/newsletterService';
+import { 
+    Mail, CheckCircle, AlertCircle, Send, Users, TrendingUp, 
+    Loader2, Star, Shield, Zap, Heart, BookOpen, Briefcase, 
+    Calendar, Bell, Award, Lock
+} from 'lucide-react';
 
 export default function NewsletterPage() {
     const [email, setEmail] = useState('');
@@ -12,11 +19,16 @@ export default function NewsletterPage() {
     const [loading, setLoading] = useState(false);
     const [subscribed, setSubscribed] = useState(false);
     const [error, setError] = useState('');
-    const [subscriberCount, setSubscriberCount] = useState(5284);
     const [stats, setStats] = useState({
         subscribers: 5284,
-        openRate: 48,
+        openRate: 68,
         weeklyIssues: 156
+    });
+    const [preferences, setPreferences] = useState({
+        jobs: true,
+        courses: true,
+        assessments: true,
+        products: false
     });
 
     useEffect(() => {
@@ -34,13 +46,16 @@ export default function NewsletterPage() {
                 const data = await response.json();
                 if (data.success && data.stats) {
                     setStats(data.stats);
-                    setSubscriberCount(data.stats.subscribers || 5284);
                 }
             }
         } catch (err) {
             console.warn('Could not fetch stats, using defaults:', err);
         }
     }
+
+    const togglePreference = (key) => {
+        setPreferences(prev => ({ ...prev, [key]: !prev[key] }));
+    };
 
     const handleSubscribe = async (e) => {
         e.preventDefault();
@@ -61,31 +76,25 @@ export default function NewsletterPage() {
         setError('');
         
         try {
-            // Try API first
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, name: name || null, source: 'newsletter_page' })
+                body: JSON.stringify({ 
+                    email, 
+                    name: name || null, 
+                    preferences,
+                    source: 'newsletter_page' 
+                })
             });
             
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success) {
-                    setSubscribed(true);
-                    setEmail('');
-                    setName('');
-                    return;
-                }
-            }
+            const data = await response.json();
             
-            // Fallback to service
-            const result = await subscribeToNewsletter(email, name || null, 'newsletter_page');
-            if (result.success) {
+            if (data.success) {
                 setSubscribed(true);
                 setEmail('');
                 setName('');
             } else {
-                setError(result.error || 'Subscription failed. Please try again.');
+                setError(data.error || 'Subscription failed. Please try again.');
             }
         } catch (err) {
             console.error('Subscription error:', err);
@@ -95,6 +104,7 @@ export default function NewsletterPage() {
         }
     };
 
+    // Success Screen
     if (subscribed) {
         return (
             <div className="min-h-screen bg-slate-950 py-20">
@@ -128,7 +138,7 @@ export default function NewsletterPage() {
                 
                 {/* Header */}
                 <div className="text-center mb-8">
-                    <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 animate-pulse">
+                    <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
                         <Mail className="w-10 h-10 text-white" />
                     </div>
                     <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
@@ -182,6 +192,7 @@ export default function NewsletterPage() {
                                 className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition"
                             />
                         </div>
+                        
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-slate-400 mb-1">Email Address *</label>
                             <input
@@ -193,9 +204,47 @@ export default function NewsletterPage() {
                                 className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition"
                             />
                         </div>
+
+                        {/* Preferences Section */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-slate-400 mb-3">
+                                What would you like to receive?
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {[
+                                    { key: 'jobs', icon: Briefcase, label: 'New Jobs', description: 'Weekly job alerts' },
+                                    { key: 'courses', icon: BookOpen, label: 'Courses & Learning', description: 'New course announcements' },
+                                    { key: 'assessments', icon: Award, label: 'Assessments', description: 'New skill assessments' },
+                                    { key: 'products', icon: Zap, label: 'Product Updates', description: 'New features and tools' }
+                                ].map(item => {
+                                    const Icon = item.icon;
+                                    const isSelected = preferences[item.key];
+                                    return (
+                                        <button
+                                            key={item.key}
+                                            type="button"
+                                            onClick={() => togglePreference(item.key)}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                                                isSelected 
+                                                    ? 'border-primary-500 bg-primary-500/10' 
+                                                    : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                                            }`}
+                                        >
+                                            <Icon className={`w-5 h-5 ${isSelected ? 'text-primary-400' : 'text-slate-500'}`} />
+                                            <div className="text-left">
+                                                <p className={`text-sm font-medium ${isSelected ? 'text-white' : 'text-slate-300'}`}>{item.label}</p>
+                                                <p className="text-xs text-slate-500">{item.description}</p>
+                                            </div>
+                                            {isSelected && <CheckCircle className="w-4 h-4 text-primary-400 ml-auto" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                         
+                        {/* Error Message */}
                         {error && (
-                            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 animate-shake">
+                            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
                                 <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
                                 <p className="text-red-400 text-sm">{error}</p>
                             </div>
@@ -209,7 +258,7 @@ export default function NewsletterPage() {
                             {loading ? (
                                 <><Loader2 className="w-4 h-4 animate-spin" /> Subscribing...</>
                             ) : (
-                                <><Send className="w-4 h-4" /> Subscribe Now</>
+                                <><Bell className="w-4 h-4" /> Subscribe Now</>
                             )}
                         </button>
                     </form>
@@ -270,6 +319,3 @@ export default function NewsletterPage() {
         </div>
     );
 }
-
-// Import missing icon
-import { Lock } from 'lucide-react';
