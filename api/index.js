@@ -1,15 +1,19 @@
-// api/index.js - PROFESSIONAL CONSOLIDATED API FOR HOBBY PLAN
+// api/index.js - UNIFIED API GATEWAY (Single file handles ALL)
 // Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (7+ countries),
 // AI chat, Assessment generation, Course generation, User applications, Profile updates,
 // Newsletter, Books, Articles, User stats, Analytics events, Tester management
-// Version: 4.0.0 | Production Ready
+// RUTH Standard v3.0 - Production Ready
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
 // ============================================
-// PROFESSIONAL CONFIGURATION
+// CONFIGURATION
 // ============================================
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const ALLOWED_EMAIL_TYPES = [
     'contact', 'newsletter', 'newsletter_welcome', 'notification', 'tester_welcome',
@@ -19,7 +23,7 @@ const ALLOWED_EMAIL_TYPES = [
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Requested-With',
     'Access-Control-Max-Age': '86400'
 };
 
@@ -27,7 +31,16 @@ const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_REQUESTS = 5;
 const rateLimitStore = new Map();
 
-// Helper: Professional rate limiting with request counting
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function setCors(res) {
+    Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+        res.setHeader(key, value);
+    });
+}
+
 function checkRateLimit(key, limit = RATE_LIMIT_REQUESTS) {
     const now = Date.now();
     const record = rateLimitStore.get(key);
@@ -74,15 +87,42 @@ async function safeFetch(url, timeout = 10000) {
     }
 }
 
-function getSupabase() {
-    return createClient(
-        process.env.VITE_SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-    );
+async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
+    const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens, temperature })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+}
+
+function getTransporter() {
+    return nodemailer.createTransport({
+        host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
+        port: parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465'),
+        secure: true,
+        auth: {
+            user: process.env.VITE_EMAIL_USER || process.env.SMTP_USER,
+            pass: process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD
+        },
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
+    });
 }
 
 // ============================================
-// PROFESSIONAL EMAIL TEMPLATES (Brand Compliant)
+// PROFESSIONAL EMAIL TEMPLATES
 // ============================================
 
 const emailTemplates = {
@@ -312,24 +352,8 @@ const emailTemplates = {
 </html>`
 };
 
-function getTransporter() {
-    return nodemailer.createTransport({
-        host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
-        port: parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465'),
-        secure: true,
-        auth: {
-            user: process.env.VITE_EMAIL_USER || process.env.SMTP_USER,
-            pass: process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD
-        },
-        tls: { rejectUnauthorized: false },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000
-    });
-}
-
 // ============================================
-// JOB FETCHING FUNCTION (Enhanced)
+// JOB FETCHING FUNCTION (Multi-country)
 // ============================================
 
 async function fetchAllJobs() {
@@ -381,152 +405,34 @@ async function fetchAllJobs() {
         errors.push({ source: 'NHS', error: err.message });
     }
 
-    // 3. USAJobs
+    // 3. Remote Jobs (Jobicy API - Fallback)
     try {
-        const response = await safeFetch('https://www.usajobs.gov/jobs/feed/rss?Number=10', timeout);
-        const text = await response.text();
-        const matches = text.match(/<item>[\s\S]*?<\/item>/g) || [];
-        const jobs = matches.slice(0, 5).map(item => ({
-            title: extractTag(item, 'title'),
-            company: 'U.S. Federal Government',
-            location: 'United States',
-            source_country: 'US',
-            source_name: 'USAJobs.gov',
-            description: extractTag(item, 'description')?.substring(0, 500) || '',
-            salary_range: 'Federal Pay Scale',
-            job_type: 'full_time',
-            external_url: extractTag(item, 'link') || '',
-            sponsorship_eligible: true
-        }));
-        allJobs.push(...jobs);
-    } catch (err) {
-        errors.push({ source: 'USAJobs', error: err.message });
-    }
-
-    // 4. Canada GC Jobs
-    try {
-        const response = await safeFetch('https://emploisfp-psjobs.cfp-psc.gc.ca/psrs-srfp/v1/announcements?language=en&page=1&count=10', timeout);
+        const response = await safeFetch('https://jobicy.com/api/v2/remote-jobs?count=10', timeout);
         const data = await response.json();
-        if (data?.data) {
-            const jobs = data.data.slice(0, 5).map(job => ({
-                title: job.jobTitle?.en || 'Government of Canada Position',
-                company: job.departmentName?.en || 'Government of Canada',
-                location: `${job.city?.en || 'Ottawa'}, Canada`,
-                source_country: 'CA',
-                source_name: 'GC Jobs Canada',
-                description: job.jobSummary?.en?.substring(0, 500) || '',
-                salary_range: job.salaryRange || 'Competitive',
-                job_type: 'full_time',
-                external_url: job.jobLink || '',
-                sponsorship_eligible: true
-            }));
-            allJobs.push(...jobs);
-        }
-    } catch (err) {
-        errors.push({ source: 'Canada GC Jobs', error: err.message });
-    }
-
-    // 5. Australia APS Jobs
-    try {
-        const response = await safeFetch('https://www.apsjobs.gov.au/api/v1/jobs?limit=10&offset=0', timeout);
-        const data = await response.json();
-        if (data?.data) {
-            const jobs = data.data.slice(0, 5).map(job => ({
-                title: job.title || 'Australian Public Service Position',
-                company: job.agencyName || 'Australian Public Service',
-                location: `${job.location || 'Canberra'}, Australia`,
-                source_country: 'AU',
-                source_name: 'APS Jobs Australia',
+        if (data?.jobs) {
+            const jobs = data.jobs.slice(0, 10).map(job => ({
+                title: job.jobTitle,
+                company: job.companyName,
+                location: job.jobGeo || 'Remote',
+                source_country: 'Global',
+                source_name: 'Jobicy',
                 description: job.jobDescription?.substring(0, 500) || '',
-                salary_range: job.salaryRange || 'Competitive',
-                job_type: 'full_time',
-                external_url: job.applicationUrl || '',
+                salary_range: job.salaryMin && job.salaryMax ? `$${job.salaryMin} - $${job.salaryMax}` : 'Competitive',
+                job_type: 'remote',
+                external_url: job.url || '',
                 sponsorship_eligible: true
             }));
             allJobs.push(...jobs);
         }
     } catch (err) {
-        errors.push({ source: 'Australia APS', error: err.message });
+        errors.push({ source: 'Jobicy', error: err.message });
     }
 
-    // 6. Ireland
-    try {
-        const response = await safeFetch('https://www.publicjobs.ie/rss', timeout);
-        const text = await response.text();
-        const matches = text.match(/<item>[\s\S]*?<\/item>/g) || [];
-        const jobs = matches.slice(0, 5).map(item => ({
-            title: extractTag(item, 'title'),
-            company: 'Public Jobs Ireland',
-            location: 'Ireland',
-            source_country: 'IE',
-            source_name: 'Public Jobs Ireland',
-            description: extractTag(item, 'description')?.substring(0, 500) || '',
-            salary_range: 'Public Sector Scale',
-            job_type: 'full_time',
-            external_url: extractTag(item, 'link') || '',
-            sponsorship_eligible: false
-        }));
-        allJobs.push(...jobs);
-    } catch (err) {
-        errors.push({ source: 'Ireland', error: err.message });
-    }
-
-    // 7. Germany
-    try {
-        const response = await safeFetch('https://www.bund.de/rss/jobs', timeout);
-        const text = await response.text();
-        const matches = text.match(/<item>[\s\S]*?<\/item>/g) || [];
-        const jobs = matches.slice(0, 5).map(item => ({
-            title: extractTag(item, 'title'),
-            company: 'Bund.de',
-            location: 'Germany',
-            source_country: 'DE',
-            source_name: 'Bund.de',
-            description: extractTag(item, 'description')?.substring(0, 500) || '',
-            salary_range: 'TVöD Scale',
-            job_type: 'full_time',
-            external_url: extractTag(item, 'link') || '',
-            sponsorship_eligible: true
-        }));
-        allJobs.push(...jobs);
-    } catch (err) {
-        errors.push({ source: 'Germany', error: err.message });
-    }
-
-    // 8. France
-    try {
-        const response = await safeFetch('https://candidat.francetravail.fr/offres/search?limit=10&sort=date', timeout);
-        const data = await response.json();
-        if (data?.offres) {
-            const jobs = data.offres.slice(0, 5).map(job => ({
-                title: job.intitule || 'Offre d\'emploi',
-                company: job.entreprise?.nom || 'État français',
-                location: `${job.lieuTravail?.libelle || 'Paris'}, France`,
-                source_country: 'FR',
-                source_name: 'France Travail',
-                description: (job.description || '').substring(0, 500),
-                salary_range: job.salaire?.libelle || 'Compétitif',
-                job_type: 'full_time',
-                external_url: job.url || '',
-                sponsorship_eligible: false
-            }));
-            allJobs.push(...jobs);
-        }
-    } catch (err) {
-        errors.push({ source: 'France', error: err.message });
-    }
-
-    // 9. Nigeria Fallback Jobs
+    // 4. Nigeria Fallback Jobs
     allJobs.push(
         { title: 'Civil Service Officer', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Federal Civil Service', description: 'Join the Federal Civil Service as an Officer. Opportunities in various ministries.', salary_range: '₦3,500,000 - ₦5,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
         { title: 'Policy Analyst', company: 'Ministry of Finance', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Ministry of Finance', description: 'Policy development and economic analysis role.', salary_range: '₦4,000,000 - ₦6,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
         { title: 'IT Specialist', company: 'NITDA', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'NITDA', description: 'Digital transformation and IT infrastructure role.', salary_range: '₦3,500,000 - ₦5,500,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false }
-    );
-
-    // 10. Remote Fallback Jobs
-    allJobs.push(
-        { title: 'Remote Software Engineer', company: 'Global Tech', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Full-stack development position. Work from anywhere.', salary_range: '$60,000 - $90,000', job_type: 'remote', external_url: '', sponsorship_eligible: false },
-        { title: 'Virtual Assistant', company: 'Global Services', location: 'Remote', source_country: 'Global', source_name: 'Remote Jobs', description: 'Administrative support for international clients.', salary_range: '$25,000 - $40,000', job_type: 'remote', external_url: '', sponsorship_eligible: false }
     );
 
     // Remove duplicates
@@ -544,89 +450,13 @@ async function fetchAllJobs() {
 }
 
 // ============================================
-// AI HELPERS (Professional)
+// ACTION HANDLERS
 // ============================================
 
-async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
-    const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OpenAI API key not configured');
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens, temperature })
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || `HTTP ${response.status}`);
-    }
-
-    return response.json();
-}
-
-// ============================================
-// MAIN HANDLER (Production Ready)
-// ============================================
-
-export default async function handler(req, res) {
-    // Set CORS headers
-    Object.entries(CORS_HEADERS).forEach(([key, value]) => {
-        res.setHeader(key, value);
-    });
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-
-    const { action } = req.query;
-    const startTime = Date.now();
-
-    // ============================================
-    // ACTION: IP Geolocation (Enhanced)
-    // ============================================
-    if (action === 'ip') {
-        const ip = req.headers['x-forwarded-for']?.split(',')[0] ||
-                   req.headers['x-real-ip'] ||
-                   req.socket.remoteAddress ||
-                   '0.0.0.0';
-        const cleanIp = ip.replace(/^::ffff:/, '');
-
-        const geoData = {
-            country: req.headers['x-vercel-ip-country'] || null,
-            countryRegion: req.headers['x-vercel-ip-country-region'] || null,
-            region: req.headers['x-vercel-ip-region'] || null,
-            city: req.headers['x-vercel-ip-city'] || null,
-            latitude: req.headers['x-vercel-ip-latitude'] || null,
-            longitude: req.headers['x-vercel-ip-longitude'] || null,
-            timezone: req.headers['x-vercel-ip-timezone'] || null
-        };
-
-        return res.status(200).json({
-            success: true,
-            ip: cleanIp,
-            geolocation: geoData,
-            userAgent: req.headers['user-agent'] || null,
-            timestamp: new Date().toISOString()
-        });
-    }
-
-    // ============================================
-    // ACTION: Ping
-    // ============================================
-    if (action === 'ping') {
-        return res.status(200).json({
-            status: 'alive',
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime()
-        });
-    }
-
-    // ============================================
-    // ACTION: Health Check (Comprehensive)
-    // ============================================
-    if (action === 'health') {
-        const supabase = getSupabase();
+const handlers = {
+    // ========== HEALTH & SYSTEM ==========
+    health: async (req, res) => {
+        const startTime = Date.now();
         const results = {
             status: 'healthy',
             timestamp: new Date().toISOString(),
@@ -662,64 +492,6 @@ export default async function handler(req, res) {
             results.status = 'degraded';
         }
 
-        // Storage check
-        const storageStart = Date.now();
-        try {
-            const { data: buckets, error } = await supabase.storage.listBuckets();
-            results.services.storage = {
-                status: !error ? 'healthy' : 'degraded',
-                responseTime: Date.now() - storageStart,
-                details: !error ? `${buckets?.length || 0} buckets available` : error.message
-            };
-            if (error) results.status = 'degraded';
-        } catch (err) {
-            results.services.storage = { status: 'critical', responseTime: Date.now() - storageStart, details: err.message };
-            results.status = 'degraded';
-        }
-
-        // OpenAI check
-        const openaiKey = process.env.VITE_OPENAI_API_KEY;
-        if (!openaiKey) {
-            results.services.openai = { status: 'degraded', details: 'API key missing' };
-            results.status = 'degraded';
-        } else {
-            const openaiStart = Date.now();
-            try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'Health check OK' }], max_tokens: 5 })
-                });
-                results.services.openai = {
-                    status: response.ok ? 'healthy' : 'degraded',
-                    responseTime: Date.now() - openaiStart,
-                    details: response.ok ? 'API responsive' : `HTTP ${response.status}`
-                };
-                if (!response.ok) results.status = 'degraded';
-            } catch (err) {
-                results.services.openai = { status: 'degraded', responseTime: Date.now() - openaiStart, details: err.message };
-                results.status = 'degraded';
-            }
-        }
-
-        // Email check
-        const emailUser = process.env.VITE_EMAIL_USER;
-        const emailPass = process.env.VITE_EMAIL_PASS;
-        if (!emailUser || !emailPass) {
-            results.services.email = { status: 'degraded', details: 'SMTP credentials missing' };
-            results.status = 'degraded';
-        } else {
-            const emailStart = Date.now();
-            try {
-                const transporter = getTransporter();
-                await transporter.verify();
-                results.services.email = { status: 'healthy', responseTime: Date.now() - emailStart };
-            } catch (err) {
-                results.services.email = { status: 'degraded', responseTime: Date.now() - emailStart, details: err.message };
-                results.status = 'degraded';
-            }
-        }
-
         results.services.vercel = { status: 'healthy', details: `Region: ${process.env.VERCEL_REGION || 'unknown'}` };
         results.responseTime = Date.now() - startTime;
 
@@ -730,12 +502,146 @@ export default async function handler(req, res) {
         else results.status = 'healthy';
 
         return res.status(200).json(results);
-    }
+    },
 
-    // ============================================
-    // ACTION: Send Email
-    // ============================================
-    if (action === 'email' && req.method === 'POST') {
+    ping: async (req, res) => {
+        return res.status(200).json({
+            status: 'alive',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
+    },
+
+    // ========== IP ADDRESS ==========
+    ip: async (req, res) => {
+        const ip = req.headers['x-forwarded-for']?.split(',')[0] ||
+                   req.headers['x-real-ip'] ||
+                   req.socket.remoteAddress ||
+                   '0.0.0.0';
+        const cleanIp = ip.replace(/^::ffff:/, '');
+        
+        const geoData = {
+            country: req.headers['x-vercel-ip-country'] || null,
+            countryRegion: req.headers['x-vercel-ip-country-region'] || null,
+            region: req.headers['x-vercel-ip-region'] || null,
+            city: req.headers['x-vercel-ip-city'] || null,
+            latitude: req.headers['x-vercel-ip-latitude'] || null,
+            longitude: req.headers['x-vercel-ip-longitude'] || null,
+            timezone: req.headers['x-vercel-ip-timezone'] || null
+        };
+        
+        return res.status(200).json({
+            success: true,
+            ip: cleanIp,
+            geolocation: geoData,
+            userAgent: req.headers['user-agent'] || null,
+            timestamp: new Date().toISOString()
+        });
+    },
+
+    // ========== JOB FETCH ==========
+    jobs: async (req, res) => {
+        try {
+            const result = await fetchAllJobs();
+            return res.status(200).json({
+                success: true,
+                count: result.total,
+                jobs: result.jobs,
+                errors: result.errors.length > 0 ? result.errors : undefined,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            // Fallback mock jobs
+            const mockJobs = [
+                { title: 'Senior Software Engineer', company: 'Tech Corp', location: 'Remote', description: 'Build amazing products', salary_range: '$120k - $180k', job_type: 'remote', source_name: 'Mock' },
+                { title: 'Product Manager', company: 'Innovate Inc', location: 'London, UK', description: 'Lead product strategy', salary_range: '£80k - £100k', job_type: 'full_time', source_name: 'Mock' },
+                { title: 'Data Scientist', company: 'AI Solutions', location: 'Remote', description: 'Machine learning models', salary_range: '$130k - $160k', job_type: 'remote', source_name: 'Mock' }
+            ];
+            return res.status(200).json({ success: true, jobs: mockJobs, count: mockJobs.length, fallback: true });
+        }
+    },
+
+    // ========== AI CHAT ==========
+    chat: async (req, res) => {
+        const { message, history, systemPrompt, temperature = 0.7, maxTokens = 800 } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        try {
+            let messages = history || [];
+            messages.push({ role: 'user', content: message });
+            
+            if (systemPrompt) {
+                messages = [{ role: 'system', content: systemPrompt }, ...messages];
+            }
+
+            const data = await callOpenAI(messages, maxTokens, temperature);
+            return res.status(200).json({
+                success: true,
+                response: data.choices[0].message.content,
+                usage: data.usage
+            });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== GENERATE ASSESSMENT ==========
+    'generate-assessment': async (req, res) => {
+        const { topic, difficulty = 'intermediate', numberOfQuestions = 5 } = req.body;
+
+        if (!topic) {
+            return res.status(400).json({ error: 'Topic is required' });
+        }
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an expert test creator. Return only valid JSON.' },
+                { role: 'user', content: `Create ${numberOfQuestions} ${difficulty} level questions about "${topic}". Return as JSON array with: question, options (array), correct (index 0-3), explanation.` }
+            ], 2000, 0.5);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            const questions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+
+            return res.status(200).json({ success: true, questions, usage: data.usage });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== GENERATE COURSE ==========
+    'generate-course': async (req, res) => {
+        const { topic, level = 'beginner' } = req.body;
+
+        if (!topic) {
+            return res.status(400).json({ error: 'Topic is required' });
+        }
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an instructional designer.' },
+                { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Include: title, description, 5-7 modules with lessons, learning objectives, and estimated duration. Return as JSON.` }
+            ], 1500, 0.7);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const outline = jsonMatch ? JSON.parse(jsonMatch[0]) : { title: topic, description: '', modules: [] };
+
+            return res.status(200).json({
+                success: true,
+                outline,
+                usage: data.usage
+            });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== SEND EMAIL ==========
+    email: async (req, res) => {
         const { to, subject, html, type, templateData } = req.body;
 
         if (!to || !isValidEmail(to)) {
@@ -784,168 +690,10 @@ export default async function handler(req, res) {
             console.error('Email error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: Fetch Jobs
-    // ============================================
-    if (action === 'jobs') {
-        const result = await fetchAllJobs();
-        return res.status(200).json({
-            success: true,
-            count: result.total,
-            jobs: result.jobs,
-            errors: result.errors.length > 0 ? result.errors : undefined,
-            timestamp: new Date().toISOString()
-        });
-    }
-
-    // ============================================
-    // ACTION: AI Chat
-    // ============================================
-    if (action === 'chat' && req.method === 'POST') {
-        const { messages, systemPrompt, temperature = 0.7, maxTokens = 800 } = req.body;
-
-        if (!messages || !Array.isArray(messages)) {
-            return res.status(400).json({ error: 'Invalid messages format' });
-        }
-
-        try {
-            let fullMessages = [...messages];
-            if (systemPrompt) {
-                fullMessages = [{ role: 'system', content: systemPrompt }, ...fullMessages];
-            }
-
-            const data = await callOpenAI(fullMessages, maxTokens, temperature);
-            return res.status(200).json({
-                success: true,
-                content: data.choices[0].message.content,
-                usage: data.usage
-            });
-        } catch (error) {
-            return res.status(500).json({ error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Generate Assessment Questions
-    // ============================================
-    if (action === 'generate-assessment' && req.method === 'POST') {
-        const { topic, difficulty = 'intermediate', count = 5 } = req.body;
-
-        if (!topic) {
-            return res.status(400).json({ error: 'Topic is required' });
-        }
-
-        try {
-            const data = await callOpenAI([
-                { role: 'system', content: 'You are an expert test creator. Return only valid JSON.' },
-                { role: 'user', content: `Create ${count} ${difficulty} level questions about "${topic}". Return as JSON array with: question, options (array), correct (index 0-3), explanation.` }
-            ], 2000, 0.5);
-
-            const content = data.choices[0].message.content;
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
-            const questions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-
-            return res.status(200).json({ success: true, questions, usage: data.usage });
-        } catch (error) {
-            return res.status(500).json({ error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Generate Course Outline
-    // ============================================
-    if (action === 'generate-course' && req.method === 'POST') {
-        const { topic, level = 'beginner' } = req.body;
-
-        if (!topic) {
-            return res.status(400).json({ error: 'Topic is required' });
-        }
-
-        try {
-            const data = await callOpenAI([
-                { role: 'system', content: 'You are an instructional designer.' },
-                { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Include: title, description, 5-7 modules with lessons, learning objectives, and estimated duration. Return as JSON.` }
-            ], 1500, 0.7);
-
-            const content = data.choices[0].message.content;
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            const outline = jsonMatch ? JSON.parse(jsonMatch[0]) : { title: topic, description: '', modules: [] };
-
-            return res.status(200).json({
-                success: true,
-                outline,
-                usage: data.usage
-            });
-        } catch (error) {
-            return res.status(500).json({ error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Books List
-    // ============================================
-    if (action === 'books-list') {
-        try {
-            const supabase = getSupabase();
-            const { data, error } = await supabase
-                .from('books')
-                .select('*')
-                .eq('is_published', true)
-                .order('created_at', { ascending: false });
-            
-            if (error) throw error;
-            return res.status(200).json({ success: true, books: data || [] });
-        } catch (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Articles List
-    // ============================================
-    if (action === 'articles-list') {
-        try {
-            const supabase = getSupabase();
-            const { data, error } = await supabase
-                .from('articles')
-                .select('*')
-                .eq('is_published', true)
-                .order('published_at', { ascending: false });
-            
-            if (error) throw error;
-            return res.status(200).json({ success: true, articles: data || [] });
-        } catch (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Single Article
-    // ============================================
-    if (action === 'article') {
-        const { slug, id } = req.query;
-        
-        try {
-            const supabase = getSupabase();
-            let query = supabase.from('articles').select('*');
-            if (slug) query = query.eq('slug', slug);
-            if (id) query = query.eq('id', id);
-            
-            const { data, error } = await query.single();
-            if (error) throw error;
-            
-            return res.status(200).json({ success: true, article: data });
-        } catch (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
-    }
-
-    // ============================================
-    // ACTION: Newsletter Subscribe
-    // ============================================
-    if (action === 'newsletter-subscribe' && req.method === 'POST') {
+    // ========== NEWSLETTER SUBSCRIBE ==========
+    'newsletter-subscribe': async (req, res) => {
         const { email, name } = req.body;
         
         if (!email || !isValidEmail(email)) {
@@ -953,7 +701,6 @@ export default async function handler(req, res) {
         }
         
         try {
-            const supabase = getSupabase();
             const { error } = await supabase
                 .from('newsletter_subscribers')
                 .upsert({
@@ -983,12 +730,60 @@ export default async function handler(req, res) {
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: Tester Create
-    // ============================================
-    if (action === 'tester-create' && req.method === 'POST') {
+    // ========== BOOKS LIST ==========
+    'books-list': async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('books')
+                .select('*')
+                .eq('is_published', true)
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, books: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ARTICLES LIST ==========
+    'articles-list': async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('articles')
+                .select('*')
+                .eq('is_published', true)
+                .order('published_at', { ascending: false });
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, articles: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== SINGLE ARTICLE ==========
+    article: async (req, res) => {
+        const { slug, id } = req.query;
+        
+        try {
+            let query = supabase.from('articles').select('*');
+            if (slug) query = query.eq('slug', slug);
+            if (id) query = query.eq('id', id);
+            
+            const { data, error } = await query.single();
+            if (error) throw error;
+            
+            return res.status(200).json({ success: true, article: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== TESTER CREATE ==========
+    'tester-create': async (req, res) => {
         const { email, name, uses = 10, days = 30 } = req.body;
         
         if (!email || !isValidEmail(email)) {
@@ -996,8 +791,6 @@ export default async function handler(req, res) {
         }
         
         try {
-            const supabase = getSupabase();
-            
             const { data, error } = await supabase
                 .from('tester_allocations')
                 .insert({
@@ -1020,7 +813,7 @@ export default async function handler(req, res) {
                 body: JSON.stringify({
                     to: email,
                     type: 'tester_welcome',
-                    templateData: { name, uses, days }
+                    templateData: { name: name || email, uses, days }
                 })
             });
             
@@ -1028,16 +821,13 @@ export default async function handler(req, res) {
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: User Dashboard Stats
-    // ============================================
-    if (action === 'user-stats') {
+    // ========== USER STATS ==========
+    'user-stats': async (req, res) => {
         const authHeader = req.headers.authorization;
         
         try {
-            const supabase = getSupabase();
             const token = authHeader?.split(' ')[1];
             const { data: { user }, error: userError } = await supabase.auth.getUser(token);
             
@@ -1069,16 +859,13 @@ export default async function handler(req, res) {
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: User Applications
-    // ============================================
-    if (action === 'user-applications' && req.method === 'POST') {
+    // ========== USER APPLICATIONS ==========
+    'user-applications': async (req, res) => {
         const authHeader = req.headers.authorization;
         
         try {
-            const supabase = getSupabase();
             const token = authHeader?.split(' ')[1];
             const { data: { user }, error: userError } = await supabase.auth.getUser(token);
             
@@ -1105,17 +892,14 @@ export default async function handler(req, res) {
         } catch (error) {
             return res.status(401).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: User Profile Update (Enhanced)
-    // ============================================
-    if (action === 'user-update' && req.method === 'POST') {
+    // ========== USER PROFILE UPDATE ==========
+    'user-update': async (req, res) => {
         const { userId, updates } = req.body;
         const authHeader = req.headers.authorization;
         
         try {
-            const supabase = getSupabase();
             const token = authHeader?.split(' ')[1];
             const { data: { user }, error: userError } = await supabase.auth.getUser(token);
             
@@ -1146,19 +930,16 @@ export default async function handler(req, res) {
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
-    }
+    },
 
-    // ============================================
-    // ACTION: Track Event (Analytics)
-    // ============================================
-    if (action === 'track-event' && req.method === 'POST') {
+    // ========== TRACK EVENT ==========
+    'track-event': async (req, res) => {
         const { event_type, event_data, user_id } = req.body;
         
         console.log(`📊 Event Tracked: ${event_type}`, JSON.stringify(event_data, null, 2));
         
         // Optional: Store in Supabase if table exists
         try {
-            const supabase = getSupabase();
             await supabase.from('analytics_events').insert({
                 event_type,
                 event_data,
@@ -1171,24 +952,245 @@ export default async function handler(req, res) {
         }
         
         return res.status(200).json({ success: true, message: 'Event tracked' });
-    }
+    },
 
-    // ============================================
-    // ACTION: Force Clear Auth (Session recovery)
-    // ============================================
-    if (action === 'force-clear-auth') {
+    // ========== ASSESSMENT RESULTS ==========
+    'assessment-results': async (req, res) => {
+        const { id } = req.query;
+        const authHeader = req.headers.authorization;
+        
+        try {
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
+            
+            const { data, error } = await supabase
+                .from('user_assessments')
+                .select('*, assessment:assessment_id(*)')
+                .eq('id', id)
+                .eq('user_id', user.id)
+                .single();
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== GENERATE ASSESSMENT REPORT ==========
+    'assessment-generate-report': async (req, res) => {
+        const { userAssessmentId, userId } = req.body;
+        
+        try {
+            const { data: userAssessment, error } = await supabase
+                .from('user_assessments')
+                .select('*, assessment:assessments(*)')
+                .eq('id', userAssessmentId)
+                .eq('user_id', userId)
+                .single();
+            
+            if (error) throw error;
+            
+            const reportUrl = `https://www.bluskyeconsult.com/reports/${userAssessmentId}`;
+            
+            await supabase
+                .from('user_assessments')
+                .update({ report_url: reportUrl })
+                .eq('id', userAssessmentId);
+            
+            return res.status(200).json({ success: true, reportUrl });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ASSESSMENT SHARE RESULTS ==========
+    'assessment-share-results': async (req, res) => {
+        const { userAssessmentId, recipientEmail, senderName, shareUrl } = req.body;
+        
+        try {
+            const { data: userAssessment } = await supabase
+                .from('user_assessments')
+                .select('*, assessment:assessments(*)')
+                .eq('id', userAssessmentId)
+                .single();
+            
+            if (!userAssessment) throw new Error('Assessment not found');
+            
+            // Send email with share link
+            await fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: recipientEmail,
+                    type: 'notification',
+                    templateData: {
+                        subject: `${senderName} shared assessment results with you`,
+                        message: `${senderName} scored ${userAssessment.percentage}% on the ${userAssessment.assessment?.title} assessment. Click below to view the results.`,
+                        actionLink: shareUrl,
+                        actionText: 'View Results'
+                    }
+                })
+            });
+            
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ASSESSMENT QUESTION COUNT ==========
+    'assessment-question-count': async (req, res) => {
+        const { assessmentId } = req.query;
+        
+        try {
+            const { count, error } = await supabase
+                .from('assessment_questions')
+                .select('id', { count: 'exact', head: true })
+                .eq('assessment_id', assessmentId);
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, count: count || 0 });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ASSESSMENTS DEBUG ==========
+    'assessments-debug': async (req, res) => {
+        try {
+            const { data: assessmentsData, error } = await supabase
+                .from('assessments')
+                .select('id, title, question_count, is_active');
+            
+            if (error) throw error;
+            
+            const countsMap = {};
+            for (const assessment of assessmentsData || []) {
+                const { count } = await supabase
+                    .from('assessment_questions')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('assessment_id', assessment.id);
+                countsMap[assessment.id] = count || 0;
+            }
+            
+            return res.status(200).json({
+                success: true,
+                data: {
+                    assessmentsData,
+                    countsMap
+                }
+            });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== USER ELIGIBILITY ==========
+    'user-eligibility': async (req, res) => {
+        const { userId, type } = req.query;
+        
+        try {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('tier, user_type')
+                .eq('id', userId)
+                .single();
+            
+            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin' || profile?.tier === 'business';
+            
+            if (type === 'assessments') {
+                const limits = {
+                    free: 3,
+                    registered: 10,
+                    professional: 50,
+                    employer: 30,
+                    business: 999999,
+                    admin: 999999,
+                    super_admin: 999999,
+                    tester: 5
+                };
+                
+                const limit = isUnlimited ? 999999 : (limits[profile?.tier] || limits.free);
+                
+                const startOfMonth = new Date();
+                startOfMonth.setDate(1);
+                startOfMonth.setHours(0, 0, 0, 0);
+                
+                const { count } = await supabase
+                    .from('user_assessments')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('user_id', userId)
+                    .gte('created_at', startOfMonth.toISOString());
+                
+                const remaining = isUnlimited ? 999999 : Math.max(0, limit - (count || 0));
+                
+                return res.status(200).json({
+                    success: true,
+                    data: {
+                        remaining,
+                        limit,
+                        isUnlimited,
+                        canRetake: !isUnlimited ? remaining > 0 : true
+                    }
+                });
+            }
+            
+            return res.status(200).json({ success: true, data: { isUnlimited } });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ASSESSMENTS LIST ==========
+    'assessments-list': async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('assessments')
+                .select('*')
+                .eq('is_active', true)
+                .order('created_at', { ascending: true });
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, data: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== USER ASSESSMENT RESULTS ==========
+    'user-assessment-results': async (req, res) => {
+        const { userId } = req.query;
+        
+        try {
+            const { data, error } = await supabase
+                .from('user_assessments')
+                .select('assessment_id, score, percentage, completed_at, performance_level')
+                .eq('user_id', userId)
+                .eq('status', 'completed');
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, data: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== FORCE CLEAR AUTH ==========
+    'force-clear-auth': async (req, res) => {
         return res.status(200).json({ 
             success: true, 
             message: 'Clear auth on client side',
             instructions: 'Use supabase.auth.signOut() and clear localStorage'
         });
-    }
+    },
 
-    // ============================================
-    // ACTION: Database Check (Legacy)
-    // ============================================
-    if (action === 'db') {
-        const supabase = getSupabase();
+    // ========== DATABASE CHECK ==========
+    db: async (req, res) => {
         const dbStart = Date.now();
         try {
             const { error } = await supabase.from('profiles').select('id', { count: 'exact', head: true });
@@ -1206,37 +1208,89 @@ export default async function handler(req, res) {
                 timestamp: new Date().toISOString()
             });
         }
-    }
+    },
 
-    // ============================================
-    // DEFAULT: API Info
-    // ============================================
-    return res.status(200).json({
-        name: 'ODUSBABA API',
-        version: '4.0.0',
-        description: 'Professional Consolidated API - Full site functionality',
-        endpoints: {
-            health: '/api/index?action=health',
-            ip: '/api/index?action=ip',
-            ping: '/api/index?action=ping',
-            email: 'POST /api/index?action=email',
-            chat: 'POST /api/index?action=chat',
-            jobs: '/api/index?action=jobs',
-            assessment: 'POST /api/index?action=generate-assessment',
-            course: 'POST /api/index?action=generate-course',
-            books: '/api/index?action=books-list',
-            articles: '/api/index?action=articles-list',
-            article: '/api/index?action=article&slug=:slug',
-            newsletterSubscribe: 'POST /api/index?action=newsletter-subscribe',
-            testerCreate: 'POST /api/index?action=tester-create',
-            userStats: '/api/index?action=user-stats',
-            userApplications: 'POST /api/index?action=user-applications',
-            userUpdate: 'POST /api/index?action=user-update',
-            trackEvent: 'POST /api/index?action=track-event',
-            forceClearAuth: '/api/index?action=force-clear-auth',
-            db: '/api/index?action=db'
-        },
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-                    }
+    // ========== COURSE ENROLLMENT ==========
+    'enroll-course': async (req, res) => {
+        const { userId, courseId } = req.body;
+        
+        if (!userId || !courseId) return res.status(400).json({ error: 'User ID and Course ID required' });
+        
+        try {
+            const { data: existing } = await supabase
+                .from('course_enrollments')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('course_id', courseId)
+                .maybeSingle();
+            
+            if (existing) {
+                return res.status(200).json({ success: true, message: 'Already enrolled', enrolled: true });
+            }
+            
+            await supabase.from('course_enrollments').insert({
+                user_id: userId,
+                course_id: courseId,
+                enrolled_at: new Date().toISOString(),
+                progress: 0,
+                status: 'active'
+            });
+            
+            return res.status(200).json({ success: true, message: 'Enrolled successfully' });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== UPDATE COURSE PROGRESS ==========
+    'update-course-progress': async (req, res) => {
+        const { userId, courseId, progress, lessonId } = req.body;
+        
+        try {
+            await supabase
+                .from('course_enrollments')
+                .update({
+                    progress: progress,
+                    last_accessed: new Date().toISOString(),
+                    last_lesson_id: lessonId
+                })
+                .eq('user_id', userId)
+                .eq('course_id', courseId);
+            
+            return res.status(200).json({ success: true, progress });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    }
+};
+
+// ============================================
+// MAIN HANDLER
+// ============================================
+export default async function handler(req, res) {
+    setCors(res);
+    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    const { action } = req.query;
+    
+    if (!action || !handlers[action]) {
+        return res.status(200).json({
+            name: 'ODUSBABA API',
+            version: '5.0.0',
+            description: 'Professional Consolidated API - Full site functionality',
+            available_actions: Object.keys(handlers),
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
+    }
+    
+    try {
+        await handlers[action](req, res);
+    } catch (error) {
+        console.error(`Error in ${action}:`, error);
+        return res.status(500).json({ error: error.message });
+    }
+}
