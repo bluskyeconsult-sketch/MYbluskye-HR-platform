@@ -1,128 +1,140 @@
 // src/pages/LearnerDashboard.jsx
-// COMPLETE PROFESSIONAL LEARNER DASHBOARD - With unified API, progress tracking, and enhanced UI
+// ODUSBABA LEARNER DASHBOARD v3.0 - PRODUCTION READY
+// ✅ Complete course progress tracking
+// ✅ Recommended courses
+// ✅ Certificate management
+// ✅ Enhanced stats and filtering
 
-import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
-    BookOpen, Clock, Award, TrendingUp, Play, Circle, CheckCircle, 
-    Download, Star, Users, Calendar, BarChart3, Target, Zap,
-    Loader2, AlertCircle, Filter, Search, ChevronRight, Trophy,
-    Sparkles, GraduationCap, Brain, FileText, Globe
+    BookOpen, Clock, Play, CheckCircle, Loader2, Award, 
+    TrendingUp, Calendar, Star, Users, Filter, Search, 
+    ChevronRight, Trophy, Sparkles, GraduationCap, Brain,
+    AlertCircle, Download, Circle, Target, Zap, Globe
 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 export default function LearnerDashboard() {
-    const navigate = useNavigate();
-    const [enrolledCourses, setEnrolledCourses] = useState([]);
-    const [filteredCourses, setFilteredCourses] = useState([]);
+    const [enrollments, setEnrollments] = useState([]);
+    const [filteredEnrollments, setFilteredEnrollments] = useState([]);
     const [recommendedCourses, setRecommendedCourses] = useState([]);
     const [certificates, setCertificates] = useState([]);
-    const [stats, setStats] = useState({ total: 0, completed: 0, inProgress: 0, totalHours: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [user, setUser] = useState(null);
+    const [stats, setStats] = useState({
+        totalCourses: 0,
+        completedCourses: 0,
+        inProgressCourses: 0,
+        totalHours: 0,
+        averageProgress: 0
+    });
 
     useEffect(() => {
-        loadUserAndData();
+        loadDashboard();
     }, []);
 
     useEffect(() => {
-        filterCourses();
-    }, [enrolledCourses, searchQuery, statusFilter]);
+        filterEnrollments();
+    }, [enrollments, searchQuery, statusFilter]);
 
-    async function loadUserAndData() {
+    async function loadDashboard() {
         try {
             setLoading(true);
             setError(null);
-            
+
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
-                navigate('/sign-in?redirect=/learning');
+                window.location.href = '/sign-in?redirect=/learning';
                 return;
             }
             setUser(user);
-            
-            // ✅ Using unified API endpoints
-            const [coursesRes, recommendedRes, certificatesRes] = await Promise.all([
-                fetch('/api/index?action=learner-courses', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: user.id })
-                }),
-                fetch('/api/index?action=learner-recommended', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }),
-                fetch('/api/index?action=learner-certificates', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: user.id })
-                })
-            ]);
-            
-            const coursesData = await coursesRes.json();
-            const recommendedData = await recommendedRes.json();
-            const certificatesData = await certificatesRes.json();
-            
-            if (!coursesData.success) throw new Error(coursesData.error);
-            if (!recommendedData.success) throw new Error(recommendedData.error);
-            if (!certificatesData.success) throw new Error(certificatesData.error);
-            
-            const enrollments = coursesData.data || [];
-            setEnrolledCourses(enrollments);
-            
-            const completed = enrollments.filter(e => e.status === 'completed').length;
-            const inProgress = enrollments.filter(e => e.status === 'active').length;
-            const totalHours = enrollments.reduce((sum, e) => sum + ((e.courses?.duration_minutes || 0) / 60), 0);
-            
+
+            // Get enrollments with course details
+            const { data: enrollmentsData, error: enrollError } = await supabase
+                .from('course_enrollments')
+                .select('*, course:courses(*)')
+                .eq('user_id', user.id)
+                .order('enrolled_at', { ascending: false });
+
+            if (enrollError) throw enrollError;
+
+            setEnrollments(enrollmentsData || []);
+            setFilteredEnrollments(enrollmentsData || []);
+
+            // Calculate stats
+            const totalCourses = enrollmentsData?.length || 0;
+            const completedCourses = enrollmentsData?.filter(e => e.progress === 100 || e.status === 'completed').length || 0;
+            const inProgressCourses = enrollmentsData?.filter(e => e.progress > 0 && e.progress < 100).length || 0;
+            const totalHours = (enrollmentsData || []).reduce((acc, e) => acc + (e.course?.duration_hours || 0), 0);
+            const averageProgress = totalCourses > 0 
+                ? Math.round(enrollmentsData.reduce((acc, e) => acc + (e.progress || 0), 0) / totalCourses) 
+                : 0;
+
             setStats({
-                total: enrollments.length,
-                completed,
-                inProgress,
-                totalHours: totalHours.toFixed(1)
+                totalCourses,
+                completedCourses,
+                inProgressCourses,
+                totalHours,
+                averageProgress
             });
+
+            // Load recommended courses (exclude enrolled ones)
+            const enrolledCourseIds = new Set((enrollmentsData || []).map(e => e.course_id));
             
-            setRecommendedCourses(recommendedData.data || []);
-            setCertificates(certificatesData.data || []);
-            
+            const { data: recommendedData, error: recError } = await supabase
+                .from('courses')
+                .select('*')
+                .eq('is_published', true)
+                .limit(6);
+
+            if (!recError && recommendedData) {
+                const filtered = recommendedData.filter(c => !enrolledCourseIds.has(c.id));
+                setRecommendedCourses(filtered.slice(0, 3));
+            }
+
+            // Load certificates
+            const { data: certData, error: certError } = await supabase
+                .from('certificates')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('issued_at', { ascending: false });
+
+            if (!certError && certData) {
+                setCertificates(certData);
+            }
+
         } catch (err) {
-            console.error('Error loading learner data:', err);
+            console.error('Error loading dashboard:', err);
             setError(err.message);
         } finally {
             setLoading(false);
         }
     }
 
-    function filterCourses() {
-        let filtered = [...enrolledCourses];
-        
+    function filterEnrollments() {
+        let filtered = [...enrollments];
+
         // Search filter
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(enrollment => 
-                enrollment.courses?.title?.toLowerCase().includes(query) ||
-                enrollment.courses?.description?.toLowerCase().includes(query)
+                enrollment.course?.title?.toLowerCase().includes(query) ||
+                enrollment.course?.description?.toLowerCase().includes(query)
             );
         }
-        
+
         // Status filter
         if (statusFilter === 'active') {
-            filtered = filtered.filter(e => e.status === 'active' && e.progress_percent < 100);
+            filtered = filtered.filter(e => e.progress > 0 && e.progress < 100);
         } else if (statusFilter === 'completed') {
-            filtered = filtered.filter(e => e.status === 'completed' || e.progress_percent === 100);
+            filtered = filtered.filter(e => e.progress === 100 || e.status === 'completed');
         }
-        
-        setFilteredCourses(filtered);
-    }
 
-    function continueCourse(enrollmentId, courseId, lessonId) {
-        navigate(`/courses/${courseId}/learn/${lessonId || 'intro'}?enrollment=${enrollmentId}`);
+        setFilteredEnrollments(filtered);
     }
 
     function getProgressColor(percent) {
@@ -133,6 +145,7 @@ export default function LearnerDashboard() {
     }
 
     function formatDate(dateString) {
+        if (!dateString) return 'N/A';
         return new Date(dateString).toLocaleDateString('en-US', { 
             year: 'numeric', 
             month: 'short', 
@@ -168,13 +181,13 @@ export default function LearnerDashboard() {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-            <div className="max-w-7xl mx-auto px-4 py-12">
+            <div className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
                 
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center gap-3 mb-2">
                         <GraduationCap className="w-8 h-8 text-primary-400" />
-                        <h1 className="text-3xl font-bold text-white">My Learning</h1>
+                        <h1 className="text-3xl font-bold text-white">My Learning Dashboard</h1>
                     </div>
                     <p className="text-slate-400">Track your course progress and continue learning</p>
                 </div>
@@ -182,39 +195,39 @@ export default function LearnerDashboard() {
                 {/* Stats Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
-                        <div className="flex items-center gap-3">
-                            <BookOpen className="w-8 h-8 text-primary-400 opacity-70 group-hover:opacity-100 transition" />
+                        <div className="flex items-center justify-between">
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.total}</div>
-                                <div className="text-sm text-slate-400">Enrolled Courses</div>
+                                <p className="text-slate-400 text-sm">Enrolled Courses</p>
+                                <p className="text-2xl font-bold text-white">{stats.totalCourses}</p>
                             </div>
+                            <BookOpen className="w-8 h-8 text-primary-400 opacity-50 group-hover:opacity-100 transition" />
                         </div>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
-                        <div className="flex items-center gap-3">
-                            <CheckCircle className="w-8 h-8 text-emerald-400 opacity-70 group-hover:opacity-100 transition" />
+                        <div className="flex items-center justify-between">
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.completed}</div>
-                                <div className="text-sm text-slate-400">Completed</div>
+                                <p className="text-slate-400 text-sm">Completed</p>
+                                <p className="text-2xl font-bold text-white">{stats.completedCourses}</p>
                             </div>
+                            <CheckCircle className="w-8 h-8 text-emerald-400 opacity-50 group-hover:opacity-100 transition" />
                         </div>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
-                        <div className="flex items-center gap-3">
-                            <Play className="w-8 h-8 text-sky-400 opacity-70 group-hover:opacity-100 transition" />
+                        <div className="flex items-center justify-between">
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.inProgress}</div>
-                                <div className="text-sm text-slate-400">In Progress</div>
+                                <p className="text-slate-400 text-sm">In Progress</p>
+                                <p className="text-2xl font-bold text-white">{stats.inProgressCourses}</p>
                             </div>
+                            <Play className="w-8 h-8 text-sky-400 opacity-50 group-hover:opacity-100 transition" />
                         </div>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
-                        <div className="flex items-center gap-3">
-                            <Clock className="w-8 h-8 text-amber-400 opacity-70 group-hover:opacity-100 transition" />
+                        <div className="flex items-center justify-between">
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.totalHours}</div>
-                                <div className="text-sm text-slate-400">Hours Learned</div>
+                                <p className="text-slate-400 text-sm">Total Hours</p>
+                                <p className="text-2xl font-bold text-white">{stats.totalHours}</p>
                             </div>
+                            <Clock className="w-8 h-8 text-amber-400 opacity-50 group-hover:opacity-100 transition" />
                         </div>
                     </div>
                 </div>
@@ -248,7 +261,7 @@ export default function LearnerDashboard() {
                         </div>
                     </div>
                     
-                    {enrolledCourses.length === 0 ? (
+                    {enrollments.length === 0 ? (
                         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
                             <BookOpen className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                             <h3 className="text-xl font-semibold text-white mb-2">No Courses Yet</h3>
@@ -257,7 +270,7 @@ export default function LearnerDashboard() {
                                 Browse Courses
                             </Link>
                         </div>
-                    ) : filteredCourses.length === 0 ? (
+                    ) : filteredEnrollments.length === 0 ? (
                         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
                             <Filter className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                             <h3 className="text-xl font-semibold text-white mb-2">No Matching Courses</h3>
@@ -274,10 +287,10 @@ export default function LearnerDashboard() {
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {filteredCourses.map(enrollment => {
-                                const progress = enrollment.progress_percent || 0;
+                            {filteredEnrollments.map(enrollment => {
+                                const progress = enrollment.progress || 0;
                                 const isCompleted = progress === 100 || enrollment.status === 'completed';
-                                const course = enrollment.courses;
+                                const course = enrollment.course;
                                 
                                 return (
                                     <div key={enrollment.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all group">
@@ -300,10 +313,10 @@ export default function LearnerDashboard() {
                                                 <p className="text-slate-400 text-sm line-clamp-2">{course?.description}</p>
                                                 <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-500">
                                                     <span className="flex items-center gap-1">
-                                                        <Clock className="w-4 h-4" /> {Math.ceil((course?.duration_minutes || 0) / 60)} hours
+                                                        <Clock className="w-4 h-4" /> {course?.duration_hours || 0} hours
                                                     </span>
                                                     <span className="flex items-center gap-1">
-                                                        <Award className="w-4 h-4" /> {progress}% complete
+                                                        <Target className="w-4 h-4" /> {progress}% complete
                                                     </span>
                                                     <span className="flex items-center gap-1">
                                                         <Calendar className="w-4 h-4" /> Enrolled: {formatDate(enrollment.enrolled_at)}
@@ -316,16 +329,15 @@ export default function LearnerDashboard() {
                                                     />
                                                 </div>
                                             </div>
-                                            <button
-                                                onClick={() => continueCourse(enrollment.id, course?.id, enrollment.last_lesson_id)}
-                                                className="px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all duration-200 flex items-center gap-2 shadow-lg shadow-primary-500/20 whitespace-nowrap"
-                                            >
-                                                {isCompleted ? (
-                                                    <><Star className="w-4 h-4" /> Review Course</>
-                                                ) : (
-                                                    <><Play className="w-4 h-4" /> Continue Learning</>
-                                                )}
-                                            </button>
+                                            <Link to={`/learning/${course?.id}`}>
+                                                <button className="px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all duration-200 flex items-center gap-2 shadow-lg shadow-primary-500/20 whitespace-nowrap">
+                                                    {isCompleted ? (
+                                                        <><Star className="w-4 h-4" /> Review Course</>
+                                                    ) : (
+                                                        <><Play className="w-4 h-4" /> Continue Learning</>
+                                                    )}
+                                                </button>
+                                            </Link>
                                         </div>
                                     </div>
                                 );
@@ -350,18 +362,18 @@ export default function LearnerDashboard() {
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                                            <span className="text-sm text-white">{course.rating}</span>
-                                            <span className="text-xs text-slate-500">({course.review_count})</span>
+                                            <span className="text-sm text-white">{course.rating || 4.5}</span>
+                                            <span className="text-xs text-slate-500">({course.review_count || 0})</span>
                                         </div>
                                     </div>
                                     <h3 className="text-lg font-semibold text-white group-hover:text-primary-400 transition line-clamp-1">{course.title}</h3>
                                     <p className="text-slate-400 text-sm mt-1 line-clamp-2">{course.description}</p>
                                     <div className="flex items-center justify-between mt-4">
                                         <div className="flex items-center gap-1 text-sm text-slate-500">
-                                            <Clock className="w-4 h-4" /> {Math.ceil(course.duration_minutes / 60)}h
+                                            <Clock className="w-4 h-4" /> {course.duration_hours || 0}h
                                         </div>
                                         <div className="flex items-center gap-1 text-sm text-slate-500">
-                                            <Users className="w-4 h-4" /> {course.enrollment_count || 0} students
+                                            <Users className="w-4 h-4" /> {course.students_count || 0} students
                                         </div>
                                     </div>
                                     <Link to={`/courses/${course.id}`} className="mt-4 block text-center py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors">
@@ -375,7 +387,7 @@ export default function LearnerDashboard() {
 
                 {/* Certificates Section */}
                 {certificates.length > 0 && (
-                    <div>
+                    <div className="mb-12">
                         <div className="flex items-center gap-2 mb-4">
                             <Trophy className="w-5 h-5 text-amber-400" />
                             <h2 className="text-2xl font-bold text-white">My Certificates</h2>
@@ -388,19 +400,21 @@ export default function LearnerDashboard() {
                                             <Award className="w-5 h-5 text-amber-400" />
                                             <h3 className="text-white font-semibold">{cert.course_title}</h3>
                                         </div>
-                                        <p className="text-xs text-slate-500 mt-1">Certificate #{cert.certificate_number}</p>
+                                        <p className="text-xs text-slate-500 mt-1">Certificate #{cert.certificate_number || cert.id.slice(0, 8)}</p>
                                         <p className="text-xs text-slate-500 flex items-center gap-1">
                                             <Calendar className="w-3 h-3" />
-                                            Issued: {formatDate(cert.issued_at)}
+                                            Issued: {formatDate(cert.issued_at || cert.created_at)}
                                         </p>
                                     </div>
-                                    <a 
-                                        href={cert.download_url} 
-                                        download 
-                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2"
-                                    >
-                                        <Download className="w-4 h-4" /> Download
-                                    </a>
+                                    {cert.download_url && (
+                                        <a 
+                                            href={cert.download_url} 
+                                            download 
+                                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2"
+                                        >
+                                            <Download className="w-4 h-4" /> Download
+                                        </a>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -408,13 +422,13 @@ export default function LearnerDashboard() {
                 )}
                 
                 {/* Learning Summary Footer */}
-                {stats.total > 0 && (
+                {stats.totalCourses > 0 && (
                     <div className="mt-8 p-4 bg-slate-900/30 border border-slate-800 rounded-xl">
                         <div className="flex flex-wrap justify-between items-center gap-4">
                             <div className="flex items-center gap-3">
                                 <TrendingUp className="w-5 h-5 text-emerald-400" />
                                 <p className="text-slate-400 text-sm">
-                                    You've completed <span className="text-white font-semibold">{stats.completed}</span> out of <span className="text-white font-semibold">{stats.total}</span> courses
+                                    You've completed <span className="text-white font-semibold">{stats.completedCourses}</span> out of <span className="text-white font-semibold">{stats.totalCourses}</span> courses
                                 </p>
                             </div>
                             <Link to="/courses" className="text-primary-400 hover:text-primary-300 text-sm flex items-center gap-1">
