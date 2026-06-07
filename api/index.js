@@ -1,5 +1,5 @@
 // api/index.js - UNIFIED API GATEWAY (Single file handles ALL)
-// Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (7+ countries),
+// Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (7+ countries + API sources),
 // AI chat, Assessment generation, Course generation, User applications, Profile updates,
 // Newsletter, Books, Articles, User stats, Analytics events, Tester management
 // RUTH Standard v3.0 - Production Ready
@@ -353,7 +353,7 @@ const emailTemplates = {
 };
 
 // ============================================
-// JOB FETCHING FUNCTION (Multi-country)
+// JOB FETCHING FUNCTION (Multi-country + API Sources)
 // ============================================
 
 async function fetchAllJobs() {
@@ -405,12 +405,12 @@ async function fetchAllJobs() {
         errors.push({ source: 'NHS', error: err.message });
     }
 
-    // 3. Remote Jobs (Jobicy API - Fallback)
+    // 3. Remote Jobs (Jobicy API - using fetchJobs handler logic)
     try {
-        const response = await safeFetch('https://jobicy.com/api/v2/remote-jobs?count=10', timeout);
+        const response = await safeFetch('https://jobicy.com/api/v2/remote-jobs?count=20', timeout);
         const data = await response.json();
         if (data?.jobs) {
-            const jobs = data.jobs.slice(0, 10).map(job => ({
+            const jobs = data.jobs.map(job => ({
                 title: job.jobTitle,
                 company: job.companyName,
                 location: job.jobGeo || 'Remote',
@@ -428,25 +428,47 @@ async function fetchAllJobs() {
         errors.push({ source: 'Jobicy', error: err.message });
     }
 
-    // 4. Nigeria Fallback Jobs
+    // 4. Remotive API
+    try {
+        const response = await safeFetch('https://remotive.com/api/remote-jobs', timeout);
+        const data = await response.json();
+        if (data?.jobs) {
+            const jobs = data.jobs.slice(0, 20).map(job => ({
+                title: job.title,
+                company: job.company_name,
+                location: job.candidate_required_location || 'Remote',
+                source_country: 'Global',
+                source_name: 'Remotive',
+                description: job.description?.substring(0, 500) || '',
+                salary_range: job.salary || 'Competitive',
+                job_type: 'remote',
+                external_url: job.url,
+                sponsorship_eligible: true
+            }));
+            allJobs.push(...jobs);
+        }
+    } catch (err) {
+        errors.push({ source: 'Remotive', error: err.message });
+    }
+
+    // 5. Nigeria Fallback Jobs
     allJobs.push(
         { title: 'Civil Service Officer', company: 'Federal Civil Service Commission', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Federal Civil Service', description: 'Join the Federal Civil Service as an Officer. Opportunities in various ministries.', salary_range: '₦3,500,000 - ₦5,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
         { title: 'Policy Analyst', company: 'Ministry of Finance', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'Ministry of Finance', description: 'Policy development and economic analysis role.', salary_range: '₦4,000,000 - ₦6,000,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false },
         { title: 'IT Specialist', company: 'NITDA', location: 'Abuja, Nigeria', source_country: 'NG', source_name: 'NITDA', description: 'Digital transformation and IT infrastructure role.', salary_range: '₦3,500,000 - ₦5,500,000', job_type: 'full_time', external_url: '', sponsorship_eligible: false }
     );
 
-    // Remove duplicates
+    // Remove duplicates by title
     const uniqueJobs = [];
-    const seen = new Set();
+    const titles = new Set();
     for (const job of allJobs) {
-        const key = `${job.title}-${job.company}`;
-        if (!seen.has(key)) {
-            seen.add(key);
+        if (!titles.has(job.title)) {
+            titles.add(job.title);
             uniqueJobs.push(job);
         }
     }
 
-    return { jobs: uniqueJobs, errors, total: uniqueJobs.length };
+    return { jobs: uniqueJobs.slice(0, 50), errors, total: uniqueJobs.length };
 }
 
 // ============================================
@@ -539,7 +561,7 @@ const handlers = {
         });
     },
 
-    // ========== JOB FETCH ==========
+    // ========== JOB FETCH (Enhanced with multiple sources) ==========
     jobs: async (req, res) => {
         try {
             const result = await fetchAllJobs();
@@ -559,6 +581,78 @@ const handlers = {
             ];
             return res.status(200).json({ success: true, jobs: mockJobs, count: mockJobs.length, fallback: true });
         }
+    },
+
+    // ========== JOB FETCH FROM MULTIPLE SOURCES (New - dedicated endpoint) ==========
+    fetchJobs: async (req, res) => {
+        const allJobs = [];
+        const sources = [
+            {
+                name: 'Jobicy',
+                url: 'https://jobicy.com/api/v2/remote-jobs?count=30',
+                parser: (data) => (data.jobs || []).map(job => ({
+                    title: job.jobTitle,
+                    company: job.companyName,
+                    location: job.jobGeo || 'Remote',
+                    description: job.jobDescription?.substring(0, 500),
+                    salary: job.salaryMin && job.salaryMax ? `${job.salaryMin} - ${job.salaryMax}` : null,
+                    url: job.url,
+                    job_type: 'remote',
+                    source: 'Jobicy'
+                }))
+            },
+            {
+                name: 'Remotive',
+                url: 'https://remotive.com/api/remote-jobs',
+                parser: (data) => (data.jobs || []).slice(0, 20).map(job => ({
+                    title: job.title,
+                    company: job.company_name,
+                    location: job.candidate_required_location || 'Remote',
+                    description: job.description?.substring(0, 500),
+                    salary: job.salary,
+                    url: job.url,
+                    job_type: 'remote',
+                    source: 'Remotive'
+                }))
+            }
+        ];
+        
+        for (const source of sources) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const response = await fetch(source.url, {
+                    headers: { 'User-Agent': 'ODUSBABA/1.0' },
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const jobs = source.parser(data);
+                    allJobs.push(...jobs);
+                }
+            } catch (err) {
+                console.warn(`Failed to fetch from ${source.name}:`, err.message);
+            }
+        }
+        
+        // Remove duplicates by title
+        const uniqueJobs = [];
+        const titles = new Set();
+        for (const job of allJobs) {
+            if (!titles.has(job.title)) {
+                titles.add(job.title);
+                uniqueJobs.push(job);
+            }
+        }
+        
+        return res.status(200).json({ 
+            success: true, 
+            jobs: uniqueJobs.slice(0, 50),
+            count: uniqueJobs.length,
+            timestamp: new Date().toISOString()
+        });
     },
 
     // ========== AI CHAT ==========
