@@ -1,4 +1,4 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V8
+// src/App.jsx - COMPLETE PRODUCTION READY V9
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
@@ -6,6 +6,7 @@
 // ✅ Single API endpoint
 // ✅ Integrated FraudSafetyBanner & CookieConsent
 // ✅ Assessment Results page integrated
+// ✅ Admin Course Management routes added
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
@@ -353,6 +354,7 @@ function Navbar() {
                                         <a href="/admin/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>
                                         <a href="/admin/users" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Users</a>
                                         <a href="/admin/jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Jobs</a>
+                                        <a href="/admin/courses" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Courses</a>
                                         <a href="/admin/assessments" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Assessments</a>
                                         <a href="/admin/ai-course-builder" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">AI Course Builder</a>
                                         <a href="/admin/virtual-assistants" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Virtual Assistants</a>
@@ -415,6 +417,7 @@ function Navbar() {
                                 <div className="text-amber-400 font-semibold pt-2 pb-1">Admin</div>
                                 <a href="/admin/dashboard" className="block py-2 text-slate-300 hover:text-white">Dashboard</a>
                                 <a href="/admin/users" className="block py-2 text-slate-300 hover:text-white">Users</a>
+                                <a href="/admin/courses" className="block py-2 text-slate-300 hover:text-white">Courses</a>
                                 <a href="/admin/assessments" className="block py-2 text-slate-300 hover:text-white">Assessments</a>
                             </>
                         )}
@@ -606,6 +609,8 @@ const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
+const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
+const CourseEditor = lazy(() => import('./pages/admin/CourseEditor'));
 const WorkforceOnboarding = lazy(() => import('./components/workforce/WorkforceOnboarding'));
 const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'));
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
@@ -679,6 +684,9 @@ function AppContent() {
                         <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
                         <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
                         <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
+                        <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
+                        <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
+                        <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
                         <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
                         <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
                         <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
