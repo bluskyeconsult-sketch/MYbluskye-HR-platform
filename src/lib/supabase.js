@@ -1,8 +1,9 @@
 // src/lib/supabase.js
-// ODUSBABA SUPABASE CLIENT v3.0 - PRODUCTION READY
+// ODUSBABA SUPABASE CLIENT v3.1 - PRODUCTION READY
 // ✅ Singleton pattern with environment validation
 // ✅ Auth storage management with corruption detection
 // ✅ Unified API helper with retry logic
+// ✅ Security: User permission validation
 // ✅ No top-level await, safe for all environments
 
 import { createClient } from '@supabase/supabase-js';
@@ -76,7 +77,7 @@ export const getSupabase = () => {
             global: {
                 headers: {
                     'x-application-name': 'bluskye-consult',
-                    'x-client-info': 'bluskye@3.0.0'
+                    'x-client-info': 'bluskye@3.1.0'
                 }
             }
         });
@@ -245,6 +246,69 @@ export async function getCurrentUser() {
 export async function isAuthenticated() {
     const user = await getCurrentUser();
     return !!user;
+}
+
+// ============================================
+// SECURITY & PERMISSION VALIDATION (NEW from Code 2)
+// ============================================
+
+/**
+ * Validate user permissions before sensitive operations
+ * @param {string} userId - User ID to validate
+ * @param {string|null} requiredRole - Required role ('admin' or null for any authenticated user)
+ * @returns {Promise<boolean>} - True if user has required permissions
+ */
+export async function validateUserAccess(userId, requiredRole = null) {
+    try {
+        const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('user_type, tier')
+            .eq('id', userId)
+            .single();
+        
+        if (error || !profile) return false;
+        
+        if (requiredRole === 'admin') {
+            return profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+        }
+        
+        return true;
+    } catch (err) {
+        console.error('User access validation failed:', err);
+        return false;
+    }
+}
+
+/**
+ * Get current user with permission check
+ * @param {string|null} requiredRole - Required role ('admin' or null for any authenticated user)
+ * @returns {Promise<import('@supabase/supabase-js').User | null>}
+ */
+export async function getCurrentUserWithPermission(requiredRole = null) {
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+        
+        if (requiredRole) {
+            const hasAccess = await validateUserAccess(user.id, requiredRole);
+            if (!hasAccess) return null;
+        }
+        
+        return user;
+    } catch (err) {
+        console.error('Get current user with permission failed:', err);
+        return null;
+    }
+}
+
+/**
+ * Check if current user has admin access
+ * @returns {Promise<boolean>}
+ */
+export async function isAdmin() {
+    const user = await getCurrentUser();
+    if (!user) return false;
+    return validateUserAccess(user.id, 'admin');
 }
 
 // ============================================
