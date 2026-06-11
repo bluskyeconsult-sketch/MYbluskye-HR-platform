@@ -1,14 +1,49 @@
-<!-- public/index.html or index.html in root -->
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    
+    <!-- CRITICAL FIX: Add viewport meta tag for mobile responsiveness -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
+    
+    <!-- Theme and PWA meta tags -->
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- SEO and description meta tags -->
+    <meta name="description" content="ODUSBABA - AI-Powered Career Platform. Find jobs, take courses, and advance your career with intelligent tools." />
+    <meta name="keywords" content="jobs, career, AI, courses, assessments, HR platform, odusbaba" />
+    <meta name="author" content="BluSkye Integrated Consult" />
+    
+    <!-- Open Graph / Social Media meta tags -->
+    <meta property="og:title" content="ODUSBABA - Career Platform" />
+    <meta property="og:description" content="AI-Powered Career Platform. Find your next opportunity with ODUSBABA." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.bluskyeconsult.com" />
+    <meta property="og:image" content="/og-image.png" />
+    
+    <!-- Twitter Card meta tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ODUSBABA - Career Platform" />
+    <meta name="twitter:description" content="AI-Powered Career Platform. Find your next opportunity with ODUSBABA." />
+    <meta name="twitter:image" content="/twitter-image.png" />
+    
+    <!-- Preconnect to external resources for performance -->
+    <link rel="preconnect" href="https://api.openai.com" />
+    <link rel="preconnect" href="https://supabase.co" />
+    
     <title>ODUSBABA - Career Platform</title>
-  </head>
-  <body>
-    <div id="root"></div>  <!-- ✅ THIS MUST EXIST -->
+</head>
+<body>
+    <!-- ✅ ROOT DIV - MUST EXIST for React to mount -->
+    <div id="root"></div>
+    
+    <!-- Main entry point -->
     <script type="module" src="/src/main.jsx"></script>
-  </body>
+</body>
 </html>
