@@ -7,11 +7,13 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     
-    <!-- CRITICAL FIX: Add viewport meta tag for mobile responsiveness -->
+    <!-- CRITICAL FIX: Viewport meta tag for mobile responsiveness -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
     
     <!-- Theme and PWA meta tags -->
     <meta name="theme-color" content="#0f172a" />
+    <!-- ✅ FIXED: Replaced deprecated apple-mobile-web-app-capable with mobile-web-app-capable -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     
@@ -36,6 +38,11 @@
     <!-- Preconnect to external resources for performance -->
     <link rel="preconnect" href="https://api.openai.com" />
     <link rel="preconnect" href="https://supabase.co" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- Font preload for better performance -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
     <title>ODUSBABA - Career Platform</title>
 </head>
