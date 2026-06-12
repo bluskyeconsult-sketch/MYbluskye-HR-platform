@@ -1,6 +1,6 @@
 // src/lib/api.js - UNIFIED API CLIENT
 // All frontend API calls use this single client
-// ODUSBABA API Client v3.0 - Production Ready with Caching
+// ODUSBABA API Client v4.0 - Production Ready with Caching & Retry
 
 const API_BASE = '/api/index';
 
@@ -8,6 +8,8 @@ class ODUSABAApi {
     constructor() {
         this.cache = new Map();
         this.pendingRequests = new Map();
+        this.maxRetries = 3;
+        this.retryDelay = 1000;
     }
 
     // Helper function to handle API responses
@@ -22,12 +24,28 @@ class ODUSABAApi {
         return data;
     }
 
+    // Retry logic for failed requests
+    async retryRequest(fn, retries = this.maxRetries) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (retries <= 0) throw error;
+            if (error.message?.includes('fetch failed') || error.message?.includes('network')) {
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay * (this.maxRetries - retries + 1)));
+                return this.retryRequest(fn, retries - 1);
+            }
+            throw error;
+        }
+    }
+
     // Core request method with caching and deduplication
     async request(action, options = {}) {
         const cacheKey = `${action}_${JSON.stringify(options.body || {})}_${options.method || 'POST'}`;
         
-        // Return cached response if available and not expired
-        if (this.cache.has(cacheKey)) {
+        // Return cached response if available and not expired (only for GET)
+        const isGet = (options.method === 'GET' || (!options.method && !options.body));
+        
+        if (isGet && this.cache.has(cacheKey)) {
             const cached = this.cache.get(cacheKey);
             if (Date.now() - cached.timestamp < 30000) { // 30 second cache for GET requests
                 return cached.data;
@@ -50,18 +68,20 @@ class ODUSABAApi {
             if (queryParams) url += `&${queryParams}`;
         }
         
-        const promise = fetch(url, {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            },
-            body: options.body ? JSON.stringify(options.body) : undefined
-        }).then(async res => {
-            const data = await this.handleResponse(res);
+        const promise = this.retryRequest(async () => {
+            const response = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                body: options.body ? JSON.stringify(options.body) : undefined
+            });
+            
+            const data = await this.handleResponse(response);
             
             // Cache successful GET responses
-            if (method === 'GET') {
+            if (isGet) {
                 this.cache.set(cacheKey, { data, timestamp: Date.now() });
                 // Clear cache after 30 seconds
                 setTimeout(() => this.cache.delete(cacheKey), 30000);
@@ -107,8 +127,8 @@ class ODUSABAApi {
     }
     
     // ========== JOBS ==========
-    async fetchJobs() {
-        return this.getRequest('jobs');
+    async fetchJobs(filters = {}) {
+        return this.postRequest('fetchJobs', filters);
     }
     
     async searchJobs(query, filters = {}) {
@@ -129,15 +149,15 @@ class ODUSABAApi {
     
     // ========== WORKFORCE ==========
     async getWorkforceSkills(filters = {}) {
-        return this.postRequest('workforce-skills', filters);
+        return this.postRequest('getWorkforceSkills', filters);
     }
     
     async submitSkill(skillData) {
-        return this.postRequest('submit-skill', skillData);
+        return this.postRequest('submitSkill', skillData);
     }
     
     async contactWorker(workerId, skillId, message, senderName) {
-        return this.postRequest('contact-worker', { workerId, skillId, message, senderName });
+        return this.postRequest('contactWorker', { workerId, skillId, message, senderName });
     }
     
     async hireWorker(workerId, task) {
@@ -188,7 +208,7 @@ class ODUSABAApi {
     
     // ========== HR TOOLS ==========
     async analyzeCV(cvText) {
-        return this.postRequest('analyze-cv', { cvText });
+        return this.postRequest('analyzeCV', { cvText });
     }
     
     async simulateInterview(role, questions) {
@@ -196,11 +216,11 @@ class ODUSABAApi {
     }
     
     async checkRights(situation, country) {
-        return this.postRequest('check-rights', { situation, country });
+        return this.postRequest('checkRights', { situation, country });
     }
     
     async generateGrievance(details) {
-        return this.postRequest('generate-grievance', details);
+        return this.postRequest('generateGrievance', details);
     }
     
     async analyzeContract(contractText) {
@@ -214,7 +234,7 @@ class ODUSABAApi {
     
     // ========== NEWSLETTER ==========
     async subscribeNewsletter(email, name, preferences) {
-        return this.postRequest('newsletter-subscribe', { email, name, preferences });
+        return this.postRequest('newsletterSubscribe', { email, name, preferences });
     }
     
     // ========== VIRTUAL ASSISTANT ==========
@@ -223,7 +243,7 @@ class ODUSABAApi {
     }
     
     async executeVATask(vaId, input, userId) {
-        return this.postRequest('va-execute', { vaId, input, userId });
+        return this.postRequest('executeVATask', { vaId, input, userId });
     }
     
     async getVATasks(userId) {
@@ -248,7 +268,7 @@ class ODUSABAApi {
     }
     
     async updateUserProfile(userId, updates) {
-        return this.postRequest('user-update', { userId, updates });
+        return this.postRequest('userUpdate', { userId, updates });
     }
     
     async getUserStats(userId) {
@@ -257,6 +277,10 @@ class ODUSABAApi {
     
     async getUserApplications(userId) {
         return this.getRequest('user-applications', { userId });
+    }
+    
+    async getUserCapabilities(userId) {
+        return this.postRequest('getUserCapabilities', { userId });
     }
     
     // ========== BOOKS ==========
@@ -301,7 +325,7 @@ class ODUSABAApi {
     }
     
     async checkCapability(action, context = {}) {
-        return this.postRequest('check-capability', { action, context });
+        return this.postRequest('checkCapability', { action, context });
     }
     
     // ========== CAPABILITIES ==========
