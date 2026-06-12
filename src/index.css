@@ -1,4 +1,4 @@
-/* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH ENHANCED ANIMATIONS */
+/* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH RESPONSIVE FIXES */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,8 +9,16 @@
 
 @layer base {
     html {
+        font-size: 16px;
+        -webkit-text-size-adjust: 100%;
         -webkit-tap-highlight-color: transparent;
         scroll-behavior: smooth;
+    }
+
+    @media (max-width: 640px) {
+        html {
+            font-size: 14px;
+        }
     }
     
     body {
@@ -27,6 +35,24 @@
     input[role="button"],
     input[type="submit"] {
         @apply min-h-[44px] min-w-[44px];
+    }
+    
+    @media (max-width: 640px) {
+        button, a, [role="button"] {
+            min-height: 48px;
+        }
+    }
+    
+    /* Box sizing for all elements */
+    * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+    }
+    
+    /* Image responsiveness */
+    img {
+        max-width: 100%;
+        height: auto;
     }
     
     /* Custom scrollbar */
@@ -120,6 +146,24 @@
     .overscroll-contain {
         overscroll-behavior: contain;
     }
+    
+    /* Mobile menu overlay */
+    .fixed-mobile-menu {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+        background: rgba(2, 6, 23, 0.95);
+        backdrop-filter: blur(8px);
+        overflow-y: auto;
+    }
+    
+    /* Prevent body scroll when menu open */
+    body.menu-open {
+        overflow: hidden;
+    }
 }
 
 /* ============================================
@@ -128,7 +172,31 @@
 
 @layer components {
     .container-mobile {
-        @apply px-4 sm:px-6 lg:px-8 mx-auto max-w-7xl;
+        @apply px-4 sm:px-6 lg:px-8 mx-auto;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    
+    @media (min-width: 640px) {
+        .container-mobile {
+            max-width: 640px;
+        }
+    }
+    @media (min-width: 768px) {
+        .container-mobile {
+            max-width: 768px;
+        }
+    }
+    @media (min-width: 1024px) {
+        .container-mobile {
+            max-width: 1024px;
+        }
+    }
+    @media (min-width: 1280px) {
+        .container-mobile {
+            max-width: 1280px;
+        }
     }
     
     .card-mobile {
@@ -137,6 +205,43 @@
     
     .grid-mobile {
         @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
+    }
+    
+    /* Responsive grid (from Code 2) */
+    .grid-responsive {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: 1fr;
+    }
+    
+    @media (min-width: 640px) {
+        .grid-responsive {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .grid-responsive {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+    
+    @media (min-width: 1280px) {
+        .grid-responsive {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+    
+    /* Card responsive (from Code 2) */
+    .card-responsive {
+        border-radius: 0.75rem;
+        padding: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .card-responsive {
+            padding: 1.5rem;
+        }
     }
     
     /* Touch-optimized buttons */
@@ -303,10 +408,24 @@
    RESPONSIVE TYPOGRAPHY (Mobile-first)
    ============================================ */
 
-@media (max-width: 640px) {
+h1 {
+    font-size: 1.875rem;
+    line-height: 1.2;
+}
+
+@media (min-width: 640px) {
     h1 {
-        @apply text-2xl;
+        font-size: 2.25rem;
     }
+}
+
+@media (min-width: 1024px) {
+    h1 {
+        font-size: 3rem;
+    }
+}
+
+@media (max-width: 640px) {
     h2 {
         @apply text-xl;
     }
@@ -322,12 +441,10 @@
    iOS INPUT ZOOM PREVENTION
    ============================================ */
 
-@media screen and (max-width: 640px) {
-    input, 
-    select, 
-    textarea {
-        font-size: 16px !important;
-    }
+input, 
+select, 
+textarea {
+    font-size: 16px !important; /* Prevents zoom on focus in iOS */
 }
 
 /* ============================================
