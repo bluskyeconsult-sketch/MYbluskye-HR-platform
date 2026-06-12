@@ -1,13 +1,15 @@
 // src/components/Navbar.jsx
-// ODUSBABA PROFESSIONAL NAVBAR v3.0 - PRODUCTION READY
+// ODUSBABA PROFESSIONAL NAVBAR v4.0 - PRODUCTION READY
 // ✅ Complete responsive design with mobile-first approach
 // ✅ All navigation links verified
 // ✅ Role-based access (Admin, Employer, Tester, User)
-// ✅ Scroll-aware styling
+// ✅ Scroll-aware styling with animations
 // ✅ Dropdown menus with outside click detection
+// ✅ Framer Motion animations for smooth transitions
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Menu, X, ChevronDown, Briefcase, Users, BookOpen, FileText, 
     Mail, Zap, LayoutDashboard, UserCircle, ClipboardList, 
@@ -25,6 +27,39 @@ import Logo from './Logo';
 // ============================================
 
 const API_BASE = '/api/index';
+
+// Animation variants
+const navVariants = {
+    hidden: { y: -100, opacity: 0 },
+    visible: { 
+        y: 0, 
+        opacity: 1,
+        transition: { 
+            type: 'spring', 
+            stiffness: 100, 
+            damping: 20,
+            staggerChildren: 0.05
+        }
+    }
+};
+
+const itemVariants = {
+    hidden: { y: -20, opacity: 0 },
+    visible: { 
+        y: 0, 
+        opacity: 1,
+        transition: { type: 'spring', stiffness: 200, damping: 15 }
+    }
+};
+
+const mobileItemVariants = {
+    hidden: { x: -50, opacity: 0 },
+    visible: { 
+        x: 0, 
+        opacity: 1,
+        transition: { type: 'spring', stiffness: 200, damping: 20 }
+    }
+};
 
 // ============================================
 // MAIN COMPONENT
@@ -68,6 +103,9 @@ export default function Navbar() {
         
         // Close mobile menu on route change
         setMobileMenuOpen(false);
+        setResourcesOpen(false);
+        setProductsOpen(false);
+        setUserMenuOpen(false);
     }, [location.pathname]);
 
     useEffect(() => {
@@ -153,13 +191,13 @@ export default function Navbar() {
 
     const mainNavItems = [
         { name: 'Home', path: '/', icon: Home, highlight: false },
-        { name: 'Jobs', path: '/jobs', icon: Briefcase, highlight: false },
+        { name: 'Jobs', path: '/jobs', icon: Briefcase, highlight: true },
         { name: 'Workforce', path: '/workforce', icon: Users, highlight: false },
-        { name: 'Courses', path: '/courses', icon: GraduationCap, highlight: true },
+        { name: 'Courses', path: '/courses', icon: GraduationCap, highlight: false },
         { name: 'Books', path: '/books', icon: BookOpen, highlight: false },
         { name: 'Assessments', path: '/assessments', icon: FileText, highlight: false },
         { name: 'Newsletter', path: '/newsletter', icon: Mail, highlight: false },
-        { name: 'Hire VA', path: '/hire-va', icon: Bot, highlight: true },
+        { name: 'Hire VA', path: '/hire-va', icon: Bot, highlight: true, premium: true },
     ];
 
     const productsDropdownItems = [
@@ -236,7 +274,7 @@ export default function Navbar() {
 
     if (loading) {
         return (
-            <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-slate-900 border-b border-slate-800`}>
+            <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900 border-b border-slate-800">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="animate-pulse w-32 h-8 bg-slate-800 rounded"></div>
@@ -247,37 +285,69 @@ export default function Navbar() {
         );
     }
 
+    const isSuperAdmin = profile?.user_type === 'super_admin';
+
     return (
-        <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-            isScrolled ? 'bg-slate-900/95 backdrop-blur-md shadow-lg' : 'bg-slate-900/80 backdrop-blur-sm'
-        } border-b border-slate-800`}>
+        <motion.nav
+            initial="hidden"
+            animate="visible"
+            variants={navVariants}
+            className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+                isScrolled ? 'bg-slate-900/95 backdrop-blur-md shadow-lg' : 'bg-slate-900/80 backdrop-blur-sm'
+            } border-b border-slate-800`}
+        >
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center h-16">
                     
-                    {/* Logo Section */}
-                    <Link to="/" className="flex items-center space-x-2" onClick={() => setMobileMenuOpen(false)}>
-                        <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
-                            <span className="text-white font-bold text-sm">OD</span>
-                        </div>
-                        <span className="text-white font-bold text-lg hidden sm:inline">ODUSBABA</span>
-                    </Link>
+                    {/* Logo Section with Animation */}
+                    <motion.div
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="flex-shrink-0"
+                    >
+                        <Link to="/" className="flex items-center space-x-2" onClick={() => setMobileMenuOpen(false)}>
+                            <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
+                                <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                            <span className="text-white font-bold text-lg hidden sm:inline">ODUSBABA</span>
+                        </Link>
+                    </motion.div>
 
-                    {/* Desktop Navigation - Row 2 style integrated */}
+                    {/* Desktop Navigation */}
                     <div className="hidden lg:flex items-center space-x-1">
-                        {mainNavItems.slice(0, 5).map((item) => (
-                            <Link
+                        {mainNavItems.map((item) => (
+                            <motion.div
                                 key={item.name}
-                                to={item.path}
-                                className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-                                    isActive(item.path)
-                                        ? 'bg-primary-500/20 text-primary-400'
-                                        : item.highlight
-                                            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
-                                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                                }`}
+                                variants={itemVariants}
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.95 }}
                             >
-                                {item.name}
-                            </Link>
+                                <Link
+                                    to={item.path}
+                                    className={`relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 group ${
+                                        isActive(item.path)
+                                            ? 'bg-primary-500/20 text-primary-400'
+                                            : item.highlight
+                                                ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
+                                                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                                    }`}
+                                >
+                                    <item.icon className="w-4 h-4 transition-transform group-hover:scale-110" />
+                                    {item.name}
+                                    {item.premium && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white ml-1">
+                                            PRO
+                                        </span>
+                                    )}
+                                    {isActive(item.path) && (
+                                        <motion.div
+                                            layoutId="activeIndicator"
+                                            className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-500 to-sky-500 rounded-full"
+                                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                        />
+                                    )}
+                                </Link>
+                            </motion.div>
                         ))}
                         
                         {/* Products Dropdown */}
@@ -291,24 +361,32 @@ export default function Navbar() {
                                 More
                                 <ChevronDown className={`w-3.5 h-3.5 transition-transform ${productsOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            {productsOpen && (
-                                <div className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
-                                    {productsDropdownItems.map((item) => (
-                                        <Link
-                                            key={item.name}
-                                            to={item.path}
-                                            onClick={() => setProductsOpen(false)}
-                                            className="flex items-center gap-3 px-4 py-2 hover:bg-slate-700 transition group"
-                                        >
-                                            <item.icon className="w-4 h-4 text-primary-400" />
-                                            <div>
-                                                <p className="text-sm text-slate-200 group-hover:text-white">{item.name}</p>
-                                                <p className="text-xs text-slate-500">{item.description}</p>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
+                            <AnimatePresence>
+                                {productsOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        transition={{ duration: 0.15 }}
+                                        className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
+                                    >
+                                        {productsDropdownItems.map((item) => (
+                                            <Link
+                                                key={item.name}
+                                                to={item.path}
+                                                onClick={() => setProductsOpen(false)}
+                                                className="flex items-center gap-3 px-4 py-2 hover:bg-slate-700 transition group"
+                                            >
+                                                <item.icon className="w-4 h-4 text-primary-400" />
+                                                <div>
+                                                    <p className="text-sm text-slate-200 group-hover:text-white">{item.name}</p>
+                                                    <p className="text-xs text-slate-500">{item.description}</p>
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                         
                         {/* Resources Dropdown */}
@@ -320,38 +398,58 @@ export default function Navbar() {
                                 Resources
                                 <ChevronDown className={`w-3.5 h-3.5 transition-transform ${resourcesOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            {resourcesOpen && (
-                                <div className="absolute right-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
-                                    <div className="py-1">
-                                        <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Company</div>
-                                        {resourcesLinks.slice(0, 4).map((link) => (
-                                            <Link
-                                                key={link.name}
-                                                to={link.path}
-                                                onClick={() => setResourcesOpen(false)}
-                                                className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                            >
-                                                <link.icon className="w-4 h-4" />
-                                                {link.name}
-                                            </Link>
-                                        ))}
-                                        <div className="border-t border-slate-700 my-1"></div>
-                                        <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Legal & Safety</div>
-                                        {legalLinks.slice(0, 4).map((link) => (
-                                            <Link
-                                                key={link.name}
-                                                to={link.path}
-                                                onClick={() => setResourcesOpen(false)}
-                                                className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                            >
-                                                <link.icon className="w-4 h-4" />
-                                                {link.name}
-                                            </Link>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            <AnimatePresence>
+                                {resourcesOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        className="absolute right-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
+                                    >
+                                        <div className="py-1">
+                                            <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Company</div>
+                                            {resourcesLinks.slice(0, 4).map((link) => (
+                                                <Link
+                                                    key={link.name}
+                                                    to={link.path}
+                                                    onClick={() => setResourcesOpen(false)}
+                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                                >
+                                                    <link.icon className="w-4 h-4" />
+                                                    {link.name}
+                                                </Link>
+                                            ))}
+                                            <div className="border-t border-slate-700 my-1"></div>
+                                            <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Legal & Safety</div>
+                                            {legalLinks.slice(0, 4).map((link) => (
+                                                <Link
+                                                    key={link.name}
+                                                    to={link.path}
+                                                    onClick={() => setResourcesOpen(false)}
+                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                                >
+                                                    <link.icon className="w-4 h-4" />
+                                                    {link.name}
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
+                        
+                        {/* Super Admin Badge */}
+                        {isSuperAdmin && (
+                            <motion.div
+                                initial={{ scale: 0, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ delay: 0.5, type: 'spring' }}
+                                className="ml-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-1"
+                            >
+                                <Award className="w-3 h-3 text-emerald-400" />
+                                <span className="text-xs text-emerald-400 font-medium">Super Admin</span>
+                            </motion.div>
+                        )}
                     </div>
 
                     {/* Desktop Auth Section */}
@@ -375,44 +473,51 @@ export default function Navbar() {
                                     <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                                 </button>
                                 
-                                {userMenuOpen && (
-                                    <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
-                                        <div className="p-3 border-b border-slate-700">
-                                            <p className="text-white font-medium">{profile?.full_name || 'User'}</p>
-                                            <p className="text-xs text-slate-400 truncate">{user.email}</p>
-                                            <p className="text-xs text-primary-400 mt-1 capitalize">{profile?.user_type || 'User'}</p>
-                                        </div>
-                                        <div className="py-1">
-                                            {userNavItems.slice(0, 4).map((item) => (
-                                                <Link
-                                                    key={item.name}
-                                                    to={item.path}
-                                                    onClick={() => setUserMenuOpen(false)}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                <AnimatePresence>
+                                    {userMenuOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                            className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
+                                        >
+                                            <div className="p-3 border-b border-slate-700">
+                                                <p className="text-white font-medium">{profile?.full_name || 'User'}</p>
+                                                <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                                                <p className="text-xs text-primary-400 mt-1 capitalize">{profile?.user_type || 'User'}</p>
+                                            </div>
+                                            <div className="py-1">
+                                                {userNavItems.slice(0, 4).map((item) => (
+                                                    <Link
+                                                        key={item.name}
+                                                        to={item.path}
+                                                        onClick={() => setUserMenuOpen(false)}
+                                                        className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                                    >
+                                                        <item.icon className="w-4 h-4" />
+                                                        {item.name}
+                                                    </Link>
+                                                ))}
+                                                {isAdmin && (
+                                                    <Link
+                                                        to="/admin/dashboard"
+                                                        onClick={() => setUserMenuOpen(false)}
+                                                        className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
+                                                    >
+                                                        <Shield className="w-4 h-4" /> Admin Panel
+                                                    </Link>
+                                                )}
+                                                <div className="border-t border-slate-700 my-1"></div>
+                                                <button
+                                                    onClick={handleLogout}
+                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition w-full"
                                                 >
-                                                    <item.icon className="w-4 h-4" />
-                                                    {item.name}
-                                                </Link>
-                                            ))}
-                                            {isAdmin && (
-                                                <Link
-                                                    to="/admin/dashboard"
-                                                    onClick={() => setUserMenuOpen(false)}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
-                                                >
-                                                    <Shield className="w-4 h-4" /> Admin Panel
-                                                </Link>
-                                            )}
-                                            <div className="border-t border-slate-700 my-1"></div>
-                                            <button
-                                                onClick={handleLogout}
-                                                className="flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition w-full"
-                                            >
-                                                <LogOut className="w-4 h-4" /> Logout
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
+                                                    <LogOut className="w-4 h-4" /> Logout
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
                         ) : (
                             <>
@@ -434,111 +539,166 @@ export default function Navbar() {
                     </div>
 
                     {/* Mobile Menu Button */}
-                    <button
+                    <motion.button
+                        whileTap={{ scale: 0.9 }}
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                         className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
                         aria-label="Menu"
                     >
                         {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-                    </button>
+                    </motion.button>
                 </div>
 
-                {/* Mobile Menu Panel */}
-                {mobileMenuOpen && (
-                    <div className="lg:hidden py-4 border-t border-slate-800 animate-slide-down max-h-[80vh] overflow-y-auto">
-                        <div className="space-y-1">
-                            {mainNavItems.map((item) => (
-                                <Link
-                                    key={item.name}
-                                    to={item.path}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-lg text-base ${
-                                        item.highlight
-                                            ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                                    }`}
-                                    onClick={() => setMobileMenuOpen(false)}
-                                >
-                                    <item.icon className="w-5 h-5" />
-                                    {item.name}
-                                </Link>
-                            ))}
-                            
-                            <hr className="my-2 border-slate-800" />
-                            
-                            {/* More Products in Mobile */}
-                            <div className="text-xs font-semibold text-primary-400 uppercase tracking-wider px-4 pt-2 pb-1">MORE PRODUCTS</div>
-                            {productsDropdownItems.map((item) => (
-                                <Link
-                                    key={item.name}
-                                    to={item.path}
-                                    className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
-                                    onClick={() => setMobileMenuOpen(false)}
-                                >
-                                    <item.icon className="w-5 h-5 text-primary-400" />
-                                    {item.name}
-                                </Link>
-                            ))}
-                            
-                            <hr className="my-2 border-slate-800" />
-                            
-                            {/* Resources in Mobile */}
-                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-2 pb-1">RESOURCES</div>
-                            {resourcesLinks.map((item) => (
-                                <Link
-                                    key={item.name}
-                                    to={item.path}
-                                    className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
-                                    onClick={() => setMobileMenuOpen(false)}
-                                >
-                                    <item.icon className="w-5 h-5" />
-                                    {item.name}
-                                </Link>
-                            ))}
-                            
-                            <hr className="my-2 border-slate-800" />
-                            
-                            {/* User Account Section */}
-                            {user ? (
-                                <>
-                                    <div className="px-4 py-2 text-slate-400 text-sm">Signed in as</div>
-                                    <div className="px-4 py-2 text-white font-medium">{profile?.full_name || user.email}</div>
-                                    {userNavItems.slice(0, 5).map((item) => (
+                {/* Mobile Menu Panel with AnimatePresence */}
+                <AnimatePresence>
+                    {mobileMenuOpen && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="lg:hidden overflow-hidden border-t border-slate-800"
+                        >
+                            <div className="py-4 space-y-1 max-h-[80vh] overflow-y-auto">
+                                {mainNavItems.map((item, index) => (
+                                    <motion.div
+                                        key={item.name}
+                                        custom={index}
+                                        variants={mobileItemVariants}
+                                        initial="hidden"
+                                        animate="visible"
+                                        transition={{ delay: index * 0.05 }}
+                                    >
                                         <Link
-                                            key={item.name}
+                                            to={item.path}
+                                            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-base ${
+                                                item.highlight
+                                                    ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                                                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                                            }`}
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            <item.icon className="w-5 h-5" />
+                                            {item.name}
+                                            {item.premium && (
+                                                <span className="ml-auto text-xs px-2 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white">PRO</span>
+                                            )}
+                                        </Link>
+                                    </motion.div>
+                                ))}
+                                
+                                <hr className="my-2 border-slate-800" />
+                                
+                                {/* More Products in Mobile */}
+                                <div className="text-xs font-semibold text-primary-400 uppercase tracking-wider px-4 pt-2 pb-1">MORE PRODUCTS</div>
+                                {productsDropdownItems.map((item, index) => (
+                                    <motion.div
+                                        key={item.name}
+                                        custom={index}
+                                        variants={mobileItemVariants}
+                                        initial="hidden"
+                                        animate="visible"
+                                    >
+                                        <Link
                                             to={item.path}
                                             className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            <item.icon className="w-5 h-5 text-primary-400" />
+                                            {item.name}
+                                        </Link>
+                                    </motion.div>
+                                ))}
+                                
+                                <hr className="my-2 border-slate-800" />
+                                
+                                {/* Resources in Mobile */}
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-2 pb-1">RESOURCES</div>
+                                {resourcesLinks.map((item, index) => (
+                                    <motion.div
+                                        key={item.name}
+                                        custom={index}
+                                        variants={mobileItemVariants}
+                                        initial="hidden"
+                                        animate="visible"
+                                    >
+                                        <Link
+                                            to={item.path}
+                                            className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
                                             onClick={() => setMobileMenuOpen(false)}
                                         >
                                             <item.icon className="w-5 h-5" />
                                             {item.name}
                                         </Link>
-                                    ))}
-                                    {isAdmin && (
-                                        <Link to="/admin/dashboard" className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>
-                                            <Shield className="w-5 h-5" /> Admin Panel
-                                        </Link>
-                                    )}
-                                    <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-slate-800 rounded-lg">
-                                        <LogOut className="w-5 h-5" /> Logout
-                                    </button>
-                                </>
-                            ) : (
-                                <div className="flex flex-col gap-2 p-4">
-                                    <Link to="/sign-in" className="w-full px-4 py-3 text-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
-                                    <Link to="/sign-up" className="w-full px-4 py-3 text-center bg-primary-600 text-white rounded-lg hover:bg-primary-700" onClick={() => setMobileMenuOpen(false)}>Sign Up</Link>
-                                    
-                                    {testerVisibility.show_login_button && (
-                                        <Link to="/tester-login" className="w-full px-4 py-3 text-center border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-500/10">Tester Login</Link>
-                                    )}
-                                    {testerVisibility.show_register_button && (
-                                        <Link to="/tester-register" className="w-full px-4 py-3 text-center bg-purple-600/80 text-white rounded-lg hover:bg-purple-700">Become Tester</Link>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
+                                    </motion.div>
+                                ))}
+                                
+                                <hr className="my-2 border-slate-800" />
+                                
+                                {/* User Account Section */}
+                                {user ? (
+                                    <>
+                                        <div className="px-4 py-2 text-slate-400 text-sm">Signed in as</div>
+                                        <div className="px-4 py-2 text-white font-medium">{profile?.full_name || user.email}</div>
+                                        {userNavItems.slice(0, 5).map((item, index) => (
+                                            <motion.div
+                                                key={item.name}
+                                                custom={index}
+                                                variants={mobileItemVariants}
+                                                initial="hidden"
+                                                animate="visible"
+                                            >
+                                                <Link
+                                                    to={item.path}
+                                                    className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
+                                                    onClick={() => setMobileMenuOpen(false)}
+                                                >
+                                                    <item.icon className="w-5 h-5" />
+                                                    {item.name}
+                                                </Link>
+                                            </motion.div>
+                                        ))}
+                                        {isAdmin && (
+                                            <Link to="/admin/dashboard" className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>
+                                                <Shield className="w-5 h-5" /> Admin Panel
+                                            </Link>
+                                        )}
+                                        {isSuperAdmin && (
+                                            <div className="flex items-center gap-2 px-4 py-2">
+                                                <Award className="w-4 h-4 text-emerald-400" />
+                                                <span className="text-xs text-emerald-400">Super Admin Access</span>
+                                            </div>
+                                        )}
+                                        <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-slate-800 rounded-lg">
+                                            <LogOut className="w-5 h-5" /> Logout
+                                        </button>
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col gap-2 p-4">
+                                        <Link to="/sign-in" className="w-full px-4 py-3 text-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
+                                        <Link to="/sign-up" className="w-full px-4 py-3 text-center bg-primary-600 text-white rounded-lg hover:bg-primary-700" onClick={() => setMobileMenuOpen(false)}>Sign Up</Link>
+                                        
+                                        {testerVisibility.show_login_button && (
+                                            <Link to="/tester-login" className="w-full px-4 py-3 text-center border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-500/10">Tester Login</Link>
+                                        )}
+                                        {testerVisibility.show_register_button && (
+                                            <Link to="/tester-register" className="w-full px-4 py-3 text-center bg-purple-600/80 text-white rounded-lg hover:bg-purple-700">Become Tester</Link>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
-        </nav>
+
+            {/* Animated gradient border on scroll */}
+            <motion.div
+                className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary-500 to-transparent"
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: isScrolled ? 1 : 0 }}
+                transition={{ duration: 0.5 }}
+            />
+        </motion.nav>
     );
 }
