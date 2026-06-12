@@ -1,29 +1,36 @@
 // src/components/GateGuard.jsx
-// ODUSBABA GATE GUARD v5.0 - Production Ready
+// ODUSBABA GATE GUARD v6.0 - Production Ready
 // "Nothing executes unless ODUSBABA allows it"
-// Unified gating component for all protected features
+// Unified gating component for all protected features with both sync and async checks
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGovernance } from '../contexts/GovernanceContext';
+import { useCapability } from '../hooks/useCapability';
 import { Lock, Crown, Sparkles, ArrowRight, Shield, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-export default function GateGuard({ 
+// Main GateGuard Component - Supports both async and sync checks
+export function GateGuard({ 
     action, 
+    context = {}, 
     children, 
-    fallback,
+    fallback = null,
     showUpgrade = true,
+    upgradeMessage,
+    upgradeCTA = "View Plans",
     requiredTier = null,
     customMessage = null,
-    context = {},
     requireAuth = false,
-    showLoading = true
+    showLoading = true,
+    useAsync = true
 }) {
-    const { can, getTier, capabilities, loading: governanceLoading, checkCapability } = useGovernance();
+    const { canSync, getTier, capabilities, loading: governanceLoading } = useGovernance();
+    const { check } = useCapability();
+    
     const [asyncAllowed, setAsyncAllowed] = useState(null);
     const [isChecking, setIsChecking] = useState(false);
     
-    const syncAllowed = can(action);
+    const syncAllowed = canSync(action);
     const userTier = getTier();
     const isVisitor = !capabilities.user && userTier === 'visitor';
     
@@ -35,11 +42,11 @@ export default function GateGuard({
         (userTier === 'business' && (requiredTier === 'free' || requiredTier === 'professional')) ||
         capabilities.isAdmin;
     
-    // Async capability check for more complex permissions
+    // Async capability check
     useEffect(() => {
-        if (action && checkCapability) {
+        if (useAsync && action) {
             setIsChecking(true);
-            checkCapability(action, context).then(result => {
+            check(action, context).then(result => {
                 setAsyncAllowed(result.allowed);
                 setIsChecking(false);
             }).catch(() => {
@@ -47,19 +54,19 @@ export default function GateGuard({
                 setIsChecking(false);
             });
         }
-    }, [action, context, checkCapability]);
+    }, [action, context, check, useAsync, syncAllowed]);
     
-    const hasAccess = asyncAllowed !== null ? asyncAllowed : syncAllowed;
+    const hasAccess = useAsync ? (asyncAllowed !== null ? asyncAllowed : syncAllowed) : syncAllowed;
     const isBlocked = !hasAccess || !meetsTier;
     
     // Show loading state
-    if (showLoading && (governanceLoading || (isChecking && asyncAllowed === null))) {
+    if (showLoading && (governanceLoading || (useAsync && isChecking && asyncAllowed === null))) {
         return <LoadingGate />;
     }
     
     // Handle auth requirement separately
     if (requireAuth && isVisitor && !syncAllowed) {
-        return fallback || <VisitorGate action={action} message={customMessage} />;
+        return fallback || <VisitorGate action={action} message={customMessage || upgradeMessage} />;
     }
     
     if (!isBlocked) {
@@ -73,17 +80,18 @@ export default function GateGuard({
     
     // Check if visitor (not logged in)
     if (isVisitor && !syncAllowed) {
-        return <VisitorGate action={action} message={customMessage} />;
+        return <VisitorGate action={action} message={customMessage || upgradeMessage} />;
     }
     
     // Default gated UI for logged-in users
     return (
         <UpgradeGate 
             action={action} 
-            message={customMessage} 
+            message={customMessage || upgradeMessage} 
             requiredTier={requiredTier}
             userTier={userTier}
             showUpgrade={showUpgrade}
+            upgradeCTA={upgradeCTA}
             isAdmin={capabilities.isAdmin}
         />
     );
@@ -125,7 +133,7 @@ export function VisitorGate({ action, message }) {
 }
 
 // Upgrade Gate Component - For authenticated users with insufficient permissions
-export function UpgradeGate({ action, message, requiredTier, userTier, showUpgrade = true, isAdmin = false }) {
+export function UpgradeGate({ action, message, requiredTier, userTier, showUpgrade = true, upgradeCTA = "View Plans", isAdmin = false }) {
     const upgradeMessages = {
         'apply_job': 'Upgrade your plan to apply for more jobs',
         'contact_worker': 'Upgrade to contact workers directly',
@@ -165,34 +173,106 @@ export function UpgradeGate({ action, message, requiredTier, userTier, showUpgra
     }
     
     return (
-        <div className="text-center py-8 px-4 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-xl border border-amber-500/20">
-            <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Crown className="w-8 h-8 text-amber-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">
-                {requiredTier === 'professional' ? 'Pro Feature' : 
-                 requiredTier === 'business' ? 'Business Feature' : 
-                 'Upgrade Required'}
-            </h3>
-            <p className="text-slate-400 mb-4">{displayMessage}</p>
-            {showUpgrade && (
-                <div className="flex flex-wrap gap-3 justify-center">
-                    <Link to="/pricing" className="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 transition">
-                        <Sparkles className="w-4 h-4" />
-                        View Plans
-                    </Link>
-                    {action === 'chat' && (
-                        <Link to="/sign-up" className="px-5 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition">
-                            Sign Up Free
-                        </Link>
-                    )}
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border border-slate-700 p-6 text-center">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/10 rounded-full blur-2xl"></div>
+            <div className="relative z-10">
+                <div className="w-16 h-16 mx-auto mb-4 bg-slate-700/50 rounded-full flex items-center justify-center">
+                    <Crown className="w-8 h-8 text-amber-400" />
                 </div>
-            )}
-            {userTier === 'free' && requiredTier === 'professional' && (
-                <p className="text-xs text-slate-500 mt-3">
-                    Free users get limited access. Upgrade to Pro for full features.
+                <h3 className="text-lg font-semibold text-white mb-2">
+                    {requiredTier === 'professional' ? 'Pro Feature' : 
+                     requiredTier === 'business' ? 'Business Feature' : 
+                     'Upgrade Required'}
+                </h3>
+                <p className="text-slate-400 text-sm mb-4">{displayMessage}</p>
+                {showUpgrade && (
+                    <div className="flex flex-wrap gap-3 justify-center">
+                        <Link
+                            to="/pricing"
+                            className="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition"
+                        >
+                            <Sparkles className="w-4 h-4" />
+                            {upgradeCTA}
+                            <ArrowRight className="w-4 h-4" />
+                        </Link>
+                        {action === 'chat' && (
+                            <Link to="/sign-up" className="px-5 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition">
+                                Sign Up Free
+                            </Link>
+                        )}
+                    </div>
+                )}
+                {userTier === 'free' && requiredTier === 'professional' && (
+                    <p className="text-xs text-slate-500 mt-3">
+                        Free users get limited access. Upgrade to Pro for full features.
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// TierGate Component - For tier-based gating
+export function TierGate({ tier, children, fallback = null, showUpgrade = true }) {
+    const { getTier, capabilities } = useGovernance();
+    const userTier = getTier();
+    
+    const tierLevels = { 
+        visitor: 0, 
+        free: 1, 
+        registered: 1, 
+        pro: 2, 
+        professional: 2, 
+        employer: 2,
+        business: 3, 
+        admin: 4, 
+        super_admin: 4 
+    };
+    
+    const userLevel = tierLevels[userTier] || 0;
+    const requiredLevel = tierLevels[tier] || 0;
+    
+    if (userLevel >= requiredLevel || capabilities.isAdmin) {
+        return <>{children}</>;
+    }
+    
+    if (fallback) return fallback;
+    
+    if (showUpgrade) {
+        return (
+            <div className="text-center py-6 px-4 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                <div className="w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Crown className="w-6 h-6 text-amber-400" />
+                </div>
+                <p className="text-amber-400 text-sm">
+                    {tier === 'professional' ? 'Pro' : tier === 'business' ? 'Business' : 'Higher'} tier required
                 </p>
-            )}
+                <Link to="/pricing" className="text-primary-400 text-xs hover:underline mt-2 inline-block">
+                    Upgrade now →
+                </Link>
+            </div>
+        );
+    }
+    
+    return null;
+}
+
+// AdminGate Component - For admin-only content
+export function AdminGate({ children, fallback = null }) {
+    const { isAdmin } = useGovernance();
+    
+    if (isAdmin()) {
+        return <>{children}</>;
+    }
+    
+    if (fallback) return fallback;
+    
+    return (
+        <div className="text-center py-6 px-4 bg-red-500/10 rounded-xl border border-red-500/20">
+            <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Shield className="w-6 h-6 text-red-400" />
+            </div>
+            <p className="text-red-400 text-sm">Admin access required</p>
         </div>
     );
 }
@@ -207,46 +287,5 @@ export function LoadingGate() {
     );
 }
 
-// Helper function to get default message (for backward compatibility)
-function getDefaultMessage(action, requiredTier) {
-    const messages = {
-        'apply_job': 'Unlock Job Applications',
-        'contact_worker': 'Contact Workforce Professionals',
-        'hire_va': 'Access Virtual Assistants',
-        'hr_tools': 'Full HR Toolkit Access',
-        'create_course': 'Course Creation',
-        'chat': 'Full AI Chat Access'
-    };
-    
-    if (requiredTier === 'professional') {
-        return 'Pro Feature';
-    }
-    if (requiredTier === 'business') {
-        return 'Business Feature';
-    }
-    
-    return messages[action] || 'Feature Locked';
-}
-
-// Helper function to get default sub-message (for backward compatibility)
-function getDefaultSubMessage(action, userTier, requiredTier) {
-    if (requiredTier === 'professional') {
-        return 'Upgrade to Pro to unlock this feature and get unlimited access.';
-    }
-    if (requiredTier === 'business') {
-        return 'This feature is available for Business plans. Contact us for enterprise access.';
-    }
-    
-    const subMessages = {
-        'apply_job': 'Sign up for free to start applying to verified jobs.',
-        'contact_worker': 'Upgrade to contact skilled professionals directly.',
-        'hire_va': 'Subscribe to access AI-powered virtual assistants.',
-        'hr_tools': 'Create an account to use our professional HR tools.',
-        'chat': userTier === 'visitor' 
-            ? 'Sign up free to continue the conversation.' 
-            : 'Upgrade for full AI chat capabilities.',
-        'create_course': 'Admin access required to create courses.'
-    };
-    
-    return subMessages[action] || 'Upgrade your plan to access this feature.';
-}
+// Default export for backward compatibility
+export default GateGuard;
