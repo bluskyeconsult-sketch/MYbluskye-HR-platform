@@ -1,14 +1,16 @@
 // src/pages/WorkforceMarketplace.jsx
-// ODUSBABA WORKFORCE MARKETPLACE v4.0 - PRODUCTION READY
+// ODUSBABA WORKFORCE MARKETPLACE v5.0 - PRODUCTION READY
 // ✅ Verified professionals marketplace
 // ✅ Advanced filtering and search
 // ✅ Contact functionality with GateGuard
 // ✅ Trust scores and verification badges
 // ✅ Responsive design with all features
+// ✅ useCapability integration
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useCapability } from '../hooks/useCapability';
 import GateGuard from '../components/GateGuard';
 import { 
     Users, Search, Star, Award, Shield, CheckCircle, 
@@ -27,10 +29,13 @@ const SKILL_CATEGORIES = [
     { id: 'ai', name: 'AI & ML', icon: Brain },
     { id: 'data', name: 'Data Science', icon: Database },
     { id: 'marketing', name: 'Marketing', icon: TrendingUp },
-    { id: 'design', name: 'Design', icon: Palette }
+    { id: 'design', name: 'Design', icon: Palette },
+    { id: 'leadership', name: 'Leadership', icon: Award },
+    { id: 'legal', name: 'Legal', icon: Shield }
 ];
 
 export default function WorkforceMarketplace() {
+    const { capabilities, userTier, canSync } = useCapability();
     const [skills, setSkills] = useState([]);
     const [filteredSkills, setFilteredSkills] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -189,10 +194,14 @@ export default function WorkforceMarketplace() {
             ai: '🤖',
             data: '📈',
             marketing: '📢',
-            design: '🎨'
+            design: '🎨',
+            leadership: '👑',
+            legal: '⚖️'
         };
         return icons[category] || '📌';
     }
+
+    const canContact = canSync('contact_worker');
 
     if (loading) {
         return (
@@ -233,7 +242,7 @@ export default function WorkforceMarketplace() {
                         Workforce Marketplace
                     </h1>
                     <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-                        Connect with verified professionals based on proven skills, not just resumes
+                        Verified skills, rated professionals, trusted hiring
                     </p>
                 </div>
 
@@ -242,9 +251,9 @@ export default function WorkforceMarketplace() {
                     <div className="flex items-start gap-3">
                         <Shield className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                         <div>
-                            <p className="text-white text-sm font-medium">Verified Skills Marketplace</p>
+                            <p className="text-white text-sm font-medium">100% Verified Skills Marketplace</p>
                             <p className="text-slate-400 text-xs">
-                                All listings are reviewed using AI and human oversight. Trust scores reflect verified activity and completed work.
+                                Every skill is AI-reviewed and admin-approved before listing. Trust scores reflect verified activity and completed work.
                             </p>
                         </div>
                     </div>
@@ -438,7 +447,7 @@ export default function WorkforceMarketplace() {
                                                 className="w-full py-2 bg-slate-700 text-slate-400 rounded-lg text-sm flex items-center justify-center gap-2 cursor-not-allowed"
                                             >
                                                 <MessageCircle className="w-4 h-4" />
-                                                Sign in to Contact
+                                                {userTier === 'visitor' ? 'Sign in to Contact' : 'Upgrade to Contact'}
                                             </button>
                                         }
                                     >
