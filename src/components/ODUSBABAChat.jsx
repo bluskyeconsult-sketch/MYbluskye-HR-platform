@@ -1,7 +1,8 @@
 // src/components/ODUSBABAChat.jsx
-// ODUSBABA AI CHAT v3.0 - PRODUCTION READY
+// ODUSBABA AI CHAT v4.0 - PRODUCTION READY
 // ✅ Role-based access, confidential data protection
 // ✅ Job fetching integration, credit tracking
+// ✅ Legal information fetching for multiple countries
 // ✅ Conversation history, typing indicators
 // ✅ Guest mode support, suggested actions
 
@@ -10,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { 
     MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
     FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
-    CreditCard, ChevronDown, Copy, Check, AlertCircle
+    CreditCard, ChevronDown, Copy, Check, AlertCircle, Scale
 } from 'lucide-react';
 
 // ============================================
@@ -23,6 +24,76 @@ const GUEST_LIMIT = 5;
 const MAX_HISTORY_MESSAGES = 10;
 const TYPING_DELAY = 500;
 const AUTO_CLOSE_DELAY = 300000; // 5 minutes inactivity
+
+// ============================================
+// LEGAL SOURCES CONFIGURATION (From Code 2)
+// ============================================
+
+const LEGAL_SOURCES = {
+    'GB': {
+        name: 'United Kingdom',
+        laborLaw: 'https://www.gov.uk/employment-status',
+        rights: 'https://www.acas.org.uk/',
+        health: 'https://www.hse.gov.uk/',
+        flag: '🇬🇧'
+    },
+    'US': {
+        name: 'United States',
+        laborLaw: 'https://www.dol.gov/',
+        rights: 'https://www.eeoc.gov/',
+        health: 'https://www.osha.gov/',
+        flag: '🇺🇸'
+    },
+    'CA': {
+        name: 'Canada',
+        laborLaw: 'https://www.canada.ca/en/employment-social-development.html',
+        rights: 'https://www.chrc-ccdp.gc.ca/',
+        health: 'https://www.ccohs.ca/',
+        flag: '🇨🇦'
+    },
+    'AU': {
+        name: 'Australia',
+        laborLaw: 'https://www.fairwork.gov.au/',
+        rights: 'https://humanrights.gov.au/',
+        health: 'https://www.safeworkaustralia.gov.au/',
+        flag: '🇦🇺'
+    },
+    'DE': {
+        name: 'Germany',
+        laborLaw: 'https://www.bmas.de/EN/',
+        rights: 'https://www.antidiskriminierungsstelle.de/',
+        health: 'https://www.baua.de/',
+        flag: '🇩🇪'
+    },
+    'FR': {
+        name: 'France',
+        laborLaw: 'https://travail-emploi.gouv.fr/',
+        rights: 'https://www.defenseurdesdroits.fr/',
+        health: 'https://www.inrs.fr/',
+        flag: '🇫🇷'
+    },
+    'NG': {
+        name: 'Nigeria',
+        laborLaw: 'https://labour.gov.ng/',
+        rights: 'https://www.nigeriarights.gov.ng/',
+        health: 'https://www.nhfvilla.gov.ng/',
+        flag: '🇳🇬'
+    },
+    'IE': {
+        name: 'Ireland',
+        laborLaw: 'https://www.workplacerelations.ie/',
+        rights: 'https://www.ihrec.ie/',
+        health: 'https://www.hsa.ie/',
+        flag: '🇮🇪'
+    },
+    'IN': {
+        name: 'India',
+        laborLaw: 'https://labour.gov.in/',
+        rights: 'https://nhrc.nic.in/',
+        health: 'https://www.dgfasli.nic.in/',
+        flag: '🇮🇳'
+    }
+};
 
 // ============================================
 // MAIN COMPONENT
@@ -123,7 +194,7 @@ export default function ODUSBABAChat() {
         return {
             id: `welcome_${Date.now()}`,
             sender: 'odusbaba',
-            message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, and career advice. What would you like help with today?",
+            message: "👋 Hello! I'm ODUSBABA, your AI Career Advisor. I can help with job searches, CV optimization, interview preparation, salary negotiation, legal rights information, and career advice. What would you like help with today?",
             created_at: new Date().toISOString()
         };
     }
@@ -211,35 +282,56 @@ export default function ODUSBABAChat() {
     function getSafeUserContext() {
         if (!userProfile) return null;
         
-        // Only include non-sensitive information for AI context
         return {
             user_type: userProfile.user_type,
             tier: userProfile.tier,
             job_title: userProfile.job_title,
             years_experience: userProfile.years_experience
-            // NEVER include: email, phone, address, payment info, etc.
         };
     }
 
-    const guestMessageCount = messages.filter(m => m.sender === 'user').length;
-    
-    const canSendMessage = useCallback(() => {
-        if (loading) return false;
-        if (!input.trim()) return false;
-        if (!user && guestMessageCount >= GUEST_LIMIT) return false;
-        if (user && remainingCredits !== null && remainingCredits <= 0 && remainingCredits !== 999999) return false;
-        return true;
-    }, [loading, input, user, guestMessageCount, remainingCredits]);
+    // ============================================
+    // LEGAL INFORMATION FETCHING (From Code 2)
+    // ============================================
 
-    const copyToClipboard = async (text, messageId) => {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopiedMessageId(messageId);
-            setTimeout(() => setCopiedMessageId(null), 2000);
-        } catch (err) {
-            console.error('Failed to copy:', err);
-        }
-    };
+    async function fetchLegalInfo(countryCode, topic) {
+        const source = LEGAL_SOURCES[countryCode] || LEGAL_SOURCES['GB'];
+        
+        const reply = `📚 **Legal & Workplace Rights Information for ${source.name} ${source.flag}**\n\n` +
+            `**📋 Labor Laws:**\n🔗 ${source.laborLaw}\n\n` +
+            `**⚖️ Workplace Rights:**\n🔗 ${source.rights}\n\n` +
+            `**🛡️ Health & Safety:**\n🔗 ${source.health}\n\n` +
+            `**🌍 International Standards:**\n🔗 https://www.ilo.org/global/lang--en/index.htm\n\n` +
+            `💡 **Important Note:** ODUSBABA provides general guidance only. For specific legal advice, please consult a qualified attorney.\n\n` +
+            `📌 **Topic of interest:** "${topic}"\n\n` +
+            `Would you like me to help you find more specific information about your situation?`;
+        
+        return reply;
+    }
+
+    function detectLegalIntent(message) {
+        const lowerMessage = message.toLowerCase();
+        const legalKeywords = ['legal', 'rights', 'law', 'employment law', 'workplace rights', 
+                               'labor law', 'discrimination', 'harassment', 'unfair dismissal', 
+                               'minimum wage', 'working hours', 'holiday pay', 'sick pay',
+                               'maternity leave', 'paternity leave', 'redundancy'];
+        
+        return legalKeywords.some(keyword => lowerMessage.includes(keyword));
+    }
+
+    function detectCountry(message) {
+        const lowerMessage = message.toLowerCase();
+        if (lowerMessage.includes('uk') || lowerMessage.includes('britain') || lowerMessage.includes('england')) return 'GB';
+        if (lowerMessage.includes('us') || lowerMessage.includes('usa') || lowerMessage.includes('america')) return 'US';
+        if (lowerMessage.includes('canada')) return 'CA';
+        if (lowerMessage.includes('australia')) return 'AU';
+        if (lowerMessage.includes('germany')) return 'DE';
+        if (lowerMessage.includes('france')) return 'FR';
+        if (lowerMessage.includes('nigeria')) return 'NG';
+        if (lowerMessage.includes('ireland')) return 'IE';
+        if (lowerMessage.includes('india')) return 'IN';
+        return 'GB'; // Default to UK
+    }
 
     // ============================================
     // JOB SEARCH HANDLER
@@ -297,7 +389,6 @@ export default function ODUSBABAChat() {
             
             setMessages(prev => [...prev, botMessage]);
             
-            // Save to database if logged in
             if (conversationId && user) {
                 await supabase.from('chat_messages').insert({
                     conversation_id: conversationId,
@@ -320,7 +411,7 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // SEND MESSAGE
+    // SEND MESSAGE (Enhanced with legal detection)
     // ============================================
 
     const sendMessage = async () => {
@@ -339,7 +430,6 @@ export default function ODUSBABAChat() {
         setError(null);
         setLoading(true);
         
-        // Show typing indicator after short delay
         const typingTimer = setTimeout(() => setIsTyping(true), 500);
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = typingTimer;
@@ -354,6 +444,42 @@ export default function ODUSBABAChat() {
                 });
             }
 
+            // Check for legal intent first
+            const isLegalQuery = detectLegalIntent(currentInput);
+            
+            if (isLegalQuery) {
+                clearTimeout(typingTimer);
+                setIsTyping(false);
+                
+                const country = detectCountry(currentInput);
+                const legalInfo = await fetchLegalInfo(country, currentInput);
+                
+                const botMessage = {
+                    id: `msg_${Date.now() + 1}`,
+                    sender: 'odusbaba',
+                    message: legalInfo,
+                    created_at: new Date().toISOString()
+                };
+                
+                setMessages(prev => [...prev, botMessage]);
+                
+                if (conversationId && user) {
+                    await supabase.from('chat_messages').insert({
+                        conversation_id: conversationId,
+                        sender: 'odusbaba',
+                        message: legalInfo
+                    });
+                    
+                    await supabase
+                        .from('chat_conversations')
+                        .update({ updated_at: new Date().toISOString() })
+                        .eq('id', conversationId);
+                }
+                
+                setLoading(false);
+                return;
+            }
+
             // Prepare conversation history
             const history = messages
                 .slice(-MAX_HISTORY_MESSAGES)
@@ -363,10 +489,8 @@ export default function ODUSBABAChat() {
                 }));
             history.push({ role: 'user', content: currentInput });
 
-            // Get safe user context (no confidential info)
             const safeContext = getSafeUserContext();
 
-            // Call unified API endpoint
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -397,7 +521,6 @@ export default function ODUSBABAChat() {
             
             setMessages(prev => [...prev, botMessage]);
 
-            // Save bot response
             if (conversationId && user) {
                 await supabase.from('chat_messages').insert({
                     conversation_id: conversationId,
@@ -451,6 +574,26 @@ export default function ODUSBABAChat() {
         return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
+    const guestMessageCount = messages.filter(m => m.sender === 'user').length;
+    
+    const canSendMessage = useCallback(() => {
+        if (loading) return false;
+        if (!input.trim()) return false;
+        if (!user && guestMessageCount >= GUEST_LIMIT) return false;
+        if (user && remainingCredits !== null && remainingCredits <= 0 && remainingCredits !== 999999) return false;
+        return true;
+    }, [loading, input, user, guestMessageCount, remainingCredits]);
+
+    const copyToClipboard = async (text, messageId) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedMessageId(messageId);
+            setTimeout(() => setCopiedMessageId(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+
     const getCreditDisplay = () => {
         if (!user) return null;
         if (remainingCredits >= 999999) return null;
@@ -459,13 +602,10 @@ export default function ODUSBABAChat() {
         return 'normal';
     };
 
-    // ============================================
-    // SUGGESTED ACTIONS
-    // ============================================
-
     const suggestedActions = [
         { icon: Briefcase, text: "Find Jobs", action: "Find me jobs in", isJobSearch: true },
         { icon: FileText, text: "CV Review", action: "Can you review my CV and provide suggestions?" },
+        { icon: Scale, text: "Legal Rights", action: "What are my workplace rights in the UK?", isLegal: true },
         { icon: Award, text: "Skill Analysis", action: "Analyze my skills and suggest improvements" },
         { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
         { icon: Users, text: "Interview Prep", action: "Help me prepare for an interview" },
@@ -474,10 +614,6 @@ export default function ODUSBABAChat() {
 
     const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0 && !loading && messages.length <= 1;
     const creditStatus = getCreditDisplay();
-
-    // ============================================
-    // RENDER
-    // ============================================
 
     return (
         <>
@@ -523,7 +659,7 @@ export default function ODUSBABAChat() {
                             </div>
                             <div>
                                 <h3 className="font-semibold text-white text-sm">ODUSBABA AI</h3>
-                                <p className="text-xs text-slate-400">Career Advisor • Secure • 24/7</p>
+                                <p className="text-xs text-slate-400">Career Advisor • Legal Info • Secure</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -644,6 +780,9 @@ export default function ODUSBABAChat() {
                                                     if (action.isJobSearch) {
                                                         const query = prompt("What job title or keywords are you looking for?");
                                                         if (query && query.trim()) handleJobSearch(query.trim());
+                                                    } else if (action.isLegal) {
+                                                        setInput(action.action);
+                                                        setTimeout(() => sendMessage(), 100);
                                                     } else {
                                                         setInput(action.action);
                                                         setTimeout(() => sendMessage(), 100);
