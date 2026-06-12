@@ -1,4 +1,4 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V9
+// src/App.jsx - COMPLETE PRODUCTION READY V10
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
@@ -7,6 +7,7 @@
 // ✅ Integrated FraudSafetyBanner & CookieConsent
 // ✅ Assessment Results page integrated
 // ✅ Admin Course Management routes added
+// ✅ GovernanceProvider for capability management
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
@@ -21,6 +22,7 @@ import { supabase } from './lib/supabase';
 // ============================================
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
+import { GovernanceProvider } from './contexts/GovernanceContext';
 
 // ============================================
 // SIMPLE SCROLL TO TOP
@@ -760,12 +762,14 @@ function AppContent() {
 }
 
 // ============================================
-// MAIN APP
+// MAIN APP (Wrapped with GovernanceProvider)
 // ============================================
 function App() {
     return (
         <BrowserRouter>
-            <AppContent />
+            <GovernanceProvider>
+                <AppContent />
+            </GovernanceProvider>
         </BrowserRouter>
     );
 }
