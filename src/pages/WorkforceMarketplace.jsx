@@ -1,39 +1,32 @@
 // src/pages/WorkforceMarketplace.jsx
-// COMPLETE PROFESSIONAL WORKFORCE MARKETPLACE - With unified API, filtering, search, and enhanced UI
+// ODUSBABA WORKFORCE MARKETPLACE v3.0 - PRODUCTION READY
+// ✅ Verified professionals marketplace
+// ✅ Advanced filtering and search
+// ✅ Contact functionality with governance
+// ✅ Trust scores and verification badges
 
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
     Users, Search, Filter, Star, Award, Shield, CheckCircle, 
     Clock, MapPin, Briefcase, TrendingUp, Zap, Loader2,
-    AlertCircle, UserCheck, Sparkles, Globe, Mail, Phone,
-    ChevronDown, X, Eye
+    AlertCircle, Mail, Eye, X, Code, Palette, Brain, Database
 } from 'lucide-react';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Skill categories
 const SKILL_CATEGORIES = [
     { id: 'all', name: 'All Categories', icon: Briefcase },
-    { id: 'technical', name: 'Technical', icon: Code },
-    { id: 'soft', name: 'Soft Skills', icon: Users },
-    { id: 'leadership', name: 'Leadership', icon: Award },
+    { id: 'technology', name: 'Technology', icon: Code },
+    { id: 'hr', name: 'Human Resources', icon: Users },
+    { id: 'management', name: 'Management', icon: Award },
     { id: 'creative', name: 'Creative', icon: Palette },
-    { id: 'analytical', name: 'Analytical', icon: TrendingUp },
-    { id: 'communication', name: 'Communication', icon: Mail },
-    { id: 'management', name: 'Management', icon: Briefcase },
+    { id: 'admin', name: 'Administrative', icon: Briefcase },
     { id: 'ai', name: 'AI & ML', icon: Brain },
     { id: 'data', name: 'Data Science', icon: Database }
 ];
 
-// Import missing icons
-import { Code, Palette, Brain, Database } from 'lucide-react';
-
 export default function WorkforceMarketplace() {
-    const navigate = useNavigate();
     const [skills, setSkills] = useState([]);
     const [filteredSkills, setFilteredSkills] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -42,6 +35,8 @@ export default function WorkforceMarketplace() {
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [sortBy, setSortBy] = useState('trust_score');
     const [selectedSkill, setSelectedSkill] = useState(null);
+    const [contactMessage, setContactMessage] = useState('');
+    const [sending, setSending] = useState(false);
     const [stats, setStats] = useState({ total: 0, verified: 0, avgTrustScore: 0 });
     const [user, setUser] = useState(null);
 
@@ -64,21 +59,20 @@ export default function WorkforceMarketplace() {
             setLoading(true);
             setError(null);
             
-            // ✅ Using unified API endpoint
-            const response = await fetch('/api/index?action=workforce-listings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            // Direct Supabase query for reliability
+            const { data, error: dbError } = await supabase
+                .from('workforce_skills')
+                .select('*, profiles(full_name, avatar_url, email, location, bio)')
+                .eq('status', 'approved')
+                .order('trust_score', { ascending: false });
             
-            const result = await response.json();
+            if (dbError) throw dbError;
             
-            if (!result.success) throw new Error(result.error);
-            
-            const skillsData = result.data || [];
+            const skillsData = data || [];
             setSkills(skillsData);
             
             // Calculate stats
-            const verifiedCount = skillsData.filter(s => s.verification_status === 'verified').length;
+            const verifiedCount = skillsData.filter(s => s.verification_status === 'verified' || s.status === 'approved').length;
             const avgScore = skillsData.reduce((sum, s) => sum + (s.trust_score || 0), 0) / (skillsData.length || 1);
             
             setStats({
@@ -102,7 +96,7 @@ export default function WorkforceMarketplace() {
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(skill => 
-                skill.skill_name.toLowerCase().includes(query) ||
+                skill.skill_name?.toLowerCase().includes(query) ||
                 (skill.category && skill.category.toLowerCase().includes(query)) ||
                 skill.profiles?.full_name?.toLowerCase().includes(query)
             );
@@ -117,7 +111,7 @@ export default function WorkforceMarketplace() {
         filtered.sort((a, b) => {
             if (sortBy === 'trust_score') return (b.trust_score || 0) - (a.trust_score || 0);
             if (sortBy === 'years_experience') return (b.years_experience || 0) - (a.years_experience || 0);
-            if (sortBy === 'name') return a.skill_name.localeCompare(b.skill_name);
+            if (sortBy === 'name') return (a.skill_name || '').localeCompare(b.skill_name || '');
             return 0;
         });
         
@@ -138,29 +132,60 @@ export default function WorkforceMarketplace() {
         return { label: 'Emerging', color: 'bg-slate-500/20 text-slate-400' };
     }
 
-    function formatDate(dateString) {
-        if (!dateString) return 'Recently';
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-        
-        if (diffDays === 0) return 'Today';
-        if (diffDays === 1) return 'Yesterday';
-        if (diffDays < 7) return `${diffDays} days ago`;
-        if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-        return `${Math.floor(diffDays / 30)} months ago`;
-    }
-
-    async function initiateContact(skill) {
+    async function handleContact(skill) {
         if (!user) {
-            navigate('/sign-in?redirect=/workforce');
+            alert('Please sign in to contact professionals');
+            window.location.href = '/sign-in?redirect=/workforce';
             return;
         }
         
-        // Open contact modal or redirect to messaging
-        setSelectedSkill(skill);
-        // You can implement a contact modal here
-        alert(`Contact feature for "${skill.skill_name}" - Coming soon!`);
+        if (!contactMessage.trim()) {
+            alert('Please enter a message');
+            return;
+        }
+        
+        setSending(true);
+        
+        try {
+            const response = await fetch('/api/index?action=contact-worker', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workerId: skill.user_id,
+                    skillId: skill.id,
+                    message: contactMessage,
+                    senderName: user.email?.split('@')[0] || 'A professional'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('Message sent successfully!');
+                setSelectedSkill(null);
+                setContactMessage('');
+            } else {
+                alert(data.error || 'Failed to send message');
+            }
+        } catch (err) {
+            console.error('Contact error:', err);
+            alert('Failed to send message. Please try again.');
+        } finally {
+            setSending(false);
+        }
+    }
+
+    function getCategoryIcon(category) {
+        const icons = {
+            technology: '💻',
+            hr: '👔',
+            management: '📊',
+            creative: '🎨',
+            admin: '📋',
+            ai: '🤖',
+            data: '📈'
+        };
+        return icons[category] || '📌';
     }
 
     if (loading) {
@@ -191,19 +216,23 @@ export default function WorkforceMarketplace() {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-            <div className="max-w-7xl mx-auto px-4 py-12">
+            <div className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
                 
                 {/* Header */}
-                <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-2">
-                        <Users className="w-8 h-8 text-primary-400" />
-                        <h1 className="text-3xl font-bold text-white">Workforce Marketplace</h1>
+                <div className="text-center mb-8">
+                    <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
+                        <Users className="w-10 h-10 text-white" />
                     </div>
-                    <p className="text-slate-400">Browse verified professionals and hire with confidence</p>
+                    <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
+                        Workforce Marketplace
+                    </h1>
+                    <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                        Connect with verified professionals based on proven skills, not just resumes
+                    </p>
                 </div>
 
                 {/* Trust Banner */}
-                <div className="bg-gradient-to-r from-emerald-900/20 to-sky-900/20 border border-emerald-500/30 rounded-xl p-4 mb-8">
+                <div className="mb-8 p-4 bg-gradient-to-r from-emerald-900/20 to-sky-900/20 border border-emerald-500/30 rounded-xl">
                     <div className="flex items-start gap-3">
                         <Shield className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                         <div>
@@ -217,7 +246,7 @@ export default function WorkforceMarketplace() {
 
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
                             <Users className="w-8 h-8 text-primary-400 opacity-50" />
                             <div>
@@ -226,7 +255,7 @@ export default function WorkforceMarketplace() {
                             </div>
                         </div>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
                             <CheckCircle className="w-8 h-8 text-emerald-400 opacity-50" />
                             <div>
@@ -235,7 +264,7 @@ export default function WorkforceMarketplace() {
                             </div>
                         </div>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
                             <Award className="w-8 h-8 text-amber-400 opacity-50" />
                             <div>
@@ -281,7 +310,7 @@ export default function WorkforceMarketplace() {
                 </div>
 
                 {/* Results Count */}
-                <div className="mb-4 flex justify-between items-center">
+                <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
                     <p className="text-sm text-slate-400">
                         Showing <span className="text-white font-medium">{filteredSkills.length}</span> of <span className="text-white font-medium">{skills.length}</span> verified professionals
                     </p>
@@ -340,7 +369,7 @@ export default function WorkforceMarketplace() {
                                     <div className="flex items-start justify-between mb-3">
                                         <div className="flex items-center gap-3">
                                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white font-bold text-lg">
-                                                {profile?.full_name?.[0]?.toUpperCase() || 'P'}
+                                                {profile?.full_name?.[0]?.toUpperCase() || getCategoryIcon(skill.category)}
                                             </div>
                                             <div>
                                                 <h3 className="text-lg font-semibold text-white group-hover:text-primary-400 transition">
@@ -357,7 +386,7 @@ export default function WorkforceMarketplace() {
                                     {/* Details */}
                                     <div className="space-y-2 mb-4">
                                         <p className="text-sm text-slate-400">
-                                            {skill.category || 'General'} • {skill.years_experience || 0}+ years experience
+                                            {skill.category || 'General'} • {skill.years_experience || skill.experience_years || 0}+ years experience
                                         </p>
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center gap-1">
@@ -365,15 +394,23 @@ export default function WorkforceMarketplace() {
                                                 <span className={`text-sm font-medium ${trustColor}`}>{skill.trust_score || 0}</span>
                                             </div>
                                             <span className="text-xs text-slate-500">Trust Score</span>
+                                            {skill.completed_jobs > 0 && (
+                                                <span className="text-xs text-slate-500">• {skill.completed_jobs} jobs completed</span>
+                                            )}
                                         </div>
                                     </div>
+                                    
+                                    {/* Description */}
+                                    {skill.description && (
+                                        <p className="text-slate-400 text-sm mb-3 line-clamp-2">{skill.description}</p>
+                                    )}
                                     
                                     {/* Trust Indicators */}
                                     <div className="flex flex-wrap gap-2 mb-4 pt-2 border-t border-slate-800">
                                         <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                                             <Shield className="w-3 h-3" /> AI Verified
                                         </span>
-                                        {skill.verification_status === 'verified' && (
+                                        {(skill.verification_status === 'verified' || skill.status === 'approved') && (
                                             <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
                                                 <CheckCircle className="w-3 h-3" /> Human Reviewed
                                             </span>
@@ -386,45 +423,40 @@ export default function WorkforceMarketplace() {
                                     </div>
                                     
                                     {/* Action Buttons */}
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => initiateContact(skill)}
-                                            className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-sm"
-                                        >
-                                            Contact Professional
-                                        </button>
-                                        <button
-                                            onClick={() => setSelectedSkill(selectedSkill?.id === skill.id ? null : skill)}
-                                            className="px-3 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                    </div>
+                                    <button
+                                        onClick={() => setSelectedSkill(selectedSkill?.id === skill.id ? null : skill)}
+                                        className="w-full py-2 border border-primary-500 text-primary-500 rounded-lg hover:bg-primary-500/10 transition text-sm flex items-center justify-center gap-2"
+                                    >
+                                        {selectedSkill?.id === skill.id ? (
+                                            <>Cancel</>
+                                        ) : (
+                                            <><Mail className="w-4 h-4" /> Contact Professional</>
+                                        )}
+                                    </button>
                                     
-                                    {/* Expanded Details */}
+                                    {/* Contact Form */}
                                     {selectedSkill?.id === skill.id && (
-                                        <div className="mt-4 pt-3 border-t border-slate-800">
-                                            <div className="space-y-2 text-sm">
-                                                {profile?.email && (
-                                                    <p className="flex items-center gap-2 text-slate-400">
-                                                        <Mail className="w-3 h-3" /> {profile.email}
-                                                    </p>
-                                                )}
-                                                {profile?.location && (
-                                                    <p className="flex items-center gap-2 text-slate-400">
-                                                        <MapPin className="w-3 h-3" /> {profile.location}
-                                                    </p>
-                                                )}
-                                                {profile?.bio && (
-                                                    <p className="text-slate-400 text-xs line-clamp-2">{profile.bio}</p>
-                                                )}
-                                                <Link 
-                                                    to={`/profile/${skill.user_id}`}
-                                                    className="text-primary-400 text-xs hover:underline inline-flex items-center gap-1"
-                                                >
-                                                    View full profile →
-                                                </Link>
-                                            </div>
+                                        <div className="mt-4 pt-4 border-t border-slate-700">
+                                            <textarea
+                                                value={contactMessage}
+                                                onChange={(e) => setContactMessage(e.target.value)}
+                                                placeholder="Describe your project or opportunity..."
+                                                rows={3}
+                                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                            />
+                                            <button
+                                                onClick={() => handleContact(skill)}
+                                                disabled={sending}
+                                                className="w-full mt-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                                            >
+                                                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                                                Send Message
+                                            </button>
+                                            {!user && (
+                                                <p className="text-xs text-amber-400 text-center mt-2">
+                                                    Sign in to contact professionals
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
