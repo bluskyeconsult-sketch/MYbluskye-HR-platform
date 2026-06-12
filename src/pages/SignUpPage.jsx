@@ -1,6 +1,10 @@
 // src/pages/SignUpPage.jsx
-// COMPLETE PROFESSIONAL SIGNUP PAGE - Tier selection, tester mode, profile creation, unified API
-// Features: Password strength meter, email validation, tester mode, company profiles, unlimited admin access
+// ODUSBABA SIGNUP PAGE v4.0 - PRODUCTION READY
+// ✅ Complete professional signup with tier selection
+// ✅ Password strength meter, email validation
+// ✅ Tester mode integration with database sync
+// ✅ Company profiles for employers
+// ✅ Unified API for email notifications
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -8,7 +12,7 @@ import { supabase } from '../lib/supabase';
 import { 
     UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
     CheckCircle, Briefcase, Building2, Sparkles, Star, 
-    Eye, EyeOff, ArrowLeft, Shield, Zap
+    Eye, EyeOff, ArrowLeft, Shield, Zap, Crown, Users
 } from 'lucide-react';
 
 // ============================================
@@ -156,42 +160,52 @@ export default function SignUpPage() {
         }
     ];
 
-    // Check testing mode on load
+    // Check testing mode on load (direct database check)
     useEffect(() => {
         checkTestingMode();
     }, []);
 
     async function checkTestingMode() {
         try {
-            const { data } = await supabase
+            // Direct database check for testing mode
+            const { data, error } = await supabase
                 .from('system_config')
                 .select('config_value')
                 .eq('config_key', 'testing_mode')
-                .single();
+                .maybeSingle();
             
-            if (data?.config_value === 'enabled') {
+            if (error) throw error;
+            
+            const isTestingMode = data?.config_value === 'enabled';
+            setTestingMode(isTestingMode);
+            
+            // Also check localStorage fallback
+            if (!data && localStorage.getItem('testing_mode') === 'enabled') {
                 setTestingMode(true);
-                setTestingConfig(prev => ({ ...prev, enabled: true }));
-            } else {
-                setTestingMode(false);
             }
         } catch (err) {
             console.error('Error checking testing mode:', err);
-            setTestingMode(false);
+            // Fallback to localStorage
+            const saved = localStorage.getItem('testing_mode');
+            setTestingMode(saved === 'enabled');
         }
     }
 
     // Send welcome email via unified API
-    async function sendWelcomeEmail(email, fullName, userType) {
+    async function sendWelcomeEmail(email, fullName, userType, isTestingMode) {
         try {
             await fetch(`${API_BASE}?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     to: email,
-                    subject: 'Welcome to ODUSBABA!',
-                    template: 'welcome',
-                    data: { fullName, userType, testingMode }
+                    type: isTestingMode ? 'tester_welcome' : 'welcome',
+                    templateData: { 
+                        name: fullName, 
+                        userType,
+                        uses: testingConfig.default_tester_uses,
+                        days: testingConfig.default_tester_days
+                    }
                 })
             });
         } catch (err) {
@@ -226,13 +240,20 @@ export default function SignUpPage() {
         }
 
         try {
-            const selected = tiers.find(t => t.id === formData.selectedTier);
+            // Re-check testing mode status (fresh from database)
+            const { data: modeData, error: modeError } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'testing_mode')
+                .maybeSingle();
             
-            // Determine user type based on testing mode and tier
+            const isTestingMode = modeData?.config_value === 'enabled';
+            
+            // Determine user type based on testing mode
             let userType;
             let tier;
             
-            if (testingMode) {
+            if (isTestingMode) {
                 userType = 'tester';
                 tier = 'free';
             } else {
@@ -249,8 +270,8 @@ export default function SignUpPage() {
                         full_name: formData.full_name,
                         user_type: userType,
                         tier: tier,
-                        company_name: testingMode ? null : formData.company_name,
-                        is_tester: testingMode || false,
+                        company_name: isTestingMode ? null : formData.company_name,
+                        is_tester: isTestingMode || false,
                         registered_at: new Date().toISOString()
                     }
                 }
@@ -271,8 +292,8 @@ export default function SignUpPage() {
                     country_code: 'GB',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                    ai_credits_remaining: testingMode ? 10 : 5,
-                    va_credits_balance: testingMode ? 10 : 0
+                    ai_credits_remaining: isTestingMode ? testingConfig.default_tester_uses : 5,
+                    va_credits_balance: isTestingMode ? testingConfig.default_tester_uses : 0
                 });
 
             if (profileError) {
@@ -280,7 +301,7 @@ export default function SignUpPage() {
             }
 
             // Create company profile for employers (non-testing mode)
-            if (!testingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business')) {
+            if (!isTestingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business')) {
                 await supabase.from('company_profiles').upsert({
                     user_id: authData.user.id,
                     company_name: formData.company_name || 'My Company',
@@ -291,7 +312,7 @@ export default function SignUpPage() {
             }
 
             // If tester mode, create tester allocation
-            if (testingMode) {
+            if (isTestingMode) {
                 const testerExpiry = new Date();
                 testerExpiry.setDate(testerExpiry.getDate() + testingConfig.default_tester_days);
                 
@@ -308,18 +329,21 @@ export default function SignUpPage() {
             }
 
             // Send welcome email (non-blocking)
-            sendWelcomeEmail(formData.email, formData.full_name, userType);
+            sendWelcomeEmail(formData.email, formData.full_name, userType, isTestingMode);
 
             setSuccess(true);
             
             // Auto redirect after 3 seconds
             setTimeout(() => {
-                if (testingMode) {
+                if (isTestingMode) {
                     navigate('/tester-login');
-                } else if (selected.requiresPayment) {
-                    navigate('/pricing', { state: { selectedTier: formData.selectedTier } });
                 } else {
-                    navigate('/sign-in');
+                    const selected = tiers.find(t => t.id === formData.selectedTier);
+                    if (selected?.requiresPayment) {
+                        navigate('/pricing', { state: { selectedTier: formData.selectedTier } });
+                    } else {
+                        navigate('/sign-in');
+                    }
                 }
             }, 3000);
 
@@ -359,7 +383,7 @@ export default function SignUpPage() {
                     <p className="text-slate-400 mb-4">
                         {isTester 
                             ? `Your tester account has been created. You now have ${testingConfig.default_tester_uses} free uses for ${testingConfig.default_tester_days} days.`
-                            : selected.requiresPayment 
+                            : selected?.requiresPayment 
                                 ? `Please complete payment for ${selected.name} plan (${selected.price}/month) to activate your account.`
                                 : 'Your account has been created. Please check your email to verify your account.'}
                     </p>
