@@ -7,7 +7,9 @@ export default {
     ],
     theme: {
         extend: {
-            // Responsive breakpoints - enhanced mobile support
+            // ============================================
+            // RESPONSIVE BREAKPOINTS (Enhanced mobile support)
+            // ============================================
             screens: {
                 'xs': '375px',
                 'sm': '640px',
@@ -17,12 +19,28 @@ export default {
                 '2xl': '1536px',
             },
             
-            // Font family with fallbacks
+            // ============================================
+            // CONTAINER UTILITIES (From Code 2)
+            // ============================================
+            container: {
+                center: true,
+                padding: {
+                    DEFAULT: '1rem',
+                    sm: '1.5rem',
+                    lg: '2rem',
+                },
+            },
+            
+            // ============================================
+            // FONT FAMILY (With fallbacks)
+            // ============================================
             fontFamily: {
                 sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
             },
             
-            // Typography scale
+            // ============================================
+            // TYPOGRAPHY SCALE (With line-height)
+            // ============================================
             fontSize: {
                 'xs': ['0.75rem', { lineHeight: '1rem' }],
                 'sm': ['0.875rem', { lineHeight: '1.25rem' }],
@@ -34,7 +52,9 @@ export default {
                 '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
             },
             
-            // Touch-friendly spacing (WCAG compliant 44px minimum)
+            // ============================================
+            // TOUCH-FRIENDLY SPACING (WCAG compliant 44px minimum)
+            // ============================================
             spacing: {
                 'touch': '44px',
             },
@@ -47,7 +67,9 @@ export default {
                 'touch': '44px',
             },
             
-            // ODUSBABA Brand Colors (preserved from 1st code)
+            // ============================================
+            // ODUSBABA BRAND COLORS
+            // ============================================
             colors: {
                 primary: {
                     50: '#f0f9ff',
@@ -62,7 +84,7 @@ export default {
                     900: '#0c4a6e',
                     950: '#082f49',
                 },
-                // Slate colors for consistent UI (from 2nd code)
+                // Slate colors for consistent UI
                 slate: {
                     50: '#f8fafc',
                     100: '#f1f5f9',
@@ -78,7 +100,9 @@ export default {
                 },
             },
             
-            // Animations (combined from both)
+            // ============================================
+            // ANIMATIONS (Combined)
+            // ============================================
             animation: {
                 'fade-in': 'fadeIn 0.3s ease-in-out',
                 'slide-up': 'slideUp 0.3s ease-out',
@@ -89,7 +113,9 @@ export default {
                 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             },
             
-            // Keyframes for animations
+            // ============================================
+            // KEYFRAMES FOR ANIMATIONS
+            // ============================================
             keyframes: {
                 fadeIn: {
                     '0%': { opacity: '0' },
