@@ -3,7 +3,7 @@
 // React hook for checking user capabilities throughout the app
 
 import { useGovernance } from '../contexts/GovernanceContext';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 
 export function useCapability() {
     const { 
@@ -78,7 +78,7 @@ export function useCapability() {
         return Math.max(0, max - (usedCount || 0));
     }, [getMaxChatMessages]);
 
-    // Get action gate (component and methods)
+    // Get action gate methods (without JSX component)
     const getActionGate = useCallback((action, context = {}) => {
         return {
             action,
@@ -89,30 +89,7 @@ export function useCapability() {
                 const result = await check(action, context);
                 return result.allowed;
             },
-            isEnabledSync: () => checkSync(action),
-            GateComponent: ({ children, fallback = null, showLoading = true }) => {
-                const [allowed, setAllowed] = useState(null);
-                const [isChecking, setIsChecking] = useState(true);
-                
-                useEffect(() => {
-                    setIsChecking(true);
-                    check(action, context).then(result => {
-                        setAllowed(result.allowed);
-                        setIsChecking(false);
-                    });
-                }, [action, JSON.stringify(context)]);
-                
-                if (showLoading && isChecking) {
-                    return (
-                        <div className="animate-pulse">
-                            <div className="h-8 bg-slate-700 rounded"></div>
-                        </div>
-                    );
-                }
-                
-                if (allowed === null) return null;
-                return allowed ? children : fallback;
-            }
+            isEnabledSync: () => checkSync(action)
         };
     }, [check, require, checkSync]);
 
