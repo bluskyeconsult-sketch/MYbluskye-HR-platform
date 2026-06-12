@@ -1,7 +1,7 @@
 // src/contexts/GovernanceContext.jsx
-// ODUSBABA GOVERNANCE SYSTEM v5.0 - Production Ready
+// ODUSBABA GOVERNANCE SYSTEM v6.0 - Production Ready
 // "Nothing executes unless ODUSBABA allows it"
-// Complete governance with capability matrix, audit logging, and enforcement modes
+// Complete governance with capability matrix, audit logging, enforcement modes, and async checks
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -30,10 +30,10 @@ export function GovernanceProvider({ children }) {
 
     // Load user and capabilities on mount
     useEffect(() => {
-        loadUserAndCapabilities();
+        loadGovernanceState();
     }, []);
 
-    async function loadUserAndCapabilities() {
+    async function loadGovernanceState() {
         setLoading(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -70,10 +70,23 @@ export function GovernanceProvider({ children }) {
                     isAdmin: false,
                     tier: 'visitor',
                     maxChatMessages: 3,
-                    maxJobViews: 20
+                    maxJobViews: 20,
+                    remainingCredits: 5,
+                    isUnlimited: false
                 });
                 setRemainingCredits(5);
                 setIsUnlimited(false);
+            }
+            
+            // Load system enforcement mode
+            const { data: config } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'enforcement_mode')
+                .maybeSingle();
+            
+            if (config?.config_value) {
+                setEnforcementMode(config.config_value);
             }
             
             // Detect country from IP
@@ -273,13 +286,12 @@ export function GovernanceProvider({ children }) {
         setCapabilities(caps);
         
         // Log capability access
-        await logGovernanceEvent('capabilities_loaded', { tier: effectiveTier, caps });
+        await audit('capabilities_loaded', { tier: effectiveTier, caps });
     }
 
     async function detectCountry() {
         try {
             const data = await api.getIp();
-            // Extract country from geolocation if available
             if (data?.geolocation?.country) {
                 setCountryContext(data.geolocation.country);
             } else {
@@ -291,7 +303,8 @@ export function GovernanceProvider({ children }) {
         }
     }
 
-    async function checkCapability(action, context = {}) {
+    // Async capability check (can be used with await)
+    async function can(action, context = {}) {
         const actionCapabilityMap = {
             'chat': 'canChat',
             'view_job': 'canView',
@@ -311,57 +324,31 @@ export function GovernanceProvider({ children }) {
         const requiredCapability = actionCapabilityMap[action];
         
         if (!requiredCapability) {
-            await logGovernanceEvent('unknown_action', { action, context });
-            return { allowed: false, reason: 'Unknown action' };
+            await audit('unknown_action', { action, context });
+            return false;
         }
         
         const allowed = capabilities[requiredCapability] === true;
         
-        // Log every capability check for audit
-        await logGovernanceEvent('capability_check', {
+        // Log capability check
+        await audit('capability_check', {
             action,
             requiredCapability,
             allowed,
             context,
-            userTier: capabilities.tier,
-            timestamp: new Date().toISOString()
+            userTier: capabilities.tier
         });
         
         // If in block mode and action not allowed, deny
         if (enforcementMode === 'block' && !allowed) {
-            return { allowed: false, reason: 'Action blocked by enforcement mode' };
+            return false;
         }
         
-        return { allowed, reason: allowed ? null : 'Insufficient permissions' };
+        return allowed;
     }
 
-    async function logGovernanceEvent(eventType, data) {
-        const logEntry = {
-            event_type: eventType,
-            user_id: user?.id,
-            user_tier: capabilities?.tier,
-            country: countryContext,
-            data: data,
-            timestamp: new Date().toISOString()
-        };
-        
-        setAuditLog(prev => [logEntry, ...prev].slice(0, 100));
-        
-        // Async save to database (don't wait)
-        supabase.from('governance_audit_logs').insert(logEntry).catch(console.error);
-    }
-
-    async function setEnforcement(action) {
-        if (!capabilities.canGovern) {
-            throw new Error('Insufficient permissions to change enforcement mode');
-        }
-        
-        setEnforcementMode(action);
-        await logGovernanceEvent('enforcement_changed', { newMode: action });
-    }
-
-    // Simplified can() method for backward compatibility
-    const can = (action) => {
+    // Sync capability check (immediate, no await needed)
+    const canSync = (action) => {
         const actionMap = {
             'chat': capabilities.canChat,
             'apply_job': capabilities.canApplyJobs,
@@ -374,12 +361,65 @@ export function GovernanceProvider({ children }) {
         return actionMap[action] || false;
     };
 
+    // Assert capability (throws error if not allowed)
+    async function assert(action, context = {}) {
+        const allowed = await can(action, context);
+        
+        if (!allowed) {
+            const error = new Error(`Action "${action}" not permitted`);
+            error.code = 'GOVERNANCE_DENIED';
+            error.details = { action, context, userTier: capabilities.tier };
+            throw error;
+        }
+        
+        return true;
+    }
+
+    // Audit logging
+    async function audit(eventType, data = {}) {
+        const logEntry = {
+            event_type: eventType,
+            user_id: user?.id,
+            user_email: user?.email,
+            user_tier: capabilities?.tier,
+            country: countryContext,
+            enforcement_mode: enforcementMode,
+            data: data,
+            timestamp: new Date().toISOString()
+        };
+        
+        setAuditLog(prev => [logEntry, ...prev].slice(0, 100));
+        
+        // Async save to database (non-blocking)
+        supabase.from('governance_audit_logs').insert(logEntry).catch(console.error);
+        
+        return logEntry;
+    }
+
+    async function setEnforcement(action) {
+        if (!capabilities.canGovern) {
+            throw new Error('Insufficient permissions to change enforcement mode');
+        }
+        
+        setEnforcementMode(action);
+        await audit('enforcement_changed', { newMode: action });
+        
+        // Update system config
+        await supabase
+            .from('system_config')
+            .upsert({ config_key: 'enforcement_mode', config_value: action })
+            .catch(console.error);
+    }
+
+    // Helper methods
     const getTier = () => capabilities.tier || 'visitor';
     const isAdmin = () => capabilities.isAdmin || false;
     const getCredits = () => remainingCredits;
     const getIsUnlimited = () => isUnlimited;
+    const hasCapability = (capability) => capabilities[capability] === true;
 
     const value = {
+        // State
         user,
         profile,
         capabilities,
@@ -389,15 +429,21 @@ export function GovernanceProvider({ children }) {
         auditLog,
         remainingCredits,
         isUnlimited,
+        
+        // Async methods
         can,
+        assert,
+        audit,
+        setEnforcement,
+        refresh: loadGovernanceState,
+        
+        // Sync methods (backward compatible)
+        canSync,
         getTier,
         isAdmin,
         getCredits,
         getIsUnlimited,
-        checkCapability,
-        setEnforcement,
-        logGovernanceEvent,
-        refresh: loadUserAndCapabilities
+        hasCapability
     };
 
     return (
