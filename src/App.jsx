@@ -1,4 +1,4 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V10
+// src/App.jsx - COMPLETE PRODUCTION READY V11
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
@@ -8,6 +8,8 @@
 // ✅ Assessment Results page integrated
 // ✅ Admin Course Management routes added
 // ✅ GovernanceProvider for capability management
+// ✅ ErrorBoundary for error handling
+// ✅ Workforce Marketplace & HR Tools routes added
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
@@ -18,11 +20,12 @@ import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from './lib/supabase';
 
 // ============================================
-// COMPONENT IMPORTS (No external dependencies)
+// COMPONENT IMPORTS
 // ============================================
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import { GovernanceProvider } from './contexts/GovernanceContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // ============================================
 // SIMPLE SCROLL TO TOP
@@ -33,6 +36,17 @@ function ScrollToTop() {
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, [pathname]);
     return null;
+}
+
+// ============================================
+// ANIMATED PAGE WRAPPER
+// ============================================
+function AnimatedPage({ children }) {
+    return (
+        <div className="animate-fade-in">
+            {children}
+        </div>
+    );
 }
 
 // ============================================
@@ -322,6 +336,7 @@ function Navbar() {
         { name: 'Hire VA', path: '/hire-va' },
         { name: 'Books', path: '/books' },
         { name: 'Blog', path: '/blog' },
+        { name: 'HR Tools', path: '/hr-tools' },
         { name: 'Contact', path: '/contact' },
     ];
 
@@ -588,6 +603,7 @@ const ManageJobs = lazy(() => import('./pages/employer/ManageJobs'));
 const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
 const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
 const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
+const HRToolsPage = lazy(() => import('./pages/HRToolsPage'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
@@ -654,30 +670,31 @@ function AppContent() {
                 <Suspense fallback={<PageLoader />}>
                     <Routes location={location} key={location.pathname}>
                         {/* Public Routes */}
-                        <Route path="/" element={<HomePage />} />
-                        <Route path="/jobs" element={<JobsPage />} />
-                        <Route path="/workforce" element={<WorkforceMarketplace />} />
-                        <Route path="/courses" element={<CoursesPage />} />
-                        <Route path="/books" element={<BooksPage />} />
-                        <Route path="/newsletter" element={<NewsletterPage />} />
-                        <Route path="/hire-va" element={<HireVirtualAssistant />} />
-                        <Route path="/about" element={<AboutPage />} />
-                        <Route path="/contact" element={<ContactPage />} />
-                        <Route path="/pricing" element={<PricingPage />} />
-                        <Route path="/sign-in" element={<SignInPage />} />
-                        <Route path="/sign-up" element={<SignUpPage />} />
-                        <Route path="/products" element={<ProductsPage />} />
-                        <Route path="/faq" element={<FAQPage />} />
-                        <Route path="/blog" element={<BlogPage />} />
+                        <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                        <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                        <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                        <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                        <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                        <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                        <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                        <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                        <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                        <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                        <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                        <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                        <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
+                        <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                        <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
+                        <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
                         
                         {/* Assessment Routes */}
-                        <Route path="/assessments" element={<AssessmentsPage />} />
-                        <Route path="/assessments/:id" element={<TakeAssessment />} />
-                        <Route path="/assessment-results/:id" element={<AssessmentResults />} />
+                        <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                        <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                        <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
                         
                         {/* Article Routes */}
-                        <Route path="/articles" element={<ArticlesPage />} />
-                        <Route path="/articles/:slug" element={<ArticleDetail />} />
+                        <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                        <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
                         
                         {/* Admin Login */}
                         <Route path="/admin-login" element={<AdminLogin />} />
@@ -762,15 +779,17 @@ function AppContent() {
 }
 
 // ============================================
-// MAIN APP (Wrapped with GovernanceProvider)
+// MAIN APP (Wrapped with ErrorBoundary & GovernanceProvider)
 // ============================================
 function App() {
     return (
-        <BrowserRouter>
-            <GovernanceProvider>
-                <AppContent />
-            </GovernanceProvider>
-        </BrowserRouter>
+        <ErrorBoundary>
+            <BrowserRouter>
+                <GovernanceProvider>
+                    <AppContent />
+                </GovernanceProvider>
+            </BrowserRouter>
+        </ErrorBoundary>
     );
 }
 
