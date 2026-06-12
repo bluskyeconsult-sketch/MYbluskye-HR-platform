@@ -1,224 +1,330 @@
 // src/lib/api.js - UNIFIED API CLIENT
 // All frontend API calls use this single client
-// ODUSBABA API Client v2.0 - Production Ready
+// ODUSBABA API Client v3.0 - Production Ready with Caching
 
 const API_BASE = '/api/index';
 
-// Helper function to handle API responses
-async function handleResponse(response) {
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(data.error || `API request failed: ${response.status}`);
+class ODUSABAApi {
+    constructor() {
+        this.cache = new Map();
+        this.pendingRequests = new Map();
     }
-    if (!data.success && data.error) {
-        throw new Error(data.error);
+
+    // Helper function to handle API responses
+    async handleResponse(response) {
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `API request failed: ${response.status}`);
+        }
+        if (!data.success && data.error) {
+            throw new Error(data.error);
+        }
+        return data;
     }
-    return data;
-}
 
-// Helper for POST requests
-async function postRequest(action, body) {
-    const response = await fetch(`${API_BASE}?action=${action}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-    return handleResponse(response);
-}
+    // Core request method with caching and deduplication
+    async request(action, options = {}) {
+        const cacheKey = `${action}_${JSON.stringify(options.body || {})}_${options.method || 'POST'}`;
+        
+        // Return cached response if available and not expired
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < 30000) { // 30 second cache for GET requests
+                return cached.data;
+            }
+            // Clear expired cache
+            this.cache.delete(cacheKey);
+        }
+        
+        // Prevent duplicate in-flight requests
+        if (this.pendingRequests.has(cacheKey)) {
+            return this.pendingRequests.get(cacheKey);
+        }
+        
+        const method = options.method || (options.body ? 'POST' : 'GET');
+        let url = `${API_BASE}?action=${action}`;
+        
+        // Handle GET requests with query parameters
+        if (method === 'GET' && options.params) {
+            const queryParams = new URLSearchParams(options.params).toString();
+            if (queryParams) url += `&${queryParams}`;
+        }
+        
+        const promise = fetch(url, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            body: options.body ? JSON.stringify(options.body) : undefined
+        }).then(async res => {
+            const data = await this.handleResponse(res);
+            
+            // Cache successful GET responses
+            if (method === 'GET') {
+                this.cache.set(cacheKey, { data, timestamp: Date.now() });
+                // Clear cache after 30 seconds
+                setTimeout(() => this.cache.delete(cacheKey), 30000);
+            }
+            
+            return data;
+        }).catch(error => {
+            console.error(`API Error (${action}):`, error);
+            throw error;
+        }).finally(() => {
+            this.pendingRequests.delete(cacheKey);
+        });
+        
+        this.pendingRequests.set(cacheKey, promise);
+        return promise;
+    }
 
-// Helper for GET requests
-async function getRequest(action, params = {}) {
-    const queryParams = new URLSearchParams(params).toString();
-    const url = `${API_BASE}?action=${action}${queryParams ? `&${queryParams}` : ''}`;
-    const response = await fetch(url);
-    return handleResponse(response);
-}
+    // Helper for GET requests
+    async getRequest(action, params = {}) {
+        return this.request(action, { method: 'GET', params });
+    }
 
-export const api = {
+    // Helper for POST requests
+    async postRequest(action, body = {}) {
+        return this.request(action, { method: 'POST', body });
+    }
+
     // ========== HEALTH & SYSTEM ==========
-    health: async () => {
-        return getRequest('health');
-    },
+    async health() {
+        return this.getRequest('health');
+    }
     
-    ping: async () => {
-        return getRequest('ping');
-    },
+    async ping() {
+        return this.getRequest('ping');
+    }
     
-    getIp: async () => {
-        return getRequest('ip');
-    },
+    async getIp() {
+        return this.getRequest('ip');
+    }
     
-    getCapabilities: async () => {
-        return getRequest('capabilities');
-    },
+    async getCapabilities() {
+        return this.getRequest('capabilities');
+    }
     
     // ========== JOBS ==========
-    fetchJobs: async () => {
-        return getRequest('jobs');
-    },
+    async fetchJobs() {
+        return this.getRequest('jobs');
+    }
     
-    getJobDetails: async (jobId) => {
-        return getRequest('job-details', { jobId });
-    },
+    async searchJobs(query, filters = {}) {
+        return this.postRequest('searchJobs', { query, filters });
+    }
     
-    applyForJob: async (jobId, applicationData) => {
-        return postRequest('apply-job', { jobId, ...applicationData });
-    },
+    async getJobDetails(jobId) {
+        return this.getRequest('job-details', { jobId });
+    }
+    
+    async applyForJob(jobId, applicationData) {
+        return this.postRequest('apply-job', { jobId, ...applicationData });
+    }
+    
+    async saveJob(jobId) {
+        return this.postRequest('save-job', { jobId });
+    }
     
     // ========== WORKFORCE ==========
-    getWorkforceSkills: async () => {
-        return getRequest('workforce-skills');
-    },
+    async getWorkforceSkills(filters = {}) {
+        return this.postRequest('workforce-skills', filters);
+    }
     
-    submitSkill: async (skillData) => {
-        return postRequest('submit-skill', skillData);
-    },
+    async submitSkill(skillData) {
+        return this.postRequest('submit-skill', skillData);
+    }
     
-    contactWorker: async (workerId, message) => {
-        return postRequest('contact-worker', { workerId, message });
-    },
+    async contactWorker(workerId, skillId, message, senderName) {
+        return this.postRequest('contact-worker', { workerId, skillId, message, senderName });
+    }
+    
+    async hireWorker(workerId, task) {
+        return this.postRequest('hire-worker', { workerId, task });
+    }
     
     // ========== COURSES ==========
-    getCourses: async () => {
-        return getRequest('courses-list');
-    },
+    async getCourses() {
+        return this.getRequest('courses-list');
+    }
     
-    getCourseDetails: async (courseId) => {
-        return getRequest('course-details', { courseId });
-    },
+    async getCourseDetails(courseId) {
+        return this.getRequest('course-details', { courseId });
+    }
     
-    enrollInCourse: async (courseId, userId) => {
-        return postRequest('enroll-course', { courseId, userId });
-    },
+    async enrollInCourse(courseId, userId) {
+        return this.postRequest('enroll-course', { courseId, userId });
+    }
     
-    updateCourseProgress: async (courseId, progress, lessonId, userId) => {
-        return postRequest('update-course-progress', { courseId, progress, lessonId, userId });
-    },
+    async updateCourseProgress(courseId, progress, lessonId, userId) {
+        return this.postRequest('update-course-progress', { courseId, progress, lessonId, userId });
+    }
     
-    getUserEnrollments: async (userId) => {
-        return getRequest('user-enrollments', { userId });
-    },
+    async getUserEnrollments(userId) {
+        return this.getRequest('user-enrollments', { userId });
+    }
     
     // ========== ASSESSMENTS ==========
-    getAssessments: async () => {
-        return getRequest('assessments-list');
-    },
+    async getAssessments() {
+        return this.getRequest('assessments-list');
+    }
     
-    getAssessmentDetails: async (assessmentId) => {
-        return getRequest('assessment-details', { assessmentId });
-    },
+    async getAssessmentDetails(assessmentId) {
+        return this.getRequest('assessment-details', { assessmentId });
+    }
     
-    startAssessment: async (assessmentId, userId) => {
-        return postRequest('start-assessment', { assessmentId, userId });
-    },
+    async startAssessment(assessmentId, userId) {
+        return this.postRequest('start-assessment', { assessmentId, userId });
+    }
     
-    submitAssessment: async (assessmentId, answers, userId) => {
-        return postRequest('submit-assessment', { assessmentId, answers, userId });
-    },
+    async submitAssessment(assessmentId, answers, userId) {
+        return this.postRequest('submit-assessment', { assessmentId, answers, userId });
+    }
     
-    getAssessmentResults: async (assessmentId, userId) => {
-        return getRequest('assessment-results', { assessmentId, userId });
-    },
+    async getAssessmentResults(assessmentId, userId) {
+        return this.getRequest('assessment-results', { assessmentId, userId });
+    }
     
     // ========== HR TOOLS ==========
-    analyzeCV: async (cvText) => {
-        return postRequest('analyze-cv', { cvText });
-    },
+    async analyzeCV(cvText) {
+        return this.postRequest('analyze-cv', { cvText });
+    }
     
-    checkRights: async (situation, country) => {
-        return postRequest('check-rights', { situation, country });
-    },
+    async simulateInterview(role, questions) {
+        return this.postRequest('simulate-interview', { role, questions });
+    }
     
-    generateGrievance: async (details) => {
-        return postRequest('generate-grievance', details);
-    },
+    async checkRights(situation, country) {
+        return this.postRequest('check-rights', { situation, country });
+    }
+    
+    async generateGrievance(details) {
+        return this.postRequest('generate-grievance', details);
+    }
+    
+    async analyzeContract(contractText) {
+        return this.postRequest('analyze-contract', { contractText });
+    }
     
     // ========== AI CHAT ==========
-    chat: async (messages, context = {}) => {
-        return postRequest('chat', { messages, context });
-    },
+    async chat(messages, context = {}) {
+        return this.postRequest('chat', { messages, context });
+    }
     
     // ========== NEWSLETTER ==========
-    subscribeNewsletter: async (email, name, preferences) => {
-        return postRequest('newsletter-subscribe', { email, name, preferences });
-    },
+    async subscribeNewsletter(email, name, preferences) {
+        return this.postRequest('newsletter-subscribe', { email, name, preferences });
+    }
     
     // ========== VIRTUAL ASSISTANT ==========
-    executeVATask: async (vaId, input, userId) => {
-        return postRequest('va-execute', { vaId, input, userId });
-    },
+    async getVirtualAssistants() {
+        return this.getRequest('virtual-assistants');
+    }
     
-    getVATasks: async (userId) => {
-        return getRequest('va-tasks', { userId });
-    },
+    async executeVATask(vaId, input, userId) {
+        return this.postRequest('va-execute', { vaId, input, userId });
+    }
     
-    getVACredits: async (userId) => {
-        return getRequest('va-credits', { userId });
-    },
+    async getVATasks(userId) {
+        return this.getRequest('va-tasks', { userId });
+    }
+    
+    async getVACredits(userId) {
+        return this.getRequest('va-credits', { userId });
+    }
+    
+    async getTaskHistory(limit = 20) {
+        return this.postRequest('task-history', { limit });
+    }
     
     // ========== USER & AUTH ==========
-    getUserProfile: async (userId) => {
-        return getRequest('user-profile', { userId });
-    },
+    async getUser() {
+        return this.getRequest('get-user');
+    }
     
-    updateUserProfile: async (userId, updates) => {
-        return postRequest('user-update', { userId, updates });
-    },
+    async getUserProfile(userId) {
+        return this.getRequest('user-profile', { userId });
+    }
     
-    getUserStats: async (userId) => {
-        return getRequest('user-stats', { userId });
-    },
+    async updateUserProfile(userId, updates) {
+        return this.postRequest('user-update', { userId, updates });
+    }
     
-    getUserApplications: async (userId) => {
-        return getRequest('user-applications', { userId });
-    },
+    async getUserStats(userId) {
+        return this.getRequest('user-stats', { userId });
+    }
+    
+    async getUserApplications(userId) {
+        return this.getRequest('user-applications', { userId });
+    }
     
     // ========== BOOKS ==========
-    getBooks: async () => {
-        return getRequest('books-list');
-    },
+    async getBooks() {
+        return this.getRequest('books-list');
+    }
     
-    getBookDetails: async (bookId) => {
-        return getRequest('book-details', { bookId });
-    },
+    async getBookDetails(bookId) {
+        return this.getRequest('book-details', { bookId });
+    }
     
     // ========== ARTICLES ==========
-    getArticles: async () => {
-        return getRequest('articles-list');
-    },
+    async getArticles() {
+        return this.getRequest('articles-list');
+    }
     
-    getArticleBySlug: async (slug) => {
-        return getRequest('article', { slug });
-    },
+    async getArticleBySlug(slug) {
+        return this.getRequest('article', { slug });
+    }
     
     // ========== ANALYTICS ==========
-    trackEvent: async (eventType, eventData, userId = null) => {
-        return postRequest('track-event', { event_type: eventType, event_data: eventData, user_id: userId });
-    },
+    async trackEvent(eventType, eventData, userId = null) {
+        return this.postRequest('track-event', { event_type: eventType, event_data: eventData, user_id: userId });
+    }
     
     // ========== TESTER PROGRAM ==========
-    createTester: async (email, name, uses = 10, days = 30) => {
-        return postRequest('tester-create', { email, name, uses, days });
-    },
+    async createTester(email, name, uses = 10, days = 30) {
+        return this.postRequest('tester-create', { email, name, uses, days });
+    }
     
-    getTesterStatus: async (email) => {
-        return getRequest('tester-status', { email });
-    },
+    async getTesterStatus(email) {
+        return this.getRequest('tester-status', { email });
+    }
     
     // ========== SECURITY ==========
-    forceClearAuth: async () => {
-        return getRequest('force-clear-auth');
-    },
+    async forceClearAuth() {
+        return this.getRequest('force-clear-auth');
+    }
     
-    checkDatabase: async () => {
-        return getRequest('db');
-    },
+    async checkDatabase() {
+        return this.getRequest('db');
+    }
+    
+    async checkCapability(action, context = {}) {
+        return this.postRequest('check-capability', { action, context });
+    }
     
     // ========== CAPABILITIES ==========
-    getApiCapabilities: async () => {
-        return getRequest('capabilities');
+    async getApiCapabilities() {
+        return this.getRequest('capabilities');
     }
-};
+    
+    // Clear cache for specific action or all
+    clearCache(action = null) {
+        if (action) {
+            for (const key of this.cache.keys()) {
+                if (key.startsWith(action)) {
+                    this.cache.delete(key);
+                }
+            }
+        } else {
+            this.cache.clear();
+        }
+    }
+}
+
+// Create and export singleton instance
+export const api = new ODUSABAApi();
 
 // Default export for convenience
 export default api;
