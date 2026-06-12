@@ -1,17 +1,19 @@
 // src/pages/WorkforceMarketplace.jsx
-// ODUSBABA WORKFORCE MARKETPLACE v3.0 - PRODUCTION READY
+// ODUSBABA WORKFORCE MARKETPLACE v4.0 - PRODUCTION READY
 // ✅ Verified professionals marketplace
 // ✅ Advanced filtering and search
-// ✅ Contact functionality with governance
+// ✅ Contact functionality with GateGuard
 // ✅ Trust scores and verification badges
+// ✅ Responsive design with all features
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import GateGuard from '../components/GateGuard';
 import { 
-    Users, Search, Filter, Star, Award, Shield, CheckCircle, 
-    Clock, MapPin, Briefcase, TrendingUp, Zap, Loader2,
-    AlertCircle, Mail, Eye, X, Code, Palette, Brain, Database
+    Users, Search, Star, Award, Shield, CheckCircle, 
+    Loader2, AlertCircle, Mail, X, Code, Palette, Brain, Database,
+    MessageCircle, Briefcase, TrendingUp
 } from 'lucide-react';
 
 // Skill categories
@@ -23,7 +25,9 @@ const SKILL_CATEGORIES = [
     { id: 'creative', name: 'Creative', icon: Palette },
     { id: 'admin', name: 'Administrative', icon: Briefcase },
     { id: 'ai', name: 'AI & ML', icon: Brain },
-    { id: 'data', name: 'Data Science', icon: Database }
+    { id: 'data', name: 'Data Science', icon: Database },
+    { id: 'marketing', name: 'Marketing', icon: TrendingUp },
+    { id: 'design', name: 'Design', icon: Palette }
 ];
 
 export default function WorkforceMarketplace() {
@@ -183,7 +187,9 @@ export default function WorkforceMarketplace() {
             creative: '🎨',
             admin: '📋',
             ai: '🤖',
-            data: '📈'
+            data: '📈',
+            marketing: '📢',
+            design: '🎨'
         };
         return icons[category] || '📌';
     }
@@ -422,17 +428,31 @@ export default function WorkforceMarketplace() {
                                         )}
                                     </div>
                                     
-                                    {/* Action Buttons */}
-                                    <button
-                                        onClick={() => setSelectedSkill(selectedSkill?.id === skill.id ? null : skill)}
-                                        className="w-full py-2 border border-primary-500 text-primary-500 rounded-lg hover:bg-primary-500/10 transition text-sm flex items-center justify-center gap-2"
+                                    {/* Contact Button with GateGuard */}
+                                    <GateGuard 
+                                        action="contact_worker" 
+                                        showUpgrade={true}
+                                        fallback={
+                                            <button 
+                                                disabled
+                                                className="w-full py-2 bg-slate-700 text-slate-400 rounded-lg text-sm flex items-center justify-center gap-2 cursor-not-allowed"
+                                            >
+                                                <MessageCircle className="w-4 h-4" />
+                                                Sign in to Contact
+                                            </button>
+                                        }
                                     >
-                                        {selectedSkill?.id === skill.id ? (
-                                            <>Cancel</>
-                                        ) : (
-                                            <><Mail className="w-4 h-4" /> Contact Professional</>
-                                        )}
-                                    </button>
+                                        <button
+                                            onClick={() => setSelectedSkill(selectedSkill?.id === skill.id ? null : skill)}
+                                            className="w-full py-2 border border-primary-500 text-primary-500 rounded-lg hover:bg-primary-500/10 transition text-sm flex items-center justify-center gap-2"
+                                        >
+                                            {selectedSkill?.id === skill.id ? (
+                                                <>Cancel</>
+                                            ) : (
+                                                <><MessageCircle className="w-4 h-4" /> Contact Professional</>
+                                            )}
+                                        </button>
+                                    </GateGuard>
                                     
                                     {/* Contact Form */}
                                     {selectedSkill?.id === skill.id && (
