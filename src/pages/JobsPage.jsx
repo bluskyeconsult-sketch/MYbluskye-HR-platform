@@ -1,22 +1,28 @@
 // src/pages/JobsPage.jsx
-// ODUSBABA JOB BOARD v3.1 - PRODUCTION READY
+// ODUSBABA JOB BOARD v4.0 - PRODUCTION READY
 // ✅ Live job fetching from external sources (daily auto-refresh)
 // ✅ Advanced filtering and pagination
 // ✅ Database persistence with external jobs
-// ✅ Save Job functionality
+// ✅ Save Job functionality with GateGuard
 // ✅ Source badges (Live/Verified)
+// ✅ Visa sponsorship filtering
+// ✅ Intelligence banner
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useCapability } from '../hooks/useCapability';
+import { GateGuard } from '../components/GateGuard';
 import { 
     Briefcase, MapPin, DollarSign, Building2, Clock, 
     Search, Filter, Loader2, AlertCircle, ExternalLink,
     Calendar, ChevronLeft, ChevronRight, X, TrendingUp,
-    Star, Award, Shield, Zap, RefreshCw, Bookmark, BookmarkCheck
+    Star, Award, Shield, Zap, RefreshCw, Bookmark, BookmarkCheck,
+    Eye, Heart
 } from 'lucide-react';
 
 export default function JobsPage() {
+    const { capabilities, userTier, canSync } = useCapability();
     const [jobs, setJobs] = useState([]);
     const [filteredJobs, setFilteredJobs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -36,6 +42,7 @@ export default function JobsPage() {
     const [sortBy, setSortBy] = useState('newest');
     const [showFilters, setShowFilters] = useState(false);
     const [salaryRange, setSalaryRange] = useState({ min: '', max: '' });
+    const [showVisaOnly, setShowVisaOnly] = useState(false);
     const [lastFetchTime, setLastFetchTime] = useState(null);
 
     // Country options
@@ -119,12 +126,12 @@ export default function JobsPage() {
 
     useEffect(() => {
         filterAndSortJobs();
-    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange]);
+    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
 
     // Reset to page 1 when filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange]);
+    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
 
     async function getUser() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -206,10 +213,11 @@ export default function JobsPage() {
             
             if (updatedDbError) throw updatedDbError;
             
-            // Add source indicator
+            // Add source indicator and visa sponsorship flag
             const jobsWithSource = (updatedDbJobs || []).map(job => ({
                 ...job,
-                source: job.source_type === 'external' ? 'live' : 'database'
+                source: job.source_type === 'external' ? 'live' : 'database',
+                visa_sponsorship: job.sponsorship_eligible || false
             }));
             
             setJobs(jobsWithSource);
@@ -266,7 +274,8 @@ export default function JobsPage() {
                             compliance_status: 'approved',
                             is_active: true,
                             posted_at: new Date().toISOString(),
-                            country_code: job.source_country || 'Global'
+                            country_code: job.source_country || 'Global',
+                            sponsorship_eligible: job.sponsorship_eligible || false
                         });
                         newJobsCount++;
                     }
@@ -317,6 +326,11 @@ export default function JobsPage() {
             filtered = filtered.filter(job => (job.salary_max || 999999) <= parseInt(salaryRange.max));
         }
         
+        // Visa sponsorship filter
+        if (showVisaOnly) {
+            filtered = filtered.filter(job => job.sponsorship_eligible === true);
+        }
+        
         // Sorting
         switch (sortBy) {
             case 'newest':
@@ -344,6 +358,7 @@ export default function JobsPage() {
         setSelectedJobType('all');
         setSortBy('newest');
         setSalaryRange({ min: '', max: '' });
+        setShowVisaOnly(false);
     }
 
     // Pagination calculations
@@ -404,8 +419,9 @@ export default function JobsPage() {
         }
     }
 
-    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max;
+    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max || showVisaOnly;
     const totalJobs = filteredJobs.length;
+    const canApply = canSync('apply_job');
 
     if (loading && jobs.length === 0) {
         return (
@@ -424,11 +440,22 @@ export default function JobsPage() {
                         <Briefcase className="w-10 h-10 text-white" />
                     </div>
                     <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4 text-center">
-                        Find Your Next Opportunity
+                        Verified Job Marketplace
                     </h1>
                     <p className="text-lg text-slate-300 text-center max-w-2xl mx-auto">
-                        Browse thousands of jobs from trusted employers and government sources across 9 countries.
+                        AI-verified, law-aware, and fraud-protected job opportunities across 9 countries.
                     </p>
+                    
+                    {/* Intelligence Banner */}
+                    <div className="mt-4 p-3 bg-gradient-to-r from-primary-900/20 to-sky-900/20 border border-primary-500/30 rounded-xl max-w-2xl mx-auto">
+                        <div className="flex items-center gap-3">
+                            <Shield className="w-5 h-5 text-primary-400 flex-shrink-0" />
+                            <div>
+                                <p className="text-white text-sm font-medium">ODUSBABA Job Intelligence</p>
+                                <p className="text-slate-400 text-xs">Every job is verified for salary fairness, visa eligibility, and fraud signals</p>
+                            </div>
+                        </div>
+                    </div>
                     
                     {/* Live Job Fetch Indicator */}
                     {fetchingLive && (
@@ -533,6 +560,21 @@ export default function JobsPage() {
                             </div>
                         </div>
                         
+                        {/* Visa Sponsorship Toggle */}
+                        <div className="mt-4">
+                            <button
+                                onClick={() => setShowVisaOnly(!showVisaOnly)}
+                                className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+                                    showVisaOnly 
+                                        ? 'bg-emerald-600 text-white' 
+                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                }`}
+                            >
+                                <Award className="w-4 h-4" />
+                                Visa Sponsorship Only
+                            </button>
+                        </div>
+                        
                         {hasActiveFilters && (
                             <div className="mt-4 flex justify-end">
                                 <button
@@ -602,7 +644,7 @@ export default function JobsPage() {
                         <Briefcase className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-white mb-2">No jobs found</h3>
                         <p className="text-slate-400">
-                            {searchQuery || selectedCountry !== 'all' || selectedJobType !== 'all' || salaryRange.min || salaryRange.max
+                            {searchQuery || selectedCountry !== 'all' || selectedJobType !== 'all' || salaryRange.min || salaryRange.max || showVisaOnly
                                 ? 'Try adjusting your search filters'
                                 : 'Check back soon for new opportunities'}
                         </p>
@@ -622,6 +664,11 @@ export default function JobsPage() {
                                             <span className="text-2xl">{getCountryFlag(job.country_code)}</span>
                                             <h3 className="text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
+                                            {job.sponsorship_eligible && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
+                                                    <Award className="w-3 h-3" /> Visa Sponsorship
+                                                </span>
+                                            )}
                                             {job.source_type === 'authoritative' && (
                                                 <span className="text-xs px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 flex items-center gap-1">
                                                     <Shield className="w-3 h-3" /> Verified Source
