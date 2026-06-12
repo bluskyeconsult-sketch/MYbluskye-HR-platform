@@ -1,4 +1,4 @@
-/* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH ANIMATIONS */
+/* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH ENHANCED ANIMATIONS */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -158,7 +158,7 @@
 }
 
 /* ============================================
-   ANIMATIONS (Combined from both sources)
+   ENHANCED ANIMATIONS (Combined)
    ============================================ */
 
 @keyframes fadeIn {
@@ -179,12 +179,37 @@
 }
 .animate-slide-down { animation: slideDown 0.3s ease-out forwards; }
 
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in-left { animation: slideInLeft 0.3s ease-out forwards; }
+
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in-right { animation: slideInRight 0.3s ease-out forwards; }
+
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in { animation: scaleIn 0.3s ease-out forwards; }
+
 @keyframes pulse-glow {
     0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
     70% { box-shadow: 0 0 0 15px rgba(14, 165, 233, 0); }
     100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
 }
 .animate-pulse-glow { animation: pulse-glow 2s infinite; }
+
+@keyframes glowPulse {
+    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+.animate-glow-pulse { animation: glowPulse 2s infinite; }
 
 @keyframes float {
     0% { transform: translateY(0px) translateX(0px); }
@@ -206,13 +231,51 @@
 .animate-pulse-slow { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
 @keyframes shimmer {
-    0% { background-position: -1000px 0; }
-    100% { background-position: 1000px 0; }
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
 }
+.animate-shimmer {
+    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+}
+
+/* Legacy shimmer class (backward compatible) */
 .shimmer {
     background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
     background-size: 1000px 100%;
     animation: shimmer 2s infinite;
+}
+
+/* ============================================
+   NAVIGATION ANIMATIONS (Enhanced)
+   ============================================ */
+
+/* Active nav item glow */
+.nav-active-glow {
+    animation: glowPulse 2s infinite;
+}
+
+/* Menu item hover effect with animated underline */
+.nav-item-hover {
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-item-hover::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #3b82f6, #06b6d4, #3b82f6, transparent);
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+}
+
+.nav-item-hover:hover::after {
+    transform: translateX(100%);
 }
 
 /* ============================================
@@ -274,5 +337,32 @@
 @supports (padding: max(0px)) {
     .safe-area-bottom {
         padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+}
+
+/* ============================================
+   UTILITY CLASSES FOR BETTER UX
+   ============================================ */
+
+/* Smooth transitions for all interactive elements */
+a, button, [role="button"] {
+    transition: all 0.2s ease;
+}
+
+/* Focus styles for accessibility */
+*:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Disable animations for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }
