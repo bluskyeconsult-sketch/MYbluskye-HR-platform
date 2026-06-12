@@ -1,11 +1,46 @@
 // src/hooks/useCapability.js
 // ODUSBABA CAPABILITY HOOK v5.0 - Production Ready
-// React hook for checking user capabilities throughout the app
 
 import { useGovernance } from '../contexts/GovernanceContext';
 import { useState, useCallback } from 'react';
 
 export function useCapability() {
+    let governance;
+    try {
+        governance = useGovernance();
+    } catch (error) {
+        // Fallback when GovernanceProvider is not available
+        console.warn('GovernanceProvider not found, using fallback capabilities');
+        governance = {
+            can: async () => ({ allowed: true, reason: null }),
+            canSync: () => true,
+            assert: async () => true,
+            audit: async () => {},
+            user: null,
+            profile: null,
+            capabilities: {
+                canView: true,
+                canSearch: true,
+                canPreview: true,
+                canChat: true,
+                canExecute: true,
+                canApplyJobs: true,
+                canContactWorkforce: true,
+                canHireVA: true,
+                canAccessHRTools: true,
+                canCreateCourses: false,
+                isAdmin: false,
+                tier: 'visitor',
+                maxChatMessages: 10
+            },
+            loading: false,
+            getTier: () => 'visitor',
+            isAdmin: () => false,
+            getCredits: () => 5,
+            getIsUnlimited: () => false
+        };
+    }
+    
     const { 
         can, 
         canSync, 
@@ -19,7 +54,7 @@ export function useCapability() {
         isAdmin: isUserAdmin,
         getCredits,
         getIsUnlimited
-    } = useGovernance();
+    } = governance;
     
     const [checking, setChecking] = useState(false);
 
