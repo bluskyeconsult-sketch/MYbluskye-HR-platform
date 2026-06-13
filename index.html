@@ -12,10 +12,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     
     <!-- ============================================
-         VIEWPORT & RESPONSIVENESS (Combined & Optimized)
+         VIEWPORT & RESPONSIVENESS (Optimized for mobile)
     ============================================ -->
-    <!-- Mobile responsiveness with zoom prevention on inputs -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
+    <!-- Primary viewport - ensures proper scaling on all devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    
+    <!-- Secondary viewport for zoom prevention on inputs (critical for mobile) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
     
     <!-- ============================================
          PWA & THEME
