@@ -1,12 +1,27 @@
 // src/components/BrainstormPartner.jsx
-// COMPLETE BRAINSTORM PARTNER - AI-powered product development assistant
+// ODUSBABA BRAINSTORM PARTNER v3.0 - PRODUCTION READY
+// ✅ AI-powered product development assistant via Unified API
+// ✅ Idea generation, deep dive analysis, follow-up questions
+// ✅ Save ideas, copy to clipboard, conversation history
+// ✅ Fallback ideas for offline scenarios
 
 import { useState, useEffect, useRef } from 'react';
 import { 
     Lightbulb, Sparkles, TrendingUp, Users, Briefcase, Zap, 
     X, Send, Loader2, Copy, Check, MessageCircle, Star, 
-    Rocket, Target, Brain, Code, Palette, Megaphone
+    Rocket, Target, Brain, Code, Palette, Megaphone, RefreshCw, User
 } from 'lucide-react';
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
+const CHAT_ENDPOINT = `${API_BASE}?action=chat`;
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function BrainstormPartner() {
     const [isOpen, setIsOpen] = useState(false);
@@ -42,32 +57,45 @@ export default function BrainstormPartner() {
         { icon: Target, text: "User acquisition", prompt: "Cost-effective user acquisition strategies", color: "teal" }
     ];
 
+    // ============================================
+    // IDEA GENERATION (Unified API)
+    // ============================================
+
     const generateIdeas = async () => {
         if (!topic.trim()) return;
         
         setIsLoading(true);
         
-        // Add user message to conversation
         const userMessage = { role: 'user', content: topic, timestamp: new Date().toISOString() };
         setConversation(prev => [...prev, userMessage]);
         
         try {
-            const response = await fetch('/api/ai/brainstorm', {
+            // ✅ Using unified chat API
+            const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    topic: topic,
-                    context: isDeepDive ? 'deep_dive' : 'initial',
-                    previousIdeas: ideas
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'system', content: `You are a product strategy expert. Generate innovative, actionable ideas for: ${topic}. Return 5 ideas as bullet points.` },
+                        { role: 'user', content: topic }
+                    ],
+                    temperature: 0.8,
+                    maxTokens: 1000
                 })
             });
             
-            if (response.ok) {
-                const data = await response.json();
-                const newIdeas = data.ideas || [];
+            const data = await response.json();
+            
+            if (data.success && data.response) {
+                // Parse ideas from response
+                const newIdeas = data.response
+                    .split(/\d+\.\s+/)
+                    .filter(i => i.trim())
+                    .slice(0, 5)
+                    .map(i => i.trim());
+                
                 setIdeas(newIdeas);
                 
-                // Add assistant response to conversation
                 const assistantMessage = { 
                     role: 'assistant', 
                     content: `Here are some ideas for "${topic}":`,
@@ -76,17 +104,7 @@ export default function BrainstormPartner() {
                 };
                 setConversation(prev => [...prev, assistantMessage]);
             } else {
-                // Fallback to local ideas
-                const fallbackIdeas = getFallbackIdeas(topic);
-                setIdeas(fallbackIdeas);
-                
-                const assistantMessage = { 
-                    role: 'assistant', 
-                    content: `Here are some ideas for "${topic}":`,
-                    ideas: fallbackIdeas,
-                    timestamp: new Date().toISOString()
-                };
-                setConversation(prev => [...prev, assistantMessage]);
+                throw new Error(data.error || 'Failed to generate ideas');
             }
         } catch (error) {
             console.error('Brainstorm error:', error);
@@ -105,25 +123,34 @@ export default function BrainstormPartner() {
         }
     };
 
+    // ============================================
+    // DEEP DIVE ANALYSIS (Unified API)
+    // ============================================
+
     const handleDeepDive = async (idea) => {
         setIsLoading(true);
         
         try {
-            const response = await fetch('/api/ai/brainstorm-deepdive', {
+            const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    idea: idea,
-                    originalTopic: topic
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'system', content: `Provide a detailed analysis of this idea including: feasibility, implementation steps, potential challenges, and success metrics.` },
+                        { role: 'user', content: `Original topic: "${topic}"\n\nIdea: "${idea}"\n\nProvide a comprehensive deep dive analysis.` }
+                    ],
+                    temperature: 0.7,
+                    maxTokens: 800
                 })
             });
             
-            if (response.ok) {
-                const data = await response.json();
+            const data = await response.json();
+            
+            if (data.success && data.response) {
                 const deepDiveMessage = {
                     role: 'assistant',
                     content: `Deep dive into: "${idea}"`,
-                    deepDive: data.analysis,
+                    deepDive: data.response,
                     timestamp: new Date().toISOString()
                 };
                 setConversation(prev => [...prev, deepDiveMessage]);
@@ -135,6 +162,10 @@ export default function BrainstormPartner() {
         }
     };
 
+    // ============================================
+    // FOLLOW-UP QUESTIONS (Unified API)
+    // ============================================
+
     const handleFollowUp = async () => {
         if (!followUp.trim()) return;
         
@@ -145,24 +176,33 @@ export default function BrainstormPartner() {
         setFollowUp('');
         
         try {
-            const response = await fetch('/api/ai/brainstorm-followup', {
+            const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    query: followUp,
-                    context: topic,
-                    previousIdeas: ideas
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'system', content: `Context: "${topic}". Previous ideas: ${JSON.stringify(ideas)}. Answer the follow-up question clearly and helpfully.` },
+                        { role: 'user', content: followUp }
+                    ],
+                    temperature: 0.7,
+                    maxTokens: 600
                 })
             });
             
-            if (response.ok) {
-                const data = await response.json();
-                const newIdeas = data.ideas || [];
-                setIdeas(prev => [...prev, ...newIdeas]);
+            const data = await response.json();
+            
+            if (data.success && data.response) {
+                const newIdeas = data.response
+                    .split(/\d+\.\s+/)
+                    .filter(i => i.trim());
+                
+                if (newIdeas.length > 0) {
+                    setIdeas(prev => [...prev, ...newIdeas]);
+                }
                 
                 const assistantMessage = { 
                     role: 'assistant', 
-                    content: data.response || `Additional thoughts on "${followUp}":`,
+                    content: data.response,
                     ideas: newIdeas,
                     timestamp: new Date().toISOString()
                 };
@@ -174,6 +214,10 @@ export default function BrainstormPartner() {
             setIsLoading(false);
         }
     };
+
+    // ============================================
+    // UTILITY FUNCTIONS
+    // ============================================
 
     const copyToClipboard = (text, index) => {
         navigator.clipboard.writeText(text);
@@ -258,6 +302,10 @@ export default function BrainstormPartner() {
         setTimeout(() => generateIdeas(), 100);
     };
 
+    // ============================================
+    // RENDER
+    // ============================================
+
     return (
         <>
             {/* Brainstorm Button */}
@@ -310,14 +358,14 @@ export default function BrainstormPartner() {
                                 Quick brainstorm topics:
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                {brainstormTopics.map((topic, idx) => (
+                                {brainstormTopics.map((topicItem, idx) => (
                                     <button
                                         key={idx}
-                                        onClick={() => handleBrainstormTopic(topic.prompt)}
-                                        className={`flex items-center gap-1 px-3 py-1.5 bg-${topic.color}-500/10 border border-${topic.color}-500/20 rounded-lg text-sm text-${topic.color}-400 hover:bg-${topic.color}-500/20 transition`}
+                                        onClick={() => handleBrainstormTopic(topicItem.prompt)}
+                                        className={`flex items-center gap-1 px-3 py-1.5 bg-${topicItem.color}-500/10 border border-${topicItem.color}-500/20 rounded-lg text-sm text-${topicItem.color}-400 hover:bg-${topicItem.color}-500/20 transition`}
                                     >
-                                        <topic.icon className="w-3.5 h-3.5" />
-                                        {topic.text}
+                                        <topicItem.icon className="w-3.5 h-3.5" />
+                                        {topicItem.text}
                                     </button>
                                 ))}
                             </div>
@@ -501,6 +549,3 @@ export default function BrainstormPartner() {
         </>
     );
 }
-
-// Import missing icons
-import { User, RefreshCw } from 'lucide-react';
