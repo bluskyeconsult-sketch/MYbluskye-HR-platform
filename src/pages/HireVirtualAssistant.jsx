@@ -1,8 +1,8 @@
 // src/pages/HireVirtualAssistant.jsx
 // ODUSBABA VIRTUAL ASSISTANT PAGE v3.0 - PRODUCTION READY
 // ✅ 24 AI-powered career assistants
-// ✅ Credit-based access system
-// ✅ Full task history with feedback
+// ✅ Credit-based access system (Unified API)
+// ✅ Full task history with feedback (Unified API)
 // ✅ Unified API integration
 
 import { useState, useEffect } from 'react';
@@ -14,13 +14,28 @@ import {
     ThumbsUp, ThumbsDown, ChevronRight, Copy, Crown,
     Zap, MessageCircle, Filter, RefreshCw
 } from 'lucide-react';
-import { 
-    VIRTUAL_ASSISTANTS, 
-    checkVAEligibility, 
-    executeVATask, 
-    getUserVATasks,
-    getVACredits
-} from '../services/vaService';
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
+
+// ============================================
+// VIRTUAL ASSISTANTS DATA (Static - Fast loading)
+// ============================================
+
+const VIRTUAL_ASSISTANTS = [
+    // Resume & CV Category (5)
+    { id: 'cv-expert', name: 'CV Makeover Pro', category: 'resume', icon: '📄', price: 5, description: 'ATS-optimized CV writing and formatting expert', longDescription: 'Get professional CV optimization tailored to your target role. Includes ATS keyword analysis, achievement quantification, and formatting improvements.', rating: 4.9, reviews: 128, responseTime: '2-3 min', featured: true },
+    { id: 'cover-letter-pro', name: 'Cover Letter Pro', category: 'resume', icon: '✉️', price: 3, description: 'Custom cover letters for any role', longDescription: 'Generate tailored cover letters that highlight your unique value proposition for specific job applications.', rating: 4.8, reviews: 95, responseTime: '1-2 min', featured: true },
+    { id: 'linkedin-optimizer', name: 'LinkedIn Optimizer', category: 'resume', icon: '🔗', price: 5, description: 'Profile optimization for recruiters', longDescription: 'Optimize your LinkedIn profile with SEO keywords, compelling summaries, and achievement highlights.', rating: 4.8, reviews: 89, responseTime: '2-3 min', featured: false },
+    { id: 'interview-coach', name: 'Interview Coach AI', category: 'interview', icon: '🎯', price: 4, description: 'Behavioral and technical interview preparation', longDescription: 'Practice with AI-powered mock interviews, get feedback on your responses, and receive personalized tips for your target role.', rating: 4.9, reviews: 156, responseTime: '1-2 min', featured: true },
+    { id: 'salary-negotiator', name: 'Salary Negotiator', category: 'career', icon: '💰', price: 4, description: 'Market research and negotiation scripts', longDescription: 'Get salary benchmarks for your role and location, plus proven negotiation scripts to maximize your offer.', rating: 4.8, reviews: 134, responseTime: '2-3 min', featured: true },
+    { id: 'skill-analyzer', name: 'Skill Gap Analyst', category: 'skills', icon: '📊', price: 4, description: 'Identify skill gaps and learning paths', longDescription: 'Analyze your current skills against target roles and get personalized learning recommendations.', rating: 4.9, reviews: 142, responseTime: '3-4 min', featured: true },
+    { id: 'job-match-analyzer', name: 'Job Match Analyzer', category: 'job', icon: '🎯', price: 3, description: 'Fit score calculation', longDescription: 'See how well your skills match job requirements and get personalized improvement suggestions.', rating: 4.8, reviews: 92, responseTime: '2 min', featured: false },
+    { id: 'workplace-rights', name: 'Workplace Rights Advisor', category: 'legal', icon: '⚖️', price: 3, description: 'Legal information and guidance', longDescription: 'Know your workplace rights regarding discrimination, harassment, and fair treatment.', rating: 4.8, reviews: 112, responseTime: '2-3 min', featured: false }
+];
 
 // ============================================
 // CATEGORIES CONFIGURATION
@@ -59,12 +74,17 @@ export default function HireVirtualAssistant() {
     const [refreshing, setRefreshing] = useState(false);
 
     // ============================================
-    // LOAD USER DATA
+    // LOAD USER DATA (Unified API)
     // ============================================
 
     useEffect(() => {
         loadUserAndEligibility();
     }, []);
+
+    async function getAuthToken() {
+        const session = await supabase.auth.getSession();
+        return session.data.session?.access_token;
+    }
 
     async function loadUserAndEligibility() {
         setRefreshing(true);
@@ -75,10 +95,35 @@ export default function HireVirtualAssistant() {
             }
             setUser(user);
             
-            const eligibilityData = await checkVAEligibility(user.id);
-            setEligibility(eligibilityData);
+            const token = await getAuthToken();
             
-            await loadTaskHistory(user.id);
+            // ✅ Get VA credits from unified API
+            const creditsResponse = await fetch(`${API_BASE}?action=va-credits&userId=${user.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const creditsData = await creditsResponse.json();
+            
+            if (creditsData.success) {
+                setEligibility({
+                    remaining: creditsData.credits,
+                    limit: creditsData.isUnlimited ? 999999 : 10,
+                    tier: creditsData.tier || 'free',
+                    isUnlimited: creditsData.isUnlimited || false
+                });
+            } else {
+                // Fallback
+                setEligibility({ remaining: 5, limit: 5, isUnlimited: false });
+            }
+            
+            // ✅ Get VA tasks history from unified API
+            const tasksResponse = await fetch(`${API_BASE}?action=va-tasks&userId=${user.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const tasksData = await tasksResponse.json();
+            
+            if (tasksData.success) {
+                setTaskHistory(tasksData.tasks || []);
+            }
         } catch (error) {
             console.error('Error loading data:', error);
         } finally {
@@ -86,28 +131,29 @@ export default function HireVirtualAssistant() {
         }
     }
 
-    async function loadTaskHistory(userId) {
-        setLoadingHistory(true);
-        try {
-            const result = await getUserVATasks(userId, 20);
-            setTaskHistory(result.tasks || []);
-        } catch (error) {
-            console.error('Error loading task history:', error);
-        } finally {
-            setLoadingHistory(false);
-        }
-    }
-
     // ============================================
-    // SUBMIT FEEDBACK
+    // SUBMIT FEEDBACK (Unified API)
     // ============================================
 
     async function submitFeedback(taskId, rating) {
         setFeedback({ ...feedback, [taskId]: rating });
-        await supabase
-            .from('va_tasks')
-            .update({ user_rating: rating === 'positive' ? 5 : 1 })
-            .eq('id', taskId);
+        
+        try {
+            const token = await getAuthToken();
+            await fetch(`${API_BASE}?action=va-feedback`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    taskId,
+                    rating: rating === 'positive' ? 5 : 1
+                })
+            });
+        } catch (error) {
+            console.error('Error submitting feedback:', error);
+        }
     }
 
     // ============================================
@@ -116,7 +162,6 @@ export default function HireVirtualAssistant() {
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
-        // Show temporary notification
         const notification = document.createElement('div');
         notification.className = 'fixed bottom-4 right-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
         notification.textContent = 'Copied to clipboard!';
@@ -125,7 +170,7 @@ export default function HireVirtualAssistant() {
     };
 
     // ============================================
-    // EXECUTE VA TASK
+    // EXECUTE VA TASK (Unified API)
     // ============================================
 
     async function handleExecute(e) {
@@ -155,7 +200,21 @@ export default function HireVirtualAssistant() {
         }, 300);
         
         try {
-            const result = await executeVATask(user.id, selectedVA.id, input);
+            const token = await getAuthToken();
+            const response = await fetch(`${API_BASE}?action=va-execute`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    assistantId: selectedVA.id,
+                    input: input,
+                    userId: user.id
+                })
+            });
+            
+            const result = await response.json();
             
             clearInterval(progressInterval);
             setProcessingProgress(100);
@@ -200,7 +259,7 @@ export default function HireVirtualAssistant() {
                         <Bot className="w-10 h-10 text-white" />
                     </div>
                     <h1 className="text-2xl font-bold text-white mb-2">Sign in to use Virtual Assistants</h1>
-                    <p className="text-slate-400 mb-6">Access 24 AI-powered career helpers for CV optimization, interview prep, and more.</p>
+                    <p className="text-slate-400 mb-6">Access AI-powered career helpers for CV optimization, interview prep, and more.</p>
                     <div className="flex gap-3 justify-center">
                         <a href="/sign-in" className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">Sign In</a>
                         <a href="/sign-up" className="px-6 py-2.5 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-800 transition">Create Account</a>
@@ -222,7 +281,7 @@ export default function HireVirtualAssistant() {
                 <div className="text-center mb-8">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 mb-4">
                         <Sparkles className="w-4 h-4 text-primary-400" />
-                        <span className="text-primary-400 text-sm">24 AI-Powered Career Assistants</span>
+                        <span className="text-primary-400 text-sm">AI-Powered Career Assistants</span>
                     </div>
                     <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">Hire a Virtual Assistant</h1>
                     <p className="text-slate-400 max-w-2xl mx-auto">
@@ -352,14 +411,14 @@ export default function HireVirtualAssistant() {
                                         <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
                                             <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> {va.rating}</span>
                                             <span>({va.reviews} reviews)</span>
-                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {va.responseTime || va.processingTime || '2-3 min'}</span>
+                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {va.responseTime}</span>
                                         </div>
                                         {va.featured && (
                                             <span className="inline-block text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">⭐ Featured</span>
                                         )}
                                         {isSelected && (
                                             <div className="mt-3 pt-3 border-t border-slate-700">
-                                                <p className="text-xs text-slate-400">{va.longDescription || va.description}</p>
+                                                <p className="text-xs text-slate-400">{va.longDescription}</p>
                                             </div>
                                         )}
                                     </div>
@@ -391,7 +450,7 @@ export default function HireVirtualAssistant() {
                                             <h3 className="text-xl font-bold text-white">{selectedVA.name}</h3>
                                             <span className="text-sm text-slate-400">({selectedVA.price} credits)</span>
                                         </div>
-                                        <p className="text-slate-400 text-sm mt-1">{selectedVA.longDescription || selectedVA.description}</p>
+                                        <p className="text-slate-400 text-sm mt-1">{selectedVA.longDescription}</p>
                                     </div>
                                     <button
                                         onClick={() => {
