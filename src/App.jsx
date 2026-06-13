@@ -1,4 +1,4 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V11
+// src/App.jsx - COMPLETE PRODUCTION READY V12
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
@@ -10,9 +10,12 @@
 // ✅ GovernanceProvider for capability management
 // ✅ ErrorBoundary for error handling
 // ✅ Workforce Marketplace & HR Tools routes added
+// ✅ Container-responsive wrapper for consistent layout
+// ✅ Framer Motion animations for smooth transitions
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // ============================================
 // SUPABASE CLIENT (Direct import for reliability)
@@ -26,6 +29,7 @@ import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import { GovernanceProvider } from './contexts/GovernanceContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import ODUSBABAChat from './components/ODUSBABAChat';
 
 // ============================================
 // SIMPLE SCROLL TO TOP
@@ -39,13 +43,19 @@ function ScrollToTop() {
 }
 
 // ============================================
-// ANIMATED PAGE WRAPPER
+// ANIMATED PAGE WRAPPER (Enhanced with Framer Motion)
 // ============================================
 function AnimatedPage({ children }) {
     return (
-        <div className="animate-fade-in">
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            className="animate-fade-in"
+        >
             {children}
-        </div>
+        </motion.div>
     );
 }
 
@@ -92,7 +102,7 @@ function NewsletterSignup() {
 
     return (
         <div className="bg-slate-900 border-y border-slate-800 py-8 mt-8">
-            <div className="max-w-7xl mx-auto px-4 text-center">
+            <div className="container-responsive text-center">
                 <h3 className="text-white font-semibold mb-2">Subscribe to Newsletter</h3>
                 <p className="text-slate-400 text-sm mb-4">Get latest jobs, courses, and career tips</p>
                 <form onSubmit={handleSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
@@ -130,131 +140,10 @@ function NewsletterSignup() {
 }
 
 // ============================================
-// AI CHAT (Fully Functional)
+// AI CHAT (Legacy - kept for backward compatibility, using ODUSBABAChat)
 // ============================================
 function AIChat() {
-    const [isOpen, setIsOpen] = useState(false);
-    const [message, setMessage] = useState('');
-    const [messages, setMessages] = useState(() => {
-        const saved = localStorage.getItem('chat_messages');
-        return saved ? JSON.parse(saved) : [];
-    });
-    const [loading, setLoading] = useState(false);
-    const messagesEndRef = useRef(null);
-
-    useEffect(() => {
-        localStorage.setItem('chat_messages', JSON.stringify(messages));
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
-    const sendMessage = async () => {
-        if (!message.trim()) return;
-        
-        const userMsg = { role: 'user', content: message, timestamp: new Date().toISOString() };
-        setMessages(prev => [...prev, userMsg]);
-        setMessage('');
-        setLoading(true);
-
-        try {
-            const response = await fetch('/api/index?action=chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message, history: messages.slice(-10) })
-            });
-            const data = await response.json();
-            
-            if (data.success) {
-                const aiMsg = { role: 'assistant', content: data.response, timestamp: new Date().toISOString() };
-                setMessages(prev => [...prev, aiMsg]);
-            } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.', timestamp: new Date().toISOString() }]);
-            }
-        } catch (error) {
-            setMessages(prev => [...prev, { role: 'assistant', content: 'Network error. Please try again.', timestamp: new Date().toISOString() }]);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const clearChat = () => {
-        setMessages([]);
-        localStorage.removeItem('chat_messages');
-    };
-
-    return (
-        <>
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="fixed bottom-6 right-6 z-50 p-3 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 transition-all duration-200 hover:scale-105"
-            >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                </svg>
-            </button>
-
-            {isOpen && (
-                <div className="fixed bottom-24 right-6 z-50 w-96 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 flex flex-col" style={{ height: '500px' }}>
-                    <div className="p-4 bg-gradient-to-r from-primary-600 to-primary-700 rounded-t-xl text-white font-semibold flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                            <span>ODUSBABA AI Assistant</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <button onClick={clearChat} className="text-white/70 hover:text-white text-xs">Clear</button>
-                            <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white">✕</button>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {messages.length === 0 && (
-                            <div className="text-center text-slate-400 text-sm">
-                                <p>👋 Hi! I'm ODUSBABA, your AI career assistant.</p>
-                                <p className="mt-2">Ask me about:</p>
-                                <ul className="mt-1 space-y-1">
-                                    <li>• Job search strategies</li>
-                                    <li>• CV optimization</li>
-                                    <li>• Interview preparation</li>
-                                    <li>• Career advice</li>
-                                </ul>
-                            </div>
-                        )}
-                        {messages.map((msg, idx) => (
-                            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] p-3 rounded-lg ${msg.role === 'user' ? 'bg-primary-600/20 text-white' : 'bg-slate-700 text-slate-200'}`}>
-                                    <p className="text-sm">{msg.content}</p>
-                                    <p className="text-xs opacity-50 mt-1">{new Date(msg.timestamp).toLocaleTimeString()}</p>
-                                </div>
-                            </div>
-                        ))}
-                        {loading && (
-                            <div className="flex justify-start">
-                                <div className="bg-slate-700 p-3 rounded-lg">
-                                    <div className="flex gap-1">
-                                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
-                                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-100"></span>
-                                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-200"></span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-                    <div className="p-4 border-t border-slate-700 flex gap-2">
-                        <input
-                            type="text"
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                            placeholder="Type your question..."
-                            className="flex-1 px-4 py-2 bg-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                        <button onClick={sendMessage} className="px-4 py-2 bg-primary-600 rounded-lg text-white hover:bg-primary-700 transition">
-                            Send
-                        </button>
-                    </div>
-                </div>
-            )}
-        </>
-    );
+    return <ODUSBABAChat />;
 }
 
 // ============================================
@@ -271,7 +160,6 @@ function Navbar() {
     const adminDropdownRef = useRef(null);
     const accountDropdownRef = useRef(null);
     
-    // Check authentication status
     const checkAuth = useCallback(async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -296,7 +184,6 @@ function Navbar() {
     useEffect(() => {
         checkAuth();
         
-        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
             checkAuth();
         });
@@ -304,7 +191,6 @@ function Navbar() {
         return () => subscription?.unsubscribe();
     }, [checkAuth]);
 
-    // Close dropdowns when clicking outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (adminDropdownRef.current && !adminDropdownRef.current.contains(event.target)) {
@@ -342,11 +228,10 @@ function Navbar() {
 
     return (
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
-            <div className="max-w-7xl mx-auto px-4">
+            <div className="container-responsive">
                 <div className="flex justify-between items-center py-3">
                     <a href="/" className="text-white font-bold text-xl hover:text-primary-400 transition">ODUSBABA</a>
 
-                    {/* Desktop Menu */}
                     <div className="hidden md:flex items-center gap-5">
                         {navLinks.map(link => (
                             <a key={link.path} href={link.path} className="text-slate-300 hover:text-white transition text-sm">
@@ -354,7 +239,6 @@ function Navbar() {
                             </a>
                         ))}
                         
-                        {/* Admin Dropdown */}
                         {isAdmin && (
                             <div className="relative" ref={adminDropdownRef}>
                                 <button 
@@ -381,7 +265,6 @@ function Navbar() {
                             </div>
                         )}
                         
-                        {/* Account Dropdown */}
                         {isLoggedIn ? (
                             <div className="relative" ref={accountDropdownRef}>
                                 <button 
@@ -413,7 +296,6 @@ function Navbar() {
                         )}
                     </div>
 
-                    {/* Mobile Menu Button */}
                     <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden text-white">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={mobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
@@ -421,7 +303,6 @@ function Navbar() {
                     </button>
                 </div>
 
-                {/* Mobile Menu */}
                 {mobileMenuOpen && (
                     <div className="md:hidden py-3 border-t border-slate-800 max-h-80 overflow-y-auto">
                         {navLinks.map(link => (
@@ -465,7 +346,7 @@ function Navbar() {
 function Footer() {
     return (
         <footer className="bg-slate-900 border-t border-slate-800 py-8 mt-8">
-            <div className="max-w-7xl mx-auto px-4">
+            <div className="container-responsive">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-6">
                     <div>
                         <h4 className="text-white font-semibold mb-3">ODUSBABA</h4>
@@ -523,7 +404,7 @@ const PageLoader = () => (
 );
 
 // ============================================
-// PROTECTED ROUTE WRAPPER (FIXED)
+// PROTECTED ROUTE WRAPPER
 // ============================================
 function ProtectedRoute({ children, requireAdmin = false }) {
     const [authState, setAuthState] = useState({ loading: true, isAuthenticated: false, isAdmin: false });
@@ -666,112 +547,116 @@ function AppContent() {
             <ScrollToTop />
             <Navbar />
             <FraudSafetyBanner />
-            <main className="min-h-screen bg-slate-950">
-                <Suspense fallback={<PageLoader />}>
-                    <Routes location={location} key={location.pathname}>
-                        {/* Public Routes */}
-                        <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
-                        <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
-                        <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
-                        <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-                        <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
-                        <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
-                        <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
-                        <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
-                        <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
-                        <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
-                        <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
-                        <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-                        <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
-                        <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                        <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
-                        <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
-                        
-                        {/* Assessment Routes */}
-                        <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-                        <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
-                        <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
-                        
-                        {/* Article Routes */}
-                        <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
-                        <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
-                        
-                        {/* Admin Login */}
-                        <Route path="/admin-login" element={<AdminLogin />} />
-                        
-                        {/* Admin Routes - Protected */}
-                        <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
-                        <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
-                        <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
-                        <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
-                        <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                        <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                        <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
-                        <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
-                        <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                        <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                        <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><TestingModeSettings /></ProtectedRoute>} />
-                        <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><TesterVisibilitySettings /></ProtectedRoute>} />
-                        <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><EmailTest /></ProtectedRoute>} />
-                        <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><ExternalJobs /></ProtectedRoute>} />
-                        <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><ExternalJobsManager /></ProtectedRoute>} />
-                        <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><KnowledgeSourceManager /></ProtectedRoute>} />
-                        <Route path="/admin/books" element={<ProtectedRoute requireAdmin><ManageBooks /></ProtectedRoute>} />
-                        <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><NewsletterAdmin /></ProtectedRoute>} />
-                        <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AssessmentManager /></ProtectedRoute>} />
-                        <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AssessmentEditor /></ProtectedRoute>} />
-                        <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
-                        <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
-                        <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
-                        <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
-                        <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
-                        <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
-                        
-                        {/* User Routes - Protected */}
-                        <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
-                        <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                        <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
-                        <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
-                        <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
-                        <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
-                        <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
-                        <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
-                        <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
-                        <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
-                        <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
-                        <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
-                        
-                        {/* Employer Routes - Protected */}
-                        <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
-                        <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
-                        
-                        {/* Tester Routes */}
-                        <Route path="/tester-login" element={<TesterLoginPage />} />
-                        <Route path="/tester-register" element={<TesterRegisterPage />} />
-                        <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
-                        
-                        {/* Workforce Routes */}
-                        <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
-                        <Route path="/workforce/proposals" element={<ProposalsList />} />
-                        <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
-                        
-                        {/* Legal Routes */}
-                        <Route path="/legal/terms" element={<TermsPage />} />
-                        <Route path="/legal/privacy" element={<PrivacyPage />} />
-                        <Route path="/legal/cookies" element={<CookiesPage />} />
-                        <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
-                        <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
-                        <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
-                        <Route path="/safety-tips" element={<SafetyTipsPage />} />
-                        <Route path="/report-fraud" element={<ReportFraudPage />} />
-                        
-                        {/* 404 */}
-                        <Route path="*" element={<NotFoundPage />} />
-                    </Routes>
-                </Suspense>
+            <main className="min-h-screen bg-slate-950 overflow-x-hidden">
+                <div className="container-responsive">
+                    <Suspense fallback={<PageLoader />}>
+                        <AnimatePresence mode="wait">
+                            <Routes location={location} key={location.pathname}>
+                                {/* Public Routes */}
+                                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
+                                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                                <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
+                                <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
+                                
+                                {/* Assessment Routes */}
+                                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                                <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                                <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+                                
+                                {/* Article Routes */}
+                                <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                                <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
+                                
+                                {/* Admin Login */}
+                                <Route path="/admin-login" element={<AdminLogin />} />
+                                
+                                {/* Admin Routes - Protected */}
+                                <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+                                <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
+                                <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
+                                <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
+                                <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
+                                <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
+                                <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
+                                <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
+                                <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
+                                <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
+                                <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><TestingModeSettings /></ProtectedRoute>} />
+                                <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><TesterVisibilitySettings /></ProtectedRoute>} />
+                                <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><EmailTest /></ProtectedRoute>} />
+                                <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><ExternalJobs /></ProtectedRoute>} />
+                                <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><ExternalJobsManager /></ProtectedRoute>} />
+                                <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><KnowledgeSourceManager /></ProtectedRoute>} />
+                                <Route path="/admin/books" element={<ProtectedRoute requireAdmin><ManageBooks /></ProtectedRoute>} />
+                                <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><NewsletterAdmin /></ProtectedRoute>} />
+                                <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AssessmentManager /></ProtectedRoute>} />
+                                <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AssessmentEditor /></ProtectedRoute>} />
+                                <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
+                                <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
+                                <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
+                                <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
+                                <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
+                                <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
+                                
+                                {/* User Routes - Protected */}
+                                <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
+                                <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+                                <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
+                                <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
+                                <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
+                                <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
+                                <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
+                                <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
+                                <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
+                                <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
+                                <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
+                                <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
+                                
+                                {/* Employer Routes - Protected */}
+                                <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
+                                <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
+                                
+                                {/* Tester Routes */}
+                                <Route path="/tester-login" element={<TesterLoginPage />} />
+                                <Route path="/tester-register" element={<TesterRegisterPage />} />
+                                <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
+                                
+                                {/* Workforce Routes */}
+                                <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
+                                <Route path="/workforce/proposals" element={<ProposalsList />} />
+                                <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
+                                
+                                {/* Legal Routes */}
+                                <Route path="/legal/terms" element={<TermsPage />} />
+                                <Route path="/legal/privacy" element={<PrivacyPage />} />
+                                <Route path="/legal/cookies" element={<CookiesPage />} />
+                                <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
+                                <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
+                                <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
+                                <Route path="/safety-tips" element={<SafetyTipsPage />} />
+                                <Route path="/report-fraud" element={<ReportFraudPage />} />
+                                
+                                {/* 404 */}
+                                <Route path="*" element={<NotFoundPage />} />
+                            </Routes>
+                        </AnimatePresence>
+                    </Suspense>
+                </div>
             </main>
             <NewsletterSignup />
-            <AIChat />
+            <ODUSBABAChat />
             <CookieConsent />
             <Footer />
         </>
