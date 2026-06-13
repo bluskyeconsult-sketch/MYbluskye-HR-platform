@@ -1,9 +1,10 @@
 // src/services/assessmentService.js
-// ODUSBABA ASSESSMENT SERVICE v3.0 - PRODUCTION READY
+// ODUSBABA ASSESSMENT SERVICE v3.1 - PRODUCTION READY
 // ✅ Unified API with fallback chain
 // ✅ Tier-based access control
 // ✅ AI scoring & insights with graceful degradation
 // ✅ Complete assessment lifecycle management
+// ✅ Backward compatible exports
 
 import { supabase } from '../lib/supabase';
 
@@ -282,6 +283,9 @@ export async function checkAssessmentEligibility(userId) {
         };
     }
 }
+
+// Alias for backward compatibility
+export const checkUserEligibility = checkAssessmentEligibility;
 
 export async function recordAssessmentStart(userId, assessmentId, sessionId) {
     const { data, error } = await supabase
@@ -1009,6 +1013,7 @@ export default {
     getAssessmentById,
     getAssessmentWithQuestions,
     checkAssessmentEligibility,
+    checkUserEligibility, // Alias for backward compatibility
     startAssessment,
     saveAnswer,
     submitAssessmentAnswers,
