@@ -3,9 +3,9 @@
 // ✅ Unified API integration
 // ✅ Search, filters, user results tracking
 // ✅ Real question counts from database
-// ✅ Eligibility checking with service layer
+// ✅ Eligibility checking via unified API
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -14,7 +14,12 @@ import {
     BarChart3, Sparkles, HelpCircle, RefreshCw, Shield,
     Zap, Target, ThumbsUp, BookOpen, ChevronRight
 } from 'lucide-react';
-import { checkAssessmentEligibility } from '../services/assessmentService';
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
 
 // ============================================
 // CATEGORIES CONFIGURATION
@@ -70,19 +75,22 @@ export default function AssessmentsPage() {
     async function checkUser() {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
-        
-        if (user) {
-            await loadUserEligibility();
-        }
     }
 
-    async function loadUserEligibility() {
+    async function loadUserEligibility(userId) {
         try {
-            const eligibilityData = await checkAssessmentEligibility(user.id);
-            setEligibility(eligibilityData);
+            // ✅ Using unified API for eligibility
+            const response = await fetch(`${API_BASE}?action=user-eligibility&userId=${userId}&type=assessments`);
+            const data = await response.json();
+            
+            if (data.success) {
+                setEligibility(data.data);
+            } else {
+                setEligibility({ remaining: 5, limit: 5, isUnlimited: false, canRetake: true });
+            }
         } catch (err) {
             console.error('Error loading eligibility:', err);
-            setEligibility({ remaining: 5, limit: 5, isUnlimited: false });
+            setEligibility({ remaining: 5, limit: 5, isUnlimited: false, canRetake: true });
         }
     }
 
@@ -104,40 +112,43 @@ export default function AssessmentsPage() {
         try {
             setLoading(true);
             
-            // Get user eligibility first
+            // Get user for eligibility
             const { data: { user: authUser } } = await supabase.auth.getUser();
             if (authUser) {
-                const eligibilityData = await checkAssessmentEligibility(authUser.id);
-                setEligibility(eligibilityData);
+                await loadUserEligibility(authUser.id);
             }
             
-            // Load assessments from Supabase
-            const { data, error: supabaseError } = await supabase
-                .from('assessments')
-                .select('*')
-                .eq('is_active', true)
-                .order('created_at', { ascending: true });
+            // ✅ Using unified API for assessments list
+            const response = await fetch(`${API_BASE}?action=assessments-list`);
+            const data = await response.json();
             
-            if (supabaseError) throw supabaseError;
-            
-            console.log(`✅ Loaded ${data?.length || 0} assessments`);
-            
-            // Get real question counts for each assessment
-            const enhancedData = await Promise.all((data || []).map(async (assessment) => {
-                const realCount = await getRealQuestionCount(assessment.id);
-                return {
-                    ...assessment,
-                    display_question_count: realCount > 0 ? realCount : (assessment.question_count || 20)
-                };
-            }));
-            
-            // Safe filtering - ensure valid data
-            const safeData = enhancedData.filter(a => a && a.id && a.title);
-            setAssessments(safeData);
-            setFilteredAssessments(safeData);
-            
-            if (safeData.length === 0) {
-                console.warn("⚠️ No active assessments found.");
+            if (data.success) {
+                const assessmentsData = data.data || [];
+                console.log(`✅ Loaded ${assessmentsData.length} assessments`);
+                
+                // Get real question counts for each assessment via unified API
+                const enhancedData = await Promise.all(assessmentsData.map(async (assessment) => {
+                    // ✅ Using unified API for question count
+                    const countResponse = await fetch(`${API_BASE}?action=assessment-question-count&assessmentId=${assessment.id}`);
+                    const countData = await countResponse.json();
+                    const realCount = countData.success ? countData.count : 0;
+                    
+                    return {
+                        ...assessment,
+                        display_question_count: realCount > 0 ? realCount : (assessment.question_count || 20)
+                    };
+                }));
+                
+                // Safe filtering - ensure valid data
+                const safeData = enhancedData.filter(a => a && a.id && a.title);
+                setAssessments(safeData);
+                setFilteredAssessments(safeData);
+                
+                if (safeData.length === 0) {
+                    console.warn("⚠️ No active assessments found.");
+                }
+            } else {
+                throw new Error(data.error || 'Failed to load assessments');
             }
         } catch (err) {
             console.error('❌ Error loading assessments:', err);
@@ -149,44 +160,27 @@ export default function AssessmentsPage() {
         }
     }
 
-    async function getRealQuestionCount(assessmentId) {
-        try {
-            const { data, error } = await supabase
-                .from('assessment_questions')
-                .select('id', { count: 'exact', head: true })
-                .eq('assessment_id', assessmentId);
-            
-            if (error) throw error;
-            return data?.length || 0;
-        } catch (err) {
-            console.warn(`Could not get question count for ${assessmentId}:`, err);
-            return 0;
-        }
-    }
-
     async function loadUserResults() {
         if (!user) return;
         
         try {
-            const { data, error } = await supabase
-                .from('user_assessments')
-                .select('assessment_id, score, percentage, completed_at, performance_level')
-                .eq('user_id', user.id)
-                .eq('status', 'completed');
+            // ✅ Using unified API for user assessment results
+            const response = await fetch(`${API_BASE}?action=user-assessment-results&userId=${user.id}`);
+            const data = await response.json();
             
-            if (error) throw error;
-            
-            const resultsMap = {};
-            (data || []).forEach(r => {
-                resultsMap[r.assessment_id] = {
-                    score: r.score,
-                    percentage: r.percentage,
-                    completed_at: r.completed_at,
-                    performance_level: r.performance_level
-                };
-            });
-            setUserResults(resultsMap);
-            console.log(`✅ Loaded ${data?.length || 0} user assessment results`);
+            if (data.success && data.data) {
+                const resultsMap = {};
+                data.data.forEach(r => {
+                    resultsMap[r.assessment_id] = {
+                        score: r.score,
+                        percentage: r.percentage,
+                        completed_at: r.completed_at,
+                        performance_level: r.performance_level
+                    };
+                });
+                setUserResults(resultsMap);
+                console.log(`✅ Loaded ${data.data.length} user assessment results`);
+            }
         } catch (err) {
             console.warn('Could not load user results:', err);
         }
@@ -196,31 +190,25 @@ export default function AssessmentsPage() {
         console.log("🔍 [DEBUG] Starting database diagnostic...");
         
         try {
-            const { data: assessmentsData, error } = await supabase
-                .from('assessments')
-                .select('id, title, question_count, is_active')
-                .eq('is_active', true);
+            // ✅ Using unified API for assessments debug
+            const response = await fetch(`${API_BASE}?action=assessments-debug`);
+            const data = await response.json();
             
-            if (error) throw error;
-            
-            const countsMap = {};
-            for (const assessment of assessmentsData || []) {
-                const count = await getRealQuestionCount(assessment.id);
-                countsMap[assessment.id] = count;
+            if (data.success && data.data) {
+                const { assessmentsData, countsMap } = data.data;
+                setQuestionCounts(countsMap || {});
+                setDebugInfo({
+                    assessmentsCount: assessmentsData?.length || 0,
+                    assessmentsList: assessmentsData?.map(a => ({ 
+                        title: a.title, 
+                        storedCount: a.question_count || 0,
+                        realCount: countsMap?.[a.id] || 0,
+                        needsUpdate: a.question_count !== countsMap?.[a.id],
+                        isActive: a.is_active 
+                    })) || [],
+                    timestamp: new Date().toISOString()
+                });
             }
-            
-            setQuestionCounts(countsMap);
-            setDebugInfo({
-                assessmentsCount: assessmentsData?.length || 0,
-                assessmentsList: assessmentsData?.map(a => ({ 
-                    title: a.title, 
-                    storedCount: a.question_count || 0,
-                    realCount: countsMap[a.id] || 0,
-                    needsUpdate: a.question_count !== countsMap[a.id],
-                    isActive: a.is_active 
-                })) || [],
-                timestamp: new Date().toISOString()
-            });
         } catch (err) {
             console.error("❌ [DEBUG] Unexpected error:", err);
             setDebugInfo({ error: err.message });
