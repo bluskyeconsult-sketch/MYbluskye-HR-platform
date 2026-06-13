@@ -1,9 +1,10 @@
 // src/lib/supabase.js
-// ODUSBABA SUPABASE CLIENT v3.1 - PRODUCTION READY
+// ODUSBABA SUPABASE CLIENT v3.2 - PRODUCTION READY
 // ✅ Singleton pattern with environment validation
 // ✅ Auth storage management with corruption detection
 // ✅ Unified API helper with retry logic
 // ✅ Security: User permission validation
+// ✅ Analytics: trackEvent for event tracking
 // ✅ No top-level await, safe for all environments
 
 import { createClient } from '@supabase/supabase-js';
@@ -77,7 +78,7 @@ export const getSupabase = () => {
             global: {
                 headers: {
                     'x-application-name': 'bluskye-consult',
-                    'x-client-info': 'bluskye@3.1.0'
+                    'x-client-info': 'bluskye@3.2.0'
                 }
             }
         });
@@ -249,7 +250,7 @@ export async function isAuthenticated() {
 }
 
 // ============================================
-// SECURITY & PERMISSION VALIDATION (NEW from Code 2)
+// SECURITY & PERMISSION VALIDATION
 // ============================================
 
 /**
@@ -309,6 +310,38 @@ export async function isAdmin() {
     const user = await getCurrentUser();
     if (!user) return false;
     return validateUserAccess(user.id, 'admin');
+}
+
+// ============================================
+// ANALYTICS EVENT TRACKING (NEW - FIXES build warning)
+// ============================================
+
+/**
+ * Track analytics event
+ * @param {string} eventType - Type of event (e.g., 'page_view', 'click', 'form_submit')
+ * @param {object} eventData - Event data
+ * @param {string|null} userId - User ID (optional)
+ * @returns {Promise<Object>} Tracking result
+ */
+export async function trackEvent(eventType, eventData, userId = null) {
+    try {
+        const currentUser = userId || (await getCurrentUser())?.id;
+        const response = await fetch('/api/index?action=track-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_type: eventType,
+                event_data: eventData,
+                user_id: currentUser
+            })
+        });
+        
+        const result = await response.json();
+        return result;
+    } catch (error) {
+        console.error('Track event error:', error);
+        return { success: false, error: error.message };
+    }
 }
 
 // ============================================
@@ -451,7 +484,7 @@ export async function repairCorruptedSession() {
 }
 
 // ============================================
-// PERFORMANCE OPTIMIZATIONS (RUTH Standard)
+// PERFORMANCE OPTIMIZATIONS
 // ============================================
 
 /**
