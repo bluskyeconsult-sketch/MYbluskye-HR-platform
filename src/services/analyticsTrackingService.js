@@ -1,8 +1,8 @@
 // src/services/analyticsTrackingService.js
 // ODUSBABA ANALYTICS TRACKING SERVICE v3.0 - PRODUCTION READY
-// ✅ Complete session tracking, page views, events
-// ✅ IP detection, device info, scroll/click tracking
-// ✅ Unified API endpoint integration
+// ✅ Unified API endpoint for all analytics
+// ✅ Session tracking, page views, events
+// ✅ Device detection, scroll/click tracking
 // ✅ Robust error handling with fallbacks
 
 import { supabase } from '../lib/supabase';
@@ -10,6 +10,10 @@ import { supabase } from '../lib/supabase';
 // ============================================
 // CONSTANTS & CONFIGURATION
 // ============================================
+
+const API_BASE = '/api/index';
+const IP_ENDPOINT = `${API_BASE}?action=ip`;
+const TRACK_EVENT_ENDPOINT = `${API_BASE}?action=track-event`;
 
 const STORAGE_KEYS = {
     SESSION_ID: 'analytics_session_id',
@@ -23,10 +27,6 @@ const CONFIG = {
     MAX_RETRIES: 2,
     RETRY_DELAY: 1000
 };
-
-// ✅ FIXED: Unified API endpoint
-const API_BASE = '/api/index';
-const IP_ENDPOINT = `${API_BASE}?action=ip`;
 
 // State management
 let currentSessionId = null;
@@ -67,80 +67,12 @@ function getCurrentSessionId() {
     return sessionId;
 }
 
-function setCurrentSessionId(sessionId) {
-    currentSessionId = sessionId;
-    sessionStorage.setItem(STORAGE_KEYS.SESSION_ID, sessionId);
-    sessionStorage.setItem(STORAGE_KEYS.SESSION_START, Date.now().toString());
-    sessionStartTime = Date.now();
-}
-
 async function getUser() {
     try {
         const { data: { user } } = await supabase.auth.getUser();
         return user;
     } catch {
         return null;
-    }
-}
-
-// ============================================
-// IP DETECTION (Unified API)
-// ============================================
-
-/**
- * Get user's IP address and geolocation data
- * Uses unified /api/index?action=ip endpoint
- */
-export async function getUserIP() {
-    try {
-        const response = await fetch(IP_ENDPOINT, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            return {
-                ip: data.ip,
-                country: data.geolocation?.country,
-                city: data.geolocation?.city,
-                region: data.geolocation?.region,
-                latitude: data.geolocation?.latitude,
-                longitude: data.geolocation?.longitude,
-                source: 'api'
-            };
-        }
-        
-        // Fallback to free IP API
-        const fallbackResponse = await fetch('https://ipapi.co/json/');
-        if (fallbackResponse.ok) {
-            const data = await fallbackResponse.json();
-            return {
-                ip: data.ip,
-                country: data.country_name,
-                city: data.city,
-                region: data.region,
-                latitude: data.latitude,
-                longitude: data.longitude,
-                source: 'ipapi'
-            };
-        }
-        
-        return { ip: null, error: 'Unable to fetch IP' };
-    } catch (error) {
-        console.debug('IP detection failed:', error.message);
-        return { ip: null, error: error.message };
-    }
-}
-
-/**
- * Get browser's timezone
- */
-export function getUserTimezone() {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone;
-    } catch {
-        return 'UTC';
     }
 }
 
@@ -182,7 +114,15 @@ function getDeviceInfo() {
     };
 }
 
-// Safe API call wrapper - handles errors gracefully
+function getUserTimezone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+        return 'UTC';
+    }
+}
+
+// Safe API call wrapper
 async function safeAnalyticsCall(callback, fallbackValue = null, retries = 0) {
     if (!analyticsEnabled) return fallbackValue;
     
@@ -190,30 +130,24 @@ async function safeAnalyticsCall(callback, fallbackValue = null, retries = 0) {
         const result = await callback();
         return result;
     } catch (error) {
-        // Don't log 403/404 errors heavily - they're expected without proper RLS/tables
         if (error?.status === 403 || error?.status === 404 || error?.code === '42P01') {
             if (retries === 0) {
-                console.debug('Analytics unavailable (tables/RLS):', error.message);
+                console.debug('Analytics unavailable:', error.message);
                 analyticsEnabled = false;
             }
             return fallbackValue;
         }
         
-        // Retry on network errors
         if (retries < CONFIG.MAX_RETRIES && (error.message === 'Failed to fetch' || error.name === 'NetworkError')) {
             await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
             return safeAnalyticsCall(callback, fallbackValue, retries + 1);
         }
         
-        // Only log non-expected errors
-        if (error?.status !== 403 && error?.status !== 404) {
-            console.debug('Analytics error:', error.message);
-        }
+        console.debug('Analytics error:', error.message);
         return fallbackValue;
     }
 }
 
-// Check if analytics tables exist (only once)
 async function checkAnalyticsTables() {
     if (tablesExistChecked) return analyticsEnabled;
     tablesExistChecked = true;
@@ -229,9 +163,38 @@ async function checkAnalyticsTables() {
     
     analyticsEnabled = result;
     if (!analyticsEnabled) {
-        console.log('Analytics disabled - tables not found in Supabase');
+        console.log('Analytics disabled - tables not found');
     }
     return analyticsEnabled;
+}
+
+// ============================================
+// IP & LOCATION (via Unified API)
+// ============================================
+
+export async function getUserIP() {
+    try {
+        const response = await fetch(IP_ENDPOINT, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return {
+                ip: data.ip,
+                country: data.geolocation?.country,
+                city: data.geolocation?.city,
+                region: data.geolocation?.region,
+                latitude: data.geolocation?.latitude,
+                longitude: data.geolocation?.longitude
+            };
+        }
+        return { ip: null, error: 'Unable to fetch IP' };
+    } catch (error) {
+        console.debug('IP detection failed:', error.message);
+        return { ip: null, error: error.message };
+    }
 }
 
 // ============================================
@@ -265,31 +228,30 @@ export async function startSession() {
         // Create new session
         const newSessionId = generateId('sess_');
         
-        const { error } = await supabase
-            .from('analytics_sessions')
-            .insert({
-                session_id: newSessionId,
-                visitor_id: visitorId,
-                user_id: user?.id,
-                ip_address: ipData.ip,
-                country: ipData.country,
-                city: ipData.city,
-                device_type: deviceInfo.deviceType,
-                browser: deviceInfo.browser,
-                os: deviceInfo.os,
-                screen_resolution: deviceInfo.screenResolution,
-                language: deviceInfo.language,
-                timezone: deviceInfo.timezone,
-                referrer: document.referrer || 'direct',
-                landing_page: window.location.pathname,
-                start_time: new Date().toISOString(),
-                last_activity: new Date().toISOString(),
-                page_count: 1
-            });
+        await supabase.from('analytics_sessions').insert({
+            session_id: newSessionId,
+            visitor_id: visitorId,
+            user_id: user?.id,
+            ip_address: ipData.ip,
+            ip_country: ipData.country,
+            ip_city: ipData.city,
+            device_type: deviceInfo.deviceType,
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            screen_resolution: deviceInfo.screenResolution,
+            language: deviceInfo.language,
+            timezone: deviceInfo.timezone,
+            referrer: document.referrer || 'direct',
+            landing_page: window.location.pathname,
+            start_time: new Date().toISOString(),
+            last_activity: new Date().toISOString(),
+            page_count: 1
+        });
         
-        if (!error) {
-            setCurrentSessionId(newSessionId);
-        }
+        currentSessionId = newSessionId;
+        sessionStartTime = Date.now();
+        sessionStorage.setItem(STORAGE_KEYS.SESSION_ID, newSessionId);
+        sessionStorage.setItem(STORAGE_KEYS.SESSION_START, sessionStartTime.toString());
         
         return currentSessionId;
     }, null);
@@ -356,27 +318,21 @@ export async function trackPageView(pagePath, pageTitle) {
         }
         
         const user = await getUser();
-        const ipData = await getUserIP();
         const deviceInfo = getDeviceInfo();
         
-        await supabase
-            .from('analytics_page_views')
-            .insert({
-                session_id: sessionId,
-                user_id: user?.id,
-                page_url: pagePath,
-                page_title: pageTitle || document.title,
-                referrer: document.referrer,
-                user_agent: navigator.userAgent.substring(0, 500),
-                ip_address: ipData.ip,
-                country: ipData.country,
-                city: ipData.city,
-                device_type: deviceInfo.deviceType,
-                browser: deviceInfo.browser,
-                os: deviceInfo.os,
-                screen_resolution: deviceInfo.screenResolution,
-                created_at: new Date().toISOString()
-            });
+        await supabase.from('analytics_page_views').insert({
+            session_id: sessionId,
+            user_id: user?.id,
+            page_path: pagePath,
+            page_title: pageTitle || document.title,
+            referrer: document.referrer,
+            user_agent: navigator.userAgent.substring(0, 500),
+            device_type: deviceInfo.deviceType,
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            screen_resolution: deviceInfo.screenResolution,
+            created_at: new Date().toISOString()
+        });
         
         // Update session page count
         const { data: session } = await supabase
@@ -410,53 +366,44 @@ export async function updatePageViewMetrics(scrollDepth = null, clickCount = nul
             .update({
                 scroll_depth: scrollDepth ? Math.min(scrollDepth, 100) : null,
                 click_count: clickCount || null,
-                view_duration_seconds: timeOnPage > 0 ? timeOnPage : null
+                time_on_page: timeOnPage > 0 ? timeOnPage : null
             })
             .eq('session_id', currentSessionId)
-            .eq('page_url', currentPagePath)
-            .is('view_duration_seconds', null);
+            .eq('page_path', currentPagePath);
     });
 }
 
 // ============================================
-// EVENT TRACKING (Unified API)
+// EVENT TRACKING (via Unified API)
 // ============================================
 
 export async function trackEvent(eventType, eventData = {}, pagePath = null) {
     if (!analyticsEnabled) return;
     
-    await safeAnalyticsCall(async () => {
-        let sessionId = getCurrentSessionId();
-        if (!sessionId) {
-            sessionId = await startSession();
-            if (!sessionId) return;
-        }
-        
+    try {
         const user = await getUser();
         
-        // Try unified API first
-        try {
-            const response = await fetch(`${API_BASE}?action=track-event`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    event_type: eventType,
-                    event_data: eventData,
-                    user_id: user?.id,
-                    session_id: sessionId,
-                    page_path: pagePath || window.location.pathname
-                })
-            });
-            
-            if (response.ok) return;
-        } catch (apiError) {
-            console.debug('Unified API event tracking failed, falling back to direct DB:', apiError);
-        }
+        // Use unified API endpoint for event tracking
+        const response = await fetch(TRACK_EVENT_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_type: eventType,
+                event_data: eventData,
+                user_id: user?.id,
+                page_path: pagePath || window.location.pathname
+            })
+        });
         
-        // Fallback to direct database insert
-        await supabase
-            .from('analytics_events')
-            .insert({
+        if (!response.ok) {
+            // Fallback to direct Supabase insert
+            let sessionId = getCurrentSessionId();
+            if (!sessionId) {
+                sessionId = await startSession();
+                if (!sessionId) return;
+            }
+            
+            await supabase.from('analytics_events').insert({
                 session_id: sessionId,
                 user_id: user?.id,
                 event_type: eventType,
@@ -464,7 +411,10 @@ export async function trackEvent(eventType, eventData = {}, pagePath = null) {
                 page_path: pagePath || window.location.pathname,
                 created_at: new Date().toISOString()
             });
-    });
+        }
+    } catch (error) {
+        console.debug('Event tracking error:', error.message);
+    }
 }
 
 // ============================================
@@ -520,20 +470,23 @@ export function trackContactForm(name, email, subject) {
 // ============================================
 
 export async function getVisitorAnalytics(days = 30) {
-    if (!await checkAnalyticsTables()) return getEmptyAnalytics();
+    if (!await checkAnalyticsTables()) return { summary: {}, top_pages: [], recent_visitors: [] };
     
     return safeAnalyticsCall(async () => {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
-        const { data: sessions } = await supabase
-            .from('analytics_sessions')
-            .select('*')
-            .gte('start_time', cutoff);
+        const [sessions, pageViews, events] = await Promise.all([
+            supabase.from('analytics_sessions').select('*').gte('start_time', cutoff),
+            supabase.from('analytics_page_views').select('*').gte('created_at', cutoff),
+            supabase.from('analytics_events').select('*').gte('created_at', cutoff)
+        ]);
         
-        const sessionsData = sessions || [];
-        const uniqueVisitors = new Set(sessionsData.map(s => s.visitor_id || s.user_id || s.ip_address)).size;
+        const sessionsData = sessions.data || [];
+        const pageViewsData = pageViews.data || [];
+        const eventsData = events.data || [];
+        
+        const uniqueVisitors = new Set(sessionsData.map(s => s.visitor_id || s.user_id)).size;
         const totalSessions = sessionsData.length;
-        
         const avgDuration = sessionsData.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / (totalSessions || 1);
         const avgMinutes = Math.floor(avgDuration / 60);
         
@@ -547,7 +500,6 @@ export async function getVisitorAnalytics(days = 30) {
             else if (s.device_type === 'mobile') byDevice.mobile++;
             else if (s.device_type === 'tablet') byDevice.tablet++;
         });
-        
         const totalDevices = byDevice.desktop + byDevice.mobile + byDevice.tablet;
         const devicePercentages = {
             desktop: totalDevices > 0 ? Math.round((byDevice.desktop / totalDevices) * 100) : 0,
@@ -556,81 +508,52 @@ export async function getVisitorAnalytics(days = 30) {
         };
         
         // Top pages
-        const { data: pageViews } = await supabase
-            .from('analytics_page_views')
-            .select('page_url')
-            .gte('created_at', cutoff);
+        const topPages = Object.entries(
+            pageViewsData.reduce((acc, p) => {
+                acc[p.page_path] = (acc[p.page_path] || 0) + 1;
+                return acc;
+            }, {})
+        ).map(([path, views]) => ({ path, views }))
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 10);
         
-        const pageStats = {};
-        (pageViews || []).forEach(p => {
-            pageStats[p.page_url] = (pageStats[p.page_url] || 0) + 1;
-        });
-        
-        const topPages = Object.entries(pageStats)
-            .map(([path, views]) => ({ path, views }))
-            .sort((a, b) => b.views - a.views)
-            .slice(0, 10);
-        
-        // Event types
-        const { data: events } = await supabase
-            .from('analytics_events')
-            .select('event_type')
-            .gte('created_at', cutoff);
-        
-        const eventTypes = {};
-        (events || []).forEach(e => {
-            eventTypes[e.event_type] = (eventTypes[e.event_type] || 0) + 1;
-        });
-        
-        // Country breakdown
-        const countryStats = {};
-        (pageViews || []).forEach(p => {
-            const country = p.country || 'Unknown';
-            countryStats[country] = (countryStats[country] || 0) + 1;
-        });
+        // Recent visitors
+        const recentVisitors = sessionsData.slice(0, 20).map(s => ({
+            time: s.start_time,
+            city: s.ip_city,
+            country: s.ip_country,
+            device: s.device_type,
+            browser: s.browser,
+            pages: s.page_count,
+            duration: s.duration_seconds
+        }));
         
         return {
             summary: {
                 unique_visitors: uniqueVisitors,
                 total_sessions: totalSessions,
+                total_page_views: pageViewsData.length,
+                total_events: eventsData.length,
                 avg_session_duration: avgMinutes,
-                bounce_rate: bounceRate,
-                total_page_views: pageViews?.length || 0,
-                total_events: events?.length || 0
+                bounce_rate: bounceRate
             },
-            by_country: countryStats,
             by_device: devicePercentages,
             top_pages: topPages,
-            event_types: Object.entries(eventTypes),
-            recent_visitors: sessionsData.slice(0, 20).map(s => ({
-                time: s.start_time,
-                city: s.city,
-                country: s.country,
-                device: s.device_type,
-                browser: s.browser,
-                pages: s.page_count,
-                duration: s.duration_seconds
-            }))
+            recent_visitors: recentVisitors,
+            event_types: Object.entries(
+                eventsData.reduce((acc, e) => {
+                    acc[e.event_type] = (acc[e.event_type] || 0) + 1;
+                    return acc;
+                }, {})
+            ),
+            geo_data: {
+                countries: sessionsData.reduce((acc, s) => {
+                    if (s.ip_country) acc[s.ip_country] = (acc[s.ip_country] || 0) + 1;
+                    return acc;
+                }, {})
+            }
         };
-    }, getEmptyAnalytics());
-}
-
-function getEmptyAnalytics() {
-    return {
-        summary: {
-            unique_visitors: 0,
-            total_sessions: 0,
-            avg_session_duration: 0,
-            bounce_rate: 0,
-            total_page_views: 0,
-            total_events: 0
-        },
-        by_country: {},
-        by_device: { desktop: 0, mobile: 0, tablet: 0 },
-        top_pages: [],
-        event_types: [],
-        recent_visitors: []
-    };
+    }, { summary: {}, top_pages: [], recent_visitors: [] });
 }
 
 export async function getPageViews(days = 30) {
@@ -661,14 +584,14 @@ export async function getVisitorsByLocation(days = 30) {
     return safeAnalyticsCall(async () => {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
-        const { data: views } = await supabase
-            .from('analytics_page_views')
-            .select('country')
-            .gte('created_at', cutoff);
+        const { data: sessions } = await supabase
+            .from('analytics_sessions')
+            .select('ip_country')
+            .gte('start_time', cutoff);
         
         const countryStats = {};
-        (views || []).forEach(v => {
-            const country = v.country || 'Unknown';
+        (sessions || []).forEach(s => {
+            const country = s.ip_country || 'Unknown';
             countryStats[country] = (countryStats[country] || 0) + 1;
         });
         
@@ -684,7 +607,7 @@ export async function getActiveUsers() {
         
         const { data } = await supabase
             .from('analytics_sessions')
-            .select('session_id, user_id, visitor_id, device_type, country, last_activity')
+            .select('session_id, visitor_id, device_type, ip_country, last_activity')
             .gte('last_activity', fifteenMinsAgo)
             .is('end_time', null);
         
@@ -791,8 +714,8 @@ CREATE TABLE IF NOT EXISTS analytics_sessions (
     visitor_id TEXT,
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     ip_address TEXT,
-    country TEXT,
-    city TEXT,
+    ip_country TEXT,
+    ip_city TEXT,
     device_type TEXT,
     browser TEXT,
     os TEXT,
@@ -815,18 +738,15 @@ CREATE TABLE IF NOT EXISTS analytics_page_views (
     id BIGSERIAL PRIMARY KEY,
     session_id TEXT REFERENCES analytics_sessions(session_id) ON DELETE CASCADE,
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-    page_url TEXT,
+    page_path TEXT,
     page_title TEXT,
     referrer TEXT,
     user_agent TEXT,
-    ip_address TEXT,
-    country TEXT,
-    city TEXT,
     device_type TEXT,
     browser TEXT,
     os TEXT,
     screen_resolution TEXT,
-    view_duration_seconds INTEGER,
+    time_on_page INTEGER,
     scroll_depth INTEGER,
     click_count INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -849,7 +769,7 @@ CREATE INDEX IF NOT EXISTS idx_analytics_sessions_user_id ON analytics_sessions(
 CREATE INDEX IF NOT EXISTS idx_analytics_sessions_start_time ON analytics_sessions(start_time);
 CREATE INDEX IF NOT EXISTS idx_analytics_page_views_session_id ON analytics_page_views(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_page_views_created_at ON analytics_page_views(created_at);
-CREATE INDEX IF NOT EXISTS idx_analytics_page_views_page_url ON analytics_page_views(page_url);
+CREATE INDEX IF NOT EXISTS idx_analytics_page_views_page_path ON analytics_page_views(page_path);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_session_id ON analytics_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_event_type ON analytics_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events(created_at);
