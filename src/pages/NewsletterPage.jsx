@@ -13,6 +13,16 @@ import {
     Calendar, Bell, Award, Lock
 } from 'lucide-react';
 
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
 export default function NewsletterPage() {
     const [email, setEmail] = useState('');
     const [name, setName] = useState('');
@@ -31,13 +41,17 @@ export default function NewsletterPage() {
         products: false
     });
 
+    // ============================================
+    // FETCH STATS
+    // ============================================
+
     useEffect(() => {
         fetchStats();
     }, []);
 
     async function fetchStats() {
         try {
-            const response = await fetch('/api/index?action=newsletter-stats', {
+            const response = await fetch(`${API_BASE}?action=newsletter-stats`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -53,9 +67,17 @@ export default function NewsletterPage() {
         }
     }
 
+    // ============================================
+    // PREFERENCES
+    // ============================================
+
     const togglePreference = (key) => {
         setPreferences(prev => ({ ...prev, [key]: !prev[key] }));
     };
+
+    // ============================================
+    // SUBSCRIBE (Unified API)
+    // ============================================
 
     const handleSubscribe = async (e) => {
         e.preventDefault();
@@ -76,7 +98,8 @@ export default function NewsletterPage() {
         setError('');
         
         try {
-            const response = await fetch('/api/index?action=newsletter-subscribe', {
+            // ✅ Using unified API endpoint
+            const response = await fetch(`${API_BASE}?action=newsletter-subscribe`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -94,7 +117,7 @@ export default function NewsletterPage() {
                 setEmail('');
                 setName('');
             } else {
-                setError(data.error || 'Subscription failed. Please try again.');
+                setError(data.message || data.error || 'Subscription failed. Please try again.');
             }
         } catch (err) {
             console.error('Subscription error:', err);
@@ -104,7 +127,10 @@ export default function NewsletterPage() {
         }
     };
 
-    // Success Screen
+    // ============================================
+    // SUCCESS SCREEN
+    // ============================================
+
     if (subscribed) {
         return (
             <div className="min-h-screen bg-slate-950 py-20">
@@ -132,8 +158,12 @@ export default function NewsletterPage() {
         );
     }
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
+
     return (
-        <div className="min-h-screen bg-slate-950 py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 {/* Header */}
