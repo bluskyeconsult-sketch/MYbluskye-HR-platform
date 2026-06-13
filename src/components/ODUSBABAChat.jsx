@@ -1,10 +1,11 @@
 // src/components/ODUSBABAChat.jsx
-// ODUSBABA AI CHAT v4.0 - PRODUCTION READY
+// ODUSBABA AI CHAT v5.0 - PRODUCTION READY
 // ✅ Role-based access, confidential data protection
 // ✅ Job fetching integration, credit tracking
-// ✅ Legal information fetching for multiple countries
+// ✅ Legal information fetching for 9 countries
 // ✅ Conversation history, typing indicators
 // ✅ Guest mode support, suggested actions
+// ✅ Enhanced legal detection with country-specific links
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -26,11 +27,11 @@ const TYPING_DELAY = 500;
 const AUTO_CLOSE_DELAY = 300000; // 5 minutes inactivity
 
 // ============================================
-// LEGAL SOURCES CONFIGURATION (From Code 2)
+// LEGAL SOURCES CONFIGURATION (Enhanced from Code 2)
 // ============================================
 
 const LEGAL_SOURCES = {
-    'GB': {
+    'UK': {
         name: 'United Kingdom',
         laborLaw: 'https://www.gov.uk/employment-status',
         rights: 'https://www.acas.org.uk/',
@@ -215,7 +216,6 @@ export default function ODUSBABAChat() {
     async function loadConversation() {
         if (!user) return;
         
-        // Get most recent conversation
         const { data: existing } = await supabase
             .from('chat_conversations')
             .select('id')
@@ -278,7 +278,6 @@ export default function ODUSBABAChat() {
         }
     }
 
-    // SECURITY: Filter sensitive information from user context
     function getSafeUserContext() {
         if (!userProfile) return null;
         
@@ -291,19 +290,23 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // LEGAL INFORMATION FETCHING (From Code 2)
+    // LEGAL INFORMATION FETCHING (Enhanced)
     // ============================================
 
-    async function fetchLegalInfo(countryCode, topic) {
-        const source = LEGAL_SOURCES[countryCode] || LEGAL_SOURCES['GB'];
+    async function fetchLegalInfo(country, topic) {
+        const source = LEGAL_SOURCES[country] || LEGAL_SOURCES['UK'];
+        const urls = {
+            general: 'https://www.ilo.org/global/lang--en/index.htm',
+            ...source
+        };
         
         const reply = `📚 **Legal & Workplace Rights Information for ${source.name} ${source.flag}**\n\n` +
-            `**📋 Labor Laws:**\n🔗 ${source.laborLaw}\n\n` +
-            `**⚖️ Workplace Rights:**\n🔗 ${source.rights}\n\n` +
-            `**🛡️ Health & Safety:**\n🔗 ${source.health}\n\n` +
-            `**🌍 International Standards:**\n🔗 https://www.ilo.org/global/lang--en/index.htm\n\n` +
+            `**📋 Labor Laws:**\n🔗 ${urls.laborLaw}\n\n` +
+            `**⚖️ Workplace Rights:**\n🔗 ${urls.rights}\n\n` +
+            `**🛡️ Health & Safety:**\n🔗 ${urls.health}\n\n` +
+            `**🌍 International Standards:**\n🔗 ${urls.general}\n\n` +
             `💡 **Important Note:** ODUSBABA provides general guidance only. For specific legal advice, please consult a qualified attorney.\n\n` +
-            `📌 **Topic of interest:** "${topic}"\n\n` +
+            `📌 **Topic of interest:** "${topic.substring(0, 100)}"\n\n` +
             `Would you like me to help you find more specific information about your situation?`;
         
         return reply;
@@ -314,14 +317,14 @@ export default function ODUSBABAChat() {
         const legalKeywords = ['legal', 'rights', 'law', 'employment law', 'workplace rights', 
                                'labor law', 'discrimination', 'harassment', 'unfair dismissal', 
                                'minimum wage', 'working hours', 'holiday pay', 'sick pay',
-                               'maternity leave', 'paternity leave', 'redundancy'];
+                               'maternity leave', 'paternity leave', 'redundancy', 'contract'];
         
         return legalKeywords.some(keyword => lowerMessage.includes(keyword));
     }
 
     function detectCountry(message) {
         const lowerMessage = message.toLowerCase();
-        if (lowerMessage.includes('uk') || lowerMessage.includes('britain') || lowerMessage.includes('england')) return 'GB';
+        if (lowerMessage.includes('uk') || lowerMessage.includes('britain') || lowerMessage.includes('england')) return 'UK';
         if (lowerMessage.includes('us') || lowerMessage.includes('usa') || lowerMessage.includes('america')) return 'US';
         if (lowerMessage.includes('canada')) return 'CA';
         if (lowerMessage.includes('australia')) return 'AU';
@@ -330,7 +333,7 @@ export default function ODUSBABAChat() {
         if (lowerMessage.includes('nigeria')) return 'NG';
         if (lowerMessage.includes('ireland')) return 'IE';
         if (lowerMessage.includes('india')) return 'IN';
-        return 'GB'; // Default to UK
+        return 'UK';
     }
 
     // ============================================
@@ -411,7 +414,7 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // SEND MESSAGE (Enhanced with legal detection)
+    // SEND MESSAGE
     // ============================================
 
     const sendMessage = async () => {
@@ -435,7 +438,6 @@ export default function ODUSBABAChat() {
         typingTimeoutRef.current = typingTimer;
         
         try {
-            // Save user message to database
             if (conversationId && user) {
                 await supabase.from('chat_messages').insert({
                     conversation_id: conversationId,
@@ -444,7 +446,7 @@ export default function ODUSBABAChat() {
                 });
             }
 
-            // Check for legal intent first
+            // Check for legal intent
             const isLegalQuery = detectLegalIntent(currentInput);
             
             if (isLegalQuery) {
@@ -480,7 +482,6 @@ export default function ODUSBABAChat() {
                 return;
             }
 
-            // Prepare conversation history
             const history = messages
                 .slice(-MAX_HISTORY_MESSAGES)
                 .map(m => ({
@@ -698,7 +699,6 @@ export default function ODUSBABAChat() {
 
                     {!isMinimized && (
                         <>
-                            {/* Messages Container */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-900 to-slate-950 scrollbar-thin scrollbar-thumb-slate-700">
                                 {messages.map((msg, idx) => (
                                     <div
@@ -737,7 +737,6 @@ export default function ODUSBABAChat() {
                                     </div>
                                 ))}
                                 
-                                {/* Typing indicator */}
                                 {isTyping && (
                                     <div className="flex justify-start animate-fade-in">
                                         <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
@@ -750,7 +749,6 @@ export default function ODUSBABAChat() {
                                     </div>
                                 )}
                                 
-                                {/* Error message */}
                                 {error && (
                                     <div className="flex justify-center">
                                         <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
@@ -765,7 +763,6 @@ export default function ODUSBABAChat() {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* Suggested Actions */}
                             {showSuggestedActions && (
                                 <div className="p-3 border-t border-slate-700 bg-slate-900/80">
                                     <p className="text-xs text-slate-500 mb-2 flex items-center gap-1">
@@ -799,7 +796,6 @@ export default function ODUSBABAChat() {
                                 </div>
                             )}
 
-                            {/* Input Area */}
                             <div className="p-3 border-t border-slate-700 bg-slate-900">
                                 <div className="flex gap-2">
                                     <textarea
@@ -823,7 +819,6 @@ export default function ODUSBABAChat() {
                                     </button>
                                 </div>
                                 
-                                {/* Credit/Usage Info */}
                                 {!user && (
                                     <p className="text-xs text-slate-500 text-center mt-2">
                                         {guestMessageCount >= GUEST_LIMIT ? (
@@ -850,7 +845,6 @@ export default function ODUSBABAChat() {
                                     </p>
                                 )}
                                 
-                                {/* Security Notice */}
                                 <p className="text-[10px] text-slate-600 text-center mt-2">
                                     🔒 Secure conversation • Your data is protected
                                 </p>
