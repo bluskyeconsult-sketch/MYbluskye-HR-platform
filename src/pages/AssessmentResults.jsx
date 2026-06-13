@@ -2,7 +2,7 @@
 // ODUSBABA ASSESSMENT RESULTS PAGE v3.0 - PRODUCTION READY
 // ✅ Complete results display
 // ✅ AI-powered insights
-// ✅ Report download & sharing
+// ✅ Report download & sharing (Unified API)
 // ✅ Answer review section
 // ✅ No external chart dependencies
 
@@ -16,6 +16,12 @@ import {
     Calendar, Clock, ChevronRight, Home, ChevronLeft, Sparkles,
     Brain, X
 } from 'lucide-react';
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
 
 // ============================================
 // MAIN COMPONENT
@@ -36,7 +42,7 @@ export default function AssessmentResults() {
     const [sharing, setSharing] = useState(false);
 
     // ============================================
-    // LOAD RESULTS
+    // LOAD RESULTS (Unified API)
     // ============================================
 
     useEffect(() => {
@@ -68,18 +74,26 @@ export default function AssessmentResults() {
             const isAdmin = profileData?.user_type === 'admin' || profileData?.user_type === 'super_admin';
             setCanDownload(canDownloadTiers.includes(profileData?.tier) || isAdmin);
             
-            // Fetch results directly from Supabase
-            const { data, error: fetchError } = await supabase
-                .from('user_assessments')
-                .select('*, assessment:assessment_id(*)')
-                .eq('id', id)
-                .eq('user_id', authUser.id)
-                .single();
+            // ✅ Using unified API for assessment results
+            const session = await supabase.auth.getSession();
+            const response = await fetch(`${API_BASE}?action=assessment-results&id=${id}`, {
+                headers: { 
+                    'Authorization': `Bearer ${session.data.session?.access_token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
             
-            if (fetchError) throw fetchError;
-            if (!data) throw new Error('Results not found');
+            const data = await response.json();
             
-            setResults(data);
+            if (data.success && data.data) {
+                // Verify ownership
+                if (data.data.user_id !== authUser.id && !isAdmin) {
+                    throw new Error('Unauthorized access');
+                }
+                setResults(data.data);
+            } else {
+                throw new Error(data.error || 'Results not found');
+            }
         } catch (err) {
             console.error('Error loading results:', err);
             setError(err.message);
@@ -89,7 +103,7 @@ export default function AssessmentResults() {
     }
 
     // ============================================
-    // DOWNLOAD REPORT
+    // DOWNLOAD REPORT (Unified API)
     // ============================================
 
     async function handleDownloadReport() {
@@ -101,12 +115,30 @@ export default function AssessmentResults() {
         
         setDownloading(true);
         try {
-            // Generate report URL
-            const reportUrl = `${window.location.origin}/api/reports/assessment/${results.id}`;
-            window.open(reportUrl, '_blank');
+            // ✅ Using unified API for report generation
+            const session = await supabase.auth.getSession();
+            const response = await fetch(`${API_BASE}?action=assessment-generate-report`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.data.session?.access_token}`
+                },
+                body: JSON.stringify({
+                    userAssessmentId: id,
+                    userId: user?.id
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.reportUrl) {
+                window.open(data.reportUrl, '_blank');
+            } else {
+                throw new Error(data.error || 'Failed to generate report');
+            }
         } catch (err) {
             console.error('Error downloading report:', err);
-            alert('Failed to generate report. Please try again.');
+            alert(err.message || 'Failed to generate report. Please try again.');
         } finally {
             setDownloading(false);
         }
@@ -145,7 +177,8 @@ export default function AssessmentResults() {
         setSharing(true);
         
         try {
-            const response = await fetch('/api/index?action=assessment-share-results', {
+            // ✅ Using unified API for sharing results
+            const response = await fetch(`${API_BASE}?action=assessment-share-results`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
