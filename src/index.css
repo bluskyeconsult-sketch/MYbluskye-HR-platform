@@ -4,15 +4,41 @@
 @tailwind utilities;
 
 /* ============================================
-   BASE STYLES (Mobile-first)
+   RESET & BASE - PREVENT OVERFLOW (From Code 2)
+   ============================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    overflow-x: hidden !important;
+    width: 100%;
+    max-width: 100%;
+    position: relative;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent horizontal scroll on all elements */
+#root {
+    overflow-x: hidden;
+    width: 100%;
+    position: relative;
+}
+
+/* ============================================
+   BASE STYLES (Mobile-first from Code 1)
    ============================================ */
 
 @layer base {
     html {
         font-size: 16px;
         -webkit-text-size-adjust: 100%;
-        -webkit-tap-highlight-color: transparent;
-        scroll-behavior: smooth;
     }
 
     @media (max-width: 640px) {
@@ -53,21 +79,15 @@
     img {
         max-width: 100%;
         height: auto;
+        display: block;
     }
     
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        @apply bg-slate-900;
-    }
-    ::-webkit-scrollbar-thumb {
-        @apply bg-slate-700 rounded-full;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        @apply bg-slate-600;
+    /* Text safety - prevent overflow (From Code 2) */
+    p, h1, h2, h3, h4, h5, h6, span, a, li, blockquote {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        max-width: 100%;
     }
 }
 
@@ -164,6 +184,19 @@
     body.menu-open {
         overflow: hidden;
     }
+    
+    /* Overflow safe for tables and grids */
+    .overflow-safe {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+    
+    @media (max-width: 640px) {
+        .overflow-safe::-webkit-scrollbar {
+            height: 4px;
+        }
+    }
 }
 
 /* ============================================
@@ -171,30 +204,39 @@
    ============================================ */
 
 @layer components {
-    .container-mobile {
-        @apply px-4 sm:px-6 lg:px-8 mx-auto;
+    /* Responsive container system (From Code 2) */
+    .container-responsive {
         width: 100%;
+        padding-left: 1rem;
+        padding-right: 1rem;
         margin-left: auto;
         margin-right: auto;
     }
     
     @media (min-width: 640px) {
-        .container-mobile {
+        .container-responsive {
             max-width: 640px;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
         }
     }
+    
     @media (min-width: 768px) {
-        .container-mobile {
+        .container-responsive {
             max-width: 768px;
         }
     }
+    
     @media (min-width: 1024px) {
-        .container-mobile {
+        .container-responsive {
             max-width: 1024px;
+            padding-left: 2rem;
+            padding-right: 2rem;
         }
     }
+    
     @media (min-width: 1280px) {
-        .container-mobile {
+        .container-responsive {
             max-width: 1280px;
         }
     }
@@ -203,11 +245,7 @@
         @apply bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6;
     }
     
-    .grid-mobile {
-        @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
-    }
-    
-    /* Responsive grid (from Code 2) */
+    /* Responsive grid system (From Code 2) */
     .grid-responsive {
         display: grid;
         gap: 1rem;
@@ -217,36 +255,74 @@
     @media (min-width: 640px) {
         .grid-responsive {
             grid-template-columns: repeat(2, 1fr);
+            gap: 1.25rem;
         }
     }
     
     @media (min-width: 1024px) {
         .grid-responsive {
             grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
         }
     }
     
     @media (min-width: 1280px) {
         .grid-responsive {
             grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
         }
     }
     
-    /* Card responsive (from Code 2) */
-    .card-responsive {
-        border-radius: 0.75rem;
-        padding: 1rem;
+    /* 2-column responsive grid */
+    .grid-responsive-2 {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: 1fr;
     }
     
     @media (min-width: 640px) {
+        .grid-responsive-2 {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+        }
+    }
+    
+    /* Card responsive */
+    .card-responsive {
+        padding: 1rem;
+        border-radius: 0.75rem;
+        transition: all 0.2s ease;
+    }
+    
+    @media (min-width: 640px) {
+        .card-responsive {
+            padding: 1.25rem;
+            border-radius: 1rem;
+        }
+    }
+    
+    @media (min-width: 1024px) {
         .card-responsive {
             padding: 1.5rem;
         }
     }
     
-    /* Touch-optimized buttons */
+    /* Touch-optimized buttons (From Code 2) */
     .btn-touch {
-        @apply px-4 py-3 sm:px-5 sm:py-2.5 rounded-lg font-medium transition;
+        min-height: 44px;
+        min-width: 44px;
+        padding: 0.5rem 1rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+    
+    @media (max-width: 640px) {
+        .btn-touch {
+            padding: 0.75rem 1rem;
+            width: 100%;
+        }
     }
     
     .btn-primary {
@@ -263,6 +339,53 @@
 }
 
 /* ============================================
+   STATS NUMBER RESPONSIVE (From Code 2)
+   ============================================ */
+
+.stats-number {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 2rem;
+}
+
+@media (min-width: 640px) {
+    .stats-number {
+        font-size: 1.875rem;
+        line-height: 2.25rem;
+    }
+}
+
+@media (min-width: 1024px) {
+    .stats-number {
+        font-size: 2.25rem;
+        line-height: 2.5rem;
+    }
+}
+
+/* ============================================
+   RESPONSIVE SECTION PADDING (From Code 2)
+   ============================================ */
+
+.section-padding {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+@media (min-width: 640px) {
+    .section-padding {
+        padding-top: 3rem;
+        padding-bottom: 3rem;
+    }
+}
+
+@media (min-width: 1024px) {
+    .section-padding {
+        padding-top: 4rem;
+        padding-bottom: 4rem;
+    }
+}
+
+/* ============================================
    ENHANCED ANIMATIONS (Combined)
    ============================================ */
 
@@ -273,10 +396,10 @@
 .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
 
 @keyframes slideUp {
-    from { opacity: 0; transform: translateY(30px); }
+    from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
 }
-.animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
 
 @keyframes slideDown {
     from { opacity: 0; transform: translateY(-20px); }
@@ -482,4 +605,30 @@ a, button, [role="button"] {
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
+}
+
+/* ============================================
+   FALLBACK FOR BROWSERS (From Code 2)
+   ============================================ */
+
+/* Ensure grid works on older browsers */
+@supports not (display: grid) {
+    .grid-responsive {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    .grid-responsive > * {
+        flex: 0 0 100%;
+        margin-bottom: 1rem;
+    }
+}
+
+/* Hide scrollbar on Chrome/Safari */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
