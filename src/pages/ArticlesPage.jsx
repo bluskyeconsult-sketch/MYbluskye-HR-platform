@@ -1,18 +1,28 @@
 // src/pages/ArticlesPage.jsx
-// COMPLETE PROFESSIONAL ARTICLES PAGE - With API integration, search, categories, and trending topics
+// ODUSBABA ARTICLES PAGE v3.0 - PRODUCTION READY
+// ✅ Complete article listing with API integration
+// ✅ Search, categories, tags, and trending topics
+// ✅ Featured articles section
+// ✅ Responsive design with sidebar
 
 import { useEffect, useState, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
     Calendar, User, Eye, ArrowRight, Flame, TrendingUp, 
     Search, Filter, BookOpen, Clock, ChevronRight, 
     Award, Sparkles, Tag, Loader2, AlertCircle
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function ArticlesPage() {
     const [articles, setArticles] = useState([]);
@@ -26,43 +36,38 @@ export default function ArticlesPage() {
     const [selectedTag, setSelectedTag] = useState(null);
     const [categories, setCategories] = useState([]);
 
-    // Fetch articles via API or Supabase
+    // ============================================
+    // LOAD ARTICLES (Unified API)
+    // ============================================
+
     const loadArticles = useCallback(async () => {
         setLoading(true);
         setError(null);
         
         try {
-            // Try API first
-            const response = await fetch('/api/index?action=articles-list', {
+            // ✅ Using unified API endpoint
+            const response = await fetch(`${API_BASE}?action=articles-list`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
             
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.articles) {
-                    processArticles(data.articles);
-                    return;
-                }
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.articles) {
+                processArticles(data.articles);
+            } else {
+                throw new Error(data.error || 'Failed to load articles');
             }
         } catch (err) {
-            console.warn('API fetch failed, falling back to Supabase:', err);
-        }
-        
-        // Fallback to Supabase
-        const { data, error: supabaseError } = await supabase
-            .from('articles')
-            .select('*')
-            .eq('status', 'published')
-            .order('published_at', { ascending: false });
-        
-        if (supabaseError) {
+            console.error('Error loading articles:', err);
             setError('Failed to load articles. Please refresh the page.');
+        } finally {
             setLoading(false);
-            return;
         }
-        
-        processArticles(data || []);
     }, []);
 
     const processArticles = (data) => {
@@ -73,13 +78,15 @@ export default function ArticlesPage() {
         // Extract unique categories
         const uniqueCategories = [...new Set(data.map(a => a.category).filter(Boolean))];
         setCategories(uniqueCategories);
-        
-        setLoading(false);
     };
+
+    // ============================================
+    // LOAD TRENDING TOPICS (Unified API)
+    // ============================================
 
     const loadTrendingTopics = useCallback(async () => {
         try {
-            const response = await fetch('/api/index?action=trending-topics', {
+            const response = await fetch(`${API_BASE}?action=trending-topics`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -95,31 +102,42 @@ export default function ArticlesPage() {
             console.warn('Could not fetch trending topics:', err);
         }
         
-        // Fallback: Get popular tags from articles
-        const { data } = await supabase.from('articles').select('tags');
-        if (data) {
-            const tagCounts = {};
-            data.forEach(article => {
-                if (article.tags && Array.isArray(article.tags)) {
-                    article.tags.forEach(tag => {
-                        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-                    });
-                }
-            });
-            const sorted = Object.entries(tagCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 6);
-            setTrendingTopics(sorted.map(([tag]) => tag));
+        // Fallback: Get popular tags from articles using Supabase directly
+        try {
+            const { data } = await supabase.from('articles').select('tags');
+            if (data) {
+                const tagCounts = {};
+                data.forEach(article => {
+                    if (article.tags && Array.isArray(article.tags)) {
+                        article.tags.forEach(tag => {
+                            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                        });
+                    }
+                });
+                const sorted = Object.entries(tagCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 6);
+                setTrendingTopics(sorted.map(([tag]) => tag));
+            }
+        } catch (err) {
+            console.warn('Could not load fallback topics:', err);
         }
     }, []);
+
+    // ============================================
+    // INITIALIZATION
+    // ============================================
 
     useEffect(() => {
         loadArticles();
         loadTrendingTopics();
     }, [loadArticles, loadTrendingTopics]);
 
+    // ============================================
+    // FILTERING
+    // ============================================
+
     useEffect(() => {
-        // Filter articles based on search, category, and tag
         let filtered = [...articles];
         
         if (searchQuery.trim()) {
@@ -145,6 +163,10 @@ export default function ArticlesPage() {
         setFilteredArticles(filtered);
     }, [searchQuery, selectedCategory, selectedTag, articles]);
 
+    // ============================================
+    // HANDLERS
+    // ============================================
+
     const handleTagClick = (tag) => {
         if (selectedTag === tag) {
             setSelectedTag(null);
@@ -161,22 +183,36 @@ export default function ArticlesPage() {
         setSelectedTag(null);
     };
 
+    // ============================================
+    // LOADING STATE
+    // ============================================
+
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
+                <div className="text-center">
+                    <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
+                    <p className="text-slate-400">Loading articles...</p>
+                </div>
             </div>
         );
     }
 
+    // ============================================
+    // ERROR STATE
+    // ============================================
+
     if (error) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center px-4">
                 <div className="text-center max-w-md">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Articles</h1>
                     <p className="text-slate-400 mb-6">{error}</p>
-                    <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                    >
                         Try Again
                     </button>
                 </div>
@@ -184,8 +220,12 @@ export default function ArticlesPage() {
         );
     }
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
+
     return (
-        <div className="min-h-screen bg-slate-950 py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 {/* Header */}
@@ -230,18 +270,18 @@ export default function ArticlesPage() {
                                     {featuredArticles.map(article => (
                                         <Link
                                             key={article.id}
-                                            to={`/articles/${article.slug}`}
+                                            to={`/articles/${article.slug || article.id}`}
                                             className="group bg-gradient-to-br from-slate-900/50 to-slate-800/30 border border-slate-700 rounded-xl overflow-hidden hover:border-primary-500/30 hover:shadow-lg hover:shadow-primary-500/10 transition-all hover:-translate-y-1"
                                         >
                                             <div className="p-6">
                                                 <div className="flex items-center gap-3 text-xs text-slate-500 mb-3 flex-wrap">
                                                     <span className="flex items-center gap-1">
                                                         <Calendar className="w-3 h-3" />
-                                                        {new Date(article.published_at).toLocaleDateString()}
+                                                        {new Date(article.published_at || article.created_at).toLocaleDateString()}
                                                     </span>
                                                     <span className="flex items-center gap-1">
                                                         <User className="w-3 h-3" />
-                                                        {article.author}
+                                                        {article.author || 'ODUSBABA Team'}
                                                     </span>
                                                     <span className="flex items-center gap-1">
                                                         <Eye className="w-3 h-3" />
@@ -287,7 +327,7 @@ export default function ArticlesPage() {
                                 {(searchQuery || selectedCategory !== 'all' || selectedTag) && (
                                     <button
                                         onClick={clearFilters}
-                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
                                     >
                                         Clear Filters
                                     </button>
@@ -298,17 +338,17 @@ export default function ArticlesPage() {
                                 {filteredArticles.map(article => (
                                     <Link
                                         key={article.id}
-                                        to={`/articles/${article.slug}`}
+                                        to={`/articles/${article.slug || article.id}`}
                                         className="group bg-slate-900/30 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 hover:bg-slate-900/50 transition-all hover:-translate-y-1"
                                     >
                                         <div className="flex items-center gap-3 text-xs text-slate-500 mb-3 flex-wrap">
                                             <span className="flex items-center gap-1">
                                                 <Calendar className="w-3 h-3" />
-                                                {new Date(article.published_at).toLocaleDateString()}
+                                                {new Date(article.published_at || article.created_at).toLocaleDateString()}
                                             </span>
                                             <span className="flex items-center gap-1">
                                                 <User className="w-3 h-3" />
-                                                {article.author}
+                                                {article.author || 'ODUSBABA Team'}
                                             </span>
                                             <span className="flex items-center gap-1">
                                                 <Eye className="w-3 h-3" />
