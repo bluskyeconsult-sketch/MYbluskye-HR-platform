@@ -20,7 +20,7 @@ export default {
             },
             
             // ============================================
-            // CONTAINER UTILITIES (From Code 2)
+            // CONTAINER UTILITIES
             // ============================================
             container: {
                 center: true,
