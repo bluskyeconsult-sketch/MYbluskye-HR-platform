@@ -1,5 +1,5 @@
 // api/cron/fetch-jobs.js
-// ODUSBABA CRON JOB v5.0 - PRODUCTION READY
+// ODUSBABA CRON JOB v6.0 - PRODUCTION READY
 // Runs daily at 2 AM - Fetches from 10+ countries' official job portals
 // ✅ Multi-country RSS feed parsing
 // ✅ Fallback to Jobicy API
