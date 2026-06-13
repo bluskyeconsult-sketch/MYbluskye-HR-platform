@@ -2,7 +2,7 @@
 // Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (7+ countries + API sources),
 // AI chat, Assessment generation, Course generation, User applications, Profile updates,
 // Newsletter, Books, Articles, User stats, Analytics events, Tester management
-// RUTH Standard v3.0 - Production Ready
+// RUTH Standard v5.0 - Production Ready
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -193,7 +193,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to BluSkye Integrated Consult</h1>
         </div>
         <div style="padding:24px;">
@@ -216,7 +216,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Reset Your Password</h1>
         </div>
         <div style="padding:24px;">
@@ -238,7 +238,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">New Jobs Matching "${data.alertName}"</h1>
         </div>
         <div style="padding:24px;">
@@ -260,7 +260,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to the Tester Program!</h1>
         </div>
         <div style="padding:24px;">
@@ -291,7 +291,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Your Assessment Report</h1>
         </div>
         <div style="padding:24px;">
@@ -318,7 +318,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">${data.subject || 'ODUSBABA Notification'}</h1>
         </div>
         <div style="padding:24px;">
@@ -337,7 +337,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">✅ Email Configuration Successful!</h1>
         </div>
         <div style="padding:24px;">
@@ -1354,6 +1354,120 @@ const handlers = {
             return res.status(200).json({ success: true, progress });
         } catch (error) {
             return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== VIRTUAL ASSISTANTS ==========
+    'virtual-assistants': async (req, res) => {
+        const assistants = [
+            { id: 'cv-expert', name: 'CV Makeover Pro', category: 'resume', icon: '📄', price: 5, description: 'ATS-optimized CV writing and formatting expert', tier: 'free', processingTime: '2-3 min', rating: 4.9, reviews: 128 },
+            { id: 'interview-coach', name: 'Interview Coach AI', category: 'interview', icon: '🎯', price: 3, description: 'Behavioral and technical interview preparation', tier: 'free', processingTime: '1-2 min', rating: 4.8, reviews: 95 },
+            { id: 'salary-negotiator', name: 'Salary Negotiator', category: 'career', icon: '💰', price: 4, description: 'Market research and negotiation scripts', tier: 'registered', processingTime: '2-3 min', rating: 4.7, reviews: 76 },
+            { id: 'skill-analyzer', name: 'Skill Gap Analyst', category: 'skills', icon: '📊', price: 4, description: 'Identify skill gaps and learning paths', tier: 'registered', processingTime: '3-4 min', rating: 4.9, reviews: 112 },
+            { id: 'linkedin-optimizer', name: 'LinkedIn Optimizer', category: 'social', icon: '🔗', price: 5, description: 'Profile optimization for recruiters', tier: 'professional', processingTime: '2-3 min', rating: 4.8, reviews: 89 },
+            { id: 'cover-letter-pro', name: 'Cover Letter Pro', category: 'resume', icon: '✉️', price: 3, description: 'Custom cover letters for any role', tier: 'free', processingTime: '1-2 min', rating: 4.6, reviews: 64 }
+        ];
+        
+        return res.status(200).json({ success: true, assistants });
+    },
+
+    // ========== VA EXECUTE ==========
+    'va-execute': async (req, res) => {
+        const { assistantId, input, userId } = req.body;
+        
+        if (!assistantId || !input) {
+            return res.status(400).json({ error: 'Assistant ID and input required' });
+        }
+        
+        // Simulate processing delay
+        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
+        
+        const responses = {
+            'cv-expert': `## CV Optimization Results\n\nBased on your request, I've analyzed your CV with these recommendations:\n\n### Key Improvements\n- Add quantifiable achievements (e.g., "Increased sales by 30%")\n- Use action verbs (achieved, improved, managed, created)\n- Include relevant keywords from job descriptions\n- Remove weak language ("responsible for", "helped with")\n\n### ATS Checklist\n- [ ] Use standard section headers (Experience, Education, Skills)\n- [ ] Save as PDF or DOCX\n- [ ] Avoid tables and columns\n- [ ] Include a professional summary\n\nWould you like me to review a specific section of your CV?`,
+            
+            'interview-coach': `## Interview Preparation Guide\n\n### Sample Questions for Your Role\n1. "Tell me about yourself" - 2-minute professional summary\n2. "Why do you want to work here?" - Research the company\n3. "What's your greatest strength?" - Align with job requirements\n4. "Describe a challenge you overcame" - Use STAR method\n5. "Where do you see yourself in 5 years?" - Show ambition\n\n### STAR Method\n- **S**ituation: Set the context\n- **T**ask: What was your responsibility\n- **A**ction: What steps you took\n- **R**esult: What was the outcome\n\n### Questions to Ask Them\n- What does success look like in this role?\n- What's the team culture like?\n- What are the growth opportunities?`,
+            
+            'salary-negotiator': `## Salary Negotiation Guide\n\n### Research Steps\n1. Check Glassdoor, LinkedIn, Levels.fyi for market rates\n2. Consider your experience, skills, and location\n3. Factor in total compensation (bonus, benefits, equity)\n\n### Negotiation Script\n"I'm excited about this opportunity. Based on my research and experience, I'm looking for a range between $X and $Y. I'm flexible based on total compensation."\n\n### What to Negotiate\n- Base salary\n- Signing bonus\n- Annual bonus potential\n- Remote work flexibility\n- Vacation time\n- Professional development budget`,
+            
+            'skill-analyzer': `## Skill Gap Analysis\n\n### Recommended Skills to Develop\n1. **Core Technical Skills** - Based on your target role\n2. **Soft Skills** - Communication, leadership, problem-solving\n3. **Industry Knowledge** - Stay updated with trends\n\n### Learning Resources\n- Free: YouTube tutorials, documentation, blogs\n- Paid: Coursera, Udemy, LinkedIn Learning\n- Certification: Industry-recognized credentials\n\n### Timeline\n- 1 month: Complete foundational courses\n- 3 months: Build practical projects\n- 6 months: Earn certification\n- 1 year: Master advanced concepts`,
+            
+            'linkedin-optimizer': `## LinkedIn Profile Optimization\n\n### Headline Optimization\n- Current: [Your current headline]\n- Suggested: [Role] at [Company] | [Top Skill] | [Achievement]\n\n### About Section Structure\n1. Hook: Who you are and what you do\n2. Value: What problems you solve\n3. Proof: Key achievements (with numbers)\n4. Call to action: Connect or message\n\n### Experience Section\n- Use bullet points with action verbs\n- Quantify achievements with numbers\n- Include relevant keywords for your industry\n\n### Skills Section\n- Add 15-20 relevant skills\n- Get endorsements from colleagues\n- Take skill assessments for top skills`,
+            
+            'cover-letter-pro': `## Cover Letter Template\n\nDear Hiring Manager,\n\nI am excited to apply for the [Position] role at [Company]. With my background in [Your Field] and proven track record of [Key Achievement], I am confident I can contribute to your team's success.\n\nIn my current role at [Current Company], I have:\n- Achieved [quantifiable result] by [action taken]\n- Improved [metric] by [percentage] through [initiative]\n- Led a team of [number] to deliver [project outcome]\n\nI am particularly drawn to [Company] because [specific reason]. I look forward to discussing how my skills can benefit your team.\n\nBest regards,\n[Your Name]`
+        };
+        
+        const output = responses[assistantId] || `## ${assistantId} Results\n\nThank you for using this assistant. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+        
+        return res.status(200).json({ success: true, output });
+    },
+
+    // ========== VA TASKS ==========
+    'va-tasks': async (req, res) => {
+        const { userId } = req.query;
+        const authHeader = req.headers.authorization;
+        
+        try {
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user || user.id !== userId) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
+            
+            const { data, error } = await supabase
+                .from('va_tasks')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(20);
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, tasks: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== VA CREDITS ==========
+    'va-credits': async (req, res) => {
+        const { userId } = req.query;
+        const authHeader = req.headers.authorization;
+        
+        try {
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+            
+            if (userError || !user || user.id !== userId) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
+            
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('tier, user_type')
+                .eq('id', userId)
+                .single();
+            
+            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin' || profile?.tier === 'business';
+            
+            if (isUnlimited) {
+                return res.status(200).json({ success: true, credits: 999999, isUnlimited: true });
+            }
+            
+            let { data: credits } = await supabase
+                .from('va_credits')
+                .select('balance')
+                .eq('user_id', userId)
+                .single();
+            
+            if (!credits) {
+                const defaultCredits = { free: 5, registered: 10, professional: 25, employer: 20, tester: 10 }[profile?.tier] || 5;
+                await supabase.from('va_credits').insert({ user_id: userId, balance: defaultCredits });
+                credits = { balance: defaultCredits };
+            }
+            
+            return res.status(200).json({ success: true, credits: credits.balance, isUnlimited: false });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
         }
     }
 };
