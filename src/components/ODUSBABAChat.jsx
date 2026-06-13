@@ -1,12 +1,11 @@
 // src/components/ODUSBABAChat.jsx
-// ODUSBABA AI CHAT v6.0 - PRODUCTION READY
-// ✅ Intent detection and intelligent routing
+// ODUSBABA AI CHAT v7.0 - PRODUCTION READY
+// ✅ Intent detection and intelligent routing via Unified API
 // ✅ Role-based access, tier-gated features
-// ✅ Job fetching integration with visa sponsorship filtering
+// ✅ Job search handler restored
 // ✅ Legal information fetching for 9 countries
 // ✅ Conversation history, typing indicators
 // ✅ Guest mode support with limit tracking
-// ✅ Enhanced legal detection with country-specific links
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -56,25 +55,25 @@ function detectIntent(message) {
         { keywords: ['job', 'position', 'role', 'career', 'opportunity', 'find job', 'search job', 'looking for work'], intent: 'job_search', subIntent: 'general' },
         { keywords: ['dismiss', 'fired', 'termination', 'unfair dismissal', 'redundancy', 'layoff'], intent: 'hr_advice', subIntent: 'dismissal' },
         { keywords: ['grievance', 'complaint', 'harassment', 'discrimination', 'bullying'], intent: 'hr_advice', subIntent: 'grievance' },
+        { keywords: ['legal', 'rights', 'law', 'employment law', 'workplace rights', 'labor law', 'minimum wage'], intent: 'legal_info', subIntent: 'general' },
         { keywords: ['cv', 'resume', 'curriculum vitae', 'cover letter', 'application letter'], intent: 'cv_optimization', subIntent: 'general' },
         { keywords: ['skill', 'portfolio', 'showcase', 'list my skill', 'verify skill'], intent: 'workforce_listing', subIntent: 'general' },
         { keywords: ['hire', 'recruit', 'employ', 'find worker', 'staff', 'talent'], intent: 'hire_workers', subIntent: 'general' },
-        { keywords: ['va', 'virtual assistant', 'hire va', 'execute task'], intent: 'virtual_assistant', subIntent: 'general' },
-        { keywords: ['rights', 'employment law', 'legal', 'workplace rights', 'employee rights'], intent: 'hr_advice', subIntent: 'rights' }
+        { keywords: ['va', 'virtual assistant', 'hire va', 'execute task'], intent: 'virtual_assistant', subIntent: 'general' }
     ];
     
     for (const intent of intents) {
         if (intent.keywords.some(keyword => lowerMsg.includes(keyword))) {
-            return { intent: intent.intent, subIntent: intent.subIntent, confidence: 0.9 };
+            return { intent: intent.intent, subIntent: intent.subIntent };
         }
     }
     
-    return { intent: 'general', subIntent: null, confidence: 0.5 };
+    return { intent: 'general', subIntent: null };
 }
 
 function detectCountry(message) {
     const lowerMsg = message.toLowerCase();
-    if (lowerMsg.includes('uk') || lowerMsg.includes('britain') || lowerMsg.includes('england')) return { country: 'UK', code: 'UK' };
+    if (lowerMsg.includes('uk') || lowerMsg.includes('britain') || lowerMsg.includes('england')) return { country: 'United Kingdom', code: 'UK' };
     if (lowerMsg.includes('us') || lowerMsg.includes('usa') || lowerMsg.includes('america')) return { country: 'United States', code: 'US' };
     if (lowerMsg.includes('canada')) return { country: 'Canada', code: 'CA' };
     if (lowerMsg.includes('australia')) return { country: 'Australia', code: 'AU' };
@@ -84,28 +83,6 @@ function detectCountry(message) {
     if (lowerMsg.includes('ireland')) return { country: 'Ireland', code: 'IE' };
     if (lowerMsg.includes('india')) return { country: 'India', code: 'IN' };
     return { country: 'United Kingdom', code: 'UK' };
-}
-
-function isActionAllowed(intent, userTier) {
-    const tierLevels = { visitor: 0, free: 1, registered: 2, professional: 3, employer: 3, business: 4, admin: 5, super_admin: 5 };
-    const userLevel = tierLevels[userTier] || 0;
-    
-    const requiredTiers = {
-        job_search: 0,
-        hr_advice: 0,
-        cv_optimization: 0,
-        workforce_listing: 1,
-        hire_workers: 3,
-        virtual_assistant: 2
-    };
-    
-    const required = requiredTiers[intent] || 0;
-    return userLevel >= required;
-}
-
-function getUserTierLevel(tier) {
-    const levels = { visitor: 0, free: 1, registered: 2, professional: 3, employer: 3, business: 4, admin: 5, super_admin: 5 };
-    return levels[tier] || 0;
 }
 
 // ============================================
@@ -238,13 +215,74 @@ export default function ODUSBABAChat() {
         setRemainingCredits(isUnlimited ? 999999 : (profile?.ai_credits_remaining ?? 5));
     }
 
-    function getSafeUserContext() {
-        if (!userProfile) return null;
-        return { user_type: userProfile.user_type, tier: userProfile.tier, job_title: userProfile.job_title, years_experience: userProfile.years_experience };
+    // ============================================
+    // JOB SEARCH HANDLER (RESTORED)
+    // ============================================
+
+    async function searchLiveJobs(query) {
+        try {
+            const response = await fetch(`${API_BASE}?action=jobs`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            if (data.success && data.jobs) {
+                const searchLower = query.toLowerCase();
+                return data.jobs.filter(job => 
+                    job.title?.toLowerCase().includes(searchLower) ||
+                    job.description?.toLowerCase().includes(searchLower) ||
+                    job.company?.toLowerCase().includes(searchLower)
+                ).slice(0, 5);
+            }
+            return [];
+        } catch (error) {
+            console.error('Job search error:', error);
+            return [];
+        }
+    }
+
+    async function handleJobSearch(query) {
+        setIsTyping(true);
+        try {
+            const jobs = await searchLiveJobs(query);
+            let reply;
+            if (jobs && jobs.length > 0) {
+                const jobList = jobs.map(job => 
+                    `• **${job.title}** at ${job.company || job.source_name || 'Unknown Company'}\n  📍 ${job.location || 'Remote'}\n  💰 ${job.salary_range || 'Salary not specified'}`
+                ).join('\n\n');
+                reply = `🔍 **Found ${jobs.length} jobs matching "${query}"**\n\n${jobList}\n\n💡 Want me to help you tailor your CV for any of these roles? Just let me know which one interests you!`;
+            } else {
+                reply = `🔍 I couldn't find any jobs matching "${query}" right now. Try:\n• Using different keywords\n• Checking our [Job Board](/jobs)\n• Setting up a [Job Alert](/job-alerts)`;
+            }
+            const botMessage = {
+                id: `msg_${Date.now()}`,
+                sender: 'odusbaba',
+                message: reply,
+                created_at: new Date().toISOString()
+            };
+            setMessages(prev => [...prev, botMessage]);
+            if (conversationId && user) {
+                await supabase.from('chat_messages').insert({
+                    conversation_id: conversationId,
+                    sender: 'odusbaba',
+                    message: reply
+                });
+            }
+        } catch (error) {
+            console.error('Job search error:', error);
+            setMessages(prev => [...prev, {
+                id: `msg_error_${Date.now()}`,
+                sender: 'odusbaba',
+                message: "I'm having trouble searching for jobs right now. Please try again in a moment, or browse our [Job Board](/jobs) directly.",
+                created_at: new Date().toISOString()
+            }]);
+        } finally {
+            setIsTyping(false);
+        }
     }
 
     // ============================================
-    // LEGAL INFORMATION FETCHING
+    // LEGAL INFORMATION FETCHING (Client-side)
     // ============================================
 
     async function fetchLegalInfo(countryCode, topic) {
@@ -265,94 +303,19 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // JOB SEARCH HANDLER
-    // ============================================
-
-    async function searchLiveJobs(query) {
-        try {
-            const response = await fetch(`${API_BASE}?action=jobs`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-            const data = await response.json();
-            if (data.success && data.jobs) {
-                const searchLower = query.toLowerCase();
-                return data.jobs.filter(job => 
-                    job.title?.toLowerCase().includes(searchLower) ||
-                    job.description?.toLowerCase().includes(searchLower) ||
-                    job.company?.toLowerCase().includes(searchLower)
-                ).slice(0, 5);
-            }
-            return [];
-        } catch (error) {
-            console.error('Job search error:', error);
-            return [];
-        }
-    }
-
-    async function handleJobSearch(query) {
-        setLoading(true);
-        setIsTyping(true);
-        try {
-            const jobs = await searchLiveJobs(query);
-            let reply;
-            if (jobs && jobs.length > 0) {
-                const jobList = jobs.map(job => `• **${job.title}** at ${job.company || job.source_name || 'Unknown Company'}\n  📍 ${job.location || 'Remote'}\n  💰 ${job.salary_range || 'Salary not specified'}`).join('\n\n');
-                reply = `🔍 **Found ${jobs.length} jobs matching "${query}"**\n\n${jobList}\n\n💡 Want me to help you tailor your CV for any of these roles?`;
-            } else {
-                reply = `🔍 I couldn't find any jobs matching "${query}" right now. Try:\n• Using different keywords\n• Checking our [Job Board](/jobs)\n• Setting up a [Job Alert](/job-alerts)`;
-            }
-            const botMessage = { id: `msg_${Date.now()}`, sender: 'odusbaba', message: reply, created_at: new Date().toISOString() };
-            setMessages(prev => [...prev, botMessage]);
-            if (conversationId && user) {
-                await supabase.from('chat_messages').insert({ conversation_id: conversationId, sender: 'odusbaba', message: reply });
-            }
-        } catch (error) {
-            console.error('Job search error:', error);
-            setMessages(prev => [...prev, { id: `msg_error_${Date.now()}`, sender: 'odusbaba', message: "I'm having trouble searching for jobs right now. Please try again in a moment.", created_at: new Date().toISOString() }]);
-        } finally {
-            setLoading(false);
-            setIsTyping(false);
-        }
-    }
-
-    // ============================================
-    // INTELLIGENT RESPONSE GENERATION
-    // ============================================
-
-    async function generateIntelligentResponse(userInput, intent, countryData, userTier, isAllowed) {
-        const tierDisplay = userTier || (user ? 'free' : 'visitor');
-        const userLevel = getUserTierLevel(tierDisplay);
-        
-        // Visa sponsorship job search
-        if (intent.intent === 'job_search' && intent.subIntent === 'visa_sponsorship') {
-            return `> Yes — I can help with that.\n\nI'll first explain how visa sponsorship works in ${countryData.country}, then show you what types of roles usually qualify.\n\n---\n\n**${countryData.country} Visa Sponsorship – Quick Reality Check**\n\n- Only licensed employers can sponsor\n- Roles must meet skill + salary thresholds\n- Not all advertised "sponsorship" jobs are genuine\n\n**Roles commonly eligible**\n- Healthcare & social care\n- Engineering & technical roles\n- IT & digital\n- Certain education roles\n\n**What I can show you next**\n- Sample verified sponsorship roles\n- Typical salary ranges\n- Common rejection reasons (to avoid)\n\n---\n\n👉 ${user ? `[View live sponsorship jobs](/jobs?sponsorship=true)` : `To see live, filtered jobs matched to your profile, you'll need an account.\n\n[Create free account](/sign-up)\n[See how job matching works](/jobs)`}`;
-        }
-        
-        // General job search
-        if (intent.intent === 'job_search') {
-            return `I can help you find roles that match what you're looking for.\n\n**What I can do right now:**\n- Show you active job categories\n- Explain how matching works\n- Give you salary benchmarks\n\n**${user ? 'Next steps for you:' : 'To see personalized matches:'}**\n${user ? `👉 [Browse current jobs](/jobs)\n👉 [Set up job alerts](/job-alerts)\n👉 [View saved jobs](/saved-jobs)` : `👉 [Create a free account](/sign-up)\n👉 [See how job matching works](/jobs)`}\n\nWhat type of role are you most interested in?`;
-        }
-        
-        // HR Advice / Dismissal / Rights
-        if (intent.intent === 'hr_advice') {
-            return `> I can guide you through this.\n\nFirst, I need to understand where this applies.\n\n**Country detected: ${countryData.country}**\n\nIn ${countryData.country}, dismissal without notice is only lawful in limited circumstances.\n\n**General rule**\n- Employees are entitled to notice\n- Summary dismissal requires gross misconduct\n- Even then, a fair procedure is required\n\n**What usually makes dismissals unlawful**\n- No investigation\n- No hearing\n- No chance to respond\n\n**Your immediate options**\n1. Ask for written reasons\n2. Request the disciplinary process\n3. Document everything\n\n---\n\n🔍 **I can do more for you:**\n- Check if this qualifies as unfair dismissal\n- Draft a grievance or response letter\n- Simulate how a tribunal would assess your case\n\n${userLevel < 3 ? `\nThese are available on higher tiers because they involve case-specific legal structuring.\n\n[Upgrade to unlock full HR advisory](/pricing)` : `\n👉 [View your rights summary]\n[Request document drafting]`}`;
-        }
-        
-        // CV Optimization
-        if (intent.intent === 'cv_optimization') {
-            return `I can help with this.\n\nLet's break it into the most effective path.\n\n**Step 1 – CV Structure Review**\nI'll analyse what you have against:\n- UK hiring standards\n- ATS screening rules\n- Role-specific keywords\n\n**Step 2 – Optimisation**\n- Quantify achievements\n- Use action verbs\n- Remove weak language\n\n**Step 3 – Execution**\n${userLevel >= 3 ? `A VA can rewrite your CV and apply to jobs on your behalf\nI'll quality-check everything before submission` : `A VA service is available on Professional tier and above`}\n\n---\n\n👉 You can start now: ${user ? `[Upload CV for review](/profile)` : `[Create account to access CV tools](/sign-up)`}\n${userLevel >= 3 ? `[Assign a VA](/hire-va)` : ''}`;
-        }
-        
-        // Default / General Response
-        return `👋 Hello. I'm ODUSBABA.\n\nI can help with:\n\n${!user ? `**Access level: Visitor (limited preview)**\n- 🔍 Browse job listings\n- 📚 Browse courses\n- 📖 Read articles\n- 👥 See workforce market\n\n👉 [Create free account](/sign-up) to unlock full features\n\n` : ''}**What I can do for you today:**\n\n| Category | What I can help with |\n|----------|---------------------|\n| 💼 Jobs | Find roles, sponsorship info, salary benchmarks |\n| 📄 CV | Optimisation, ATS tips, review |\n| ⚖️ HR Advice | Rights, dismissal, grievance |\n| 🛠️ Skills | Listing, verification, workforce market |\n| 🤖 VA | Task execution (tier dependent) |\n| 📚 Learn | Courses, articles, certifications |\n\n**Try asking:**\n- "Can you help me find visa sponsorship jobs in the UK?"\n- "My employer wants to dismiss me. What are my rights?"\n- "Help me optimise my CV for ATS"\n- "How do I list my skills for employers to find me?"`;
-    }
-
-    // ============================================
-    // SEND MESSAGE
+    // SEND MESSAGE (Unified API)
     // ============================================
 
     const sendMessage = async () => {
         if (!canSendMessage()) return;
         
-        const userMessage = { id: `msg_${Date.now()}`, sender: 'user', message: input.trim(), created_at: new Date().toISOString() };
+        const userMessage = {
+            id: `msg_${Date.now()}`,
+            sender: 'user',
+            message: input.trim(),
+            created_at: new Date().toISOString()
+        };
+        
         setMessages(prev => [...prev, userMessage]);
         const currentInput = input;
         setInput('');
@@ -365,9 +328,14 @@ export default function ODUSBABAChat() {
         
         try {
             if (conversationId && user) {
-                await supabase.from('chat_messages').insert({ conversation_id: conversationId, sender: 'user', message: userMessage.message });
+                await supabase.from('chat_messages').insert({
+                    conversation_id: conversationId,
+                    sender: 'user',
+                    message: userMessage.message
+                });
             }
 
+            // Check for legal intent first (handled client-side for instant response)
             const isLegalQuery = detectLegalIntent(currentInput);
             
             if (isLegalQuery) {
@@ -375,52 +343,119 @@ export default function ODUSBABAChat() {
                 setIsTyping(false);
                 const countryData = detectCountry(currentInput);
                 const legalInfo = await fetchLegalInfo(countryData.code, currentInput);
-                const botMessage = { id: `msg_${Date.now() + 1}`, sender: 'odusbaba', message: legalInfo, created_at: new Date().toISOString() };
+                const botMessage = {
+                    id: `msg_${Date.now() + 1}`,
+                    sender: 'odusbaba',
+                    message: legalInfo,
+                    created_at: new Date().toISOString()
+                };
                 setMessages(prev => [...prev, botMessage]);
                 if (conversationId && user) {
-                    await supabase.from('chat_messages').insert({ conversation_id: conversationId, sender: 'odusbaba', message: legalInfo });
+                    await supabase.from('chat_messages').insert({
+                        conversation_id: conversationId,
+                        sender: 'odusbaba',
+                        message: legalInfo
+                    });
                     await supabase.from('chat_conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
                 }
                 setLoading(false);
                 return;
             }
 
+            // Check for job search intent
             const intent = detectIntent(currentInput);
-            const countryData = detectCountry(currentInput);
-            const userTier = userProfile?.tier || (user ? 'free' : 'visitor');
-            const isAllowed = isActionAllowed(intent.intent, userTier);
-            
-            const response = await generateIntelligentResponse(currentInput, intent, countryData, userTier, isAllowed);
-            
+            if (intent.intent === 'job_search') {
+                clearTimeout(typingTimer);
+                setIsTyping(false);
+                await handleJobSearch(currentInput);
+                setLoading(false);
+                return;
+            }
+
+            // Prepare conversation history for API
+            const history = messages.slice(-MAX_HISTORY_MESSAGES).map(m => ({
+                role: m.sender === 'user' ? 'user' : 'assistant',
+                content: m.message
+            }));
+            history.push({ role: 'user', content: currentInput });
+
+            // ✅ Call unified API endpoint
+            const response = await fetch(CHAT_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    messages: history, 
+                    userId: user?.id,
+                    conversationId,
+                    userTier: userProfile?.tier || (user ? 'free' : 'visitor')
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Chat failed');
+            }
+
             clearTimeout(typingTimer);
             setIsTyping(false);
-            const botMessage = { id: `msg_${Date.now() + 1}`, sender: 'odusbaba', message: response, created_at: new Date().toISOString() };
-            setMessages(prev => [...prev, botMessage]);
             
+            const botMessage = {
+                id: `msg_${Date.now() + 1}`,
+                sender: 'odusbaba',
+                message: data.response || data.reply,
+                created_at: new Date().toISOString()
+            };
+            setMessages(prev => [...prev, botMessage]);
+
             if (conversationId && user) {
-                await supabase.from('chat_messages').insert({ conversation_id: conversationId, sender: 'odusbaba', message: response });
+                await supabase.from('chat_messages').insert({
+                    conversation_id: conversationId,
+                    sender: 'odusbaba',
+                    message: data.response || data.reply
+                });
                 await supabase.from('chat_conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
             }
+
+            if (data.remaining !== undefined) {
+                setRemainingCredits(data.remaining);
+            }
+
         } catch (err) {
             console.error('Chat error:', err);
             clearTimeout(typingTimer);
             setIsTyping(false);
             setError(err.message);
-            setMessages(prev => [...prev, { id: `msg_error_${Date.now()}`, sender: 'odusbaba', message: "I'm having trouble connecting right now. Please try again in a moment, or refresh the page if the issue persists.", created_at: new Date().toISOString() }]);
+            setMessages(prev => [...prev, {
+                id: `msg_error_${Date.now()}`,
+                sender: 'odusbaba',
+                message: "I'm having trouble connecting right now. Please try again in a moment, or refresh the page if the issue persists.",
+                created_at: new Date().toISOString()
+            }]);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleKeyPress = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
     const formatTimestamp = (timestamp) => {
         if (!timestamp) return '';
         const date = new Date(timestamp);
         const now = new Date();
-        return date.toDateString() === now.toDateString() ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        if (date.toDateString() === now.toDateString()) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
     const guestMessageCount = messages.filter(m => m.sender === 'user').length;
+    
     const canSendMessage = useCallback(() => {
         if (loading) return false;
         if (!input.trim()) return false;
@@ -430,8 +465,13 @@ export default function ODUSBABAChat() {
     }, [loading, input, user, guestMessageCount, remainingCredits]);
 
     const copyToClipboard = async (text, messageId) => {
-        try { await navigator.clipboard.writeText(text); setCopiedMessageId(messageId); setTimeout(() => setCopiedMessageId(null), 2000); } 
-        catch (err) { console.error('Failed to copy:', err); }
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedMessageId(messageId);
+            setTimeout(() => setCopiedMessageId(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
     };
 
     const getCreditDisplay = () => {
@@ -443,8 +483,8 @@ export default function ODUSBABAChat() {
     };
 
     const suggestedActions = [
-        { icon: Briefcase, text: "Sponsorship Jobs", action: "Can you help me find visa sponsorship jobs in the UK?", isJobSearch: true },
-        { icon: Scale, text: "Dismissal Rights", action: "My employer wants to dismiss me. What are my rights?", isLegal: true },
+        { icon: Briefcase, text: "Find Jobs", action: "Find me jobs in", isJobSearch: true },
+        { icon: Scale, text: "Dismissal Rights", action: "My employer wants to dismiss me. What are my rights?" },
         { icon: FileText, text: "CV Review", action: "Can you review my CV and provide suggestions?" },
         { icon: Award, text: "Skill Analysis", action: "Analyze my skills and suggest improvements" },
         { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
@@ -458,23 +498,66 @@ export default function ODUSBABAChat() {
 
     return (
         <>
-            <button onClick={() => { setIsOpen(true); setIsMinimized(false); setUnreadCount(0); }} className={`fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-primary-600 to-purple-600 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 group ${isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`} aria-label="Open chat">
+            <button
+                onClick={() => { setIsOpen(true); setIsMinimized(false); setUnreadCount(0); }}
+                className={`fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-primary-600 to-purple-600 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 group ${isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`}
+                aria-label="Open chat"
+            >
                 <Shield className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
-                {unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 animate-pulse shadow-md">{unreadCount > 9 ? '9+' : unreadCount}</span>}
-                {!user && remainingCredits !== 0 && unreadCount === 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>}
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 animate-pulse shadow-md">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                )}
+                {!user && remainingCredits !== 0 && unreadCount === 0 && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                )}
             </button>
 
             {isOpen && (
-                <div ref={chatContainerRef} className={`fixed bottom-24 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ${isMinimized ? 'h-14' : 'h-[600px] max-h-[calc(100vh-8rem)]'}`}>
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-gradient-to-r from-primary-900/30 to-purple-900/30 cursor-pointer hover:from-primary-900/40 hover:to-purple-900/40 transition" onClick={() => setIsMinimized(!isMinimized)}>
+                <div 
+                    ref={chatContainerRef}
+                    className={`fixed bottom-24 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ${isMinimized ? 'h-14' : 'h-[600px] max-h-[calc(100vh-8rem)]'}`}
+                >
+                    {/* Header */}
+                    <div 
+                        className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-gradient-to-r from-primary-900/30 to-purple-900/30 cursor-pointer hover:from-primary-900/40 hover:to-purple-900/40 transition"
+                        onClick={() => setIsMinimized(!isMinimized)}
+                    >
                         <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center shadow-lg"><Shield className="w-4 h-4 text-white" /></div>
-                            <div><h3 className="font-semibold text-white text-sm">ODUSBABA AI</h3><p className="text-xs text-slate-400">Career Advisor • Legal Info • Secure</p></div>
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center shadow-lg">
+                                <Shield className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-white text-sm">ODUSBABA AI</h3>
+                                <p className="text-xs text-slate-400">Career Advisor • Legal Info • Secure</p>
+                            </div>
                         </div>
                         <div className="flex items-center gap-1">
-                            {user && remainingCredits !== null && remainingCredits < 999999 && !isMinimized && (<div className={`px-2 py-0.5 rounded-full text-xs font-medium mr-1 ${creditStatus === 'urgent' ? 'bg-red-500/20 text-red-400 animate-pulse' : creditStatus === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-300'}`}><CreditCard className="w-3 h-3 inline mr-1" />{remainingCredits}</div>)}
-                            <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }} className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800" aria-label={isMinimized ? "Expand chat" : "Minimize chat"}><ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isMinimized ? 'rotate-180' : ''}`} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800" aria-label="Close chat"><X className="w-4 h-4" /></button>
+                            {user && remainingCredits !== null && remainingCredits < 999999 && !isMinimized && (
+                                <div className={`px-2 py-0.5 rounded-full text-xs font-medium mr-1 ${
+                                    creditStatus === 'urgent' ? 'bg-red-500/20 text-red-400 animate-pulse' :
+                                    creditStatus === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                                    'bg-slate-700 text-slate-300'
+                                }`}>
+                                    <CreditCard className="w-3 h-3 inline mr-1" />
+                                    {remainingCredits}
+                                </div>
+                            )}
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }}
+                                className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
+                                aria-label={isMinimized ? "Expand chat" : "Minimize chat"}
+                            >
+                                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isMinimized ? 'rotate-180' : ''}`} />
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+                                className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
+                                aria-label="Close chat"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
                         </div>
                     </div>
 
@@ -483,56 +566,163 @@ export default function ODUSBABAChat() {
                             {/* Warning banner for near-limit guests */}
                             {isNearLimit && !hasReachedLimit && (
                                 <div className="mx-4 mt-3 p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                                    <p className="text-amber-400 text-xs text-center">⚠️ {GUEST_LIMIT - guestMessageCount} messages remaining. <a href="/sign-up" className="underline">Sign up</a> to continue.</p>
+                                    <p className="text-amber-400 text-xs text-center">
+                                        ⚠️ {GUEST_LIMIT - guestMessageCount} messages remaining. <a href="/sign-up" className="underline">Sign up</a> to continue.
+                                    </p>
                                 </div>
                             )}
 
+                            {/* Messages Container */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-900 to-slate-950 scrollbar-thin scrollbar-thumb-slate-700">
                                 {messages.map((msg, idx) => (
-                                    <div key={msg.id || idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in group`}>
+                                    <div
+                                        key={msg.id || idx}
+                                        className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in group`}
+                                    >
                                         <div className={`max-w-[85%] ${msg.sender === 'user' ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-200'} rounded-2xl px-4 py-2.5 ${msg.sender === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'} shadow-sm relative`}>
                                             <div className="flex items-center gap-1.5 mb-1">
-                                                {msg.sender === 'odusbaba' ? <Bot className="w-3 h-3 text-primary-400" /> : <User className="w-3 h-3 text-slate-400" />}
-                                                <span className="text-xs opacity-70">{msg.sender === 'odusbaba' ? 'Advisor' : 'You'}</span>
+                                                {msg.sender === 'odusbaba' ? (
+                                                    <Bot className="w-3 h-3 text-primary-400" />
+                                                ) : (
+                                                    <User className="w-3 h-3 text-slate-400" />
+                                                )}
+                                                <span className="text-xs opacity-70">
+                                                    {msg.sender === 'odusbaba' ? 'Advisor' : 'You'}
+                                                </span>
                                             </div>
                                             <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>
-                                            <p className="text-[10px] opacity-40 mt-1 text-right">{formatTimestamp(msg.created_at)}</p>
+                                            <p className="text-[10px] opacity-40 mt-1 text-right">
+                                                {formatTimestamp(msg.created_at)}
+                                            </p>
                                             {msg.sender === 'odusbaba' && msg.message !== "I'm having trouble connecting..." && (
-                                                <button onClick={() => copyToClipboard(msg.message, msg.id)} className="absolute -right-8 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Copy message">
-                                                    {copiedMessageId === msg.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-500 hover:text-slate-300" />}
+                                                <button
+                                                    onClick={() => copyToClipboard(msg.message, msg.id)}
+                                                    className="absolute -right-8 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    aria-label="Copy message"
+                                                >
+                                                    {copiedMessageId === msg.id ? (
+                                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                    ) : (
+                                                        <Copy className="w-3.5 h-3.5 text-slate-500 hover:text-slate-300" />
+                                                    )}
                                                 </button>
                                             )}
                                         </div>
                                     </div>
                                 ))}
-                                {isTyping && (<div className="flex justify-start animate-fade-in"><div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1"><span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} /><span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} /><span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} /></div></div></div>)}
-                                {error && (<div className="flex justify-center"><div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"><p className="text-red-400 text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p></div></div>)}
+                                
+                                {/* Typing indicator */}
+                                {isTyping && (
+                                    <div className="flex justify-start animate-fade-in">
+                                        <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
+                                            <div className="flex gap-1">
+                                                <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                                <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                                <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Error message */}
+                                {error && (
+                                    <div className="flex justify-center">
+                                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                                            <p className="text-red-400 text-xs flex items-center gap-1">
+                                                <AlertCircle className="w-3 h-3" />
+                                                {error}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                
                                 <div ref={messagesEndRef} />
                             </div>
 
+                            {/* Suggested Actions */}
                             {showSuggestedActions && (
                                 <div className="p-3 border-t border-slate-700 bg-slate-900/80">
-                                    <p className="text-xs text-slate-500 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Quick actions:</p>
+                                    <p className="text-xs text-slate-500 mb-2 flex items-center gap-1">
+                                        <Sparkles className="w-3 h-3" />
+                                        Quick actions:
+                                    </p>
                                     <div className="flex flex-wrap gap-2">
                                         {suggestedActions.map((action, idx) => (
-                                            <button key={idx} onClick={() => { setInput(action.action); setTimeout(() => sendMessage(), 100); }} className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition disabled:opacity-50" disabled={loading}>
-                                                <action.icon className="w-3 h-3" /><span className="hidden sm:inline">{action.text}</span>
+                                            <button
+                                                key={idx}
+                                                onClick={() => {
+                                                    if (action.isJobSearch) {
+                                                        const query = prompt("What job title or keywords are you looking for?");
+                                                        if (query && query.trim()) {
+                                                            setInput(query);
+                                                            setTimeout(() => sendMessage(), 100);
+                                                        }
+                                                    } else {
+                                                        setInput(action.action);
+                                                        setTimeout(() => sendMessage(), 100);
+                                                    }
+                                                }}
+                                                className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition disabled:opacity-50"
+                                                disabled={loading}
+                                            >
+                                                <action.icon className="w-3 h-3" />
+                                                <span className="hidden sm:inline">{action.text}</span>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
                             )}
 
+                            {/* Input Area */}
                             <div className="p-3 border-t border-slate-700 bg-slate-900">
                                 <div className="flex gap-2">
-                                    <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={hasReachedLimit ? "Free preview limit reached. Sign up to continue." : (user ? "Ask me anything..." : `Try ODUSBABA free (${GUEST_LIMIT - guestMessageCount} messages left)...`)} rows={1} className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm" style={{ minHeight: '42px', maxHeight: '100px' }} disabled={loading || (user && remainingCredits === 0 && remainingCredits !== 999999) || hasReachedLimit} />
-                                    <button onClick={sendMessage} disabled={!canSendMessage() || hasReachedLimit} className="p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[42px]" aria-label="Send message">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}</button>
+                                    <textarea
+                                        ref={inputRef}
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyPress={handleKeyPress}
+                                        placeholder={hasReachedLimit ? "Free preview limit reached. Sign up to continue." : (user ? "Ask me anything..." : `Try ODUSBABA free (${GUEST_LIMIT - guestMessageCount} messages left)...`)}
+                                        rows={1}
+                                        className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm"
+                                        style={{ minHeight: '42px', maxHeight: '100px' }}
+                                        disabled={loading || (user && remainingCredits === 0 && remainingCredits !== 999999) || hasReachedLimit}
+                                    />
+                                    <button
+                                        onClick={sendMessage}
+                                        disabled={!canSendMessage() || hasReachedLimit}
+                                        className="p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[42px]"
+                                        aria-label="Send message"
+                                    >
+                                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                    </button>
                                 </div>
-                                {!user && !hasReachedLimit && (<p className="text-xs text-slate-500 text-center mt-2">✨ {GUEST_LIMIT - guestMessageCount} free {GUEST_LIMIT - guestMessageCount === 1 ? 'message' : 'messages'} remaining. <a href="/sign-up" className="text-primary-400 hover:underline">Sign up</a> for full access</p>)}
-                                {hasReachedLimit && (<p className="text-xs text-amber-400 text-center mt-2">✨ Free preview limit reached. <a href="/sign-up" className="underline">Create account</a> to continue.</p>)}
-                                {user && remainingCredits === 0 && remainingCredits !== 999999 && (<p className="text-xs text-amber-400 text-center mt-2">⚠️ Credits exhausted. <a href="/pricing" className="underline hover:text-amber-300">Upgrade plan</a> to continue.</p>)}
-                                {user && remainingCredits > 0 && remainingCredits <= 5 && remainingCredits !== 999999 && (<p className="text-xs text-amber-500 text-center mt-2">⚡ Low on credits ({remainingCredits} left). <a href="/pricing" className="underline">Purchase more</a></p>)}
-                                <p className="text-[10px] text-slate-600 text-center mt-2">🔒 Secure conversation • Your data is protected</p>
+                                
+                                {/* Credit/Usage Info */}
+                                {!user && !hasReachedLimit && (
+                                    <p className="text-xs text-slate-500 text-center mt-2">
+                                        ✨ {GUEST_LIMIT - guestMessageCount} free {GUEST_LIMIT - guestMessageCount === 1 ? 'message' : 'messages'} remaining. <a href="/sign-up" className="text-primary-400 hover:underline">Sign up</a> for full access
+                                    </p>
+                                )}
+                                {hasReachedLimit && (
+                                    <p className="text-xs text-amber-400 text-center mt-2">
+                                        ✨ Free preview limit reached. <a href="/sign-up" className="underline">Create account</a> to continue.
+                                    </p>
+                                )}
+                                {user && remainingCredits === 0 && remainingCredits !== 999999 && (
+                                    <p className="text-xs text-amber-400 text-center mt-2">
+                                        ⚠️ Credits exhausted. <a href="/pricing" className="underline hover:text-amber-300">Upgrade plan</a> to continue.
+                                    </p>
+                                )}
+                                {user && remainingCredits > 0 && remainingCredits <= 5 && remainingCredits !== 999999 && (
+                                    <p className="text-xs text-amber-500 text-center mt-2">
+                                        ⚡ Low on credits ({remainingCredits} left). <a href="/pricing" className="underline">Purchase more</a>
+                                    </p>
+                                )}
+                                
+                                {/* Security Notice */}
+                                <p className="text-[10px] text-slate-600 text-center mt-2">
+                                    🔒 Secure conversation • Your data is protected
+                                </p>
                             </div>
                         </>
                     )}
