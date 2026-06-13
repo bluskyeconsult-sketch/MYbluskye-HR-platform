@@ -7,16 +7,20 @@
   ],
   "functions": {
     "api/ai/*.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "memory": 1024
     },
     "api/cron/*.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 512
     },
     "api/index.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 1024
     },
     "api/*.js": {
-      "maxDuration": 10
+      "maxDuration": 10,
+      "memory": 512
     }
   },
   "rewrites": [
