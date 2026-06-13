@@ -1,18 +1,28 @@
 // src/pages/UserProfile.jsx
-// COMPLETE PROFESSIONAL USER PROFILE - With unified API endpoint
+// ODUSBABA USER PROFILE PAGE v3.0 - PRODUCTION READY
+// ✅ Complete profile management with avatar upload
+// ✅ Email verification status
+// ✅ Unified API for profile updates
+// ✅ Professional validation and error handling
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
     Camera, Linkedin, Github, Mail, Phone, Briefcase, Calendar, 
     Bell, Save, X, CheckCircle, AlertCircle, Loader2, 
-    User, MapPin, Globe, Award, Clock, FileText
+    User, MapPin, Award, Clock, FileText
 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// ============================================
+// CONSTANTS
+// ============================================
+
+const API_BASE = '/api/index';
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function UserProfile() {
     const navigate = useNavigate();
@@ -26,6 +36,10 @@ export default function UserProfile() {
     const [successMessage, setSuccessMessage] = useState('');
     const [avatarUrl, setAvatarUrl] = useState(null);
     const fileInputRef = useRef(null);
+
+    // ============================================
+    // LOAD PROFILE
+    // ============================================
 
     useEffect(() => {
         loadProfile();
@@ -58,6 +72,10 @@ export default function UserProfile() {
             setLoading(false);
         }
     }
+
+    // ============================================
+    // AVATAR UPLOAD
+    // ============================================
 
     async function handleAvatarUpload(event) {
         const file = event.target.files[0];
@@ -112,6 +130,10 @@ export default function UserProfile() {
         }
     }
 
+    // ============================================
+    // VALIDATION
+    // ============================================
+
     function validateForm() {
         const newErrors = {};
         
@@ -139,6 +161,19 @@ export default function UserProfile() {
         return Object.keys(newErrors).length === 0;
     }
 
+    // ============================================
+    // GET AUTH TOKEN
+    // ============================================
+
+    async function getAuthToken() {
+        const session = await supabase.auth.getSession();
+        return session.data.session?.access_token;
+    }
+
+    // ============================================
+    // SAVE PROFILE (Unified API)
+    // ============================================
+
     async function handleSave() {
         if (!validateForm()) return;
         
@@ -147,11 +182,15 @@ export default function UserProfile() {
         
         try {
             const { data: { user } } = await supabase.auth.getUser();
+            const token = await getAuthToken();
             
-            // ✅ CORRECTED: Using unified API endpoint
-            const response = await fetch('/api/index?action=user-update', {
+            // ✅ Using unified API endpoint with auth token
+            const response = await fetch(`${API_BASE}?action=user-update`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     userId: user.id,
                     updates: {
@@ -185,6 +224,10 @@ export default function UserProfile() {
         }
     }
 
+    // ============================================
+    // RESEND VERIFICATION
+    // ============================================
+
     async function handleResendVerification() {
         try {
             const { error } = await supabase.auth.resend({
@@ -200,9 +243,13 @@ export default function UserProfile() {
         }
     }
 
+    // ============================================
+    // LOADING STATE
+    // ============================================
+
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
             </div>
         );
@@ -210,11 +257,16 @@ export default function UserProfile() {
 
     const isVerified = profile?.email_verified;
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-            <div className="max-w-5xl mx-auto px-4 py-12">
+            <div className="max-w-5xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
+                
                 {/* Header */}
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-white">My Profile</h1>
                         <p className="text-slate-400 mt-1">Manage your personal information and preferences</p>
@@ -240,11 +292,12 @@ export default function UserProfile() {
 
                 {/* Main Card */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-sm">
+                    
                     {/* Header with Avatar */}
-                    <div className="bg-gradient-to-r from-slate-800/50 to-slate-900/50 p-8 border-b border-slate-800">
+                    <div className="bg-gradient-to-r from-slate-800/50 to-slate-900/50 p-6 md:p-8 border-b border-slate-800">
                         <div className="flex flex-col md:flex-row items-center gap-6">
                             <div className="relative group">
-                                <div className="w-28 h-28 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-4xl font-bold text-white shadow-lg">
+                                <div className="w-28 h-28 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-4xl font-bold text-white shadow-lg overflow-hidden">
                                     {avatarUrl ? (
                                         <img src={avatarUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" />
                                     ) : (
@@ -274,7 +327,7 @@ export default function UserProfile() {
                                     </>
                                 )}
                                 {errors.avatar && (
-                                    <p className="text-xs text-red-400 mt-1 text-center">{errors.avatar}</p>
+                                    <p className="text-xs text-red-400 mt-1 text-center absolute -bottom-5 left-0 right-0">{errors.avatar}</p>
                                 )}
                             </div>
                             
@@ -306,7 +359,7 @@ export default function UserProfile() {
                     </div>
 
                     {/* Profile Information */}
-                    <div className="p-8">
+                    <div className="p-6 md:p-8">
                         {editing ? (
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -464,6 +517,7 @@ export default function UserProfile() {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Left Column */}
                                 <div className="space-y-5">
                                     <div className="flex items-start gap-3">
                                         <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
@@ -508,6 +562,7 @@ export default function UserProfile() {
                                     )}
                                 </div>
                                 
+                                {/* Right Column */}
                                 <div className="space-y-5">
                                     {profile?.linkedin_url && (
                                         <div className="flex items-start gap-3">
@@ -518,9 +573,9 @@ export default function UserProfile() {
                                                     href={profile.linkedin_url} 
                                                     target="_blank" 
                                                     rel="noopener noreferrer" 
-                                                    className="text-primary-400 hover:underline break-all"
+                                                    className="text-primary-400 hover:underline break-all text-sm"
                                                 >
-                                                    {profile.linkedin_url.replace('https://', '')}
+                                                    {profile.linkedin_url.replace('https://', '').replace('http://', '')}
                                                 </a>
                                             </div>
                                         </div>
@@ -535,9 +590,9 @@ export default function UserProfile() {
                                                     href={profile.github_url} 
                                                     target="_blank" 
                                                     rel="noopener noreferrer" 
-                                                    className="text-primary-400 hover:underline break-all"
+                                                    className="text-primary-400 hover:underline break-all text-sm"
                                                 >
-                                                    {profile.github_url.replace('https://', '')}
+                                                    {profile.github_url.replace('https://', '').replace('http://', '')}
                                                 </a>
                                             </div>
                                         </div>
