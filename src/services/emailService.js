@@ -1,6 +1,9 @@
 // src/services/emailService.js
-// COMPLETE PROFESSIONAL EMAIL SERVICE - Unified API endpoint
-// Features: Welcome emails, password reset, job alerts, notifications, logging
+// ODUSBABA EMAIL SERVICE v3.0 - PRODUCTION READY
+// ✅ Unified API endpoint for all email operations
+// ✅ Professional email templates with branding
+// ✅ Email logging and tracking
+// ✅ Support for all email types (welcome, reset, job alerts, etc.)
 
 import { supabase } from '../lib/supabase';
 
@@ -8,12 +11,11 @@ import { supabase } from '../lib/supabase';
 // CONFIGURATION
 // ============================================
 
-// ✅ CORRECTED: Using unified API endpoint
 const API_BASE = '/api/index';
 const EMAIL_ENDPOINT = `${API_BASE}?action=email`;
 
 // ============================================
-// HELPER FUNCTIONS
+// EMAIL LOGGING (Database)
 // ============================================
 
 /**
@@ -74,21 +76,22 @@ async function updateEmailLog(logId, status, errorMessage = null) {
 }
 
 // ============================================
-// CORE EMAIL FUNCTION
+// CORE EMAIL FUNCTION (Unified API)
 // ============================================
 
 /**
  * Send email via unified API endpoint
  * @param {string} to - Recipient email address
  * @param {string} subject - Email subject
- * @param {string} htmlContent - HTML content of email
- * @param {string} emailType - Type of email (welcome, password_reset, job_alert, test, notification)
+ * @param {string} htmlContent - HTML content of email (optional if using template)
+ * @param {string} emailType - Type of email (welcome, password_reset, job_alert, test, notification, contact, newsletter, assessment_report, tester_welcome)
+ * @param {Object} templateData - Data for template rendering
  * @returns {Promise<{success: boolean, messageId?: string, error?: string, logId?: string}>}
  */
-export async function sendEmail(to, subject, htmlContent, emailType = 'notification') {
+export async function sendEmail(to, subject, htmlContent = null, emailType = 'notification', templateData = {}) {
     // Basic validation
-    if (!to || !subject || !htmlContent) {
-        console.error('Missing required email fields:', { to, subject, hasContent: !!htmlContent });
+    if (!to || !subject) {
+        console.error('Missing required email fields:', { to, subject });
         return { success: false, error: 'Missing required email fields' };
     }
     
@@ -104,17 +107,16 @@ export async function sendEmail(to, subject, htmlContent, emailType = 'notificat
         // Log as pending in database
         logId = await logEmailToDatabase(to, subject, emailType);
         
-        // ✅ FIXED: Using correct unified API endpoint
+        // Call unified API endpoint
         const response = await fetch(EMAIL_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                action: 'send',
                 to, 
                 subject, 
-                html: htmlContent, 
-                emailType, 
-                logId 
+                html: htmlContent,
+                type: emailType,
+                templateData
             })
         });
 
@@ -268,7 +270,7 @@ function escapeHtml(text) {
 }
 
 // ============================================
-// EMAIL TEMPLATES
+// EMAIL TEMPLATE FUNCTIONS
 // ============================================
 
 /**
@@ -277,24 +279,7 @@ function escapeHtml(text) {
  * @param {string} name - User's full name
  */
 export async function sendWelcomeEmail(email, name) {
-    const displayName = name || email.split('@')[0];
-    
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">Hello ${escapeHtml(displayName)},</h2>
-        <p style="color: #94a3b8;">Welcome to ODUSBABA! You're now part of the governed workforce platform.</p>
-        <p style="color: #94a3b8;">Your account has been successfully created. Here's what you can do next:</p>
-        <ul style="color: #94a3b8; padding-left: 20px;">
-            <li>📝 Complete your profile to attract employers</li>
-            <li>🔍 Browse and apply to verified job opportunities</li>
-            <li>📊 Take professional assessments to showcase your skills</li>
-            <li>🤖 Use AI-powered virtual assistants for career guidance</li>
-        </ul>
-        <div class="divider"></div>
-        <p style="color: #94a3b8;">Need help? Contact our support team anytime.</p>
-    `;
-    
-    const html = generateEmailTemplate('Welcome to ODUSBABA', content, 'Go to Dashboard', 'https://www.bluskyeconsult.com/dashboard');
-    return sendEmail(email, `Welcome to ODUSBABA, ${displayName}!`, html, 'welcome');
+    return sendEmail(email, `Welcome to ODUSBABA, ${name || email.split('@')[0]}!`, null, 'welcome', { name });
 }
 
 /**
@@ -303,20 +288,7 @@ export async function sendWelcomeEmail(email, name) {
  * @param {string} resetLink - Password reset link
  */
 export async function sendPasswordResetEmail(email, resetLink) {
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">Reset Your Password</h2>
-        <p style="color: #94a3b8;">We received a request to reset your password. Click the button below to create a new password:</p>
-        <div class="warning-box">
-            <p style="color: #f59e0b; margin: 0;">⚠️ Security Notice: This link expires in 1 hour for your protection.</p>
-        </div>
-        <p style="color: #475569; font-size: 14px;">If you didn't request this password reset, please ignore this email. Your account remains secure.</p>
-        <div class="divider"></div>
-        <p style="color: #475569; font-size: 12px;">Having trouble? Copy and paste this link into your browser:</p>
-        <p style="color: #3b82f6; font-size: 12px; word-break: break-all;">${resetLink}</p>
-    `;
-    
-    const html = generateEmailTemplate('Reset Your Password', content, 'Reset Password', resetLink);
-    return sendEmail(email, 'Reset Your Password - ODUSBABA', html, 'password_reset');
+    return sendEmail(email, 'Reset Your Password - ODUSBABA', null, 'password_reset', { resetLink });
 }
 
 /**
@@ -326,32 +298,7 @@ export async function sendPasswordResetEmail(email, resetLink) {
  * @param {string} alertName - Name of the job alert
  */
 export async function sendJobAlertEmail(email, jobs, alertName) {
-    if (!jobs || jobs.length === 0) {
-        return { success: false, error: 'No jobs to send' };
-    }
-    
-    const jobListHtml = jobs.map(job => `
-        <div style="padding: 16px; margin: 12px 0; background-color: #1e293b; border-radius: 12px;">
-            <h3 style="color: #ffffff; margin: 0 0 8px 0;">${escapeHtml(job.title)}</h3>
-            <p style="color: #94a3b8; margin: 0;">🏢 ${escapeHtml(job.company || 'Various Employers')}</p>
-            <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px;">📍 ${escapeHtml(job.location || 'Remote / Flexible')}</p>
-            ${job.salary ? `<p style="color: #10b981; margin: 8px 0 0 0; font-size: 14px; font-weight: 500;">💰 ${escapeHtml(job.salary)}</p>` : ''}
-            <div style="margin-top: 12px;">
-                <a href="${escapeHtml(job.link || '#')}" style="color: #0ea5e9; text-decoration: none; font-size: 13px;">View Details →</a>
-            </div>
-        </div>
-    `).join('');
-    
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">🎯 New Job Matches</h2>
-        <p style="color: #94a3b8;">We found ${jobs.length} new job${jobs.length > 1 ? 's' : ''} matching your alert "<strong>${escapeHtml(alertName)}</strong>":</p>
-        ${jobListHtml}
-        <div class="divider"></div>
-        <p style="color: #94a3b8;">Don't miss out on these opportunities! Apply today.</p>
-    `;
-    
-    const html = generateEmailTemplate('New Job Matches', content, 'Browse All Jobs', 'https://www.bluskyeconsult.com/jobs');
-    return sendEmail(email, `🎯 ${jobs.length} New Job${jobs.length > 1 ? 's' : ''} Match Your Alert`, html, 'job_alert');
+    return sendEmail(email, `🎯 ${jobs?.length || 0} New Job${jobs?.length !== 1 ? 's' : ''} Match Your Alert`, null, 'job_alert', { alertName, jobs });
 }
 
 /**
@@ -359,18 +306,7 @@ export async function sendJobAlertEmail(email, jobs, alertName) {
  * @param {string} email - Recipient email
  */
 export async function sendTestEmail(email) {
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">✅ Email Test Successful!</h2>
-        <p style="color: #94a3b8;">Your ODUSBABA email system is working correctly.</p>
-        <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin: 16px 0;">
-            <p style="color: #94a3b8; margin: 0;"><strong>Sent at:</strong> ${new Date().toLocaleString()}</p>
-            <p style="color: #94a3b8; margin: 8px 0 0;"><strong>Recipient:</strong> ${escapeHtml(email)}</p>
-        </div>
-        <p style="color: #475569; font-size: 12px;">This is a test email from your ODUSBABA platform.</p>
-    `;
-    
-    const html = generateEmailTemplate('Email Test', content);
-    return sendEmail(email, 'ODUSBABA Email Test', html, 'test');
+    return sendEmail(email, 'ODUSBABA Email Test', null, 'test', {});
 }
 
 /**
@@ -382,42 +318,122 @@ export async function sendTestEmail(email) {
  * @param {string} buttonUrl - Optional button URL
  */
 export async function sendNotificationEmail(email, subject, message, buttonText = null, buttonUrl = null) {
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">${escapeHtml(subject)}</h2>
-        <p style="color: #94a3b8;">${escapeHtml(message).replace(/\n/g, '<br>')}</p>
-    `;
-    
-    const html = generateEmailTemplate(subject, content, buttonText, buttonUrl);
-    return sendEmail(email, subject, html, 'notification');
+    return sendEmail(email, subject, null, 'notification', { message, actionLink: buttonUrl, actionText: buttonText });
 }
 
 /**
- * Send application confirmation email
+ * Send contact form email
+ * @param {string} name - Sender name
+ * @param {string} email - Sender email
+ * @param {string} subject - Message subject
+ * @param {string} message - Message content
+ */
+export async function sendContactEmail(name, email, subject, message) {
+    const adminEmail = import.meta.env.VITE_CONTACT_EMAIL || 'support@bluskyeconsult.com';
+    return sendEmail(
+        adminEmail,
+        `Contact Form: ${subject}`,
+        null,
+        'contact',
+        { name, email, subject, message }
+    );
+}
+
+/**
+ * Send tester welcome email
+ * @param {string} email - Recipient email
+ * @param {string} name - Tester name
+ * @param {number} uses - Number of free uses
+ * @param {number} days - Days of access
+ */
+export async function sendTesterWelcomeEmail(email, name, uses = 10, days = 30) {
+    return sendEmail(email, 'Welcome to ODUSBABA Tester Program!', null, 'tester_welcome', { name, uses, days });
+}
+
+/**
+ * Send assessment report email
+ * @param {string} email - Recipient email
+ * @param {string} userName - User's name
+ * @param {string} assessmentTitle - Assessment title
+ * @param {number} percentage - Score percentage
+ * @param {number} score - Raw score
+ * @param {string} performanceLevel - Performance level
+ */
+export async function sendAssessmentReportEmail(email, userName, assessmentTitle, percentage, score, performanceLevel) {
+    return sendEmail(
+        email,
+        `Your ${assessmentTitle} Assessment Report`,
+        null,
+        'assessment_report',
+        { userName, assessmentTitle, percentage, score, performanceLevel }
+    );
+}
+
+/**
+ * Send newsletter welcome email
+ * @param {string} email - Recipient email
+ * @param {string} name - Subscriber name
+ */
+export async function sendNewsletterWelcomeEmail(email, name) {
+    return sendEmail(email, 'Welcome to ODUSBABA Newsletter!', null, 'newsletter_welcome', { name: name || 'there' });
+}
+
+/**
+ * Send job application confirmation email
  * @param {string} email - Recipient email
  * @param {string} jobTitle - Job title applied for
  * @param {string} companyName - Company name
  */
 export async function sendApplicationConfirmation(email, jobTitle, companyName) {
-    const content = `
-        <h2 style="color: #ffffff; margin-top: 0;">Application Received!</h2>
-        <p style="color: #94a3b8;">Your application for <strong>${escapeHtml(jobTitle)}</strong> at <strong>${escapeHtml(companyName)}</strong> has been successfully submitted.</p>
-        <p style="color: #94a3b8;">The employer will review your application and contact you if there's a match.</p>
-        <div class="divider"></div>
-        <h3 style="color: #ffffff;">Next Steps:</h3>
-        <ul style="color: #94a3b8;">
-            <li>📊 Complete relevant assessments to stand out</li>
-            <li>📄 Keep your profile updated</li>
-            <li>🔍 Continue exploring more opportunities</li>
-        </ul>
-    `;
-    
-    const html = generateEmailTemplate('Application Confirmation', content, 'View My Applications', 'https://www.bluskyeconsult.com/applications');
-    return sendEmail(email, `Application Submitted: ${jobTitle} at ${companyName}`, html, 'notification');
+    return sendEmail(
+        email,
+        `Application Submitted: ${jobTitle} at ${companyName}`,
+        null,
+        'notification',
+        {
+            subject: 'Application Received!',
+            message: `Your application for ${jobTitle} at ${companyName} has been successfully submitted. The employer will review your application and contact you if there's a match.`,
+            actionLink: 'https://www.bluskyeconsult.com/applications',
+            actionText: 'View My Applications'
+        }
+    );
 }
 
 // ============================================
-// EMAIL LOGS & STATUS
+// EMAIL SERVICE STATUS & STATISTICS
 // ============================================
+
+/**
+ * Test email configuration
+ * @param {string} testEmail - Email to send test to
+ */
+export async function testEmailConfiguration(testEmail = null) {
+    const email = testEmail || import.meta.env.VITE_TEST_EMAIL || 'support@bluskyeconsult.com';
+    return sendTestEmail(email);
+}
+
+/**
+ * Check email service status
+ * @returns {Promise<{success: boolean, status: string, message: string, configured: boolean}>}
+ */
+export async function checkEmailStatus() {
+    try {
+        const response = await fetch(`${EMAIL_ENDPOINT}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'status' })
+        });
+        const data = await response.json();
+        return { 
+            success: true, 
+            status: data.status || 'unknown', 
+            message: data.message || 'Email service available',
+            configured: data.configured !== false
+        };
+    } catch (error) {
+        return { success: false, status: 'error', message: error.message, configured: false };
+    }
+}
 
 /**
  * Get email logs for a user
@@ -439,25 +455,6 @@ export async function getUserEmailLogs(userId, limit = 20) {
     } catch (error) {
         console.error('Error fetching email logs:', error);
         return { success: false, logs: [], error: error.message };
-    }
-}
-
-/**
- * Check email service status
- * @returns {Promise<{success: boolean, status: string, message: string}>}
- */
-export async function checkEmailStatus() {
-    try {
-        const response = await fetch(`${EMAIL_ENDPOINT}&test=true`);
-        const data = await response.json();
-        return { 
-            success: true, 
-            status: data.status || 'unknown', 
-            message: data.message,
-            configured: data.configured
-        };
-    } catch (error) {
-        return { success: false, status: 'error', message: error.message };
     }
 }
 
@@ -498,8 +495,13 @@ export default {
     sendJobAlertEmail,
     sendTestEmail,
     sendNotificationEmail,
+    sendContactEmail,
+    sendTesterWelcomeEmail,
+    sendAssessmentReportEmail,
+    sendNewsletterWelcomeEmail,
     sendApplicationConfirmation,
-    getUserEmailLogs,
+    testEmailConfiguration,
     checkEmailStatus,
+    getUserEmailLogs,
     getEmailStats
 };
