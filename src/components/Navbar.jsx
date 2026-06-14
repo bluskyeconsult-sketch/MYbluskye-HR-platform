@@ -1,11 +1,12 @@
 // src/components/Navbar.jsx
-// ODUSBABA PROFESSIONAL NAVBAR v4.0 - PRODUCTION READY
+// ODUSBABA PROFESSIONAL NAVBAR v5.0 - PRODUCTION READY
 // ✅ Complete responsive design with mobile-first approach
 // ✅ All navigation links verified
 // ✅ Role-based access (Admin, Employer, Tester, User)
 // ✅ Scroll-aware styling with animations
 // ✅ Dropdown menus with outside click detection
 // ✅ Framer Motion animations for smooth transitions
+// ✅ Fixed logo handling with fallback
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -16,11 +17,9 @@ import {
     Star, Bell, MessageCircle, Settings, Building2, 
     Shield, BarChart3, Database, Sparkles, LogOut, Home,
     Award, GraduationCap, Newspaper, HelpCircle, Scale,
-    AlertTriangle, TrendingUp, ChevronRight, ExternalLink, User,
-    Bot, Activity
+    AlertTriangle, TrendingUp, User, Bot, Activity
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import Logo from './Logo';
 
 // ============================================
 // CONFIGURATION
@@ -74,6 +73,7 @@ export default function Navbar() {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isScrolled, setIsScrolled] = useState(false);
+    const [logoError, setLogoError] = useState(false);
     const [testerVisibility, setTesterVisibility] = useState({
         show_login_button: false,
         show_register_button: false
@@ -299,17 +299,28 @@ export default function Navbar() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center h-16">
                     
-                    {/* Logo Section with Animation */}
+                    {/* Logo Section with Fallback */}
                     <motion.div
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         className="flex-shrink-0"
                     >
-                        <Link to="/" className="flex items-center space-x-2" onClick={() => setMobileMenuOpen(false)}>
-                            <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
-                                <Sparkles className="w-4 h-4 text-white" />
-                            </div>
-                            <span className="text-white font-bold text-lg hidden sm:inline">ODUSBABA</span>
+                        <Link to="/" className="flex items-center gap-2 group" onClick={() => setMobileMenuOpen(false)}>
+                            {!logoError ? (
+                                <img 
+                                    src="/Bluskye.png" 
+                                    alt="BluSkye Consult" 
+                                    className="h-8 w-auto object-contain"
+                                    onError={() => setLogoError(true)}
+                                />
+                            ) : (
+                                <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
+                                    <Sparkles className="w-4 h-4 text-white" />
+                                </div>
+                            )}
+                            <span className="text-white font-bold text-lg hidden sm:inline">
+                                BluSkye<span className="text-primary-400">Consult</span>
+                            </span>
                         </Link>
                     </motion.div>
 
