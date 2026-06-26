@@ -1,5 +1,5 @@
-/* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH RESPONSIVE FIXES */
-/* RUTH Standard v2.0 - Unified CSS with all enhancements */
+/* src/index.css - UNIFIED & OPTIMIZED FOR MOBILE */
+/* ODUSBABA v2.0 - Complete Mobile Optimization */
 
 @tailwind base;
 @tailwind components;
@@ -26,43 +26,47 @@ html, body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a;
+    color: #f1f5f9;
+    min-height: 100vh;
+    min-height: 100dvh; /* Dynamic viewport height for mobile */
+}
+
 /* Prevent horizontal scroll on all elements */
 #root {
     overflow-x: hidden;
     width: 100%;
+    max-width: 100%;
     position: relative;
 }
 
 /* ============================================
-   BASE STYLES (Mobile-first)
+   MOBILE-FRIENDLY BASE STYLES
    ============================================ */
 
 @layer base {
-    html {
-        font-size: 16px;
-        -webkit-text-size-adjust: 100%;
-    }
-
     @media (max-width: 640px) {
         html {
             font-size: 14px;
         }
     }
     
-    body {
-        @apply bg-slate-950 text-white antialiased;
-        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-        font-feature-settings: "rlig" 1, "calt" 1;
-    }
-    
-    /* Improve touch targets on mobile (WCAG compliant) */
+    /* Improve touch targets (WCAG 2.5.5 compliant) */
     button, 
     a,
     [role="button"],
     input[type="button"],
-    input[role="button"],
     input[type="submit"] {
-        @apply min-h-[44px] min-w-[44px];
+        min-height: 44px;
+        min-width: 44px;
+        touch-action: manipulation;
     }
     
     @media (max-width: 640px) {
@@ -71,14 +75,8 @@ html, body {
         }
     }
     
-    /* Box sizing for all elements */
-    * {
-        box-sizing: border-box;
-        -webkit-tap-highlight-color: transparent;
-    }
-    
     /* Image responsiveness */
-    img {
+    img, video, iframe {
         max-width: 100%;
         height: auto;
         display: block;
@@ -91,10 +89,15 @@ html, body {
         word-break: break-word;
         max-width: 100%;
     }
+    
+    /* iOS input zoom prevention */
+    input, select, textarea {
+        font-size: 16px !important;
+    }
 }
 
 /* ============================================
-   MOBILE-SAFE AREAS (Notched phones)
+   SAFE AREA INSETS (Notched phones)
    ============================================ */
 
 @layer utilities {
@@ -111,6 +114,11 @@ html, body {
         padding-right: env(safe-area-inset-right);
     }
     
+    /* Safe area with fallback */
+    .safe-area-bottom {
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+    
     /* Touch-optimized tap highlighting */
     .tap-highlight-transparent {
         -webkit-tap-highlight-color: transparent;
@@ -123,6 +131,12 @@ html, body {
     .scrollbar-hide {
         -ms-overflow-style: none;
         scrollbar-width: none;
+    }
+    
+    /* Smooth scrolling */
+    .smooth-scroll {
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;
     }
     
     /* Glass morphism effect */
@@ -169,7 +183,7 @@ html, body {
         overscroll-behavior: contain;
     }
     
-    /* Mobile menu overlay */
+    /* Mobile menu */
     .fixed-mobile-menu {
         position: fixed;
         top: 0;
@@ -180,11 +194,21 @@ html, body {
         background: rgba(2, 6, 23, 0.95);
         backdrop-filter: blur(8px);
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
     
     /* Prevent body scroll when menu open */
     body.menu-open {
-        overflow: hidden;
+        overflow: hidden !important;
+        position: fixed !important;
+        width: 100% !important;
+        height: 100% !important;
+    }
+    
+    .mobile-menu-open {
+        overflow: hidden !important;
+        position: fixed !important;
+        width: 100% !important;
     }
     
     /* Overflow safe for tables and grids */
@@ -197,6 +221,40 @@ html, body {
     @media (max-width: 640px) {
         .overflow-safe::-webkit-scrollbar {
             height: 4px;
+        }
+    }
+    
+    /* Prevent overflow on all elements */
+    .overflow-prevent {
+        overflow: hidden;
+        max-width: 100vw;
+    }
+    
+    /* Word wrap for long URLs */
+    .break-words-safe {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        max-width: 100%;
+    }
+    
+    /* Content safe width */
+    .content-safe {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+    
+    /* Touch target utility */
+    .touch-target {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 0.5rem 1rem;
+    }
+    
+    @media (max-width: 640px) {
+        .touch-target {
+            min-height: 48px;
+            padding: 0.75rem 1rem;
         }
     }
 }
@@ -243,8 +301,18 @@ html, body {
         }
     }
     
+    /* Card components */
     .card-mobile {
-        @apply bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6;
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid rgba(30, 41, 59, 0.8);
+        border-radius: 0.75rem;
+        padding: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .card-mobile {
+            padding: 1.5rem;
+        }
     }
     
     /* Responsive grid system */
@@ -327,16 +395,63 @@ html, body {
         }
     }
     
+    /* Button variants */
     .btn-primary {
-        @apply bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 transition;
+        background: #0284c7;
+        color: white;
+        transition: background-color 0.2s ease;
+    }
+    .btn-primary:hover {
+        background: #0369a1;
+    }
+    .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
     
     .btn-secondary {
-        @apply bg-slate-700 text-white hover:bg-slate-600 transition;
+        background: #334155;
+        color: white;
+        transition: background-color 0.2s ease;
+    }
+    .btn-secondary:hover {
+        background: #475569;
     }
     
     .btn-outline {
-        @apply border border-slate-700 text-slate-300 hover:bg-slate-800 transition;
+        border: 1px solid #334155;
+        color: #cbd5e1;
+        transition: background-color 0.2s ease;
+    }
+    .btn-outline:hover {
+        background: #1e293b;
+    }
+    
+    /* Mobile menu components */
+    .mobile-menu-container {
+        max-height: 100vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .mobile-nav-link {
+        font-size: 0.875rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        transition: background-color 0.2s ease;
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    
+    .mobile-cta-button {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+        text-align: center;
+        min-height: 48px;
+        border-radius: 0.5rem;
     }
 }
 
@@ -388,7 +503,7 @@ html, body {
 }
 
 /* ============================================
-   ENHANCED ANIMATIONS (Combined & Optimized)
+   ENHANCED ANIMATIONS
    ============================================ */
 
 @keyframes fadeIn {
@@ -427,12 +542,12 @@ html, body {
 }
 .animate-scale-in { animation: scaleIn 0.3s ease-out forwards; }
 
-@keyframes pulse-glow {
+@keyframes pulseGlow {
     0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
     70% { box-shadow: 0 0 0 15px rgba(14, 165, 233, 0); }
     100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
 }
-.animate-pulse-glow { animation: pulse-glow 2s infinite; }
+.animate-pulse-glow { animation: pulseGlow 2s infinite; }
 
 @keyframes glowPulse {
     0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
@@ -454,11 +569,11 @@ html, body {
 }
 .animate-blink { animation: blink 0.8s step-end infinite; }
 
-@keyframes pulse-slow {
+@keyframes pulseSlow {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
-.animate-pulse-slow { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-pulse-slow { animation: pulseSlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
 @keyframes shimmer {
     0% { background-position: -200% 0; }
@@ -470,7 +585,6 @@ html, body {
     animation: shimmer 2s infinite;
 }
 
-/* Legacy shimmer class (backward compatible) */
 .shimmer {
     background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
     background-size: 1000px 100%;
@@ -478,15 +592,13 @@ html, body {
 }
 
 /* ============================================
-   NAVIGATION ANIMATIONS (Enhanced)
+   NAVIGATION ANIMATIONS
    ============================================ */
 
-/* Active nav item glow */
 .nav-active-glow {
     animation: glowPulse 2s infinite;
 }
 
-/* Menu item hover effect with animated underline */
 .nav-item-hover {
     position: relative;
     overflow: hidden;
@@ -509,7 +621,7 @@ html, body {
 }
 
 /* ============================================
-   MOBILE-FRIENDLY SCROLLBAR
+   SCROLLBAR STYLES
    ============================================ */
 
 ::-webkit-scrollbar {
@@ -518,19 +630,20 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-    @apply bg-slate-800;
+    background: #1e293b;
 }
 
 ::-webkit-scrollbar-thumb {
-    @apply bg-slate-600 rounded-full;
+    background: #475569;
+    border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-500;
+    background: #64748b;
 }
 
 /* ============================================
-   RESPONSIVE TYPOGRAPHY (Mobile-first)
+   RESPONSIVE TYPOGRAPHY
    ============================================ */
 
 h1 {
@@ -551,145 +664,33 @@ h1 {
 }
 
 @media (max-width: 640px) {
-    h2 {
-        @apply text-xl;
-    }
-    h3 {
-        @apply text-lg;
-    }
-    p {
-        @apply text-sm;
-    }
+    h2 { font-size: 1.25rem; }
+    h3 { font-size: 1.125rem; }
+    p { font-size: 0.875rem; }
 }
 
-/* ============================================
-   iOS INPUT ZOOM PREVENTION
-   ============================================ */
-
-input, 
-select, 
-textarea {
-    font-size: 16px !important; /* Prevents zoom on focus in iOS */
-}
-
-/* ============================================
-   SAFE AREA INSETS FOR MODERN PHONES
-   ============================================ */
-
-@supports (padding: max(0px)) {
-    .safe-area-bottom {
-        padding-bottom: max(1rem, env(safe-area-inset-bottom));
-    }
-}
-
-/* ============================================
-   UTILITY CLASSES FOR BETTER UX
-   ============================================ */
-
-/* Smooth transitions for all interactive elements */
-a, button, [role="button"] {
-    transition: all 0.2s ease;
-}
-
-/* Focus styles for accessibility */
-*:focus-visible {
-    outline: 2px solid #3b82f6;
-    outline-offset: 2px;
-}
-
-/* Disable animations for users who prefer reduced motion */
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        scroll-behavior: auto !important;
-    }
-}
-
-/* ============================================
-   FALLBACK FOR BROWSERS
-   ============================================ */
-
-/* Ensure grid works on older browsers */
-@supports not (display: grid) {
-    .grid-responsive {
-        display: flex;
-        flex-wrap: wrap;
-    }
-    .grid-responsive > * {
-        flex: 0 0 100%;
-        margin-bottom: 1rem;
-    }
-}
-
-/* Hide scrollbar on Chrome/Safari */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
-/* ============================================
-   MOBILE MENU SPECIFIC FIXES (From Code 2 - Enhanced)
-   ============================================ */
-
-/* Mobile Menu Container - Prevent overflow */
-.mobile-menu-container {
-    max-height: 100vh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-/* Mobile menu open state - Prevent body scroll */
-.mobile-menu-open {
-    overflow: hidden !important;
-    position: fixed !important;
-    width: 100% !important;
-}
-
-/* Mobile nav link - Touch optimized */
-.mobile-nav-link {
-    font-size: 0.875rem;
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    transition: background-color 0.2s ease;
-    min-height: 48px;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-/* Mobile CTA button - Full width on mobile */
-.mobile-cta-button {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 0.875rem;
+.text-responsive {
     text-align: center;
-    min-height: 48px;
-    border-radius: 0.5rem;
 }
 
-/* Mobile card grid - Force single column */
-.mobile-card-grid {
-    grid-template-columns: 1fr !important;
-    gap: 1rem !important;
+@media (min-width: 640px) {
+    .text-responsive {
+        text-align: left;
+    }
 }
 
-/* Mobile image - Responsive */
-.mobile-image {
-    max-width: 100%;
-    height: auto;
+@media (min-width: 1024px) {
+    .text-responsive-lg {
+        text-align: left;
+    }
 }
 
-/* Mobile responsive fixes - All in one place */
+/* ============================================
+   MOBILE RESPONSIVE FIXES
+   ============================================ */
+
 @media (max-width: 768px) {
-    /* Prevent horizontal scroll on mobile */
+    /* Prevent horizontal scroll */
     .prevent-scroll-x {
         overflow-x: hidden !important;
         max-width: 100vw !important;
@@ -700,14 +701,14 @@ a, button, [role="button"] {
         grid-template-columns: 1fr !important;
     }
     
-    /* Fix oversized elements on mobile */
+    /* Fix oversized elements */
     .max-w-7xl, .max-w-6xl, .max-w-5xl {
         max-width: 100% !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
     
-    /* Fix card layouts on mobile */
+    /* Fix card layouts */
     .card-grid-mobile {
         grid-template-columns: 1fr !important;
         gap: 1rem !important;
@@ -728,83 +729,82 @@ a, button, [role="button"] {
         white-space: nowrap;
     }
     
-    /* Fix flex layouts on mobile */
+    /* Fix flex layouts */
     .flex-mobile-column {
         flex-direction: column !important;
         gap: 0.75rem !important;
     }
     
-    /* Fix padding on mobile */
+    /* Fix padding */
     .padding-mobile {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
     
-    /* Fix margins on mobile */
+    /* Fix margins */
     .margin-mobile {
         margin-left: 0 !important;
         margin-right: 0 !important;
     }
-}
-
-/* ============================================
-   PREVENT OVERFLOW ON ALL SCREENS (Enhanced)
-   ============================================ */
-
-/* Prevent overflow on all elements */
-.overflow-prevent {
-    overflow: hidden;
-    max-width: 100vw;
-}
-
-/* Word wrap for long URLs and text */
-.break-words-safe {
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    word-break: break-word;
-    max-width: 100%;
-}
-
-/* Safe width for all content */
-.content-safe {
-    max-width: 100%;
-    overflow-x: hidden;
-}
-
-/* ============================================
-   RESPONSIVE GRID OVERRIDES (Prevent layout shifts)
-   ============================================ */
-
-/* Prevent grid overflow on small screens */
-@media (max-width: 640px) {
-    .grid {
-        gap: 0.75rem !important;
+    
+    /* Mobile card grid - Force single column */
+    .mobile-card-grid {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
     }
-    .grid > * {
-        min-width: 0;
+    
+    /* Mobile image */
+    .mobile-image {
         max-width: 100%;
+        height: auto;
     }
 }
 
 /* ============================================
-   SAFE TOUCH TARGETS FOR MOBILE
+   ACCESSIBILITY & REDUCED MOTION
    ============================================ */
 
-.touch-target {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 0.5rem 1rem;
+/* Focus styles */
+*:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
 }
 
-@media (max-width: 640px) {
-    .touch-target {
-        min-height: 48px;
-        padding: 0.75rem 1rem;
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }
 
 /* ============================================
-   FADE IN UTILITY FOR LOADING STATES
+   FALLBACKS FOR OLDER BROWSERS
+   ============================================ */
+
+@supports not (display: grid) {
+    .grid-responsive {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    .grid-responsive > * {
+        flex: 0 0 100%;
+        margin-bottom: 1rem;
+    }
+}
+
+@supports (padding: max(0px)) {
+    .safe-area-bottom {
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+}
+
+/* ============================================
+   FADE IN UTILITY
    ============================================ */
 
 .fade-in {
@@ -819,7 +819,7 @@ a, button, [role="button"] {
 .fade-in-delay-5 { animation-delay: 0.5s; }
 
 /* ============================================
-   CARD SHADOW AND BORDER UTILITIES
+   CARD SHADOW UTILITIES
    ============================================ */
 
 .shadow-card {
@@ -834,21 +834,24 @@ a, button, [role="button"] {
 }
 
 /* ============================================
-   RESPONSIVE TEXT ALIGNMENT
+   PREVENT OVERFLOW ON ALL SCREENS
    ============================================ */
 
-.text-responsive {
-    text-align: center;
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
 
-@media (min-width: 640px) {
-    .text-responsive {
-        text-align: left;
+/* Grid overflow prevention */
+@media (max-width: 640px) {
+    .grid {
+        gap: 0.75rem !important;
     }
-}
-
-@media (min-width: 1024px) {
-    .text-responsive-lg {
-        text-align: left;
+    .grid > * {
+        min-width: 0;
+        max-width: 100%;
     }
 }
