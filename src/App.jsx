@@ -1,11 +1,11 @@
-// src/App.jsx - UNIFIED & OPTIMIZED FOR MOBILE
-// ODUSBABA v13.0 - Complete Production Ready with Mobile-First Layout
+// src/App.jsx - UNIFIED & OPTIMIZED FOR MOBILE WITH FIXED ANIMATIONS
+// ODUSBABA v13.1 - Complete Production Ready with Mobile-First Layout
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
 // ✅ Authentication works
 // ✅ Single API endpoint (unified)
-// ✅ Mobile-optimized container structure (from Code 2)
+// ✅ Mobile-optimized container structure
 // ✅ Integrated FraudSafetyBanner & CookieConsent
 // ✅ Assessment Results page integrated
 // ✅ Admin Course Management routes added
@@ -13,11 +13,11 @@
 // ✅ ErrorBoundary for error handling
 // ✅ Workforce Marketplace & HR Tools routes added
 // ✅ Container-responsive wrapper with max-w-7xl
-// ✅ Framer Motion animations for smooth transitions
+// ✅ Optimized animations (reduced flickering on mobile)
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 // ============================================
 // SUPABASE CLIENT (Direct import for reliability)
@@ -45,16 +45,16 @@ function ScrollToTop() {
 }
 
 // ============================================
-// ANIMATED PAGE WRAPPER (Enhanced with Framer Motion)
+// ANIMATED PAGE WRAPPER (Optimized for mobile - no flickering)
 // ============================================
 function AnimatedPage({ children }) {
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="animate-fade-in"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="w-full"
         >
             {children}
         </motion.div>
@@ -615,112 +615,111 @@ function AppContent() {
             <Navbar />
             <FraudSafetyBanner />
             
-            {/* ✅ Mobile-optimized main container (From Code 2) */}
+            {/* ✅ Mobile-optimized main container */}
             <main className="min-h-screen bg-slate-950 overflow-x-hidden">
                 <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <Suspense fallback={<PageLoader />}>
-                        <AnimatePresence mode="wait">
-                            <Routes location={location} key={location.pathname}>
-                                {/* Public Routes */}
-                                <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
-                                <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
-                                <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
-                                <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
-                                <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
-                                <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
-                                <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
-                                <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
-                                <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
-                                <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
-                                <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
-                                <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
-                                <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
-                                <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
-                                <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
-                                <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
-                                
-                                {/* Assessment Routes */}
-                                <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
-                                <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
-                                <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
-                                
-                                {/* Article Routes */}
-                                <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
-                                <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
-                                
-                                {/* Admin Login */}
-                                <Route path="/admin-login" element={<AdminLogin />} />
-                                
-                                {/* Admin Routes - Protected */}
-                                <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
-                                <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
-                                <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
-                                <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
-                                <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                                <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                                <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
-                                <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
-                                <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                                <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                                <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><TestingModeSettings /></ProtectedRoute>} />
-                                <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><TesterVisibilitySettings /></ProtectedRoute>} />
-                                <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><EmailTest /></ProtectedRoute>} />
-                                <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><ExternalJobs /></ProtectedRoute>} />
-                                <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><ExternalJobsManager /></ProtectedRoute>} />
-                                <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><KnowledgeSourceManager /></ProtectedRoute>} />
-                                <Route path="/admin/books" element={<ProtectedRoute requireAdmin><ManageBooks /></ProtectedRoute>} />
-                                <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><NewsletterAdmin /></ProtectedRoute>} />
-                                <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AssessmentManager /></ProtectedRoute>} />
-                                <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AssessmentEditor /></ProtectedRoute>} />
-                                <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
-                                <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
-                                <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
-                                <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
-                                <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
-                                <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
-                                
-                                {/* User Routes - Protected */}
-                                <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
-                                <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                                <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
-                                <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
-                                <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
-                                <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
-                                <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
-                                <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
-                                <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
-                                <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
-                                <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
-                                <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
-                                
-                                {/* Employer Routes - Protected */}
-                                <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
-                                <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
-                                
-                                {/* Tester Routes */}
-                                <Route path="/tester-login" element={<TesterLoginPage />} />
-                                <Route path="/tester-register" element={<TesterRegisterPage />} />
-                                <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
-                                
-                                {/* Workforce Routes */}
-                                <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
-                                <Route path="/workforce/proposals" element={<ProposalsList />} />
-                                <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
-                                
-                                {/* Legal Routes */}
-                                <Route path="/legal/terms" element={<TermsPage />} />
-                                <Route path="/legal/privacy" element={<PrivacyPage />} />
-                                <Route path="/legal/cookies" element={<CookiesPage />} />
-                                <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
-                                <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
-                                <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
-                                <Route path="/safety-tips" element={<SafetyTipsPage />} />
-                                <Route path="/report-fraud" element={<ReportFraudPage />} />
-                                
-                                {/* 404 */}
-                                <Route path="*" element={<NotFoundPage />} />
-                            </Routes>
-                        </AnimatePresence>
+                        {/* ✅ Removed AnimatePresence to prevent flickering (From Code 2) */}
+                        <Routes location={location} key={location.pathname}>
+                            {/* Public Routes */}
+                            <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
+                            <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                            <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
+                            <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
+                            <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                            <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
+                            <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
+                            <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
+                            <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                            <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                            <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                            <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
+                            <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
+                            <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                            <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
+                            <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
+                            
+                            {/* Assessment Routes */}
+                            <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
+                            <Route path="/assessments/:id" element={<AnimatedPage><TakeAssessment /></AnimatedPage>} />
+                            <Route path="/assessment-results/:id" element={<AnimatedPage><AssessmentResults /></AnimatedPage>} />
+                            
+                            {/* Article Routes */}
+                            <Route path="/articles" element={<AnimatedPage><ArticlesPage /></AnimatedPage>} />
+                            <Route path="/articles/:slug" element={<AnimatedPage><ArticleDetail /></AnimatedPage>} />
+                            
+                            {/* Admin Login */}
+                            <Route path="/admin-login" element={<AdminLogin />} />
+                            
+                            {/* Admin Routes - Protected */}
+                            <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+                            <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
+                            <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
+                            <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
+                            <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
+                            <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
+                            <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
+                            <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
+                            <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
+                            <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
+                            <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><TestingModeSettings /></ProtectedRoute>} />
+                            <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><TesterVisibilitySettings /></ProtectedRoute>} />
+                            <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><EmailTest /></ProtectedRoute>} />
+                            <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><ExternalJobs /></ProtectedRoute>} />
+                            <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><ExternalJobsManager /></ProtectedRoute>} />
+                            <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><KnowledgeSourceManager /></ProtectedRoute>} />
+                            <Route path="/admin/books" element={<ProtectedRoute requireAdmin><ManageBooks /></ProtectedRoute>} />
+                            <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><NewsletterAdmin /></ProtectedRoute>} />
+                            <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AssessmentManager /></ProtectedRoute>} />
+                            <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AssessmentEditor /></ProtectedRoute>} />
+                            <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
+                            <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
+                            <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
+                            <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
+                            <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
+                            <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
+                            
+                            {/* User Routes - Protected */}
+                            <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
+                            <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+                            <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
+                            <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
+                            <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
+                            <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
+                            <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
+                            <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
+                            <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
+                            <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
+                            <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
+                            <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
+                            
+                            {/* Employer Routes - Protected */}
+                            <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
+                            <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
+                            
+                            {/* Tester Routes */}
+                            <Route path="/tester-login" element={<TesterLoginPage />} />
+                            <Route path="/tester-register" element={<TesterRegisterPage />} />
+                            <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
+                            
+                            {/* Workforce Routes */}
+                            <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
+                            <Route path="/workforce/proposals" element={<ProposalsList />} />
+                            <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
+                            
+                            {/* Legal Routes */}
+                            <Route path="/legal/terms" element={<TermsPage />} />
+                            <Route path="/legal/privacy" element={<PrivacyPage />} />
+                            <Route path="/legal/cookies" element={<CookiesPage />} />
+                            <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
+                            <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
+                            <Route path="/legal/fraud-prevention" element={<FraudPreventionPage />} />
+                            <Route path="/safety-tips" element={<SafetyTipsPage />} />
+                            <Route path="/report-fraud" element={<ReportFraudPage />} />
+                            
+                            {/* 404 */}
+                            <Route path="*" element={<NotFoundPage />} />
+                        </Routes>
                     </Suspense>
                 </div>
             </main>
