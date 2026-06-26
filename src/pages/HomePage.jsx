@@ -1,18 +1,18 @@
 // src/pages/HomePage.jsx - UNIFIED & OPTIMIZED
-// ODUSBABA Home Page - Complete with Mobile-First Design & Unified API
+// ODUSBABA Home Page - Complete with All Features, Error Handling & Unified API
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { 
     Briefcase, Users, BookOpen, FileText, TrendingUp, Award, Globe, 
-    Zap, Shield, Sparkles, ChevronRight, ArrowRight, Calendar, Star
+    Zap, Shield, Sparkles, ChevronRight, ArrowRight, Calendar, Star,
+    AlertCircle, RefreshCw
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
 import CTASection from '../components/CTASection';
 import PromoBanner from '../components/PromoBanner';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
-import { supabase } from '../lib/supabase';
 
 // Animation variants
 const containerVariants = {
@@ -36,13 +36,15 @@ export default function HomePage() {
         assessments: 0,
         earlyAdopters: 0,
         testerSpots: 100,
-        loading: true
+        loading: true,
+        fallback: false,
+        error: null
     });
     const [articles, setArticles] = useState([]);
     const [countryStats, setCountryStats] = useState([]);
     const [isStatsVisible, setIsStatsVisible] = useState(false);
     const [isFeaturesVisible, setIsFeaturesVisible] = useState(false);
-    const [error, setError] = useState(null);
+    const [retryCount, setRetryCount] = useState(0);
     
     const statsRef = useRef(null);
     const featuresRef = useRef(null);
@@ -64,36 +66,41 @@ export default function HomePage() {
             icon: Zap, 
             title: 'AI-Powered Intelligence', 
             description: 'ODUSBABA learns from every interaction to provide smarter recommendations',
-            color: 'from-primary-500/20 to-sky-500/20',
-            iconColor: 'text-primary-400'
+            color: 'primary',
+            iconColor: 'text-primary-400',
+            bgColor: 'bg-primary-500/10'
         },
         { 
             icon: Shield, 
             title: 'Governed Trust', 
             description: 'Every skill verified through AI and human oversight',
-            color: 'from-emerald-500/20 to-teal-500/20',
-            iconColor: 'text-emerald-400'
+            color: 'emerald',
+            iconColor: 'text-emerald-400',
+            bgColor: 'bg-emerald-500/10'
         },
         { 
             icon: Globe, 
             title: 'Global Workforce', 
             description: 'Connect with professionals from around the world',
-            color: 'from-blue-500/20 to-indigo-500/20',
-            iconColor: 'text-blue-400'
+            color: 'blue',
+            iconColor: 'text-blue-400',
+            bgColor: 'bg-blue-500/10'
         },
         { 
             icon: TrendingUp, 
             title: 'Real-Time Matching', 
             description: 'Instant job and skill matching powered by AI',
-            color: 'from-amber-500/20 to-orange-500/20',
-            iconColor: 'text-amber-400'
+            color: 'amber',
+            iconColor: 'text-amber-400',
+            bgColor: 'bg-amber-500/10'
         },
         { 
             icon: Award, 
             title: 'Value Partnership', 
             description: 'Creating Value for Partnership in every interaction',
-            color: 'from-purple-500/20 to-pink-500/20',
-            iconColor: 'text-purple-400'
+            color: 'purple',
+            iconColor: 'text-purple-400',
+            bgColor: 'bg-purple-500/10'
         }
     ], []);
 
@@ -133,10 +140,14 @@ export default function HomePage() {
         }
     ], [stats]);
 
-    // Fetch stats using unified API
+    // Fetch stats using unified API (from Code 2 - enhanced)
     const fetchStats = useCallback(async () => {
+        setStats(prev => ({ ...prev, loading: true, error: null }));
+        
         try {
-            const response = await fetch('/api/index?action=homepage-stats');
+            const response = await fetch('/api/index?action=homepage-stats', {
+                headers: { 'Accept': 'application/json' }
+            });
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -151,50 +162,43 @@ export default function HomePage() {
                     courses: data.stats.courses || 0,
                     assessments: data.stats.assessments || 0,
                     earlyAdopters: data.stats.earlyMembers || 0,
-                    testerSpots: data.stats.testerSpots || 100,
-                    loading: false
+                    testerSpots: data.stats.testerSpots || 55,
+                    loading: false,
+                    fallback: data.stats.fallback || false,
+                    error: data.stats.error || null
                 });
             } else {
-                // Use fallback data if API fails
-                setStats(prev => ({
-                    ...prev,
-                    activeUsers: 125,
-                    jobsPosted: 82,
-                    courses: 15,
-                    assessments: 8,
-                    earlyAdopters: 45,
-                    testerSpots: 55,
-                    loading: false
-                }));
+                throw new Error('Invalid response format');
             }
         } catch (error) {
             console.error('Stats fetch error:', error);
-            // Use fallback data
-            setStats(prev => ({
-                ...prev,
+            // Use fallback data (from Code 2)
+            setStats({
                 activeUsers: 125,
                 jobsPosted: 82,
                 courses: 15,
                 assessments: 8,
                 earlyAdopters: 45,
                 testerSpots: 55,
-                loading: false
-            }));
+                loading: false,
+                fallback: true,
+                error: error.message
+            });
         }
     }, []);
 
-    // Load country stats from Supabase
+    // Load country stats using unified API (from Code 2)
     const loadCountryStats = useCallback(async () => {
         try {
             const countryData = await Promise.all(
                 countries.map(async (country) => {
-                    const { count } = await supabase
-                        .from('jobs')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('country_code', country.code)
-                        .eq('is_active', true)
-                        .eq('compliance_status', 'approved');
-                    return { ...country, jobCount: count || 0 };
+                    try {
+                        const response = await fetch(`/api/index?action=country-jobs&code=${country.code}`);
+                        const data = await response.json();
+                        return { ...country, jobCount: data.count || 0 };
+                    } catch {
+                        return { ...country, jobCount: 0 };
+                    }
                 })
             );
             setCountryStats(countryData);
@@ -203,15 +207,18 @@ export default function HomePage() {
         }
     }, [countries]);
 
-    // Load articles from Supabase
+    // Load articles - using direct Supabase (from Code 1)
     const loadArticles = useCallback(async () => {
         try {
-            const { data } = await supabase
+            // Use direct Supabase query for articles (from Code 1)
+            const { data, error } = await supabase
                 .from('articles')
                 .select('id, title, excerpt, slug, created_at, view_count')
                 .eq('status', 'published')
                 .order('created_at', { ascending: false })
                 .limit(3);
+            
+            if (error) throw error;
             setArticles(data || []);
         } catch (err) { 
             console.error('Error loading articles:', err); 
@@ -251,6 +258,11 @@ export default function HomePage() {
         return () => observer.disconnect();
     }, [fetchStats, loadArticles, loadCountryStats]);
 
+    const handleRetry = () => {
+        setRetryCount(prev => prev + 1);
+        fetchStats();
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 overflow-x-hidden">
             {/* Hero Section */}
@@ -275,41 +287,50 @@ export default function HomePage() {
                     <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
                         Real-time metrics from our growing community
                     </p>
+                    
+                    {/* Fallback indicator (from Code 2) */}
+                    {stats.fallback && (
+                        <div className="mt-2 flex items-center justify-center gap-2 text-amber-400 text-xs">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>Using estimated data</span>
+                            <button 
+                                onClick={handleRetry}
+                                className="flex items-center gap-1 text-primary-400 hover:text-primary-300 transition"
+                            >
+                                <RefreshCw className="w-3 h-3" />
+                                Retry
+                            </button>
+                        </div>
+                    )}
                 </div>
 
-                {error ? (
-                    <div className="text-center py-8">
-                        <p className="text-amber-400 text-sm">{error}</p>
-                    </div>
-                ) : (
-                    <motion.div
-                        initial="hidden"
-                        animate={isStatsVisible ? "visible" : "hidden"}
-                        variants={containerVariants}
-                        className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6"
-                    >
-                        {statCards.map((stat, idx) => (
-                            <motion.div 
-                                key={idx} 
-                                variants={itemVariants} 
-                                className={`${stat.bgColor} border border-slate-700/50 rounded-xl p-3 sm:p-4 md:p-6 text-center hover:border-${stat.color.split('-')[1]}-500/30 transition-all duration-300 hover:-translate-y-1 group`}
-                            >
-                                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg ${stat.bgColor} flex items-center justify-center mx-auto mb-2 sm:mb-3 group-hover:scale-110 transition`}>
-                                    <stat.icon className={`w-5 h-5 sm:w-6 sm:h-6 ${stat.color}`} />
-                                </div>
-                                <div className={`text-xl sm:text-2xl md:text-3xl font-bold ${stat.color}`}>
-                                    {stats.loading ? '...' : `${stat.value}+`}
-                                </div>
-                                <div className="text-slate-300 text-xs sm:text-sm font-medium mt-0.5 sm:mt-1">
-                                    {stat.label}
-                                </div>
-                                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">
-                                    {stat.description}
-                                </div>
-                            </motion.div>
-                        ))}
-                    </motion.div>
-                )}
+                <motion.div
+                    initial="hidden"
+                    animate={isStatsVisible ? "visible" : "hidden"}
+                    variants={containerVariants}
+                    className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6"
+                >
+                    {statCards.map((stat, idx) => (
+                        <motion.div 
+                            key={idx} 
+                            variants={itemVariants} 
+                            className={`${stat.bgColor} border border-slate-700/50 rounded-xl p-3 sm:p-4 md:p-6 text-center hover:border-primary-500/30 transition-all duration-300 hover:-translate-y-1 group`}
+                        >
+                            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg ${stat.bgColor} flex items-center justify-center mx-auto mb-2 sm:mb-3 group-hover:scale-110 transition`}>
+                                <stat.icon className={`w-5 h-5 sm:w-6 sm:h-6 ${stat.color}`} />
+                            </div>
+                            <div className={`text-xl sm:text-2xl md:text-3xl font-bold ${stat.color}`}>
+                                {stats.loading ? '...' : `${stat.value}+`}
+                            </div>
+                            <div className="text-slate-300 text-xs sm:text-sm font-medium mt-0.5 sm:mt-1">
+                                {stat.label}
+                            </div>
+                            <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">
+                                {stat.description}
+                            </div>
+                        </motion.div>
+                    ))}
+                </motion.div>
             </div>
 
             {/* Features Section - Why Choose ODUSBABA */}
@@ -335,21 +356,19 @@ export default function HomePage() {
                 >
                     {features.map((feature, idx) => (
                         <motion.div key={idx} variants={itemVariants}>
-                            <div className={`bg-gradient-to-br ${feature.color} rounded-xl p-4 sm:p-6 border border-slate-700/30 hover:border-slate-600/50 transition-all duration-300 hover:-translate-y-1`}>
-                                <feature.icon className={`w-8 h-8 sm:w-10 sm:h-10 ${feature.iconColor} mb-3`} />
-                                <h3 className="text-white font-semibold text-sm sm:text-base mb-1">
-                                    {feature.title}
-                                </h3>
-                                <p className="text-slate-400 text-xs sm:text-sm">
-                                    {feature.description}
-                                </p>
+                            <div className={`${feature.bgColor} border border-slate-800 rounded-xl p-4 sm:p-6 backdrop-blur-sm transition-all hover:-translate-y-1 hover:border-${feature.color}-500/30`}>
+                                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg ${feature.bgColor} flex items-center justify-center mb-3 sm:mb-4`}>
+                                    <feature.icon className={`w-5 h-5 sm:w-6 sm:h-6 ${feature.iconColor}`} />
+                                </div>
+                                <h3 className="text-base sm:text-lg font-semibold text-white mb-1 sm:mb-2">{feature.title}</h3>
+                                <p className="text-slate-400 text-xs sm:text-sm">{feature.description}</p>
                             </div>
                         </motion.div>
                     ))}
                 </motion.div>
             </div>
 
-            {/* Post Your First Job Free Section */}
+            {/* Post Your First Job Free Section (from Code 1) */}
             <div className="w-full max-w-4xl mx-auto px-4 py-8 sm:py-12">
                 <div className="bg-gradient-to-r from-primary-600/20 to-sky-600/20 border border-primary-500/30 rounded-2xl p-4 sm:p-6 md:p-8 text-center">
                     <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2">
@@ -408,7 +427,7 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Latest Insights Section */}
+            {/* Latest Insights Section (from Code 1) */}
             <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20 bg-slate-900/30 rounded-3xl">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
                     <div>
@@ -467,7 +486,7 @@ export default function HomePage() {
                 )}
             </div>
 
-            {/* CTA Section */}
+            {/* CTA Section (from Code 1) */}
             <CTASection />
         </div>
     );
