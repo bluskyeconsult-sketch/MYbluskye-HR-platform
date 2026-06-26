@@ -1,11 +1,14 @@
-// tailwind.config.js - COMPLETE MOBILE OPTIMIZATION WITH ODUSBABA COLOR SCHEME
+// tailwind.config.js - UNIFIED & OPTIMIZED FOR MOBILE
 /** @type {import('tailwindcss').Config} */
 export default {
     content: [
         "./index.html",
         "./src/**/*.{js,ts,jsx,tsx}",
     ],
-    // Safelist to prevent purging of dynamically used classes (From Code 2)
+    
+    // ============================================
+    // SAFELIST - Preserve dynamic classes (From Code 1)
+    // ============================================
     safelist: [
         // Responsive grid classes
         'grid-responsive',
@@ -59,59 +62,68 @@ export default {
         // Shimmer fallback
         'shimmer',
     ],
+    
     theme: {
         extend: {
             // ============================================
-            // RESPONSIVE BREAKPOINTS (Enhanced mobile support)
+            // RESPONSIVE BREAKPOINTS (Mobile-first)
             // ============================================
             screens: {
-                'xs': '375px',
-                'sm': '640px',
-                'md': '768px',
-                'lg': '1024px',
-                'xl': '1280px',
-                '2xl': '1536px',
+                'xs': '375px',   // Small phones
+                'sm': '640px',   // Larger phones
+                'md': '768px',   // Tablets
+                'lg': '1024px',  // Laptops
+                'xl': '1280px',  // Desktops
+                '2xl': '1536px', // Large screens
             },
             
             // ============================================
-            // CONTAINER UTILITIES (Enhanced from Code 2)
+            // CONTAINER UTILITIES (Mobile-optimized)
             // ============================================
             container: {
                 center: true,
                 padding: {
-                    DEFAULT: '1rem',
-                    sm: '1.5rem',
-                    lg: '2rem',
-                    xl: '2rem',
+                    DEFAULT: '1rem',    // 16px on mobile
+                    sm: '1.5rem',       // 24px on larger phones
+                    md: '2rem',         // 32px on tablets
+                    lg: '2rem',         // 32px on desktops
+                    xl: '2rem',         // 32px on large screens
                 },
             },
             
             // ============================================
-            // FONT FAMILY (With fallbacks)
+            // FONT FAMILY (With fallbacks for performance)
             // ============================================
             fontFamily: {
                 sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
             },
             
             // ============================================
-            // TYPOGRAPHY SCALE (With line-height)
+            // TYPOGRAPHY SCALE (Optimized for mobile reading)
             // ============================================
             fontSize: {
-                'xs': ['0.75rem', { lineHeight: '1rem' }],
-                'sm': ['0.875rem', { lineHeight: '1.25rem' }],
-                'base': ['1rem', { lineHeight: '1.5rem' }],
-                'lg': ['1.125rem', { lineHeight: '1.75rem' }],
-                'xl': ['1.25rem', { lineHeight: '1.75rem' }],
-                '2xl': ['1.5rem', { lineHeight: '2rem' }],
-                '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
-                '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+                'xs': ['0.75rem', { lineHeight: '1rem' }],     // 12px
+                'sm': ['0.875rem', { lineHeight: '1.25rem' }], // 14px
+                'base': ['1rem', { lineHeight: '1.5rem' }],    // 16px
+                'lg': ['1.125rem', { lineHeight: '1.75rem' }], // 18px
+                'xl': ['1.25rem', { lineHeight: '1.75rem' }],  // 20px
+                '2xl': ['1.5rem', { lineHeight: '2rem' }],     // 24px
+                '3xl': ['1.875rem', { lineHeight: '2.25rem' }],// 30px
+                '4xl': ['2.25rem', { lineHeight: '2.5rem' }],  // 36px
+                // Additional responsive sizes
+                '5xl': ['3rem', { lineHeight: '1' }],          // 48px
+                '6xl': ['3.75rem', { lineHeight: '1' }],       // 60px
             },
             
             // ============================================
-            // TOUCH-FRIENDLY SPACING (WCAG compliant 44px minimum)
+            // TOUCH-FRIENDLY SPACING (WCAG 2.5.5 - 44px minimum)
             // ============================================
             spacing: {
                 'touch': '44px',
+                'safe-top': 'env(safe-area-inset-top)',
+                'safe-bottom': 'env(safe-area-inset-bottom)',
+                'safe-left': 'env(safe-area-inset-left)',
+                'safe-right': 'env(safe-area-inset-right)',
             },
             
             // Touch-friendly minimum dimensions
@@ -123,7 +135,7 @@ export default {
             },
             
             // ============================================
-            // ODUSBABA BRAND COLORS (Preserved from Code 1)
+            // ODUSBABA BRAND COLORS (From Code 1 - comprehensive)
             // ============================================
             colors: {
                 primary: {
@@ -158,7 +170,7 @@ export default {
             },
             
             // ============================================
-            // ANIMATIONS (Combined)
+            // ANIMATIONS (Combined from Code 1)
             // ============================================
             animation: {
                 'fade-in': 'fadeIn 0.3s ease-in-out',
@@ -224,6 +236,13 @@ export default {
                     '0%': { backgroundPosition: '-200% 0' },
                     '100%': { backgroundPosition: '200% 0' },
                 },
+            },
+            
+            // ============================================
+            // ADDITIONAL UTILITIES
+            // ============================================
+            backgroundImage: {
+                'shimmer-gradient': 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%)',
             },
         },
     },
