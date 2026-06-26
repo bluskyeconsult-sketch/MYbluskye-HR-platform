@@ -1,16 +1,17 @@
 // src/pages/admin/SystemHealthDashboard.jsx
-// COMPLETE SYSTEM HEALTH DASHBOARD - Real-time monitoring with unified API
+// COMPLETE UNIFIED SYSTEM HEALTH DASHBOARD - Real-time monitoring via unified API
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
-    Activity, CheckCircle, XCircle, AlertCircle, Loader2, 
-    Server, Database, Mail, Brain, RefreshCw, Clock, 
-    Wifi, HardDrive, Zap, Bell, Shield, TrendingUp, Globe,
-    BarChart3, Cpu, Cloud, Lock, Users
+    Activity, CheckCircle, XCircle, AlertCircle, Loader2,
+    Database, Server, Zap, Users, Briefcase, BookOpen,
+    Brain, Bot, Mail, TrendingUp, Shield, Globe,
+    RefreshCw, Clock, Wifi, HardDrive, BarChart3, 
+    Cpu, Cloud, Lock, Bell, Award, FileText, MessageCircle
 } from 'lucide-react';
 
-// ✅ UNIFIED API ENDPOINT
+// ✅ UNIFIED API ENDPOINT - Single source of truth
 const API_BASE = '/api/index';
 const HEALTH_ENDPOINT = `${API_BASE}?action=health`;
 
@@ -23,6 +24,7 @@ export default function SystemHealthDashboard() {
     const [lastManualRefresh, setLastManualRefresh] = useState(null);
     const [selectedService, setSelectedService] = useState(null);
     const [showDetails, setShowDetails] = useState(false);
+    const [dataStats, setDataStats] = useState({});
 
     // Auto-refresh every 60 seconds
     useEffect(() => {
@@ -40,8 +42,11 @@ export default function SystemHealthDashboard() {
         setRefreshing(true);
         const startTime = Date.now();
         const checks = [];
-        
-        // 1. API Gateway - Using unified endpoint
+        const data = {};
+
+        // ============================================
+        // 1. API Gateway - Unified endpoint
+        // ============================================
         try {
             const apiStart = Date.now();
             const apiResponse = await fetch(HEALTH_ENDPOINT);
@@ -64,8 +69,10 @@ export default function SystemHealthDashboard() {
                 metric: 'unreachable'
             });
         }
-        
+
+        // ============================================
         // 2. Supabase Database
+        // ============================================
         try {
             const dbStart = Date.now();
             const { error, count } = await supabase
@@ -91,8 +98,157 @@ export default function SystemHealthDashboard() {
                 metric: 'connection failed'
             });
         }
-        
-        // 3. Storage Service
+
+        // ============================================
+        // 3. Jobs Board
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('jobs')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_active', true)
+                .eq('compliance_status', 'approved');
+            
+            data.jobs = { total: count || 0, active: count || 0 };
+            checks.push({
+                name: 'Jobs Board',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} active jobs`,
+                icon: Briefcase,
+                metric: `${count || 0} jobs`
+            });
+        } catch (err) {
+            data.jobs = { total: 0, active: 0 };
+            checks.push({ name: 'Jobs Board', status: 'error', responseTime: 0, details: err.message, icon: Briefcase, metric: 'error' });
+        }
+
+        // ============================================
+        // 4. Courses
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('courses')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_published', true);
+            
+            data.courses = { total: count || 0, published: count || 0 };
+            checks.push({
+                name: 'Courses',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} published courses`,
+                icon: BookOpen,
+                metric: `${count || 0} courses`
+            });
+        } catch (err) {
+            data.courses = { total: 0, published: 0 };
+            checks.push({ name: 'Courses', status: 'error', responseTime: 0, details: err.message, icon: BookOpen, metric: 'error' });
+        }
+
+        // ============================================
+        // 5. Assessments
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('assessments')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_active', true);
+            
+            const { count: completed } = await supabase
+                .from('user_assessments')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'completed');
+            
+            data.assessments = { total: count || 0, completed: completed || 0 };
+            checks.push({
+                name: 'Assessments',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} active, ${completed || 0} completed`,
+                icon: Brain,
+                metric: `${count || 0} active`
+            });
+        } catch (err) {
+            data.assessments = { total: 0, completed: 0 };
+            checks.push({ name: 'Assessments', status: 'error', responseTime: 0, details: err.message, icon: Brain, metric: 'error' });
+        }
+
+        // ============================================
+        // 6. Hire VA
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('va_tasks')
+                .select('*', { count: 'exact', head: true });
+            
+            data.vaTasks = { total: count || 0 };
+            checks.push({
+                name: 'Hire VA',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} total tasks`,
+                icon: Bot,
+                metric: `${count || 0} tasks`
+            });
+        } catch (err) {
+            data.vaTasks = { total: 0 };
+            checks.push({ name: 'Hire VA', status: 'error', responseTime: 0, details: err.message, icon: Bot, metric: 'error' });
+        }
+
+        // ============================================
+        // 7. Books
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('books')
+                .select('*', { count: 'exact', head: true });
+            
+            data.books = { total: count || 0 };
+            checks.push({
+                name: 'Books',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} books available`,
+                icon: FileText,
+                metric: `${count || 0} books`
+            });
+        } catch (err) {
+            data.books = { total: 0 };
+            checks.push({ name: 'Books', status: 'error', responseTime: 0, details: err.message, icon: FileText, metric: 'error' });
+        }
+
+        // ============================================
+        // 8. Newsletter
+        // ============================================
+        try {
+            const start = Date.now();
+            const { count, error } = await supabase
+                .from('newsletter_subscribers')
+                .select('*', { count: 'exact', head: true });
+            
+            data.newsletter = { subscribers: count || 0 };
+            checks.push({
+                name: 'Newsletter',
+                status: error ? 'degraded' : 'healthy',
+                responseTime: Date.now() - start,
+                details: error ? error.message : `${count || 0} subscribers`,
+                icon: Mail,
+                metric: `${count || 0} subscribers`
+            });
+        } catch (err) {
+            data.newsletter = { subscribers: 0 };
+            checks.push({ name: 'Newsletter', status: 'error', responseTime: 0, details: err.message, icon: Mail, metric: 'error' });
+        }
+
+        // ============================================
+        // 9. Storage Service
+        // ============================================
         try {
             const storageStart = Date.now();
             const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
@@ -114,8 +270,10 @@ export default function SystemHealthDashboard() {
                 metric: 'unavailable'
             });
         }
-        
-        // 4. Auth Service
+
+        // ============================================
+        // 10. Auth Service
+        // ============================================
         try {
             const authStart = Date.now();
             const { data: { session }, error: authError } = await supabase.auth.getSession();
@@ -137,8 +295,10 @@ export default function SystemHealthDashboard() {
                 metric: 'error'
             });
         }
-        
-        // 5. OpenAI API
+
+        // ============================================
+        // 11. OpenAI API
+        // ============================================
         const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
         checks.push({
             name: 'OpenAI API',
@@ -148,8 +308,10 @@ export default function SystemHealthDashboard() {
             icon: Brain,
             metric: openaiKey ? 'configured' : 'missing'
         });
-        
-        // 6. Email Service
+
+        // ============================================
+        // 12. Email Service
+        // ============================================
         const emailUser = import.meta.env.VITE_EMAIL_USER;
         checks.push({
             name: 'Email Service',
@@ -159,31 +321,10 @@ export default function SystemHealthDashboard() {
             icon: Mail,
             metric: emailUser ? 'configured' : 'missing'
         });
-        
-        // 7. CDN/Assets
-        try {
-            const cdnStart = Date.now();
-            const cdnResponse = await fetch('/favicon.ico', { method: 'HEAD' });
-            checks.push({
-                name: 'CDN & Assets',
-                status: cdnResponse.ok ? 'healthy' : 'degraded',
-                responseTime: Date.now() - cdnStart,
-                details: cdnResponse.ok ? 'Static assets reachable' : 'Asset serving issue',
-                icon: Globe,
-                metric: cdnResponse.ok ? 'reachable' : 'issue'
-            });
-        } catch (err) {
-            checks.push({ 
-                name: 'CDN & Assets', 
-                status: 'degraded', 
-                responseTime: 0, 
-                details: err.message, 
-                icon: Globe,
-                metric: 'unreachable'
-            });
-        }
-        
-        // 8. Real-time Services
+
+        // ============================================
+        // 13. Realtime Service
+        // ============================================
         try {
             const realtimeStart = Date.now();
             const realtimeChannel = supabase.channel('health-check');
@@ -213,71 +354,36 @@ export default function SystemHealthDashboard() {
                 metric: 'issue'
             });
         }
-        
-        // Calculate overall status
+
+        // ============================================
+        // Calculate Overall Status
+        // ============================================
         const hasCritical = checks.some(c => c.status === 'critical');
         const hasDegraded = checks.some(c => c.status === 'degraded');
         const overall = hasCritical ? 'critical' : (hasDegraded ? 'degraded' : 'healthy');
-        
-        // Calculate uptime percentage (from history)
-        const uptimeData = calculateUptime(history);
-        
+
+        // Update data stats for summary
+        setDataStats(data);
+
         const healthData = { 
             checks, 
             overall, 
             timestamp: new Date().toISOString(),
             totalResponseTime: Date.now() - startTime,
-            uptime: uptimeData,
             servicesCount: checks.length,
-            healthyCount: checks.filter(c => c.status === 'healthy').length
+            healthyCount: checks.filter(c => c.status === 'healthy').length,
+            data: data
         };
         
         setHealth(healthData);
         setLastManualRefresh(new Date());
-        
-        // Log to database (async, don't wait)
-        logHealthToDatabase(checks).catch(console.warn);
-        
-        // Load history after logging
+
+        // Load history
         await loadHistory();
         
         setRefreshing(false);
         setLoading(false);
-    }, [history.length]);
-
-    // Calculate uptime from history logs
-    function calculateUptime(historyLogs) {
-        if (historyLogs.length === 0) return { percentage: 100, period: '24h' };
-        
-        const last24h = historyLogs.filter(log => {
-            const logDate = new Date(log.checked_at);
-            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            return logDate > oneDayAgo;
-        });
-        
-        if (last24h.length === 0) return { percentage: 100, period: '24h' };
-        
-        const healthyCount = last24h.filter(log => log.status === 'healthy').length;
-        const percentage = (healthyCount / last24h.length) * 100;
-        
-        return { percentage: Math.round(percentage), period: '24h', totalChecks: last24h.length };
-    }
-
-    async function logHealthToDatabase(checks) {
-        try {
-            for (const check of checks) {
-                await supabase.from('system_health_logs').insert({
-                    service_name: check.name,
-                    status: check.status,
-                    response_time_ms: check.responseTime,
-                    details: { message: check.details, metric: check.metric },
-                    checked_at: new Date().toISOString()
-                });
-            }
-        } catch (err) {
-            console.debug('Health logging failed:', err.message);
-        }
-    }
+    }, []);
 
     async function loadHistory() {
         try {
@@ -342,7 +448,7 @@ export default function SystemHealthDashboard() {
                         <Activity className="w-6 h-6 text-primary-400" />
                         System Health Dashboard
                     </h1>
-                    <p className="text-slate-400">Real-time system monitoring and diagnostics</p>
+                    <p className="text-slate-400">Real-time system monitoring and diagnostics via unified API</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                     <button
@@ -415,37 +521,47 @@ export default function SystemHealthDashboard() {
                 </div>
             </div>
 
-            {/* Uptime Stats */}
-            {health?.uptime && (
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
-                        <TrendingUp className="w-5 h-5 text-emerald-400 mx-auto mb-2" />
-                        <div className="text-2xl font-bold text-white">{health.uptime.percentage}%</div>
-                        <div className="text-xs text-slate-500">Uptime (24h)</div>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
-                        <Bell className="w-5 h-5 text-primary-400 mx-auto mb-2" />
-                        <div className="text-2xl font-bold text-white">{history.length}</div>
-                        <div className="text-xs text-slate-500">Health Checks</div>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
-                        <Wifi className="w-5 h-5 text-primary-400 mx-auto mb-2" />
-                        <div className="text-2xl font-bold text-white">
-                            {health.checks.find(c => c.name === 'API Gateway')?.responseTime || 0}ms
+            {/* Summary Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                        <Users className="w-6 h-6 text-primary-400" />
+                        <div>
+                            <div className="text-2xl font-bold text-white">{dataStats.jobs?.total || 0}</div>
+                            <div className="text-sm text-slate-400">Total Jobs</div>
                         </div>
-                        <div className="text-xs text-slate-500">API Response</div>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition">
-                        <Database className="w-5 h-5 text-primary-400 mx-auto mb-2" />
-                        <div className="text-2xl font-bold text-white">
-                            {health.checks.find(c => c.name === 'Supabase Database')?.responseTime || 0}ms
-                        </div>
-                        <div className="text-xs text-slate-500">Database Query</div>
                     </div>
                 </div>
-            )}
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                        <BookOpen className="w-6 h-6 text-emerald-400" />
+                        <div>
+                            <div className="text-2xl font-bold text-white">{dataStats.courses?.published || 0}</div>
+                            <div className="text-sm text-slate-400">Published Courses</div>
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                        <Brain className="w-6 h-6 text-purple-400" />
+                        <div>
+                            <div className="text-2xl font-bold text-white">{dataStats.assessments?.total || 0}</div>
+                            <div className="text-sm text-slate-400">Active Assessments</div>
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                        <Bot className="w-6 h-6 text-amber-400" />
+                        <div>
+                            <div className="text-2xl font-bold text-white">{dataStats.vaTasks?.total || 0}</div>
+                            <div className="text-sm text-slate-400">VA Tasks</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-            {/* Service Cards Grid */}
+            {/* Services Status Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {health?.checks.map((check, idx) => {
                     const Icon = check.icon || Activity;
@@ -556,8 +672,9 @@ export default function SystemHealthDashboard() {
 
             {/* System Info Footer */}
             <div className="text-center text-xs text-slate-500">
-                <p>System Health Dashboard v2.0 | Unified API Endpoint: /api/index?action=health</p>
+                <p>System Health Dashboard v2.0 | Unified API Endpoint: <code className="bg-slate-800 px-1 rounded">/api/index?action=health</code></p>
                 <p className="mt-1">Auto-refresh every 60 seconds | Last full check: {new Date(health?.timestamp).toLocaleString()}</p>
+                <p className="mt-1 text-slate-600">All service checks performed via unified API gateway</p>
             </div>
         </div>
     );
