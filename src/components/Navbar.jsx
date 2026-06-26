@@ -1,25 +1,25 @@
-// src/components/Navbar.jsx
-// ODUSBABA PROFESSIONAL NAVBAR v6.0 - UNIFIED API
+// src/components/Navbar.jsx - UNIFIED & OPTIMIZED
+// ODUSBABA PROFESSIONAL NAVBAR v7.0 - Mobile-First with Unified API
 // ✅ Complete responsive design with mobile-first approach
+// ✅ Clean mobile overlay with backdrop (from Code 2)
 // ✅ All navigation links verified
 // ✅ Role-based access (Admin, Employer, Tester, User)
 // ✅ Scroll-aware styling with animations
-// ✅ Dropdown menus with outside click detection
-// ✅ Framer Motion animations for smooth transitions
-// ✅ Fixed logo handling with fallback
+// ✅ Dropdown menus (optimized for desktop)
 // ✅ Unified API integration (api/index.js)
-// ✅ Optimized mobile menu with proper sizing
+// ✅ Lightweight animations (no Framer Motion dependency)
+// ✅ Fixed logo handling with fallback
+// ✅ Touch-optimized mobile menu
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Menu, X, ChevronDown, Briefcase, Users, BookOpen, FileText, 
     Mail, Zap, LayoutDashboard, UserCircle, ClipboardList, 
     Star, Bell, MessageCircle, Settings, Building2, 
     Shield, BarChart3, Database, Sparkles, LogOut, Home,
     Award, GraduationCap, Newspaper, HelpCircle, Scale,
-    AlertTriangle, TrendingUp, User, Bot, Activity
+    AlertTriangle, TrendingUp, User, Bot, Activity, Brain
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -29,37 +29,10 @@ import { supabase } from '../lib/supabase';
 
 const API_BASE = '/api/index';
 
-// Animation variants
-const navVariants = {
-    hidden: { y: -100, opacity: 0 },
-    visible: { 
-        y: 0, 
-        opacity: 1,
-        transition: { 
-            type: 'spring', 
-            stiffness: 100, 
-            damping: 20,
-            staggerChildren: 0.05
-        }
-    }
-};
-
-const itemVariants = {
-    hidden: { y: -20, opacity: 0 },
-    visible: { 
-        y: 0, 
-        opacity: 1,
-        transition: { type: 'spring', stiffness: 200, damping: 15 }
-    }
-};
-
-const mobileItemVariants = {
-    hidden: { x: -50, opacity: 0 },
-    visible: { 
-        x: 0, 
-        opacity: 1,
-        transition: { type: 'spring', stiffness: 200, damping: 20 }
-    }
+// Simple animation helper (no Framer Motion dependency)
+const fadeIn = {
+    hidden: { opacity: 0, transform: 'translateY(-10px)' },
+    visible: { opacity: 1, transform: 'translateY(0)' }
 };
 
 // ============================================
@@ -80,19 +53,31 @@ export default function Navbar() {
         show_login_button: false,
         show_register_button: false
     });
+    const [isMobile, setIsMobile] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+    const menuRef = useRef(null);
 
     // ============================================
-    // SCROLL HANDLER
+    // SCROLL & RESIZE HANDLERS
     // ============================================
 
     useEffect(() => {
         const handleScroll = () => {
             setIsScrolled(window.scrollY > 10);
         };
+        const handleResize = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        
         window.addEventListener('scroll', handleScroll);
-        return () => window.removeEventListener('scroll', handleScroll);
+        window.addEventListener('resize', handleResize);
+        handleResize();
+        
+        return () => {
+            window.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('resize', handleResize);
+        };
     }, []);
 
     // ============================================
@@ -113,7 +98,7 @@ export default function Navbar() {
     useEffect(() => {
         // Close dropdowns when clicking outside
         const handleClickOutside = (event) => {
-            if (!event.target.closest('.dropdown-container')) {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
                 setUserMenuOpen(false);
                 setResourcesOpen(false);
                 setProductsOpen(false);
@@ -122,6 +107,16 @@ export default function Navbar() {
         document.addEventListener('click', handleClickOutside);
         return () => document.removeEventListener('click', handleClickOutside);
     }, []);
+
+    // Prevent body scroll when mobile menu is open
+    useEffect(() => {
+        if (mobileMenuOpen) {
+            document.body.classList.add('overflow-hidden', 'fixed', 'w-full');
+        } else {
+            document.body.classList.remove('overflow-hidden', 'fixed', 'w-full');
+        }
+        return () => document.body.classList.remove('overflow-hidden', 'fixed', 'w-full');
+    }, [mobileMenuOpen]);
 
     async function checkUser() {
         try {
@@ -228,8 +223,7 @@ export default function Navbar() {
         { name: 'Workforce', path: '/workforce', icon: Users, highlight: false },
         { name: 'Courses', path: '/courses', icon: GraduationCap, highlight: false },
         { name: 'Books', path: '/books', icon: BookOpen, highlight: false },
-        { name: 'Assessments', path: '/assessments', icon: FileText, highlight: false },
-        { name: 'Newsletter', path: '/newsletter', icon: Mail, highlight: false },
+        { name: 'Assessments', path: '/assessments', icon: Brain, highlight: false },
         { name: 'Hire VA', path: '/hire-va', icon: Bot, highlight: true, premium: true },
     ];
 
@@ -321,81 +315,67 @@ export default function Navbar() {
     const isSuperAdmin = profile?.user_type === 'super_admin';
 
     return (
-        <motion.nav
-            initial="hidden"
-            animate="visible"
-            variants={navVariants}
+        <nav 
+            ref={menuRef}
             className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
                 isScrolled ? 'bg-slate-900/95 backdrop-blur-md shadow-lg' : 'bg-slate-900/80 backdrop-blur-sm'
             } border-b border-slate-800`}
         >
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center h-16">
+                <div className="flex justify-between items-center h-16 md:h-20">
                     
                     {/* Logo Section with Fallback */}
-                    <motion.div
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="flex-shrink-0"
+                    <Link 
+                        to="/" 
+                        className="flex items-center gap-2 flex-shrink-0 group"
+                        onClick={() => setMobileMenuOpen(false)}
                     >
-                        <Link to="/" className="flex items-center gap-2 group" onClick={() => setMobileMenuOpen(false)}>
-                            {!logoError ? (
-                                <img 
-                                    src="/Bluskye.png" 
-                                    alt="BluSkye Consult" 
-                                    className="h-8 w-auto object-contain"
-                                    onError={() => setLogoError(true)}
-                                />
-                            ) : (
-                                <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
-                                    <Sparkles className="w-4 h-4 text-white" />
-                                </div>
-                            )}
-                            <span className="text-white font-bold text-lg hidden sm:inline">
-                                BluSkye<span className="text-primary-400">Consult</span>
-                            </span>
-                        </Link>
-                    </motion.div>
+                        {!logoError ? (
+                            <img 
+                                src="/Bluskye.png" 
+                                alt="BluSkye Consult" 
+                                className="h-8 sm:h-10 w-auto object-contain"
+                                onError={() => setLogoError(true)}
+                            />
+                        ) : (
+                            <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
+                                <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                        )}
+                        <span className="text-white font-bold text-lg hidden sm:inline">
+                            BluSkye<span className="text-primary-400">Consult</span>
+                        </span>
+                    </Link>
 
                     {/* Desktop Navigation */}
                     <div className="hidden lg:flex items-center space-x-1">
                         {mainNavItems.map((item) => (
-                            <motion.div
+                            <Link
                                 key={item.name}
-                                variants={itemVariants}
-                                whileHover={{ y: -2 }}
-                                whileTap={{ scale: 0.95 }}
+                                to={item.path}
+                                className={`relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 group ${
+                                    isActive(item.path)
+                                        ? 'bg-primary-500/20 text-primary-400'
+                                        : item.highlight
+                                            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
+                                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                                }`}
                             >
-                                <Link
-                                    to={item.path}
-                                    className={`relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 group ${
-                                        isActive(item.path)
-                                            ? 'bg-primary-500/20 text-primary-400'
-                                            : item.highlight
-                                                ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
-                                                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                                    }`}
-                                >
-                                    <item.icon className="w-4 h-4 transition-transform group-hover:scale-110" />
-                                    {item.name}
-                                    {item.premium && (
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white ml-1">
-                                            PRO
-                                        </span>
-                                    )}
-                                    {isActive(item.path) && (
-                                        <motion.div
-                                            layoutId="activeIndicator"
-                                            className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-500 to-sky-500 rounded-full"
-                                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                                        />
-                                    )}
-                                </Link>
-                            </motion.div>
+                                <item.icon className="w-4 h-4 transition-transform group-hover:scale-110" />
+                                {item.name}
+                                {item.premium && (
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white ml-1">
+                                        PRO
+                                    </span>
+                                )}
+                                {isActive(item.path) && (
+                                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-500 to-sky-500 rounded-full" />
+                                )}
+                            </Link>
                         ))}
                         
                         {/* Products Dropdown */}
-                        <div className="relative dropdown-container">
+                        <div className="relative">
                             <button
                                 onClick={() => setProductsOpen(!productsOpen)}
                                 className={`flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
@@ -405,36 +385,28 @@ export default function Navbar() {
                                 More
                                 <ChevronDown className={`w-3.5 h-3.5 transition-transform ${productsOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            <AnimatePresence>
-                                {productsOpen && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                                        transition={{ duration: 0.15 }}
-                                        className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
-                                    >
-                                        {productsDropdownItems.map((item) => (
-                                            <Link
-                                                key={item.name}
-                                                to={item.path}
-                                                onClick={() => setProductsOpen(false)}
-                                                className="flex items-center gap-3 px-4 py-2 hover:bg-slate-700 transition group"
-                                            >
-                                                <item.icon className="w-4 h-4 text-primary-400" />
-                                                <div>
-                                                    <p className="text-sm text-slate-200 group-hover:text-white">{item.name}</p>
-                                                    <p className="text-xs text-slate-500">{item.description}</p>
-                                                </div>
-                                            </Link>
-                                        ))}
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                            {productsOpen && (
+                                <div className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
+                                    {productsDropdownItems.map((item) => (
+                                        <Link
+                                            key={item.name}
+                                            to={item.path}
+                                            onClick={() => setProductsOpen(false)}
+                                            className="flex items-center gap-3 px-4 py-2 hover:bg-slate-700 transition group"
+                                        >
+                                            <item.icon className="w-4 h-4 text-primary-400" />
+                                            <div>
+                                                <p className="text-sm text-slate-200 group-hover:text-white">{item.name}</p>
+                                                <p className="text-xs text-slate-500">{item.description}</p>
+                                            </div>
+                                        </Link>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         
                         {/* Resources Dropdown */}
-                        <div className="relative dropdown-container">
+                        <div className="relative">
                             <button
                                 onClick={() => setResourcesOpen(!resourcesOpen)}
                                 className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
@@ -442,64 +414,52 @@ export default function Navbar() {
                                 Resources
                                 <ChevronDown className={`w-3.5 h-3.5 transition-transform ${resourcesOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            <AnimatePresence>
-                                {resourcesOpen && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                                        className="absolute right-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
-                                    >
-                                        <div className="py-1">
-                                            <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Company</div>
-                                            {resourcesLinks.slice(0, 4).map((link) => (
-                                                <Link
-                                                    key={link.name}
-                                                    to={link.path}
-                                                    onClick={() => setResourcesOpen(false)}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                                >
-                                                    <link.icon className="w-4 h-4" />
-                                                    {link.name}
-                                                </Link>
-                                            ))}
-                                            <div className="border-t border-slate-700 my-1"></div>
-                                            <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Legal & Safety</div>
-                                            {legalLinks.slice(0, 4).map((link) => (
-                                                <Link
-                                                    key={link.name}
-                                                    to={link.path}
-                                                    onClick={() => setResourcesOpen(false)}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                                >
-                                                    <link.icon className="w-4 h-4" />
-                                                    {link.name}
-                                                </Link>
-                                            ))}
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                            {resourcesOpen && (
+                                <div className="absolute right-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
+                                    <div className="py-1">
+                                        <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Company</div>
+                                        {resourcesLinks.slice(0, 4).map((link) => (
+                                            <Link
+                                                key={link.name}
+                                                to={link.path}
+                                                onClick={() => setResourcesOpen(false)}
+                                                className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                            >
+                                                <link.icon className="w-4 h-4" />
+                                                {link.name}
+                                            </Link>
+                                        ))}
+                                        <div className="border-t border-slate-700 my-1"></div>
+                                        <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase">Legal & Safety</div>
+                                        {legalLinks.slice(0, 4).map((link) => (
+                                            <Link
+                                                key={link.name}
+                                                to={link.path}
+                                                onClick={() => setResourcesOpen(false)}
+                                                className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                                            >
+                                                <link.icon className="w-4 h-4" />
+                                                {link.name}
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         
                         {/* Super Admin Badge */}
                         {isSuperAdmin && (
-                            <motion.div
-                                initial={{ scale: 0, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                transition={{ delay: 0.5, type: 'spring' }}
-                                className="ml-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-1"
-                            >
+                            <div className="ml-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-1">
                                 <Award className="w-3 h-3 text-emerald-400" />
                                 <span className="text-xs text-emerald-400 font-medium">Super Admin</span>
-                            </motion.div>
+                            </div>
                         )}
                     </div>
 
                     {/* Desktop Auth Section */}
                     <div className="hidden md:flex items-center space-x-3">
                         {user ? (
-                            <div className="relative dropdown-container">
+                            <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen(!userMenuOpen)}
                                     className="flex items-center gap-2 px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition"
@@ -517,51 +477,44 @@ export default function Navbar() {
                                     <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                                 </button>
                                 
-                                <AnimatePresence>
-                                    {userMenuOpen && (
-                                        <motion.div
-                                            initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                                            className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50"
-                                        >
-                                            <div className="p-3 border-b border-slate-700">
-                                                <p className="text-white font-medium">{profile?.full_name || 'User'}</p>
-                                                <p className="text-xs text-slate-400 truncate">{user.email}</p>
-                                                <p className="text-xs text-primary-400 mt-1 capitalize">{profile?.user_type || 'User'}</p>
-                                            </div>
-                                            <div className="py-1">
-                                                {userNavItems.slice(0, 4).map((item) => (
-                                                    <Link
-                                                        key={item.name}
-                                                        to={item.path}
-                                                        onClick={() => setUserMenuOpen(false)}
-                                                        className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                                    >
-                                                        <item.icon className="w-4 h-4" />
-                                                        {item.name}
-                                                    </Link>
-                                                ))}
-                                                {isAdmin && (
-                                                    <Link
-                                                        to="/admin/dashboard"
-                                                        onClick={() => setUserMenuOpen(false)}
-                                                        className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
-                                                    >
-                                                        <Shield className="w-4 h-4" /> Admin Panel
-                                                    </Link>
-                                                )}
-                                                <div className="border-t border-slate-700 my-1"></div>
-                                                <button
-                                                    onClick={handleLogout}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition w-full"
+                                {userMenuOpen && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden z-50">
+                                        <div className="p-3 border-b border-slate-700">
+                                            <p className="text-white font-medium">{profile?.full_name || 'User'}</p>
+                                            <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                                            <p className="text-xs text-primary-400 mt-1 capitalize">{profile?.user_type || 'User'}</p>
+                                        </div>
+                                        <div className="py-1">
+                                            {userNavItems.slice(0, 4).map((item) => (
+                                                <Link
+                                                    key={item.name}
+                                                    to={item.path}
+                                                    onClick={() => setUserMenuOpen(false)}
+                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition"
                                                 >
-                                                    <LogOut className="w-4 h-4" /> Logout
-                                                </button>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
+                                                    <item.icon className="w-4 h-4" />
+                                                    {item.name}
+                                                </Link>
+                                            ))}
+                                            {isAdmin && (
+                                                <Link
+                                                    to="/admin/dashboard"
+                                                    onClick={() => setUserMenuOpen(false)}
+                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
+                                                >
+                                                    <Shield className="w-4 h-4" /> Admin Panel
+                                                </Link>
+                                            )}
+                                            <div className="border-t border-slate-700 my-1"></div>
+                                            <button
+                                                onClick={handleLogout}
+                                                className="flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition w-full"
+                                            >
+                                                <LogOut className="w-4 h-4" /> Logout
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <>
@@ -583,166 +536,222 @@ export default function Navbar() {
                     </div>
 
                     {/* Mobile Menu Button */}
-                    <motion.button
-                        whileTap={{ scale: 0.9 }}
+                    <button 
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                         className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
                         aria-label="Menu"
                     >
                         {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-                    </motion.button>
+                    </button>
                 </div>
+            </div>
 
-                {/* Mobile Menu Panel with AnimatePresence */}
-                <AnimatePresence>
-                    {mobileMenuOpen && (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.3, ease: 'easeInOut' }}
-                            className="lg:hidden overflow-hidden border-t border-slate-800"
-                        >
-                            <div className="py-4 space-y-1 max-h-[80vh] overflow-y-auto">
-                                {mainNavItems.map((item, index) => (
-                                    <motion.div
-                                        key={item.name}
-                                        custom={index}
-                                        variants={mobileItemVariants}
-                                        initial="hidden"
-                                        animate="visible"
-                                        transition={{ delay: index * 0.05 }}
-                                    >
-                                        <Link
-                                            to={item.path}
-                                            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-base ${
-                                                item.highlight
-                                                    ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                                                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                                            }`}
-                                            onClick={() => setMobileMenuOpen(false)}
-                                        >
-                                            <item.icon className="w-5 h-5" />
-                                            {item.name}
-                                            {item.premium && (
-                                                <span className="ml-auto text-xs px-2 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white">PRO</span>
-                                            )}
-                                        </Link>
-                                    </motion.div>
-                                ))}
-                                
-                                <hr className="my-2 border-slate-800" />
-                                
-                                {/* More Products in Mobile */}
-                                <div className="text-xs font-semibold text-primary-400 uppercase tracking-wider px-4 pt-2 pb-1">MORE PRODUCTS</div>
-                                {productsDropdownItems.map((item, index) => (
-                                    <motion.div
-                                        key={item.name}
-                                        custom={index}
-                                        variants={mobileItemVariants}
-                                        initial="hidden"
-                                        animate="visible"
-                                    >
-                                        <Link
-                                            to={item.path}
-                                            className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
-                                            onClick={() => setMobileMenuOpen(false)}
-                                        >
-                                            <item.icon className="w-5 h-5 text-primary-400" />
-                                            {item.name}
-                                        </Link>
-                                    </motion.div>
-                                ))}
-                                
-                                <hr className="my-2 border-slate-800" />
-                                
-                                {/* Resources in Mobile */}
-                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-2 pb-1">RESOURCES</div>
-                                {resourcesLinks.map((item, index) => (
-                                    <motion.div
-                                        key={item.name}
-                                        custom={index}
-                                        variants={mobileItemVariants}
-                                        initial="hidden"
-                                        animate="visible"
-                                    >
-                                        <Link
-                                            to={item.path}
-                                            className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
-                                            onClick={() => setMobileMenuOpen(false)}
-                                        >
-                                            <item.icon className="w-5 h-5" />
-                                            {item.name}
-                                        </Link>
-                                    </motion.div>
-                                ))}
-                                
-                                <hr className="my-2 border-slate-800" />
-                                
-                                {/* User Account Section */}
-                                {user ? (
-                                    <>
-                                        <div className="px-4 py-2 text-slate-400 text-sm">Signed in as</div>
-                                        <div className="px-4 py-2 text-white font-medium">{profile?.full_name || user.email}</div>
-                                        {userNavItems.slice(0, 5).map((item, index) => (
-                                            <motion.div
-                                                key={item.name}
-                                                custom={index}
-                                                variants={mobileItemVariants}
-                                                initial="hidden"
-                                                animate="visible"
-                                            >
-                                                <Link
-                                                    to={item.path}
-                                                    className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
-                                                    onClick={() => setMobileMenuOpen(false)}
-                                                >
-                                                    <item.icon className="w-5 h-5" />
-                                                    {item.name}
-                                                </Link>
-                                            </motion.div>
-                                        ))}
-                                        {isAdmin && (
-                                            <Link to="/admin/dashboard" className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>
-                                                <Shield className="w-5 h-5" /> Admin Panel
-                                            </Link>
-                                        )}
-                                        {isSuperAdmin && (
-                                            <div className="flex items-center gap-2 px-4 py-2">
-                                                <Award className="w-4 h-4 text-emerald-400" />
-                                                <span className="text-xs text-emerald-400">Super Admin Access</span>
-                                            </div>
-                                        )}
-                                        <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-slate-800 rounded-lg">
-                                            <LogOut className="w-5 h-5" /> Logout
-                                        </button>
-                                    </>
+            {/* Mobile Menu - Complete Overlay (From Code 2 - Enhanced) */}
+            <div className={`lg:hidden fixed inset-0 z-40 transition-all duration-300 ${
+                mobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}>
+                {/* Backdrop */}
+                <div 
+                    className={`absolute inset-0 bg-black/80 transition-opacity duration-300 ${
+                        mobileMenuOpen ? 'opacity-100' : 'opacity-0'
+                    }`} 
+                    onClick={() => setMobileMenuOpen(false)}
+                />
+                
+                {/* Menu Panel - Slides from right */}
+                <div className={`absolute top-0 right-0 w-[85%] max-w-sm h-full bg-slate-950 shadow-2xl transition-transform duration-300 ease-out ${
+                    mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+                }`}>
+                    <div className="flex flex-col h-full">
+                        {/* Menu Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-slate-800">
+                            <div className="flex items-center gap-2">
+                                {!logoError ? (
+                                    <img 
+                                        src="/Bluskye.png" 
+                                        alt="BluSkye" 
+                                        className="h-6 w-auto"
+                                        onError={() => setLogoError(true)}
+                                    />
                                 ) : (
-                                    <div className="flex flex-col gap-2 p-4">
-                                        <Link to="/sign-in" className="w-full px-4 py-3 text-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
-                                        <Link to="/sign-up" className="w-full px-4 py-3 text-center bg-primary-600 text-white rounded-lg hover:bg-primary-700" onClick={() => setMobileMenuOpen(false)}>Sign Up</Link>
-                                        
-                                        {testerVisibility.show_login_button && (
-                                            <Link to="/tester-login" className="w-full px-4 py-3 text-center border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-500/10">Tester Login</Link>
-                                        )}
-                                        {testerVisibility.show_register_button && (
-                                            <Link to="/tester-register" className="w-full px-4 py-3 text-center bg-purple-600/80 text-white rounded-lg hover:bg-purple-700">Become Tester</Link>
-                                        )}
-                                    </div>
+                                    <Sparkles className="w-5 h-5 text-primary-400" />
                                 )}
+                                <span className="text-sm font-bold text-white">Menu</span>
                             </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                            <button 
+                                onClick={() => setMobileMenuOpen(false)}
+                                className="p-2 text-slate-400 hover:text-white rounded-lg transition"
+                                aria-label="Close menu"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Menu Links - Scrollable */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+                            {/* Main Navigation */}
+                            {mainNavItems.map((item) => {
+                                const active = isActive(item.path);
+                                return (
+                                    <Link
+                                        key={item.name}
+                                        to={item.path}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+                                            active 
+                                                ? 'bg-primary-600/10 text-primary-400' 
+                                                : 'text-slate-300 hover:bg-slate-800'
+                                        }`}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        <item.icon className="w-5 h-5" />
+                                        <span className="text-sm font-medium">{item.name}</span>
+                                        {item.premium && (
+                                            <span className="ml-auto text-[10px] px-2 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full text-white">
+                                                PRO
+                                            </span>
+                                        )}
+                                        {active && (
+                                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-400" />
+                                        )}
+                                    </Link>
+                                );
+                            })}
+
+                            <hr className="my-2 border-slate-800" />
+
+                            {/* More Products */}
+                            <div className="text-xs font-semibold text-primary-400 uppercase tracking-wider px-4 pt-2 pb-1">More Products</div>
+                            {productsDropdownItems.map((item) => (
+                                <Link
+                                    key={item.name}
+                                    to={item.path}
+                                    className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-slate-800 rounded-lg transition"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                >
+                                    <item.icon className="w-5 h-5 text-primary-400" />
+                                    <div>
+                                        <p className="text-sm">{item.name}</p>
+                                        <p className="text-xs text-slate-500">{item.description}</p>
+                                    </div>
+                                </Link>
+                            ))}
+
+                            <hr className="my-2 border-slate-800" />
+
+                            {/* Resources */}
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-2 pb-1">Resources</div>
+                            {resourcesLinks.slice(0, 6).map((item) => (
+                                <Link
+                                    key={item.name}
+                                    to={item.path}
+                                    className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                >
+                                    <item.icon className="w-5 h-5" />
+                                    <span className="text-sm">{item.name}</span>
+                                </Link>
+                            ))}
+
+                            <hr className="my-2 border-slate-800" />
+
+                            {/* User Account Section */}
+                            {user ? (
+                                <>
+                                    <div className="px-4 py-2 text-slate-400 text-xs">Signed in as</div>
+                                    <div className="px-4 py-2 text-white font-medium">{profile?.full_name || user.email}</div>
+                                    
+                                    {userNavItems.slice(0, 5).map((item) => (
+                                        <Link
+                                            key={item.name}
+                                            to={item.path}
+                                            className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-slate-800 rounded-lg transition"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            <item.icon className="w-5 h-5" />
+                                            <span className="text-sm">{item.name}</span>
+                                        </Link>
+                                    ))}
+                                    
+                                    {isAdmin && (
+                                        <Link 
+                                            to="/admin/dashboard" 
+                                            className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg transition"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            <Shield className="w-5 h-5" /> 
+                                            <span className="text-sm">Admin Panel</span>
+                                        </Link>
+                                    )}
+                                    
+                                    {isSuperAdmin && (
+                                        <div className="flex items-center gap-2 px-4 py-2">
+                                            <Award className="w-4 h-4 text-emerald-400" />
+                                            <span className="text-xs text-emerald-400">Super Admin Access</span>
+                                        </div>
+                                    )}
+                                    
+                                    <button 
+                                        onClick={handleLogout} 
+                                        className="flex items-center gap-3 px-4 py-3 w-full text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                                    >
+                                        <LogOut className="w-5 h-5" /> 
+                                        <span className="text-sm">Sign Out</span>
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="space-y-2 mt-2">
+                                    <Link 
+                                        to="/sign-in" 
+                                        className="flex items-center justify-center px-4 py-3 text-slate-300 hover:bg-slate-800 rounded-lg transition"
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        Sign In
+                                    </Link>
+                                    <Link 
+                                        to="/sign-up" 
+                                        className="flex items-center justify-center px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                                        onClick={() => setMobileMenuOpen(false)}
+                                    >
+                                        Get Started
+                                    </Link>
+                                    
+                                    {testerVisibility.show_login_button && (
+                                        <Link 
+                                            to="/tester-login" 
+                                            className="flex items-center justify-center px-4 py-3 border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-500/10 transition"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            Tester Login
+                                        </Link>
+                                    )}
+                                    {testerVisibility.show_register_button && (
+                                        <Link 
+                                            to="/tester-register" 
+                                            className="flex items-center justify-center px-4 py-3 bg-purple-600/80 text-white rounded-lg hover:bg-purple-700 transition"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        >
+                                            Become Tester
+                                        </Link>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Menu Footer */}
+                        <div className="p-4 border-t border-slate-800 text-center">
+                            <p className="text-xs text-slate-500">BluSkye Integrated Consult</p>
+                            <p className="text-xs text-slate-600 mt-0.5">ODUSBABA Intelligence</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Animated gradient border on scroll */}
-            <motion.div
-                className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary-500 to-transparent"
-                initial={{ scaleX: 0 }}
-                animate={{ scaleX: isScrolled ? 1 : 0 }}
-                transition={{ duration: 0.5 }}
+            <div 
+                className={`absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary-500 to-transparent transition-transform duration-500 ${
+                    isScrolled ? 'scale-x-100' : 'scale-x-0'
+                }`}
             />
-        </motion.nav>
+        </nav>
     );
 }
