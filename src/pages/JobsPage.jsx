@@ -1,5 +1,5 @@
-// src/pages/JobsPage.jsx - UNIFIED & OPTIMIZED WITH FIXED QUERIES
-// ODUSBABA JOB BOARD v4.1 - Production Ready with Fixed Queries
+// src/pages/JobsPage.jsx - UNIFIED & OPTIMIZED
+// ODUSBABA JOB BOARD v4.2 - Complete with Simplified Queries
 
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
@@ -83,58 +83,6 @@ export default function JobsPage() {
     const [showVisaOnly, setShowVisaOnly] = useState(false);
     const [lastFetchTime, setLastFetchTime] = useState(null);
 
-    // Helper function to check if refresh is needed
-    const shouldRefreshJobs = useCallback(() => {
-        if (!lastFetchTime) return true;
-        
-        const now = new Date();
-        const lastFetch = new Date(lastFetchTime);
-        const hoursSinceLastFetch = (now - lastFetch) / (1000 * 60 * 60);
-        
-        // Refresh if more than 24 hours have passed
-        return hoursSinceLastFetch >= 24;
-    }, [lastFetchTime]);
-
-    // Save last fetch time to localStorage
-    const saveLastFetchTime = useCallback(() => {
-        const now = new Date().toISOString();
-        setLastFetchTime(now);
-        localStorage.setItem('jobs_last_fetch_time', now);
-    }, []);
-
-    // Load last fetch time from localStorage on init
-    useEffect(() => {
-        const savedTime = localStorage.getItem('jobs_last_fetch_time');
-        if (savedTime) {
-            setLastFetchTime(savedTime);
-        }
-    }, []);
-
-    useEffect(() => {
-        getUser();
-        loadJobs();
-        loadSavedJobs();
-        
-        // Check for refresh every hour (to see if 24 hours have passed)
-        const interval = setInterval(() => {
-            if (shouldRefreshJobs()) {
-                console.log('🔄 24 hours passed, refreshing jobs...');
-                loadJobs();
-            }
-        }, 60 * 60 * 1000); // Check every hour
-        
-        return () => clearInterval(interval);
-    }, []);
-
-    useEffect(() => {
-        filterAndSortJobs();
-    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
-
-    // Reset to page 1 when filters change
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
-
     // ============================================
     // USER FUNCTIONS
     // ============================================
@@ -168,7 +116,6 @@ export default function JobsPage() {
         }
         
         if (savedJobs.has(jobId)) {
-            // Unsave
             await supabase
                 .from('saved_jobs')
                 .delete()
@@ -180,7 +127,6 @@ export default function JobsPage() {
                 return newSet;
             });
         } else {
-            // Save
             await supabase
                 .from('saved_jobs')
                 .insert({ user_id: user.id, job_id: jobId });
@@ -193,11 +139,11 @@ export default function JobsPage() {
     // ============================================
 
     const loadJobs = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        
         try {
-            // FIXED: Use proper SELECT query (not POST)
+            setLoading(true);
+            setError(null);
+            
+            // FIXED: Use SELECT query (From Code 2)
             let query = supabase
                 .from('jobs')
                 .select('*')
@@ -205,27 +151,32 @@ export default function JobsPage() {
                 .eq('compliance_status', 'approved')
                 .order('posted_at', { ascending: false });
             
-            const { data: dbJobs, error: dbError } = await query;
+            // Apply search filter if present
+            if (searchQuery && searchQuery.trim()) {
+                query = query.ilike('title', `%${searchQuery}%`);
+            }
             
-            if (dbError) {
-                console.warn('Jobs query error:', dbError);
-                // Try fallback query without status filter
-                const { data: fallbackData, error: fallbackError } = await supabase
-                    .from('jobs')
-                    .select('*')
-                    .eq('is_active', true)
-                    .order('posted_at', { ascending: false });
-                
-                if (fallbackError) throw fallbackError;
-                
-                // Process fallback data
-                const jobsWithSource = (fallbackData || []).map(job => ({
-                    ...job,
-                    source: job.source_type === 'external' ? 'live' : 'database',
-                    visa_sponsorship: job.sponsorship_eligible || false
-                }));
-                
-                setJobs(jobsWithSource);
+            // Apply country filter
+            if (selectedCountry && selectedCountry !== 'all') {
+                query = query.eq('country_code', selectedCountry);
+            }
+            
+            // Apply job type filter
+            if (selectedJobType && selectedJobType !== 'all') {
+                query = query.eq('job_type', selectedJobType);
+            }
+            
+            const { data, error: queryError } = await query;
+            
+            if (queryError) {
+                console.warn('Jobs query error:', queryError);
+                // If table doesn't exist, show empty (From Code 2)
+                if (queryError.code === '42P01') {
+                    setJobs([]);
+                    setError('Jobs table not found. Please contact support.');
+                } else {
+                    throw queryError;
+                }
                 return;
             }
             
@@ -233,26 +184,32 @@ export default function JobsPage() {
             if (shouldRefreshJobs()) {
                 await fetchLiveJobs();
                 saveLastFetchTime();
+                
+                // Reload from database after live fetch
+                const { data: refreshedData } = await supabase
+                    .from('jobs')
+                    .select('*')
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved')
+                    .order('posted_at', { ascending: false });
+                
+                const jobsWithSource = (refreshedData || []).map(job => ({
+                    ...job,
+                    source: job.source_type === 'external' ? 'live' : 'database',
+                    visa_sponsorship: job.sponsorship_eligible || false
+                }));
+                
+                setJobs(jobsWithSource);
+            } else {
+                // Process data with source indicators
+                const jobsWithSource = (data || []).map(job => ({
+                    ...job,
+                    source: job.source_type === 'external' ? 'live' : 'database',
+                    visa_sponsorship: job.sponsorship_eligible || false
+                }));
+                
+                setJobs(jobsWithSource);
             }
-            
-            // Fetch updated database jobs after potential live job insert
-            const { data: updatedDbJobs, error: updatedDbError } = await supabase
-                .from('jobs')
-                .select('*')
-                .eq('is_active', true)
-                .eq('compliance_status', 'approved')
-                .order('posted_at', { ascending: false });
-            
-            if (updatedDbError) throw updatedDbError;
-            
-            // Add source indicator and visa sponsorship flag
-            const jobsWithSource = (updatedDbJobs || []).map(job => ({
-                ...job,
-                source: job.source_type === 'external' ? 'live' : 'database',
-                visa_sponsorship: job.sponsorship_eligible || false
-            }));
-            
-            setJobs(jobsWithSource);
             
             if (!lastFetchTime) {
                 saveLastFetchTime();
@@ -265,7 +222,7 @@ export default function JobsPage() {
         } finally {
             setLoading(false);
         }
-    }, [shouldRefreshJobs, saveLastFetchTime, lastFetchTime]);
+    }, [searchQuery, selectedCountry, selectedJobType]);
 
     // ============================================
     // FETCH LIVE JOBS (Unified API)
@@ -274,7 +231,6 @@ export default function JobsPage() {
     async function fetchLiveJobs() {
         setFetchingLive(true);
         try {
-            // Call unified API to fetch jobs
             const response = await fetch(`${API_BASE}?action=jobs`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
@@ -287,9 +243,7 @@ export default function JobsPage() {
             if (data.success && data.jobs && data.jobs.length > 0) {
                 let newJobsCount = 0;
                 
-                // Save to database for persistence
                 for (const job of data.jobs) {
-                    // Check if job already exists
                     const { data: existing } = await supabase
                         .from('jobs')
                         .select('id')
@@ -322,11 +276,28 @@ export default function JobsPage() {
             }
         } catch (err) {
             console.error('Live job fetch error:', err);
-            // Don't show error to user - fallback to database jobs only
         } finally {
             setFetchingLive(false);
         }
     }
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    const shouldRefreshJobs = useCallback(() => {
+        if (!lastFetchTime) return true;
+        const now = new Date();
+        const lastFetch = new Date(lastFetchTime);
+        const hoursSinceLastFetch = (now - lastFetch) / (1000 * 60 * 60);
+        return hoursSinceLastFetch >= 24;
+    }, [lastFetchTime]);
+
+    const saveLastFetchTime = useCallback(() => {
+        const now = new Date().toISOString();
+        setLastFetchTime(now);
+        localStorage.setItem('jobs_last_fetch_time', now);
+    }, []);
 
     // ============================================
     // FILTER AND SORT JOBS
@@ -335,7 +306,7 @@ export default function JobsPage() {
     function filterAndSortJobs() {
         let filtered = [...jobs];
         
-        // Search filter
+        // Search filter (additional client-side filtering)
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(job => 
@@ -346,7 +317,7 @@ export default function JobsPage() {
             );
         }
         
-        // Country filter
+        // Country filter (additional client-side)
         if (selectedCountry !== 'all') {
             filtered = filtered.filter(job => 
                 job.country_code === selectedCountry ||
@@ -422,11 +393,9 @@ export default function JobsPage() {
 
     function formatTimeSinceLastFetch() {
         if (!lastFetchTime) return 'Never';
-        
         const now = new Date();
         const lastFetch = new Date(lastFetchTime);
         const hoursSince = Math.floor((now - lastFetch) / (1000 * 60 * 60));
-        
         if (hoursSince < 1) return 'Just now';
         if (hoursSince === 1) return '1 hour ago';
         return `${hoursSince} hours ago`;
@@ -469,6 +438,37 @@ export default function JobsPage() {
 
     const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max || showVisaOnly;
     const totalJobs = filteredJobs.length;
+
+    // Load data on mount and when filters change
+    useEffect(() => {
+        const savedTime = localStorage.getItem('jobs_last_fetch_time');
+        if (savedTime) {
+            setLastFetchTime(savedTime);
+        }
+    }, []);
+
+    useEffect(() => {
+        getUser();
+        loadJobs();
+        loadSavedJobs();
+        
+        const interval = setInterval(() => {
+            if (shouldRefreshJobs()) {
+                console.log('🔄 24 hours passed, refreshing jobs...');
+                loadJobs();
+            }
+        }, 60 * 60 * 1000);
+        
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        filterAndSortJobs();
+    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
 
     // ============================================
     // LOADING STATE
