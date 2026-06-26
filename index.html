@@ -4,21 +4,13 @@
     <meta charset="UTF-8" />
     
     <!-- ============================================
-         FAVICONS & APP ICONS
+         CRITICAL FIX: Mobile Viewport (Combined best practices)
     ============================================ -->
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Unified viewport - handles scaling, zoom, notched phones, and prevents zoom issues -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover, interactive-widget=resizes-content" />
     
     <!-- ============================================
-         VIEWPORT & RESPONSIVENESS (Critical fixes combined)
-    ============================================ -->
-    <!-- Unified viewport - handles scaling, zoom, and notched phones -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
-    
-    <!-- ============================================
-         PWA & THEME
+         PWA & MOBILE APP CONFIGURATION
     ============================================ -->
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -26,15 +18,21 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     
     <!-- ============================================
-         SEO & DESCRIPTION (Simplified but comprehensive)
+         FAVICONS & APP ICONS (Combined from both versions)
+    ============================================ -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    
+    <!-- ============================================
+         SEO & SOCIAL MEDIA (From 1st code - more comprehensive)
     ============================================ -->
     <meta name="description" content="ODUSBABA - AI-Powered Career Platform. Find jobs, take courses, and advance your career with intelligent tools." />
     <meta name="keywords" content="jobs, career, AI, courses, assessments, HR platform, odusbaba, bluskye" />
     <meta name="author" content="BluSkye Integrated Consult" />
     
-    <!-- ============================================
-         OPEN GRAPH / SOCIAL MEDIA
-    ============================================ -->
+    <!-- Open Graph -->
     <meta property="og:title" content="ODUSBABA | BluSkye Integrated Consult" />
     <meta property="og:description" content="AI-Powered Career Platform. Find your next opportunity with ODUSBABA." />
     <meta property="og:type" content="website" />
@@ -42,36 +40,34 @@
     <meta property="og:image" content="/og-image.png" />
     <meta property="og:site_name" content="ODUSBABA" />
     
-    <!-- ============================================
-         TWITTER CARD
-    ============================================ -->
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ODUSBABA | BluSkye Integrated Consult" />
     <meta name="twitter:description" content="AI-Powered Career Platform. Find your next opportunity with ODUSBABA." />
     <meta name="twitter:image" content="/twitter-image.png" />
     
     <!-- ============================================
-         PRELOAD & PERFORMANCE
+         PERFORMANCE OPTIMIZATION
     ============================================ -->
-    <!-- Preconnect to external resources -->
+    <!-- Preconnect to external services -->
     <link rel="preconnect" href="https://api.openai.com" />
     <link rel="preconnect" href="https://supabase.co" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     
-    <!-- Font preload for better performance -->
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
     <!-- ============================================
-         TITLE
+         TITLE (From 1st code with refinement)
     ============================================ -->
-    <title>ODUSBABA - Career Platform</title>
+    <title>ODUSBABA - AI-Powered Career Platform</title>
 </head>
 <body>
     <!-- ✅ ROOT DIV - MUST EXIST for React to mount -->
     <div id="root"></div>
     
-    <!-- Main entry point -->
+    <!-- ✅ Main entry point - KEPT from both working versions -->
     <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
