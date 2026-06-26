@@ -1,9 +1,10 @@
-// src/pages/HomePage.jsx - UNIFIED & OPTIMIZED WITH FIXED ARTICLES QUERY
+// src/pages/HomePage.jsx - UNIFIED & OPTIMIZED WITH COMPLETE FIXES
 // ODUSBABA Home Page - Complete with All Features, Error Handling & Fixed Articles
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
     Briefcase, Users, BookOpen, FileText, TrendingUp, Award, Globe, 
     Zap, Shield, Sparkles, ChevronRight, ArrowRight, Calendar, Star,
@@ -13,7 +14,6 @@ import HomeHero from '../components/HomeHero';
 import CTASection from '../components/CTASection';
 import PromoBanner from '../components/PromoBanner';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
-import { supabase } from '../lib/supabase';
 
 // Animation variants
 const containerVariants = {
@@ -209,41 +209,50 @@ export default function HomePage() {
     }, [countries]);
 
     // ============================================
-    // FIXED: Load Articles with Better Error Handling (From Code 2)
+    // FIXED: Load Articles with Proper Table/Column Checking (From Code 2)
     // ============================================
     const loadArticles = useCallback(async () => {
         try {
-            // First attempt: with status filter
-            const { data, error } = await supabase
+            // First check if articles table exists (From Code 2)
+            const { data: tableCheck, error: tableError } = await supabase
+                .from('articles')
+                .select('id')
+                .limit(1);
+            
+            // If table doesn't exist or error, skip
+            if (tableError) {
+                console.warn('Articles table not found or error:', tableError.message);
+                setArticles([]);
+                return;
+            }
+            
+            // Try with status filter first
+            let { data, error } = await supabase
                 .from('articles')
                 .select('id, title, excerpt, slug, created_at, view_count')
                 .eq('status', 'published')
                 .order('created_at', { ascending: false })
                 .limit(3);
             
-            if (error) {
-                console.warn('Articles query error:', error);
-                // Fallback: without status filter (in case 'status' column doesn't exist)
+            // If 'status' column doesn't exist, try without filter (From Code 2)
+            if (error && error.message && error.message.includes('column "status" does not exist')) {
+                console.warn('Status column not found, fetching without filter');
                 const { data: fallbackData, error: fallbackError } = await supabase
                     .from('articles')
                     .select('id, title, excerpt, slug, created_at, view_count')
                     .order('created_at', { ascending: false })
                     .limit(3);
                 
-                if (fallbackError) {
-                    console.warn('Fallback articles query also failed:', fallbackError);
-                    setArticles([]);
-                    return;
-                }
-                
-                setArticles(fallbackData || []);
-                return;
+                if (fallbackError) throw fallbackError;
+                data = fallbackData;
+            } else if (error) {
+                throw error;
             }
             
             setArticles(data || []);
         } catch (err) { 
             console.error('Error loading articles:', err);
-            // Try one more time with a simpler query
+            // Final fallback: try without any filters
             try {
                 const { data: simpleData } = await supabase
                     .from('articles')
@@ -459,7 +468,7 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Latest Insights Section - Fixed with better error handling */}
+            {/* Latest Insights Section - Fixed with proper table/column checking */}
             <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20 bg-slate-900/30 rounded-3xl">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
                     <div>
