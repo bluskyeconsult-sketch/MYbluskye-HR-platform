@@ -1,10 +1,12 @@
 /* src/index.css - COMPLETE MOBILE OPTIMIZATION WITH RESPONSIVE FIXES */
+/* RUTH Standard v2.0 - Unified CSS with all enhancements */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================
-   RESET & BASE - PREVENT OVERFLOW (From Code 2)
+   RESET & BASE - PREVENT OVERFLOW
    ============================================ */
 
 * {
@@ -32,7 +34,7 @@ html, body {
 }
 
 /* ============================================
-   BASE STYLES (Mobile-first from Code 1)
+   BASE STYLES (Mobile-first)
    ============================================ */
 
 @layer base {
@@ -82,7 +84,7 @@ html, body {
         display: block;
     }
     
-    /* Text safety - prevent overflow (From Code 2) */
+    /* Text safety - prevent overflow */
     p, h1, h2, h3, h4, h5, h6, span, a, li, blockquote {
         word-wrap: break-word;
         overflow-wrap: break-word;
@@ -204,7 +206,7 @@ html, body {
    ============================================ */
 
 @layer components {
-    /* Responsive container system (From Code 2) */
+    /* Responsive container system */
     .container-responsive {
         width: 100%;
         padding-left: 1rem;
@@ -245,7 +247,7 @@ html, body {
         @apply bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6;
     }
     
-    /* Responsive grid system (From Code 2) */
+    /* Responsive grid system */
     .grid-responsive {
         display: grid;
         gap: 1rem;
@@ -307,7 +309,7 @@ html, body {
         }
     }
     
-    /* Touch-optimized buttons (From Code 2) */
+    /* Touch-optimized buttons */
     .btn-touch {
         min-height: 44px;
         min-width: 44px;
@@ -339,7 +341,7 @@ html, body {
 }
 
 /* ============================================
-   STATS NUMBER RESPONSIVE (From Code 2)
+   STATS NUMBER RESPONSIVE
    ============================================ */
 
 .stats-number {
@@ -363,7 +365,7 @@ html, body {
 }
 
 /* ============================================
-   RESPONSIVE SECTION PADDING (From Code 2)
+   RESPONSIVE SECTION PADDING
    ============================================ */
 
 .section-padding {
@@ -386,7 +388,7 @@ html, body {
 }
 
 /* ============================================
-   ENHANCED ANIMATIONS (Combined)
+   ENHANCED ANIMATIONS (Combined & Optimized)
    ============================================ */
 
 @keyframes fadeIn {
@@ -608,7 +610,7 @@ a, button, [role="button"] {
 }
 
 /* ============================================
-   FALLBACK FOR BROWSERS (From Code 2)
+   FALLBACK FOR BROWSERS
    ============================================ */
 
 /* Ensure grid works on older browsers */
@@ -631,4 +633,222 @@ a, button, [role="button"] {
 .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+}
+
+/* ============================================
+   MOBILE MENU SPECIFIC FIXES (From Code 2 - Enhanced)
+   ============================================ */
+
+/* Mobile Menu Container - Prevent overflow */
+.mobile-menu-container {
+    max-height: 100vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile menu open state - Prevent body scroll */
+.mobile-menu-open {
+    overflow: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+}
+
+/* Mobile nav link - Touch optimized */
+.mobile-nav-link {
+    font-size: 0.875rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    transition: background-color 0.2s ease;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Mobile CTA button - Full width on mobile */
+.mobile-cta-button {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    text-align: center;
+    min-height: 48px;
+    border-radius: 0.5rem;
+}
+
+/* Mobile card grid - Force single column */
+.mobile-card-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+}
+
+/* Mobile image - Responsive */
+.mobile-image {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Mobile responsive fixes - All in one place */
+@media (max-width: 768px) {
+    /* Prevent horizontal scroll on mobile */
+    .prevent-scroll-x {
+        overflow-x: hidden !important;
+        max-width: 100vw !important;
+    }
+    
+    /* Mobile-friendly grid overrides */
+    .grid-cols-2, .grid-cols-3, .grid-cols-4 {
+        grid-template-columns: 1fr !important;
+    }
+    
+    /* Fix oversized elements on mobile */
+    .max-w-7xl, .max-w-6xl, .max-w-5xl {
+        max-width: 100% !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
+    /* Fix card layouts on mobile */
+    .card-grid-mobile {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+    
+    /* Fix image containers */
+    .image-container-mobile {
+        max-width: 100%;
+        height: auto;
+        overflow: hidden;
+    }
+    
+    /* Fix table overflow */
+    .table-container-mobile {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        display: block;
+        white-space: nowrap;
+    }
+    
+    /* Fix flex layouts on mobile */
+    .flex-mobile-column {
+        flex-direction: column !important;
+        gap: 0.75rem !important;
+    }
+    
+    /* Fix padding on mobile */
+    .padding-mobile {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
+    /* Fix margins on mobile */
+    .margin-mobile {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+}
+
+/* ============================================
+   PREVENT OVERFLOW ON ALL SCREENS (Enhanced)
+   ============================================ */
+
+/* Prevent overflow on all elements */
+.overflow-prevent {
+    overflow: hidden;
+    max-width: 100vw;
+}
+
+/* Word wrap for long URLs and text */
+.break-words-safe {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    max-width: 100%;
+}
+
+/* Safe width for all content */
+.content-safe {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* ============================================
+   RESPONSIVE GRID OVERRIDES (Prevent layout shifts)
+   ============================================ */
+
+/* Prevent grid overflow on small screens */
+@media (max-width: 640px) {
+    .grid {
+        gap: 0.75rem !important;
+    }
+    .grid > * {
+        min-width: 0;
+        max-width: 100%;
+    }
+}
+
+/* ============================================
+   SAFE TOUCH TARGETS FOR MOBILE
+   ============================================ */
+
+.touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.5rem 1rem;
+}
+
+@media (max-width: 640px) {
+    .touch-target {
+        min-height: 48px;
+        padding: 0.75rem 1rem;
+    }
+}
+
+/* ============================================
+   FADE IN UTILITY FOR LOADING STATES
+   ============================================ */
+
+.fade-in {
+    opacity: 0;
+    animation: fadeIn 0.5s ease-in forwards;
+}
+
+.fade-in-delay-1 { animation-delay: 0.1s; }
+.fade-in-delay-2 { animation-delay: 0.2s; }
+.fade-in-delay-3 { animation-delay: 0.3s; }
+.fade-in-delay-4 { animation-delay: 0.4s; }
+.fade-in-delay-5 { animation-delay: 0.5s; }
+
+/* ============================================
+   CARD SHADOW AND BORDER UTILITIES
+   ============================================ */
+
+.shadow-card {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-card-hover {
+    transition: box-shadow 0.3s ease;
+}
+.shadow-card-hover:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================
+   RESPONSIVE TEXT ALIGNMENT
+   ============================================ */
+
+.text-responsive {
+    text-align: center;
+}
+
+@media (min-width: 640px) {
+    .text-responsive {
+        text-align: left;
+    }
+}
+
+@media (min-width: 1024px) {
+    .text-responsive-lg {
+        text-align: left;
+    }
 }
