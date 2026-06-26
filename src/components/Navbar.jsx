@@ -1,5 +1,5 @@
 // src/components/Navbar.jsx
-// ODUSBABA PROFESSIONAL NAVBAR v5.0 - PRODUCTION READY
+// ODUSBABA PROFESSIONAL NAVBAR v6.0 - UNIFIED API
 // ✅ Complete responsive design with mobile-first approach
 // ✅ All navigation links verified
 // ✅ Role-based access (Admin, Employer, Tester, User)
@@ -7,6 +7,8 @@
 // ✅ Dropdown menus with outside click detection
 // ✅ Framer Motion animations for smooth transitions
 // ✅ Fixed logo handling with fallback
+// ✅ Unified API integration (api/index.js)
+// ✅ Optimized mobile menu with proper sizing
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -94,7 +96,7 @@ export default function Navbar() {
     }, []);
 
     // ============================================
-    // AUTHENTICATION & PROFILE
+    // AUTHENTICATION & PROFILE - USING UNIFIED API
     // ============================================
 
     useEffect(() => {
@@ -123,19 +125,43 @@ export default function Navbar() {
 
     async function checkUser() {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            setUser(session?.user || null);
+            // Using unified API for session check
+            const sessionResponse = await fetch(`${API_BASE}?action=session`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const sessionData = await sessionResponse.json();
             
-            if (session?.user) {
-                const { data } = await supabase
-                    .from('profiles')
-                    .select('user_type, tier, full_name, avatar_url')
-                    .eq('id', session.user.id)
-                    .single();
-                setProfile(data);
+            setUser(sessionData.user || null);
+            
+            if (sessionData.user) {
+                // Get profile using unified API
+                const profileResponse = await fetch(`${API_BASE}?action=profile`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: sessionData.user.id })
+                });
+                const profileData = await profileResponse.json();
+                setProfile(profileData.data);
             }
         } catch (error) {
             console.error('Auth check error:', error);
+            // Fallback to direct Supabase if API fails
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                setUser(session?.user || null);
+                
+                if (session?.user) {
+                    const { data } = await supabase
+                        .from('profiles')
+                        .select('user_type, tier, full_name, avatar_url')
+                        .eq('id', session.user.id)
+                        .single();
+                    setProfile(data);
+                }
+            } catch (fallbackError) {
+                console.error('Fallback auth error:', fallbackError);
+            }
         } finally {
             setLoading(false);
         }
@@ -176,12 +202,19 @@ export default function Navbar() {
 
     const handleLogout = async () => {
         try {
-            await supabase.auth.signOut();
+            // Use unified API for logout
+            await fetch(`${API_BASE}?action=logout`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
             navigate('/');
             setMobileMenuOpen(false);
             setUserMenuOpen(false);
         } catch (error) {
             console.error('Logout error:', error);
+            // Fallback to direct Supabase
+            await supabase.auth.signOut();
+            navigate('/');
         }
     };
 
