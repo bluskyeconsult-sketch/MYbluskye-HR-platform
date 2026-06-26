@@ -1,16 +1,18 @@
-// src/App.jsx - COMPLETE PRODUCTION READY V12
+// src/App.jsx - UNIFIED & OPTIMIZED FOR MOBILE
+// ODUSBABA v13.0 - Complete Production Ready with Mobile-First Layout
 // ✅ All links lead to correct pages
 // ✅ All data fetches from database
 // ✅ All forms submit correctly
 // ✅ Authentication works
-// ✅ Single API endpoint
+// ✅ Single API endpoint (unified)
+// ✅ Mobile-optimized container structure (from Code 2)
 // ✅ Integrated FraudSafetyBanner & CookieConsent
 // ✅ Assessment Results page integrated
 // ✅ Admin Course Management routes added
 // ✅ GovernanceProvider for capability management
 // ✅ ErrorBoundary for error handling
 // ✅ Workforce Marketplace & HR Tools routes added
-// ✅ Container-responsive wrapper for consistent layout
+// ✅ Container-responsive wrapper with max-w-7xl
 // ✅ Framer Motion animations for smooth transitions
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
@@ -79,6 +81,7 @@ function NewsletterSignup() {
         setStatus(null);
         
         try {
+            // Using unified API
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -102,45 +105,47 @@ function NewsletterSignup() {
 
     return (
         <div className="bg-slate-900 border-y border-slate-800 py-8 mt-8">
-            <div className="container-responsive text-center">
-                <h3 className="text-white font-semibold mb-2">Subscribe to Newsletter</h3>
-                <p className="text-slate-400 text-sm mb-4">Get latest jobs, courses, and career tips</p>
-                <form onSubmit={handleSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
-                    <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Your name (optional)"
-                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
-                    />
-                    <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="Your email *"
-                        required
-                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
-                    />
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
-                    >
-                        {loading ? '...' : 'Subscribe'}
-                    </button>
-                </form>
-                {status && (
-                    <p className={`mt-3 text-sm ${status.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {status.message}
-                    </p>
-                )}
+            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="text-center">
+                    <h3 className="text-white font-semibold mb-2">Subscribe to Newsletter</h3>
+                    <p className="text-slate-400 text-sm mb-4">Get latest jobs, courses, and career tips</p>
+                    <form onSubmit={handleSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Your name (optional)"
+                            className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                        />
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="Your email *"
+                            required
+                            className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                        />
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                        >
+                            {loading ? '...' : 'Subscribe'}
+                        </button>
+                    </form>
+                    {status && (
+                        <p className={`mt-3 text-sm ${status.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {status.message}
+                        </p>
+                    )}
+                </div>
             </div>
         </div>
     );
 }
 
 // ============================================
-// AI CHAT (Legacy - kept for backward compatibility, using ODUSBABAChat)
+// AI CHAT (Legacy - kept for backward compatibility)
 // ============================================
 function AIChat() {
     return <ODUSBABAChat />;
@@ -162,22 +167,50 @@ function Navbar() {
     
     const checkAuth = useCallback(async () => {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            setIsLoggedIn(!!user);
+            // Using unified API for session check
+            const response = await fetch('/api/index?action=session', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
             
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('full_name, user_type')
-                    .eq('id', user.id)
-                    .single();
-                setUserName(profile?.full_name || user.email?.split('@')[0] || 'User');
-                const isAdminUser = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+            if (data.user) {
+                setIsLoggedIn(true);
+                // Get profile using unified API
+                const profileResponse = await fetch('/api/index?action=profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: data.user.id })
+                });
+                const profileData = await profileResponse.json();
+                setUserName(profileData.data?.full_name || data.user.email?.split('@')[0] || 'User');
+                const isAdminUser = profileData.data?.user_type === 'admin' || profileData.data?.user_type === 'super_admin';
                 setIsAdmin(isAdminUser);
+            } else {
+                setIsLoggedIn(false);
+                setIsAdmin(false);
             }
-        } catch (e) {
-            setIsLoggedIn(false);
-            setIsAdmin(false);
+        } catch (error) {
+            // Fallback to direct Supabase
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                setIsLoggedIn(!!user);
+                
+                if (user) {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('full_name, user_type')
+                        .eq('id', user.id)
+                        .single();
+                    setUserName(profile?.full_name || user.email?.split('@')[0] || 'User');
+                    const isAdminUser = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+                    setIsAdmin(isAdminUser);
+                }
+            } catch (fallbackError) {
+                console.error('Fallback auth error:', fallbackError);
+                setIsLoggedIn(false);
+                setIsAdmin(false);
+            }
         }
     }, []);
 
@@ -206,10 +239,16 @@ function Navbar() {
 
     const handleLogout = async () => {
         try {
+            // Using unified API
+            await fetch('/api/index?action=logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            window.location.href = '/';
+        } catch (error) {
+            // Fallback to direct Supabase
             await supabase.auth.signOut();
             window.location.href = '/';
-        } catch (e) {
-            console.error('Logout error:', e);
         }
     };
 
@@ -228,7 +267,7 @@ function Navbar() {
 
     return (
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
-            <div className="container-responsive">
+            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center py-3">
                     <a href="/" className="text-white font-bold text-xl hover:text-primary-400 transition">ODUSBABA</a>
 
@@ -346,7 +385,7 @@ function Navbar() {
 function Footer() {
     return (
         <footer className="bg-slate-900 border-t border-slate-800 py-8 mt-8">
-            <div className="container-responsive">
+            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-6">
                     <div>
                         <h4 className="text-white font-semibold mb-3">ODUSBABA</h4>
@@ -412,26 +451,54 @@ function ProtectedRoute({ children, requireAdmin = false }) {
     useEffect(() => {
         const checkAuth = async () => {
             try {
-                const { data: { user } } = await supabase.auth.getUser();
+                // Using unified API
+                const response = await fetch('/api/index?action=session', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
                 
-                if (!user) {
+                if (!data.user) {
                     setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
                     return;
                 }
                 
                 let isAdmin = false;
                 if (requireAdmin) {
-                    const { data: profile } = await supabase
-                        .from('profiles')
-                        .select('user_type')
-                        .eq('id', user.id)
-                        .single();
-                    isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+                    const profileResponse = await fetch('/api/index?action=profile', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: data.user.id })
+                    });
+                    const profileData = await profileResponse.json();
+                    isAdmin = profileData.data?.user_type === 'admin' || profileData.data?.user_type === 'super_admin';
                 }
                 
                 setAuthState({ loading: false, isAuthenticated: true, isAdmin });
-            } catch (e) {
-                setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
+            } catch (error) {
+                // Fallback to direct Supabase
+                try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    
+                    if (!user) {
+                        setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
+                        return;
+                    }
+                    
+                    let isAdmin = false;
+                    if (requireAdmin) {
+                        const { data: profile } = await supabase
+                            .from('profiles')
+                            .select('user_type')
+                            .eq('id', user.id)
+                            .single();
+                        isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+                    }
+                    
+                    setAuthState({ loading: false, isAuthenticated: true, isAdmin });
+                } catch (fallbackError) {
+                    setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
+                }
             }
         };
         checkAuth();
@@ -445,7 +512,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 }
 
 // ============================================
-// LAZY LOADED PAGES
+// LAZY LOADED PAGES (All from 1st code)
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
@@ -547,8 +614,10 @@ function AppContent() {
             <ScrollToTop />
             <Navbar />
             <FraudSafetyBanner />
+            
+            {/* ✅ Mobile-optimized main container (From Code 2) */}
             <main className="min-h-screen bg-slate-950 overflow-x-hidden">
-                <div className="container-responsive">
+                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <Suspense fallback={<PageLoader />}>
                         <AnimatePresence mode="wait">
                             <Routes location={location} key={location.pathname}>
@@ -655,6 +724,7 @@ function AppContent() {
                     </Suspense>
                 </div>
             </main>
+            
             <NewsletterSignup />
             <ODUSBABAChat />
             <CookieConsent />
