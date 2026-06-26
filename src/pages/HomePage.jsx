@@ -1,5 +1,5 @@
-// src/pages/HomePage.jsx - UNIFIED & OPTIMIZED
-// ODUSBABA Home Page - Complete with All Features, Error Handling & Unified API
+// src/pages/HomePage.jsx - UNIFIED & OPTIMIZED WITH FIXED ARTICLES QUERY
+// ODUSBABA Home Page - Complete with All Features, Error Handling & Fixed Articles
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import HomeHero from '../components/HomeHero';
 import CTASection from '../components/CTASection';
 import PromoBanner from '../components/PromoBanner';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
+import { supabase } from '../lib/supabase';
 
 // Animation variants
 const containerVariants = {
@@ -140,7 +141,7 @@ export default function HomePage() {
         }
     ], [stats]);
 
-    // Fetch stats using unified API (from Code 2 - enhanced)
+    // Fetch stats using unified API
     const fetchStats = useCallback(async () => {
         setStats(prev => ({ ...prev, loading: true, error: null }));
         
@@ -172,7 +173,7 @@ export default function HomePage() {
             }
         } catch (error) {
             console.error('Stats fetch error:', error);
-            // Use fallback data (from Code 2)
+            // Use fallback data
             setStats({
                 activeUsers: 125,
                 jobsPosted: 82,
@@ -187,7 +188,7 @@ export default function HomePage() {
         }
     }, []);
 
-    // Load country stats using unified API (from Code 2)
+    // Load country stats using unified API
     const loadCountryStats = useCallback(async () => {
         try {
             const countryData = await Promise.all(
@@ -207,10 +208,12 @@ export default function HomePage() {
         }
     }, [countries]);
 
-    // Load articles - using direct Supabase (from Code 1)
+    // ============================================
+    // FIXED: Load Articles with Better Error Handling (From Code 2)
+    // ============================================
     const loadArticles = useCallback(async () => {
         try {
-            // Use direct Supabase query for articles (from Code 1)
+            // First attempt: with status filter
             const { data, error } = await supabase
                 .from('articles')
                 .select('id, title, excerpt, slug, created_at, view_count')
@@ -218,10 +221,39 @@ export default function HomePage() {
                 .order('created_at', { ascending: false })
                 .limit(3);
             
-            if (error) throw error;
+            if (error) {
+                console.warn('Articles query error:', error);
+                // Fallback: without status filter (in case 'status' column doesn't exist)
+                const { data: fallbackData, error: fallbackError } = await supabase
+                    .from('articles')
+                    .select('id, title, excerpt, slug, created_at, view_count')
+                    .order('created_at', { ascending: false })
+                    .limit(3);
+                
+                if (fallbackError) {
+                    console.warn('Fallback articles query also failed:', fallbackError);
+                    setArticles([]);
+                    return;
+                }
+                
+                setArticles(fallbackData || []);
+                return;
+            }
+            
             setArticles(data || []);
         } catch (err) { 
-            console.error('Error loading articles:', err); 
+            console.error('Error loading articles:', err);
+            // Try one more time with a simpler query
+            try {
+                const { data: simpleData } = await supabase
+                    .from('articles')
+                    .select('*')
+                    .limit(3);
+                setArticles(simpleData || []);
+            } catch (finalErr) {
+                console.error('Final articles attempt failed:', finalErr);
+                setArticles([]);
+            }
         }
     }, []);
 
@@ -288,7 +320,7 @@ export default function HomePage() {
                         Real-time metrics from our growing community
                     </p>
                     
-                    {/* Fallback indicator (from Code 2) */}
+                    {/* Fallback indicator */}
                     {stats.fallback && (
                         <div className="mt-2 flex items-center justify-center gap-2 text-amber-400 text-xs">
                             <AlertCircle className="w-3 h-3" />
@@ -368,7 +400,7 @@ export default function HomePage() {
                 </motion.div>
             </div>
 
-            {/* Post Your First Job Free Section (from Code 1) */}
+            {/* Post Your First Job Free Section */}
             <div className="w-full max-w-4xl mx-auto px-4 py-8 sm:py-12">
                 <div className="bg-gradient-to-r from-primary-600/20 to-sky-600/20 border border-primary-500/30 rounded-2xl p-4 sm:p-6 md:p-8 text-center">
                     <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2">
@@ -427,7 +459,7 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Latest Insights Section (from Code 1) */}
+            {/* Latest Insights Section - Fixed with better error handling */}
             <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20 bg-slate-900/30 rounded-3xl">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
                     <div>
@@ -486,7 +518,7 @@ export default function HomePage() {
                 )}
             </div>
 
-            {/* CTA Section (from Code 1) */}
+            {/* CTA Section */}
             <CTASection />
         </div>
     );
