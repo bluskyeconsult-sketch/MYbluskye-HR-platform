@@ -1,5 +1,5 @@
 // src/pages/JobsPage.jsx - UNIFIED & OPTIMIZED
-// ODUSBABA JOB BOARD v4.2 - Complete with Simplified Queries
+// ODUSBABA JOB BOARD v4.3 - Fixed: removed client-side job insert (was causing 400 errors + bypassing approval pipeline)
 
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
@@ -16,8 +16,6 @@ import {
 // ============================================
 // CONSTANTS
 // ============================================
-
-const API_BASE = '/api/index';
 
 // Country options
 const COUNTRIES = [
@@ -64,7 +62,6 @@ export default function JobsPage() {
     const [jobs, setJobs] = useState([]);
     const [filteredJobs, setFilteredJobs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [fetchingLive, setFetchingLive] = useState(false);
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [savedJobs, setSavedJobs] = useState(new Set());
@@ -135,7 +132,10 @@ export default function JobsPage() {
     }
 
     // ============================================
-    // FIXED: LOAD JOBS WITH PROPER QUERIES (From Code 2)
+    // LOAD JOBS — READ ONLY (no client-side writes to `jobs`)
+    // New jobs enter the `jobs` table only via the daily cron
+    // (/api/index?action=fetch-jobs) + admin approval pipeline
+    // in rssJobService.js. This page never inserts jobs itself.
     // ============================================
 
     const loadJobs = useCallback(async () => {
@@ -143,7 +143,6 @@ export default function JobsPage() {
             setLoading(true);
             setError(null);
             
-            // FIXED: Use SELECT query (From Code 2)
             let query = supabase
                 .from('jobs')
                 .select('*')
@@ -170,7 +169,6 @@ export default function JobsPage() {
             
             if (queryError) {
                 console.warn('Jobs query error:', queryError);
-                // If table doesn't exist, show empty (From Code 2)
                 if (queryError.code === '42P01') {
                     setJobs([]);
                     setError('Jobs table not found. Please contact support.');
@@ -180,36 +178,13 @@ export default function JobsPage() {
                 return;
             }
             
-            // Check if we need to fetch live jobs (once daily)
-            if (shouldRefreshJobs()) {
-                await fetchLiveJobs();
-                saveLastFetchTime();
-                
-                // Reload from database after live fetch
-                const { data: refreshedData } = await supabase
-                    .from('jobs')
-                    .select('*')
-                    .eq('is_active', true)
-                    .eq('compliance_status', 'approved')
-                    .order('posted_at', { ascending: false });
-                
-                const jobsWithSource = (refreshedData || []).map(job => ({
-                    ...job,
-                    source: job.source_type === 'external' ? 'live' : 'database',
-                    visa_sponsorship: job.sponsorship_eligible || false
-                }));
-                
-                setJobs(jobsWithSource);
-            } else {
-                // Process data with source indicators
-                const jobsWithSource = (data || []).map(job => ({
-                    ...job,
-                    source: job.source_type === 'external' ? 'live' : 'database',
-                    visa_sponsorship: job.sponsorship_eligible || false
-                }));
-                
-                setJobs(jobsWithSource);
-            }
+            const jobsWithSource = (data || []).map(job => ({
+                ...job,
+                source: job.source_type === 'external' ? 'live' : 'database',
+                visa_sponsorship: job.sponsorship_eligible || false
+            }));
+            
+            setJobs(jobsWithSource);
             
             if (!lastFetchTime) {
                 saveLastFetchTime();
@@ -225,73 +200,8 @@ export default function JobsPage() {
     }, [searchQuery, selectedCountry, selectedJobType]);
 
     // ============================================
-    // FETCH LIVE JOBS (Unified API)
-    // ============================================
-
-    async function fetchLiveJobs() {
-        setFetchingLive(true);
-        try {
-            const response = await fetch(`${API_BASE}?action=jobs`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (!response.ok) throw new Error('Failed to fetch jobs');
-            
-            const data = await response.json();
-            
-            if (data.success && data.jobs && data.jobs.length > 0) {
-                let newJobsCount = 0;
-                
-                for (const job of data.jobs) {
-                    const { data: existing } = await supabase
-                        .from('jobs')
-                        .select('id')
-                        .eq('title', job.title)
-                        .eq('company', job.company)
-                        .maybeSingle();
-                    
-                    if (!existing) {
-                        await supabase.from('jobs').insert({
-                            title: job.title,
-                            company: job.company,
-                            location: job.location || 'Remote',
-                            description: job.description,
-                            salary_range: job.salary_range,
-                            job_type: job.job_type || 'full_time',
-                            external_apply_url: job.external_url,
-                            source_type: 'external',
-                            source_name: job.source_name || 'Jobicy',
-                            compliance_status: 'approved',
-                            is_active: true,
-                            posted_at: new Date().toISOString(),
-                            country_code: job.source_country || 'Global',
-                            sponsorship_eligible: job.sponsorship_eligible || false
-                        });
-                        newJobsCount++;
-                    }
-                }
-                
-                console.log(`✅ Fetched ${data.jobs.length} live jobs (${newJobsCount} new)`);
-            }
-        } catch (err) {
-            console.error('Live job fetch error:', err);
-        } finally {
-            setFetchingLive(false);
-        }
-    }
-
-    // ============================================
     // HELPER FUNCTIONS
     // ============================================
-
-    const shouldRefreshJobs = useCallback(() => {
-        if (!lastFetchTime) return true;
-        const now = new Date();
-        const lastFetch = new Date(lastFetchTime);
-        const hoursSinceLastFetch = (now - lastFetch) / (1000 * 60 * 60);
-        return hoursSinceLastFetch >= 24;
-    }, [lastFetchTime]);
 
     const saveLastFetchTime = useCallback(() => {
         const now = new Date().toISOString();
@@ -451,15 +361,6 @@ export default function JobsPage() {
         getUser();
         loadJobs();
         loadSavedJobs();
-        
-        const interval = setInterval(() => {
-            if (shouldRefreshJobs()) {
-                console.log('🔄 24 hours passed, refreshing jobs...');
-                loadJobs();
-            }
-        }, 60 * 60 * 1000);
-        
-        return () => clearInterval(interval);
     }, []);
 
     useEffect(() => {
@@ -511,14 +412,6 @@ export default function JobsPage() {
                             </div>
                         </div>
                     </div>
-                    
-                    {/* Live Job Fetch Indicator */}
-                    {fetchingLive && (
-                        <div className="mt-3 sm:mt-4 p-3 bg-primary-500/10 border border-primary-500/20 rounded-lg flex items-center justify-center gap-2 max-w-md mx-auto">
-                            <Loader2 className="w-4 h-4 animate-spin text-primary-400" />
-                            <p className="text-primary-400 text-xs sm:text-sm">Fetching latest jobs...</p>
-                        </div>
-                    )}
 
                     {/* Search Bar */}
                     <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
@@ -666,15 +559,15 @@ export default function JobsPage() {
                         </span>
                         <button
                             onClick={loadJobs}
-                            disabled={fetchingLive}
+                            disabled={loading}
                             className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
-                            title="Manually refresh jobs (auto-refreshes daily)"
+                            title="Refresh job listings from the database (new external jobs are added daily after admin approval)"
                         >
-                            <RefreshCw className={`w-3 h-3 ${fetchingLive ? 'animate-spin' : ''}`} />
+                            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                             Refresh
                         </button>
                         {lastFetchTime && (
-                            <span className="text-[10px] sm:text-xs text-slate-500" title={`Last updated: ${new Date(lastFetchTime).toLocaleString()}`}>
+                            <span className="text-[10px] sm:text-xs text-slate-500" title={`Last viewed: ${new Date(lastFetchTime).toLocaleString()}`}>
                                 Updated: {formatTimeSinceLastFetch()}
                             </span>
                         )}
