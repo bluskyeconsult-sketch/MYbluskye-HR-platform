@@ -1,7 +1,9 @@
 // src/contexts/GovernanceContext.jsx
-// ODUSBABA GOVERNANCE SYSTEM v6.0 - Production Ready
+// ODUSBABA GOVERNANCE SYSTEM v6.1 - Production Ready
 // "Nothing executes unless ODUSBABA allows it"
 // Complete governance with capability matrix, audit logging, enforcement modes, and async checks
+// FIXED: removed hardcoded admin-email bypass — admin status is now determined solely by
+// profiles.user_type, stored in the database, not by a specific email address in source code.
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -128,7 +130,12 @@ export function GovernanceProvider({ children }) {
     async function loadCapabilities(profileData) {
         const tier = profileData?.tier || 'visitor';
         const userType = profileData?.user_type || 'visitor';
-        const isAdminUser = userType === 'admin' || userType === 'super_admin' || profileData?.email === 'bluskyeconsult@gmail.com';
+        // FIXED: admin status now comes only from profiles.user_type in the database.
+        // Previously this also granted admin to a specific hardcoded email address,
+        // regardless of that account's actual user_type — a security bypass. To grant
+        // someone admin access now, set their user_type to 'admin' or 'super_admin'
+        // in the profiles table.
+        const isAdminUser = userType === 'admin' || userType === 'super_admin';
         
         // Define capability matrix
         const capabilityMatrix = {
