@@ -1,10 +1,20 @@
 // src/pages/SignUpPage.jsx
-// ODUSBABA SIGNUP PAGE v4.0 - PRODUCTION READY
+// ODUSBABA SIGNUP PAGE v4.1 - PRODUCTION READY
 // ✅ Complete professional signup with tier selection
 // ✅ Password strength meter, email validation
 // ✅ Tester mode integration with database sync
 // ✅ Company profiles for employers
 // ✅ Unified API for email notifications
+//
+// FIXED (2026-08-07): credits were being written to `profiles.ai_credits_remaining`
+// and `profiles.va_credits_balance` — columns the real credit system never reads.
+// The confirmed real credit system (GovernanceContext.jsx, api/index.js's
+// va-credits handler) keeps credits in a separate `va_credits` table with a
+// `balance` column keyed by user_id. New users previously got no va_credits row
+// at all until something else lazily created one. Now creates it directly here,
+// with the same default balances the va-credits handler already uses elsewhere
+// (free:5, registered:10, professional:25, employer:20, tester:10), so a new
+// user's credit balance is correct immediately.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -12,7 +22,7 @@ import { supabase } from '../lib/supabase';
 import { 
     UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
     CheckCircle, Briefcase, Building2, Sparkles, Star, 
-    Eye, EyeOff, ArrowLeft, Shield, Zap, Crown, Users
+    Eye, EyeOff, ArrowLeft
 } from 'lucide-react';
 
 // ============================================
@@ -26,6 +36,17 @@ const TIER_TO_USER_TYPE_MAP = {
     'professional': 'job_seeker',
     'employer': 'employer',
     'business': 'business_owner'
+};
+
+// Default VA credit balances by tier — matches api/index.js's va-credits handler
+// so a new user's balance is correct from the moment they sign up.
+const TIER_DEFAULT_CREDITS = {
+    free: 5,
+    registered: 10,
+    professional: 25,
+    employer: 20,
+    business: 20,
+    tester: 10
 };
 
 // Email validation regex
@@ -281,6 +302,9 @@ export default function SignUpPage() {
             if (!authData.user) throw new Error('User creation failed');
 
             // Create profile (fallback if trigger doesn't fire)
+            // FIXED: removed ai_credits_remaining / va_credits_balance — the real
+            // credit system reads from a separate va_credits table, not these
+            // profiles columns. See the va_credits upsert below instead.
             const { error: profileError } = await supabase
                 .from('profiles')
                 .upsert({
@@ -291,13 +315,28 @@ export default function SignUpPage() {
                     tier: tier,
                     country_code: 'GB',
                     created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    ai_credits_remaining: isTestingMode ? testingConfig.default_tester_uses : 5,
-                    va_credits_balance: isTestingMode ? testingConfig.default_tester_uses : 0
+                    updated_at: new Date().toISOString()
                 });
 
             if (profileError) {
                 console.warn('Profile creation warning:', profileError);
+            }
+
+            // FIXED: create the user's real credit balance in va_credits (the table
+            // the app actually reads from), instead of writing it to profiles.
+            const initialCredits = isTestingMode
+                ? testingConfig.default_tester_uses
+                : (TIER_DEFAULT_CREDITS[tier] ?? 5);
+
+            const { error: creditsError } = await supabase
+                .from('va_credits')
+                .upsert({
+                    user_id: authData.user.id,
+                    balance: initialCredits
+                });
+
+            if (creditsError) {
+                console.warn('Credit initialization warning:', creditsError);
             }
 
             // Create company profile for employers (non-testing mode)
