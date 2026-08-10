@@ -1,5 +1,5 @@
 // src/pages/SignUpPage.jsx
-// ODUSBABA SIGNUP PAGE v4.1 - PRODUCTION READY
+// ODUSBABA SIGNUP PAGE v4.2 - PRODUCTION READY
 // ✅ Complete professional signup with tier selection
 // ✅ Password strength meter, email validation
 // ✅ Tester mode integration with database sync
@@ -15,6 +15,20 @@
 // with the same default balances the va-credits handler already uses elsewhere
 // (free:5, registered:10, professional:25, employer:20, tester:10), so a new
 // user's credit balance is correct immediately.
+//
+// CHANGED (2026-08-07): paid tiers (Professional/Employer/Business) no longer
+// grant real capabilities at signup. Since Stripe isn't live yet, selecting a
+// paid tier previously set profiles.tier immediately, giving full paid-tier
+// capabilities via GovernanceContext.jsx with no payment ever happening. Now:
+// the account is created at a safe 'registered' tier instead, the user is still
+// redirected to /pricing to complete payment, and only testing mode or an
+// explicit promo_mode toggle (new — mirrors the existing testing_mode pattern,
+// flip it in system_config to run a promotion) grants the requested tier
+// immediately. Admin accounts are never created through this public signup form
+// at all — that carve-out is structural, not something this file needs to handle.
+// TODO (Stage 3 / Stripe integration): once payment exists, upgrade profiles.tier
+// to the originally-requested tier after payment confirmation, rather than
+// leaving paid-tier signups permanently on 'registered'.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -121,6 +135,9 @@ export default function SignUpPage() {
     });
     const [passwordStrength, setPasswordStrength] = useState(0);
     const [touchedFields, setTouchedFields] = useState({});
+    // NEW: tracks whether the account was created at a lower tier than requested
+    // because payment isn't wired up yet, so the success screen can say so accurately.
+    const [tierDowngraded, setTierDowngraded] = useState(false);
 
     // Tiers configuration
     const tiers = [
@@ -212,6 +229,26 @@ export default function SignUpPage() {
         }
     }
 
+    // NEW: checks the promo_mode toggle in system_config — same pattern as
+    // testing_mode. When enabled, paid tiers are granted immediately without
+    // payment, for running a promotion. Defaults to disabled/false if the key
+    // doesn't exist, so this is safe even before anyone sets it up.
+    async function checkPromoMode() {
+        try {
+            const { data, error } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'promo_mode')
+                .maybeSingle();
+            
+            if (error) throw error;
+            return data?.config_value === 'enabled';
+        } catch (err) {
+            console.warn('Error checking promo mode (defaulting to disabled):', err);
+            return false;
+        }
+    }
+
     // Send welcome email via unified API
     async function sendWelcomeEmail(email, fullName, userType, isTestingMode) {
         try {
@@ -269,18 +306,34 @@ export default function SignUpPage() {
                 .maybeSingle();
             
             const isTestingMode = modeData?.config_value === 'enabled';
+            const isPromoActive = isTestingMode ? false : await checkPromoMode();
             
             // Determine user type based on testing mode
             let userType;
             let tier;
+            let downgraded = false;
             
             if (isTestingMode) {
                 userType = 'tester';
                 tier = 'free';
             } else {
                 userType = TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker';
-                tier = formData.selectedTier;
+                
+                const selectedTierInfo = tiers.find(t => t.id === formData.selectedTier);
+                const needsPayment = selectedTierInfo?.requiresPayment === true;
+                
+                if (needsPayment && !isPromoActive) {
+                    // Paid tier requested, no promo active, and payment isn't wired
+                    // up yet — grant a safe free tier now instead of full paid
+                    // access. User still gets redirected to /pricing below.
+                    tier = 'registered';
+                    downgraded = true;
+                } else {
+                    // Free tier, or a paid tier during an active promo — grant as requested.
+                    tier = formData.selectedTier;
+                }
             }
+            setTierDowngraded(downgraded);
 
             // Create auth user
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -291,6 +344,7 @@ export default function SignUpPage() {
                         full_name: formData.full_name,
                         user_type: userType,
                         tier: tier,
+                        requested_tier: formData.selectedTier,
                         company_name: isTestingMode ? null : formData.company_name,
                         is_tester: isTestingMode || false,
                         registered_at: new Date().toISOString()
@@ -324,6 +378,9 @@ export default function SignUpPage() {
 
             // FIXED: create the user's real credit balance in va_credits (the table
             // the app actually reads from), instead of writing it to profiles.
+            // Uses the tier actually granted, not the tier requested, so a
+            // downgraded paid-tier signup gets 'registered' credits, not
+            // 'professional' credits it hasn't paid for.
             const initialCredits = isTestingMode
                 ? testingConfig.default_tester_uses
                 : (TIER_DEFAULT_CREDITS[tier] ?? 5);
@@ -340,6 +397,9 @@ export default function SignUpPage() {
             }
 
             // Create company profile for employers (non-testing mode)
+            // NOTE: still created even if the tier was downgraded, since the
+            // company profile itself isn't a paid feature — only the elevated
+            // job-posting capabilities are gated by profiles.tier.
             if (!isTestingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business')) {
                 await supabase.from('company_profiles').upsert({
                     user_id: authData.user.id,
@@ -378,7 +438,7 @@ export default function SignUpPage() {
                     navigate('/tester-login');
                 } else {
                     const selected = tiers.find(t => t.id === formData.selectedTier);
-                    if (selected?.requiresPayment) {
+                    if (selected?.requiresPayment && !isPromoActive) {
                         navigate('/pricing', { state: { selectedTier: formData.selectedTier } });
                     } else {
                         navigate('/sign-in');
@@ -422,9 +482,11 @@ export default function SignUpPage() {
                     <p className="text-slate-400 mb-4">
                         {isTester 
                             ? `Your tester account has been created. You now have ${testingConfig.default_tester_uses} free uses for ${testingConfig.default_tester_days} days.`
-                            : selected?.requiresPayment 
-                                ? `Please complete payment for ${selected.name} plan (${selected.price}/month) to activate your account.`
-                                : 'Your account has been created. Please check your email to verify your account.'}
+                            : tierDowngraded
+                                ? `Your account is active on the Free plan. Complete payment for the ${selected?.name} plan (${selected?.price}/month) to unlock its full features.`
+                                : selected?.requiresPayment
+                                    ? `Your ${selected.name} plan is active! Please check your email to verify your account.`
+                                    : 'Your account has been created. Please check your email to verify your account.'}
                     </p>
                     <p className="text-slate-500 text-sm">Redirecting to {isTester ? 'tester login' : 'sign in'}...</p>
                 </div>
@@ -665,6 +727,11 @@ export default function SignUpPage() {
                                         );
                                     })}
                                 </div>
+                                {tiers.find(t => t.id === formData.selectedTier)?.requiresPayment && (
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        This plan requires payment. Your account will start on the Free plan until payment is complete.
+                                    </p>
+                                )}
                             </div>
                         )}
 
