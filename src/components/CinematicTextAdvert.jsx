@@ -1,12 +1,12 @@
 // src/components/CinematicTextAdvert.jsx
 // CINEMATIC ADVERT - Full animations with local content (no API dependencies)
+//
+// FIXED (2026-08-07): the "Proven Methodologies" slide linked to /testimonials,
+// which doesn't exist in the confirmed real route list (App.jsx) — a dead link.
+// Removed that CTA rather than guessing a replacement destination.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// ============================================
-// LOCAL CONTENT (No API calls needed)
-// ============================================
 
 const DEFAULT_MESSAGES = [
     {
@@ -67,15 +67,12 @@ const DEFAULT_MESSAGES = [
         subtext: "Join thousands of successful professionals",
         icon: "⭐",
         gradient: "from-yellow-500 to-amber-500",
-        duration: 3500,
-        ctaText: "View Success Stories",
-        ctaLink: "/testimonials"
+        duration: 3500
+        // FIXED: removed ctaText/ctaLink that pointed to /testimonials — that
+        // route doesn't exist in the confirmed real route list, so it was a
+        // dead link.
     }
 ];
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
 
 export default function CinematicTextAdvert({ 
     autoRotate = true, 
@@ -93,7 +90,6 @@ export default function CinematicTextAdvert({
     const hasCTA = currentMessage?.ctaText && currentMessage?.ctaLink;
     const isUrlMessage = currentMessage?.text?.includes("bluskyeconsult.com");
 
-    // Auto-rotation effect
     useEffect(() => {
         if (!autoRotate || messages.length <= 1) return;
         
@@ -113,7 +109,6 @@ export default function CinematicTextAdvert({
         };
     }, [autoRotate, duration, messages.length]);
 
-    // Progress animation
     useEffect(() => {
         if (!autoRotate) return;
         
@@ -136,11 +131,9 @@ export default function CinematicTextAdvert({
         };
     }, [currentIndex, duration, autoRotate]);
 
-    // Navigate to specific slide
     const goToSlide = useCallback((index) => {
         if (index === currentIndex) return;
         
-        // Reset rotation timer
         if (rotationTimerRef.current) {
             clearInterval(rotationTimerRef.current);
             if (autoRotate) {
@@ -163,7 +156,6 @@ export default function CinematicTextAdvert({
         }, 300);
     }, [currentIndex, autoRotate, duration, messages.length]);
 
-    // Trigger entrance animation on mount
     useEffect(() => {
         const timer = setTimeout(() => setIsVisible(true), 100);
         return () => clearTimeout(timer);
@@ -171,7 +163,6 @@ export default function CinematicTextAdvert({
 
     return (
         <div className="relative w-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl shadow-2xl my-8">
-            {/* Grain overlay */}
             <div 
                 className="absolute inset-0 pointer-events-none z-20 opacity-30"
                 style={{
@@ -181,10 +172,8 @@ export default function CinematicTextAdvert({
                 }}
             />
             
-            {/* Ambient light */}
             <div className="absolute inset-0 bg-gradient-to-r from-primary-500/5 via-transparent to-primary-500/5 animate-pulse pointer-events-none z-10" />
             
-            {/* Progress bar */}
             {autoRotate && (
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-slate-800/50 z-30">
                     <motion.div
@@ -195,7 +184,6 @@ export default function CinematicTextAdvert({
                 </div>
             )}
 
-            {/* Main content */}
             <div className="relative z-30 px-6 py-16 md:py-20 lg:py-24">
                 <div className="max-w-4xl mx-auto text-center">
                     <AnimatePresence mode="wait">
@@ -208,7 +196,6 @@ export default function CinematicTextAdvert({
                                 transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
                                 className="space-y-6"
                             >
-                                {/* Icon */}
                                 <motion.div
                                     initial={{ scale: 0.8, rotate: -10 }}
                                     animate={{ scale: 1, rotate: 0 }}
@@ -218,7 +205,6 @@ export default function CinematicTextAdvert({
                                     {currentMessage.icon || "✨"}
                                 </motion.div>
                                 
-                                {/* Main text */}
                                 <motion.h2
                                     initial={{ clipPath: "inset(0 100% 0 0)" }}
                                     animate={{ clipPath: "inset(0 0% 0 0)" }}
@@ -230,7 +216,6 @@ export default function CinematicTextAdvert({
                                     {currentMessage.text}
                                 </motion.h2>
                                 
-                                {/* Subtext */}
                                 <motion.p
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
@@ -240,7 +225,6 @@ export default function CinematicTextAdvert({
                                     {currentMessage.subtext}
                                 </motion.p>
                                 
-                                {/* CTA Button */}
                                 {hasCTA && (
                                     <motion.div
                                         initial={{ opacity: 0, scale: 0.9 }}
@@ -256,7 +240,6 @@ export default function CinematicTextAdvert({
                                     </motion.div>
                                 )}
                                 
-                                {/* Decorative line */}
                                 <motion.div
                                     initial={{ scaleX: 0 }}
                                     animate={{ scaleX: 1 }}
@@ -268,7 +251,6 @@ export default function CinematicTextAdvert({
                     </AnimatePresence>
                 </div>
                 
-                {/* Navigation dots */}
                 {messages.length > 1 && (
                     <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2 z-40">
                         {messages.map((_, idx) => (
@@ -287,7 +269,6 @@ export default function CinematicTextAdvert({
                 )}
             </div>
 
-            {/* Vignette effects */}
             <div className="absolute inset-0 pointer-events-none z-20 bg-gradient-to-t from-slate-950/40 via-transparent to-slate-950/20" />
             <div className="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]" />
         </div>
