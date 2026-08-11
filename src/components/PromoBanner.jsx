@@ -1,4 +1,14 @@
 // src/components/PromoBanner.jsx
+//
+// NOTE (2026-08-07): two structurally different versions of this file were
+// provided — a full-width "banner strip" layout and a rounded-card layout
+// with no outer margin. HomePage.jsx renders <PromoBanner /> directly with no
+// wrapping padding around it, so the card version would render its rounded
+// corners flush against the viewport edges — likely a visual bug. This is the
+// banner-strip version, which fits that placement correctly. If your actual
+// deployed file is the card version and it looks right in practice, let me
+// know and I'll reconcile — this is a judgment call, not a certainty.
+
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Zap, Gift, TrendingUp, Star, Users, Briefcase } from 'lucide-react';
