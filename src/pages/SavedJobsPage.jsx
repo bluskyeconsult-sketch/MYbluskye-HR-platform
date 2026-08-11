@@ -1,20 +1,30 @@
 // src/pages/SavedJobsPage.jsx
-// COMPLETE PROFESSIONAL SAVED JOBS - With unified API, filtering, and enhanced UI
+// COMPLETE PROFESSIONAL SAVED JOBS - With filtering and enhanced UI
+//
+// FIXED (2026-08-07):
+// 1. Was creating its own separate Supabase client instead of importing the
+//    shared singleton from lib/supabase.js. The singleton uses a custom
+//    storage key for the session; a fresh client with no config uses a
+//    different default key, so it couldn't see a logged-in user's session at
+//    all — this page effectively always looked logged out. Now imports the
+//    shared client.
+// 2. Was calling /api/index?action=user-saved-jobs and
+//    ?action=user-saved-job-remove — neither exists as a backend handler, so
+//    this page always failed with an error for every real user. Replaced with
+//    direct Supabase queries against saved_jobs joined to jobs, the same
+//    proven pattern JobsPage.jsx already uses successfully.
+// 3. Cleaned up the FileText icon import (was a stray second import statement
+//    after the JOB_TYPES array — worked due to import hoisting, but confusing).
 
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
     BookmarkCheck, Briefcase, MapPin, Clock, DollarSign, 
     Building2, Filter, Search, Trash2, Eye, Loader2,
-    AlertCircle, TrendingUp, Star, Zap, Calendar, X
+    AlertCircle, TrendingUp, Star, Zap, Calendar, X, FileText
 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Job type configurations
 const JOB_TYPES = [
     { id: 'all', name: 'All Types', icon: Briefcase },
     { id: 'full_time', name: 'Full Time', icon: Briefcase },
@@ -23,9 +33,6 @@ const JOB_TYPES = [
     { id: 'contract', name: 'Contract', icon: FileText },
     { id: 'freelance', name: 'Freelance', icon: Star }
 ];
-
-// Import missing icon
-import { FileText } from 'lucide-react';
 
 export default function SavedJobsPage() {
     const navigate = useNavigate();
@@ -36,48 +43,33 @@ export default function SavedJobsPage() {
     const [removingId, setRemovingId] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [jobTypeFilter, setJobTypeFilter] = useState('all');
-    const [stats, setStats] = useState({
-        total: 0,
-        fullTime: 0,
-        remote: 0,
-        recent: 0
-    });
+    const [stats, setStats] = useState({ total: 0, fullTime: 0, remote: 0, recent: 0 });
 
-    useEffect(() => {
-        loadSavedJobs();
-    }, []);
-
-    useEffect(() => {
-        filterJobs();
-    }, [savedJobs, searchQuery, jobTypeFilter]);
+    useEffect(() => { loadSavedJobs(); }, []);
+    useEffect(() => { filterJobs(); }, [savedJobs, searchQuery, jobTypeFilter]);
 
     async function loadSavedJobs() {
         try {
             setLoading(true);
             setError(null);
-            
+
             const { data: { user } } = await supabase.auth.getUser();
-            
             if (!user) {
                 navigate('/sign-in?redirect=/saved-jobs');
                 return;
             }
-            
-            // ✅ Using unified API endpoint
-            const response = await fetch('/api/index?action=user-saved-jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id })
-            });
-            
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
-            
-            const jobs = result.data || [];
+
+            const { data, error: queryError } = await supabase
+                .from('saved_jobs')
+                .select('id, user_id, job_id, saved_at, jobs:job_id (*)')
+                .eq('user_id', user.id)
+                .order('saved_at', { ascending: false });
+
+            if (queryError) throw queryError;
+
+            const jobs = data || [];
             setSavedJobs(jobs);
-            
-            // Calculate stats
+
             const fullTimeCount = jobs.filter(j => j.jobs?.job_type === 'full_time').length;
             const remoteCount = jobs.filter(j => j.jobs?.job_type === 'remote' || j.jobs?.is_remote).length;
             const recentCount = jobs.filter(j => {
@@ -85,14 +77,8 @@ export default function SavedJobsPage() {
                 const daysAgo = (Date.now() - savedDate.getTime()) / (1000 * 60 * 60 * 24);
                 return daysAgo <= 7;
             }).length;
-            
-            setStats({
-                total: jobs.length,
-                fullTime: fullTimeCount,
-                remote: remoteCount,
-                recent: recentCount
-            });
-            
+
+            setStats({ total: jobs.length, fullTime: fullTimeCount, remote: remoteCount, recent: recentCount });
         } catch (err) {
             console.error('Error loading saved jobs:', err);
             setError(err.message);
@@ -104,25 +90,21 @@ export default function SavedJobsPage() {
     async function removeSaved(jobId) {
         setRemovingId(jobId);
         setError(null);
-        
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            
-            const response = await fetch('/api/index?action=user-saved-job-remove', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: user.id,
-                    jobId: jobId
-                })
-            });
-            
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
-            
+            if (!user) {
+                navigate('/sign-in?redirect=/saved-jobs');
+                return;
+            }
+
+            const { error: deleteError } = await supabase
+                .from('saved_jobs')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('job_id', jobId);
+
+            if (deleteError) throw deleteError;
             await loadSavedJobs();
-            
         } catch (err) {
             console.error('Error removing saved job:', err);
             setError(err.message);
@@ -133,28 +115,24 @@ export default function SavedJobsPage() {
 
     function filterJobs() {
         let filtered = [...savedJobs];
-        
-        // Job type filter
+
         if (jobTypeFilter !== 'all') {
-            filtered = filtered.filter(item => 
+            filtered = filtered.filter(item =>
                 item.jobs?.job_type === jobTypeFilter ||
                 (jobTypeFilter === 'remote' && item.jobs?.is_remote)
             );
         }
-        
-        // Search filter
+
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(item => 
+            filtered = filtered.filter(item =>
                 item.jobs?.title?.toLowerCase().includes(query) ||
                 item.jobs?.company?.toLowerCase().includes(query) ||
                 item.jobs?.location?.toLowerCase().includes(query)
             );
         }
-        
-        // Sort by saved date (newest first)
+
         filtered.sort((a, b) => new Date(b.saved_at) - new Date(a.saved_at));
-        
         setFilteredJobs(filtered);
     }
 
@@ -188,7 +166,6 @@ export default function SavedJobsPage() {
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
             <div className="max-w-6xl mx-auto px-4 py-12">
-                {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center gap-3 mb-2">
                         <BookmarkCheck className="w-8 h-8 text-primary-400" />
@@ -197,7 +174,6 @@ export default function SavedJobsPage() {
                     <p className="text-slate-400">Jobs you've saved for later consideration</p>
                 </div>
 
-                {/* Error Message */}
                 {error && (
                     <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-red-400" />
@@ -205,7 +181,6 @@ export default function SavedJobsPage() {
                     </div>
                 )}
 
-                {/* Stats Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center hover:border-primary-500/30 transition">
                         <div className="text-2xl font-bold text-white">{stats.total}</div>
@@ -225,7 +200,6 @@ export default function SavedJobsPage() {
                     </div>
                 </div>
 
-                {/* Search and Filter */}
                 <div className="flex flex-col sm:flex-row gap-4 mb-6">
                     <div className="flex-1 relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -255,7 +229,6 @@ export default function SavedJobsPage() {
                     </div>
                 </div>
 
-                {/* Saved Jobs List */}
                 {filteredJobs.length === 0 ? (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
                         {savedJobs.length === 0 ? (
@@ -265,8 +238,8 @@ export default function SavedJobsPage() {
                                 <p className="text-slate-400 mb-6">
                                     Click the bookmark icon on job listings to save them for later.
                                 </p>
-                                <Link 
-                                    to="/jobs" 
+                                <Link
+                                    to="/jobs"
                                     className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition inline-flex items-center gap-2"
                                 >
                                     Browse Jobs
@@ -280,10 +253,7 @@ export default function SavedJobsPage() {
                                     No saved jobs match "{searchQuery}" or the selected filter.
                                 </p>
                                 <button
-                                    onClick={() => {
-                                        setSearchQuery('');
-                                        setJobTypeFilter('all');
-                                    }}
+                                    onClick={() => { setSearchQuery(''); setJobTypeFilter('all'); }}
                                     className="px-6 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition"
                                 >
                                     Clear Filters
@@ -296,14 +266,14 @@ export default function SavedJobsPage() {
                         {filteredJobs.map((item) => {
                             const job = item.jobs;
                             if (!job) return null;
-                            
+
                             const salaryText = formatSalary(job.salary_min, job.salary_max);
                             const savedDate = new Date(item.saved_at);
                             const daysAgo = Math.floor((Date.now() - savedDate.getTime()) / (1000 * 60 * 60 * 24));
-                            
+
                             return (
-                                <div 
-                                    key={item.id} 
+                                <div
+                                    key={item.id}
                                     className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all duration-200 group"
                                 >
                                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -320,7 +290,7 @@ export default function SavedJobsPage() {
                                                 </div>
                                                 {getJobTypeBadge(job.job_type)}
                                             </div>
-                                            
+
                                             <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-500">
                                                 {job.location && (
                                                     <span className="flex items-center gap-1">
@@ -339,14 +309,14 @@ export default function SavedJobsPage() {
                                                     Saved {daysAgo === 0 ? 'today' : `${daysAgo} days ago`}
                                                 </span>
                                             </div>
-                                            
+
                                             {job.description && (
                                                 <p className="text-slate-400 text-sm mt-3 line-clamp-2">
                                                     {job.description.substring(0, 200)}...
                                                 </p>
                                             )}
                                         </div>
-                                        
+
                                         <div className="flex flex-row md:flex-col gap-2">
                                             <Link to={`/jobs/${job.id}`}>
                                                 <button className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition text-sm flex items-center gap-1">
@@ -354,7 +324,7 @@ export default function SavedJobsPage() {
                                                     View & Apply
                                                 </button>
                                             </Link>
-                                            <button 
+                                            <button
                                                 onClick={() => removeSaved(job.id)}
                                                 disabled={removingId === job.id}
                                                 className="w-full px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition text-sm flex items-center justify-center gap-1 disabled:opacity-50"
@@ -368,8 +338,7 @@ export default function SavedJobsPage() {
                                             </button>
                                         </div>
                                     </div>
-                                    
-                                    {/* Saved date highlight for recent saves */}
+
                                     {daysAgo <= 3 && (
                                         <div className="mt-3 pt-3 border-t border-slate-800">
                                             <p className="text-xs text-amber-400 flex items-center gap-1">
@@ -383,8 +352,7 @@ export default function SavedJobsPage() {
                         })}
                     </div>
                 )}
-                
-                {/* Summary */}
+
                 {filteredJobs.length > 0 && (
                     <div className="mt-6 text-center">
                         <p className="text-sm text-slate-500">
