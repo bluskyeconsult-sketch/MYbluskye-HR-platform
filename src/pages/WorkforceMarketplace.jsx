@@ -1,11 +1,27 @@
 // src/pages/WorkforceMarketplace.jsx
-// ODUSBABA WORKFORCE MARKETPLACE v5.0 - PRODUCTION READY
-// ✅ Verified professionals marketplace
-// ✅ Advanced filtering and search
-// ✅ Contact functionality with GateGuard
-// ✅ Trust scores and verification badges
-// ✅ Responsive design with all features
-// ✅ useCapability integration
+// ODUSBABA WORKFORCE MARKETPLACE v5.1 - PRODUCTION READY
+//
+// FIXED (2026-08-07): destructured `userTier` from useCapability(), but the
+// real hook returns `tier`, not `userTier` — same bug found in JobsPage.jsx,
+// except here it wasn't dead code: it silently broke the "Sign in to
+// Contact" vs "Upgrade to Contact" message shown to visitors (userTier was
+// always undefined, so it always showed the upgrade message, even for
+// signed-out visitors who should be told to sign in instead).
+//
+// FLAGGED, NOT FIXED (architecture decision needed — see project brief):
+// 1. This page queries `workforce_skills` directly. A separate, more
+//    sophisticated data model (`workforce_profiles` + `service_requests` +
+//    `proposals` + `engagements`) exists in workforceService.js and is used
+//    by WorkforceOnboarding.jsx, ProposalsList.jsx, and EngagementsDashboard.jsx
+//    — but this page never reads from that model at all. Anyone completing
+//    the onboarding flow creates a profile that's invisible here.
+// 2. handleContact() calls /api/index?action=contact-worker, which doesn't
+//    exist in api/index.js, and there's no equivalent function in
+//    workforceService.js either (that file is built around proposals, not
+//    direct messaging) — this is a genuine unbuilt feature, not a bug to fix
+//    blind.
+// 3. GateGuard (imported from ../components/GateGuard) hasn't been reviewed
+//    yet — contents unconfirmed.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -35,7 +51,8 @@ const SKILL_CATEGORIES = [
 ];
 
 export default function WorkforceMarketplace() {
-    const { capabilities, userTier, canSync } = useCapability();
+    // FIXED: `tier` (not `userTier`) is the real field returned by useCapability()
+    const { capabilities, tier, canSync } = useCapability();
     const [skills, setSkills] = useState([]);
     const [filteredSkills, setFilteredSkills] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -156,6 +173,10 @@ export default function WorkforceMarketplace() {
         setSending(true);
         
         try {
+            // NOTE: this action doesn't exist in api/index.js, and there's no
+            // equivalent function in workforceService.js either — this will
+            // currently always fail. Flagged as a genuine unbuilt feature,
+            // not something patched blind. See file header.
             const response = await fetch('/api/index?action=contact-worker', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -447,7 +468,7 @@ export default function WorkforceMarketplace() {
                                                 className="w-full py-2 bg-slate-700 text-slate-400 rounded-lg text-sm flex items-center justify-center gap-2 cursor-not-allowed"
                                             >
                                                 <MessageCircle className="w-4 h-4" />
-                                                {userTier === 'visitor' ? 'Sign in to Contact' : 'Upgrade to Contact'}
+                                                {tier === 'visitor' ? 'Sign in to Contact' : 'Upgrade to Contact'}
                                             </button>
                                         }
                                     >
