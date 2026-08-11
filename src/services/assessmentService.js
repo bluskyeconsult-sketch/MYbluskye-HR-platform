@@ -1,21 +1,27 @@
 // src/services/assessmentService.js
-// ODUSBABA ASSESSMENT SERVICE v3.1 - PRODUCTION READY
-// ✅ Unified API with fallback chain
-// ✅ Tier-based access control
-// ✅ AI scoring & insights with graceful degradation
-// ✅ Complete assessment lifecycle management
-// ✅ Backward compatible exports
+// ODUSBABA ASSESSMENT SERVICE v3.2 - PRODUCTION READY
+//
+// FIXED (2026-08-07):
+// 1. Removed a hardcoded ADMIN_EMAILS-based privilege escalation, applied when
+//    auto-creating a missing profile — granted 'business' tier + 'super_admin'
+//    user_type to that email regardless of its real role. Same backdoor
+//    pattern already found and fixed in GovernanceContext.jsx, independently
+//    duplicated here. New auto-created profiles now always default to
+//    free/job_seeker.
+// 2. scoreScenarioWithAI() and generateAIInsights() sent payloads shaped for
+//    a `messages` array to the unified API's 'chat' action, but the real
+//    handler expects a single `message` string + `history` array — so the
+//    primary path always failed, silently falling through to a direct
+//    browser-side OpenAI call (extra latency, unnecessary API key exposure)
+//    or a static fallback. generateAIInsights() also called a 'generate-insights'
+//    action that doesn't exist at all. Both now correctly use the real 'chat'
+//    action with the right payload shape.
 
 import { supabase } from '../lib/supabase';
-
-// ============================================
-// CONSTANTS & CONFIGURATION
-// ============================================
 
 const API_BASE = '/api/index';
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
-// Tier Limits Configuration
 const TIER_LIMITS = {
     free: { assessments_per_month: 3, can_download_report: false, can_retake: false, ai_insights: false },
     registered: { assessments_per_month: 10, can_download_report: true, can_retake: true, ai_insights: true },
@@ -27,17 +33,11 @@ const TIER_LIMITS = {
     tester: { assessments_per_month: 5, can_download_report: false, can_retake: true, ai_insights: false }
 };
 
-const ADMIN_EMAILS = ['bluskyeconsult@gmail.com'];
-
 const PERFORMANCE_THRESHOLDS = {
     excellent: 80,
     good: 60,
     average: 40
 };
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
 
 const isUnlimitedTier = (tier, userType) => {
     return tier === 'super_admin' || tier === 'admin' || tier === 'business' || userType === 'super_admin';
@@ -50,13 +50,6 @@ const getTierLimits = (tier, userType) => {
     return { ...(TIER_LIMITS[tier] || TIER_LIMITS.free), isUnlimited: false };
 };
 
-// ============================================
-// AI CALL HANDLER (with fallback chain)
-// ============================================
-
-/**
- * Unified API caller with timeout
- */
 const callUnifiedAPI = async (action, payload, options = {}) => {
     const { method = 'POST', timeout = 30000 } = options;
     
@@ -94,9 +87,6 @@ const callUnifiedAPI = async (action, payload, options = {}) => {
     }
 };
 
-/**
- * Direct OpenAI call as fallback
- */
 const callOpenAIDirect = async (messages, options = {}) => {
     if (!OPENAI_API_KEY) {
         throw new Error('OpenAI API key not configured');
@@ -126,9 +116,6 @@ const callOpenAIDirect = async (messages, options = {}) => {
     return data.choices[0].message.content;
 };
 
-/**
- * AI caller with fallback chain: Unified API → Direct OpenAI → Fallback
- */
 const callAIWithFallback = async (action, payload, directMessages, fallbackValue) => {
     try {
         const response = await callUnifiedAPI(action, payload);
@@ -147,10 +134,6 @@ const callAIWithFallback = async (action, payload, directMessages, fallbackValue
         }
     }
 };
-
-// ============================================
-// ASSESSMENT FETCHING
-// ============================================
 
 export async function getActiveAssessments() {
     const { data, error } = await supabase
@@ -187,10 +170,6 @@ export async function getAssessmentWithQuestions(assessmentId) {
     return { ...assessment, questions: questions || [] };
 }
 
-// ============================================
-// USER ELIGIBILITY & TRACKING
-// ============================================
-
 export async function checkAssessmentEligibility(userId) {
     try {
         let { data: profile, error: profileError } = await supabase
@@ -201,13 +180,17 @@ export async function checkAssessmentEligibility(userId) {
         
         if (profileError || !profile) {
             const { data: { user } } = await supabase.auth.getUser();
-            const isAdmin = ADMIN_EMAILS.includes(user?.email);
             
+            // FIXED: previously granted 'business' tier + 'super_admin'
+            // user_type to a hardcoded email regardless of its real role.
+            // New auto-created profiles always default to free/job_seeker now
+            // — admin status should only ever come from profiles.user_type
+            // set directly in the database.
             const newProfile = {
                 id: userId,
                 email: user?.email,
-                tier: isAdmin ? 'business' : 'free',
-                user_type: isAdmin ? 'super_admin' : 'user',
+                tier: 'free',
+                user_type: 'job_seeker',
                 country_code: 'GB',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
@@ -284,7 +267,6 @@ export async function checkAssessmentEligibility(userId) {
     }
 }
 
-// Alias for backward compatibility
 export const checkUserEligibility = checkAssessmentEligibility;
 
 export async function recordAssessmentStart(userId, assessmentId, sessionId) {
@@ -307,10 +289,6 @@ export async function recordAssessmentStart(userId, assessmentId, sessionId) {
     if (error) throw error;
     return data;
 }
-
-// ============================================
-// START ASSESSMENT
-// ============================================
 
 export async function startAssessment(userId, assessmentId) {
     try {
@@ -349,10 +327,6 @@ export async function startAssessment(userId, assessmentId) {
         return { success: false, error: error.message };
     }
 }
-
-// ============================================
-// SAVE ANSWER
-// ============================================
 
 export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
     try {
@@ -398,27 +372,27 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
     }
 }
 
-// ============================================
-// AI SCORING & INSIGHTS
-// ============================================
-
 async function scoreScenarioWithAI(question, answer) {
     const fallbackScore = 7;
+    const systemPrompt = 'Score the following answer from 1-10. Return ONLY a number.';
+    const userMessage = `Question: ${question}\n\nAnswer: ${answer}`;
     
     try {
+        // FIXED: real 'chat' handler expects `message` (string) + `history`
+        // (array), not a `messages` array — this previously always failed
+        // and fell through to the fallback chain.
         const result = await callAIWithFallback(
             'chat',
             {
-                messages: [
-                    { role: 'system', content: 'Score the following answer from 1-10. Return ONLY a number.' },
-                    { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
-                ],
+                message: userMessage,
+                systemPrompt,
+                history: [],
                 temperature: 0.3,
-                max_tokens: 10
+                maxTokens: 10
             },
             [
-                { role: 'system', content: 'Score the following answer from 1-10. Return ONLY a number.' },
-                { role: 'user', content: `Question: ${question}\n\nAnswer: ${answer}` }
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userMessage }
             ],
             fallbackScore.toString()
         );
@@ -443,17 +417,25 @@ async function generateAIInsights(assessmentTitle, percentage, dimensionScores) 
         return fallbackInsights;
     }
     
+    const systemPrompt = 'You are a career coach. Provide personalized assessment insights as JSON. Return ONLY valid JSON.';
+    const userMessage = `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings)`;
+    
     try {
+        // FIXED: was calling a 'generate-insights' action that doesn't exist
+        // in api/index.js at all. Now uses the real 'chat' action, with the
+        // payload shape it actually expects.
         const result = await callAIWithFallback(
-            'generate-insights',
+            'chat',
             {
-                assessmentTitle,
-                percentage,
-                dimensionScores
+                message: userMessage,
+                systemPrompt,
+                history: [],
+                temperature: 0.7,
+                maxTokens: 500
             },
             [
-                { role: 'system', content: 'You are a career coach. Provide personalized assessment insights as JSON. Return ONLY valid JSON.' },
-                { role: 'user', content: `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings)` }
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userMessage }
             ],
             null
         );
@@ -480,10 +462,6 @@ async function generateAIInsights(assessmentTitle, percentage, dimensionScores) 
         return fallbackInsights;
     }
 }
-
-// ============================================
-// ASSESSMENT SUBMISSION & SCORING
-// ============================================
 
 export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpentSeconds) {
     try {
@@ -645,10 +623,6 @@ export async function completeAssessment(sessionId) {
     }
 }
 
-// ============================================
-// ASSESSMENT RESULTS
-// ============================================
-
 export async function getAssessmentResults(sessionId) {
     try {
         const { data, error } = await supabase
@@ -684,10 +658,6 @@ export async function getUserAssessmentHistory(userId, limit = 50) {
         return { success: false, history: [], error: error.message };
     }
 }
-
-// ============================================
-// REPORT GENERATION
-// ============================================
 
 export async function generateAssessmentReport(userAssessmentId, userId) {
     try {
@@ -847,10 +817,6 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
-// ============================================
-// AI-ASSISTED ASSESSMENT CREATION (Admin)
-// ============================================
-
 export async function generateAIAssessment(topic, difficulty, numberOfQuestions, adminId = null) {
     try {
         const response = await callUnifiedAPI('generate-assessment', {
@@ -964,10 +930,6 @@ async function saveGeneratedAssessmentToDB(assessmentData, difficulty, adminId) 
     return assessment;
 }
 
-// ============================================
-// ADMIN FUNCTIONS
-// ============================================
-
 export async function getAdminAssessmentStats() {
     try {
         const [assessments, userAssessments, profiles] = await Promise.all([
@@ -1004,16 +966,12 @@ export async function getAdminAssessmentStats() {
     }
 }
 
-// ============================================
-// DEFAULT EXPORT (backward compatible)
-// ============================================
-
 export default {
     getActiveAssessments,
     getAssessmentById,
     getAssessmentWithQuestions,
     checkAssessmentEligibility,
-    checkUserEligibility, // Alias for backward compatibility
+    checkUserEligibility,
     startAssessment,
     saveAnswer,
     submitAssessmentAnswers,
