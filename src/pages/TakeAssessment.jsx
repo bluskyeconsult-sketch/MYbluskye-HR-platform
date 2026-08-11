@@ -1,16 +1,25 @@
 // src/pages/TakeAssessment.jsx
-// COMPLETE PROFESSIONAL ASSESSMENT TAKING PAGE - With unified API, auto-save, timer, and all question types
+// COMPLETE PROFESSIONAL ASSESSMENT TAKING PAGE - With auto-save, timer, and all question types
+//
+// FIXED (2026-08-07): this page imported checkUserEligibility, startAssessment,
+// saveAnswer, submitAssessmentAnswers, etc. from assessmentService.js but never
+// called any of them — instead it reimplemented the whole flow with raw fetch()
+// calls to /api/index?action=assessment, ?action=assessment-questions,
+// ?action=assessment-start, ?action=assessment-auto-save, ?action=assessment-submit.
+// NONE of these actions exist in api/index.js. The very first one thrown on
+// every load, so this page was completely non-functional for every user —
+// nobody could take any assessment. Rewired to actually use the already-correct
+// service functions, which use direct Supabase calls consistent with the rest
+// of the confirmed-working codebase.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
-    checkUserEligibility, 
-    recordAssessmentStart,
+    getAssessmentById,
+    startAssessment,
     submitAssessmentAnswers,
-    saveAnswer,
-    completeAssessment,
-    startAssessment
+    saveAnswer
 } from '../services/assessmentService';
 import { Clock, AlertCircle, Loader2, ChevronRight, ChevronLeft, Award, Save, HelpCircle, Shield, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -70,27 +79,23 @@ export default function TakeAssessment() {
         };
     }, [timeLeft, submitting]);
 
-    // Auto-save effect
+    // FIXED: auto-save now calls saveAnswer() from assessmentService.js
+    // (saves one question's answer at a time, matching how that function is
+    // designed) instead of a fetch to a nonexistent ?action=assessment-auto-save.
     useEffect(() => {
         if (!sessionId || Object.keys(answers).length === 0) return;
+        
+        const currentQuestion = questions[currentIndex];
+        if (!currentQuestion) return;
+        
+        const currentAnswer = answers[currentQuestion.id];
+        if (currentAnswer === undefined) return;
         
         if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
         
         autoSaveRef.current = setTimeout(async () => {
             try {
-                // ✅ Using unified API for auto-save
-                const response = await fetch('/api/index?action=assessment-auto-save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        sessionId, 
-                        answers,
-                        currentIndex,
-                        timeSpent: Math.floor((Date.now() - startTime) / 1000)
-                    })
-                });
-                
-                const result = await response.json();
+                const result = await saveAnswer(sessionId, currentQuestion.id, currentAnswer, currentIndex);
                 
                 if (result.success) {
                     setAutoSaveStatus('saved');
@@ -107,7 +112,7 @@ export default function TakeAssessment() {
         return () => {
             if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
         };
-    }, [answers, sessionId, currentIndex, startTime]);
+    }, [answers, sessionId, currentIndex, questions]);
 
     // Track time spent per question
     useEffect(() => {
@@ -116,6 +121,10 @@ export default function TakeAssessment() {
         }
     }, [currentIndex, loading]);
 
+    // FIXED: entire load flow now uses assessmentService.js's startAssessment(),
+    // which handles eligibility checking, session creation, and question
+    // loading in one real, working call — instead of three separate fetches to
+    // nonexistent API actions.
     async function loadAssessment() {
         setLoading(true);
         setError(null);
@@ -129,97 +138,36 @@ export default function TakeAssessment() {
             }
             setUser(authUser);
             
-            // 2. Check eligibility via unified API
-            try {
-                const eligibilityResponse = await fetch(`/api/index?action=user-eligibility&userId=${authUser.id}&type=assessment&assessmentId=${id}`, {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const eligibilityResult = await eligibilityResponse.json();
-                
-                if (eligibilityResult.success) {
-                    setEligibility(eligibilityResult.data);
-                } else {
-                    throw new Error(eligibilityResult.error);
-                }
-            } catch (err) {
-                // Fallback to direct check
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('tier, user_type')
-                    .eq('id', authUser.id)
-                    .single();
-                
-                const isUnlimited = profile?.tier === 'super_admin' || 
-                                   profile?.tier === 'admin' || 
-                                   profile?.user_type === 'super_admin' ||
-                                   profile?.user_type === 'admin';
-                
-                setEligibility({
-                    eligible: isUnlimited,
-                    remaining: isUnlimited ? 999 : 3,
-                    limit: isUnlimited ? 999 : 3,
-                    tier: profile?.tier || 'free',
-                    canDownloadReport: true,
-                    canRetake: true,
-                    isUnlimited: isUnlimited
-                });
-            }
+            // 2. Start the assessment — this checks eligibility, records the
+            // session, and loads questions with options, all in one real call.
+            const result = await startAssessment(authUser.id, id);
             
-            const currentEligibility = eligibility || await (async () => {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('tier, user_type')
-                    .eq('id', authUser.id)
-                    .single();
-                return {
-                    eligible: profile?.tier === 'super_admin' || profile?.tier === 'admin',
-                    remaining: 999,
-                    limit: 999,
-                    isUnlimited: true
-                };
-            })();
-            
-            if (!currentEligibility.eligible && !currentEligibility.isUnlimited) {
-                setError(`You have used ${currentEligibility.limit - currentEligibility.remaining} of ${currentEligibility.limit} assessments this month. Upgrade to continue.`);
+            if (!result.success) {
+                setError(result.error || 'Unable to start this assessment.');
                 setLoading(false);
                 return;
             }
             
-            // 3. Load assessment via unified API
-            const assessmentResponse = await fetch(`/api/index?action=assessment&id=${id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            setEligibility(result.eligibility);
             
-            const assessmentResult = await assessmentResponse.json();
+            if (!result.totalQuestions || result.totalQuestions === 0) {
+                setError('This assessment has no questions configured yet. Please contact support.');
+                setLoading(false);
+                return;
+            }
             
-            if (!assessmentResult.success) throw new Error(assessmentResult.error);
-            
-            const assessmentData = assessmentResult.data;
+            // 3. Load assessment metadata (title, time limit) for display
+            const assessmentData = await getAssessmentById(id);
             setAssessment(assessmentData);
-            setTimeLeft(assessmentData.time_limit_minutes * 60);
+            setTimeLeft((assessmentData.time_limit_minutes || 15) * 60);
             setStartTime(Date.now());
             
-            // 4. Load questions with options via unified API
-            const questionsResponse = await fetch(`/api/index?action=assessment-questions&assessmentId=${id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const questionsResult = await questionsResponse.json();
-            
-            if (!questionsResult.success) throw new Error(questionsResult.error);
-            
-            const questionsData = questionsResult.data || [];
-            
-            // 5. Process questions - ensure options is an array
-            const processedQuestions = questionsData.map(q => ({
+            // 4. Process and validate questions
+            const processedQuestions = (result.questions || []).map(q => ({
                 ...q,
                 options: q.options || []
             }));
             
-            // 6. Validate questions
             const validQuestions = processedQuestions.filter(q => {
                 if (q.question_type === 'text' || q.question_type === 'essay' || q.question_type === 'scenario') {
                     return true;
@@ -245,23 +193,11 @@ export default function TakeAssessment() {
             
             setQuestions(validQuestions);
             setIsLastQuestion(validQuestions.length === 1);
-            console.log(`✅ Loaded ${validQuestions.length} questions with options`);
             
-            // 7. Start assessment session via unified API
-            const sessionResponse = await fetch('/api/index?action=assessment-start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: authUser.id, assessmentId: id })
-            });
-            
-            const sessionResult = await sessionResponse.json();
-            
-            if (sessionResult.success) {
-                setSessionId(sessionResult.data.sessionId);
-                setUserAssessmentId(sessionResult.data.userAssessmentId);
-            } else {
-                throw new Error(sessionResult.error);
-            }
+            // 5. Session identifiers — sessionId for auto-save, userAssessmentId
+            // (the real primary key) for final submission and results lookup.
+            setSessionId(result.sessionId);
+            setUserAssessmentId(result.session.id);
             
         } catch (err) {
             console.error('Error loading assessment:', err);
@@ -298,6 +234,10 @@ export default function TakeAssessment() {
         }
     }
 
+    // FIXED: now calls submitAssessmentAnswers() from assessmentService.js —
+    // real scoring (including AI scoring for scenario questions), real insight
+    // generation, and a real DB update — instead of a fetch to a nonexistent
+    // ?action=assessment-submit.
     async function handleSubmit() {
         if (submitting) return;
         
@@ -305,24 +245,11 @@ export default function TakeAssessment() {
         const timeSpent = Math.floor((Date.now() - startTime) / 1000);
         
         try {
-            // ✅ Using unified API for submission
-            const response = await fetch('/api/index?action=assessment-submit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    userAssessmentId: userAssessmentId || sessionId,
-                    answers,
-                    timeSpent,
-                    sessionId
-                })
-            });
-            
-            const result = await response.json();
+            const result = await submitAssessmentAnswers(userAssessmentId, answers, timeSpent);
             
             if (result.success) {
-                const redirectId = result.data.redirectId || userAssessmentId || sessionId;
                 toast.success('Assessment submitted successfully!');
-                navigate(`/assessment-results/${redirectId}`);
+                navigate(`/assessment-results/${userAssessmentId}`);
             } else {
                 setError(result.error || 'Failed to submit assessment. Please try again.');
                 toast.error(result.error || 'Submission failed');
