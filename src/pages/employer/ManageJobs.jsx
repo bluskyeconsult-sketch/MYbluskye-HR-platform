@@ -1,8 +1,15 @@
 // src/pages/employer/ManageJobs.jsx
+//
+// FIXED (2026-08-07): this page used <MapPin>, <Clock>, <DollarSign>, and
+// <Briefcase> in the JSX but only imported { Eye, Edit, Trash2, Users,
+// Calendar, Loader2 } from lucide-react. Briefcase is used even in the empty
+// state, so this page threw "Briefcase is not defined" and crashed for every
+// user, with zero or more jobs. Added the missing imports.
+
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Eye, Edit, Trash2, Users, Calendar, Loader2 } from 'lucide-react';
+import { Eye, Edit, Trash2, Users, Calendar, Loader2, MapPin, Clock, DollarSign, Briefcase } from 'lucide-react';
 
 export default function ManageJobs() {
     const [jobs, setJobs] = useState([]);
