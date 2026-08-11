@@ -1,8 +1,16 @@
-// api/index.js - UNIFIED API GATEWAY v7.0 (COMPLETE - ALL FEATURES PRESERVED)
+// api/index.js - UNIFIED API GATEWAY v7.1 (COMPLETE - ALL FEATURES PRESERVED)
 // Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (multi-source),
 // AI chat, Assessment generation, Course generation, User applications, Profile updates,
 // Newsletter, Books, Articles, User stats, Analytics events, Tester management, VA system
-// RUTH Standard v7.0 - Production Ready with Enhanced Error Handling
+// RUTH Standard v7.1 - Production Ready with Enhanced Error Handling
+//
+// CHANGED (2026-08-07): va-execute now calls OpenAI for real (via the existing
+// callOpenAI() helper, already used identically by chat/generate-assessment/
+// generate-course) using a role-specific system prompt per assistant and the
+// user's actual input, instead of always returning the same hardcoded text
+// regardless of what was typed. The original hardcoded templates are kept as
+// a fallback if the OpenAI call fails for any reason, matching this file's
+// existing fallback philosophy used everywhere else.
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -116,6 +124,30 @@ function getTransporter() {
         greetingTimeout: 10000,
         socketTimeout: 15000
     });
+}
+
+// ============================================
+// VA SYSTEM PROMPTS (NEW — 2026-08-07)
+// Role-specific prompts for each known assistant so va-execute can call
+// OpenAI with real context instead of returning static text. Any assistantId
+// not listed here (including future ones added on the frontend) falls back
+// to a sensible generic prompt built from the id itself — nothing needs to
+// be added here just to support a new assistant on the frontend.
+// ============================================
+
+const VA_SYSTEM_PROMPTS = {
+    'cv-expert': 'You are a professional CV/resume writer and ATS optimization expert. Give specific, actionable feedback tailored to what the user shares — quantify achievements where possible, suggest concrete wording improvements, and flag ATS formatting issues. Use markdown formatting for readability.',
+    'cover-letter-pro': 'You are a professional cover letter writer. Write a compelling, tailored cover letter based on the details the user provides — connect their specific experience to the role, keep it under 400 words, and avoid generic filler. Use markdown formatting for readability.',
+    'linkedin-optimizer': 'You are a LinkedIn profile optimization expert. Give specific, actionable suggestions for headline, About section, and experience bullets based on what the user shares — focus on keywords recruiters search for and quantifiable achievements. Use markdown formatting for readability.',
+    'interview-coach': 'You are an interview preparation coach. Based on the role or situation the user describes, provide relevant practice questions, the STAR method framework where useful, and specific tips for their target role. Use markdown formatting for readability.',
+    'salary-negotiator': 'You are a salary negotiation expert. Based on the details the user provides (role, location, experience, current offer), give market-informed negotiation strategy and a script they can adapt. Use markdown formatting for readability.',
+    'skill-analyzer': 'You are a career development expert specializing in skill gap analysis. Based on the target role the user describes, identify likely skill gaps and suggest a concrete, prioritized learning path. Use markdown formatting for readability.'
+};
+
+function getVASystemPrompt(assistantId) {
+    if (VA_SYSTEM_PROMPTS[assistantId]) return VA_SYSTEM_PROMPTS[assistantId];
+    const readableName = assistantId.replace(/-/g, ' ');
+    return `You are a professional career assistant specializing in ${readableName}. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`;
 }
 
 // ============================================
@@ -1484,6 +1516,11 @@ const handlers = {
     },
 
     // ========== VA EXECUTE ==========
+    // CHANGED (2026-08-07): now calls callOpenAI() for real, using a
+    // role-specific system prompt per assistant and the user's actual input.
+    // The original hardcoded templates are kept as fallbackResponses, used
+    // only if the OpenAI call throws (missing API key, rate limit, network
+    // error, etc.) — same safety-net pattern used elsewhere in this file.
     'va-execute': async (req, res) => {
         const { assistantId, input, userId } = req.body;
         
@@ -1491,9 +1528,7 @@ const handlers = {
             return res.status(400).json({ error: 'Assistant ID and input required' });
         }
         
-        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
-        
-        const responses = {
+        const fallbackResponses = {
             'cv-expert': `## CV Optimization Results\n\nBased on your request, I've analyzed your CV with these recommendations:\n\n### Key Improvements\n- Add quantifiable achievements (e.g., "Increased sales by 30%")\n- Use action verbs (achieved, improved, managed, created)\n- Include relevant keywords from job descriptions\n- Remove weak language ("responsible for", "helped with")\n\n### ATS Checklist\n- [ ] Use standard section headers (Experience, Education, Skills)\n- [ ] Save as PDF or DOCX\n- [ ] Avoid tables and columns\n- [ ] Include a professional summary\n\nWould you like me to review a specific section of your CV?`,
             
             'interview-coach': `## Interview Preparation Guide\n\n### Sample Questions for Your Role\n1. "Tell me about yourself" - 2-minute professional summary\n2. "Why do you want to work here?" - Research the company\n3. "What's your greatest strength?" - Align with job requirements\n4. "Describe a challenge you overcame" - Use STAR method\n5. "Where do you see yourself in 5 years?" - Show ambition\n\n### STAR Method\n- **S**ituation: Set the context\n- **T**ask: What was your responsibility\n- **A**ction: What steps you took\n- **R**esult: What was the outcome\n\n### Questions to Ask Them\n- What does success look like in this role?\n- What's the team culture like?\n- What are the growth opportunities?`,
@@ -1507,7 +1542,21 @@ const handlers = {
             'cover-letter-pro': `## Cover Letter Template\n\nDear Hiring Manager,\n\nI am excited to apply for the [Position] role at [Company]. With my background in [Your Field] and proven track record of [Key Achievement], I am confident I can contribute to your team's success.\n\nIn my current role at [Current Company], I have:\n- Achieved [quantifiable result] by [action taken]\n- Improved [metric] by [percentage] through [initiative]\n- Led a team of [number] to deliver [project outcome]\n\nI am particularly drawn to [Company] because [specific reason]. I look forward to discussing how my skills can benefit your team.\n\nBest regards,\n[Your Name]`
         };
         
-        const output = responses[assistantId] || `## ${assistantId} Results\n\nThank you for using this assistant. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+        let output;
+        let usedFallback = false;
+        
+        try {
+            const systemPrompt = getVASystemPrompt(assistantId);
+            const data = await callOpenAI([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: input }
+            ], 1500, 0.7);
+            output = data.choices[0].message.content;
+        } catch (err) {
+            console.warn(`VA OpenAI call failed for ${assistantId}, using fallback:`, err.message);
+            usedFallback = true;
+            output = fallbackResponses[assistantId] || `## ${assistantId} Results\n\nThank you for using this assistant. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+        }
         
         const supabaseClient = getSupabase();
         try {
@@ -1539,7 +1588,7 @@ const handlers = {
             console.warn('Credit deduction failed:', err.message);
         }
         
-        return res.status(200).json({ success: true, output });
+        return res.status(200).json({ success: true, output, usedFallback });
     },
 
     // ========== VA FEEDBACK ==========
@@ -1787,7 +1836,7 @@ export default async function handler(req, res) {
     if (!action || !handlers[action]) {
         return res.status(200).json({
             name: 'ODUSBABA API',
-            version: '7.0.0',
+            version: '7.1.0',
             description: 'Professional Consolidated API - Full site functionality',
             available_actions: Object.keys(handlers),
             timestamp: new Date().toISOString()
