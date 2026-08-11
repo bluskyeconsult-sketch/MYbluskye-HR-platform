@@ -1,9 +1,24 @@
 // src/components/workforce/ProposalsList.jsx
-// COMPLETE PROFESSIONAL PROPOSALS SYSTEM - With unified API, enhanced UI, and complete proposal management
+// COMPLETE PROFESSIONAL PROPOSALS SYSTEM
+//
+// FIXED (2026-08-07): every data call in this file went to
+// /api/index?action=workforce-* actions that don't exist anywhere in
+// api/index.js — workforce-proposals, workforce-profile,
+// workforce-available-requests, workforce-submit-proposal. This page was
+// completely non-functional. workforceService.js already has correct,
+// working equivalents for all four using direct Supabase calls — they just
+// weren't being called. Rewired to use them, same pattern as the
+// TakeAssessment.jsx fix in Phase 5.
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import {
+    getMyProposals,
+    getWorkforceProfile,
+    getOpenServiceRequests,
+    submitProposal
+} from '../../services/workforceService';
 import { 
     Send, Eye, Clock, CheckCircle, XCircle, AlertCircle, 
     Loader2, FileText, DollarSign, Calendar, Search, Filter,
@@ -46,36 +61,14 @@ export default function ProposalsList({ professionalId }) {
         setError(null);
         
         try {
-            // ✅ Using unified API endpoints
-            const [proposalsRes, profileRes, requestsRes] = await Promise.all([
-                fetch('/api/index?action=workforce-proposals', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ professionalId })
-                }),
-                fetch('/api/index?action=workforce-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ professionalId })
-                }),
-                fetch('/api/index?action=workforce-available-requests', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                })
+            const [proposalsList, profileData, requestsData] = await Promise.all([
+                getMyProposals(professionalId),
+                getWorkforceProfile(professionalId),
+                getOpenServiceRequests()
             ]);
             
-            const proposalsData = await proposalsRes.json();
-            const profileData = await profileRes.json();
-            const requestsData = await requestsRes.json();
-            
-            if (!proposalsData.success) throw new Error(proposalsData.error);
-            if (!profileData.success) throw new Error(profileData.error);
-            if (!requestsData.success) throw new Error(requestsData.error);
-            
-            const proposalsList = proposalsData.data || [];
             setProposals(proposalsList);
             
-            // Calculate stats
             const pending = proposalsList.filter(p => p.status === 'pending').length;
             const accepted = proposalsList.filter(p => p.status === 'accepted').length;
             const rejected = proposalsList.filter(p => p.status === 'rejected').length;
@@ -87,8 +80,8 @@ export default function ProposalsList({ professionalId }) {
                 rejected
             });
             
-            setProfile(profileData.data);
-            setAvailableRequests(requestsData.data || []);
+            setProfile(profileData);
+            setAvailableRequests(requestsData);
             
         } catch (error) {
             console.error('Error loading proposals:', error);
@@ -101,7 +94,6 @@ export default function ProposalsList({ professionalId }) {
     function filterProposals() {
         let filtered = [...proposals];
         
-        // Search filter
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(proposal => 
@@ -110,7 +102,6 @@ export default function ProposalsList({ professionalId }) {
             );
         }
         
-        // Status filter
         if (statusFilter !== 'all') {
             filtered = filtered.filter(proposal => proposal.status === statusFilter);
         }
@@ -130,25 +121,12 @@ export default function ProposalsList({ professionalId }) {
         setError(null);
         
         try {
-            const response = await fetch('/api/index?action=workforce-submit-proposal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requestId: selectedRequest.id,
-                    professionalId,
-                    proposal: {
-                        cover_letter: formData.cover_letter,
-                        proposed_rate: parseFloat(formData.proposed_rate) || profile?.hourly_rate || 50,
-                        estimated_days: parseInt(formData.estimated_days) || 7
-                    }
-                })
+            await submitProposal(selectedRequest.id, professionalId, {
+                cover_letter: formData.cover_letter,
+                proposed_rate: parseFloat(formData.proposed_rate) || profile?.hourly_rate || 50,
+                estimated_days: parseInt(formData.estimated_days) || 7
             });
             
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
-            
-            // Reset and reload
             setShowModal(false);
             setSelectedRequest(null);
             setFormData({ cover_letter: '', proposed_rate: '', estimated_days: '' });
@@ -199,7 +177,6 @@ export default function ProposalsList({ professionalId }) {
 
     return (
         <div className="space-y-6">
-            {/* Header with Stats */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-xl font-bold text-white">My Proposals</h2>
@@ -225,7 +202,6 @@ export default function ProposalsList({ professionalId }) {
                 </div>
             </div>
 
-            {/* Search and Filter */}
             {proposals.length > 0 && (
                 <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1 relative">
@@ -251,7 +227,6 @@ export default function ProposalsList({ professionalId }) {
                 </div>
             )}
 
-            {/* Error Message */}
             {error && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-red-400" />
@@ -259,7 +234,6 @@ export default function ProposalsList({ professionalId }) {
                 </div>
             )}
 
-            {/* Proposals List */}
             {proposals.length === 0 ? (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                     <FileText className="w-16 h-16 text-slate-600 mx-auto mb-4" />
@@ -339,7 +313,6 @@ export default function ProposalsList({ professionalId }) {
                 </div>
             )}
 
-            {/* Submit Proposal Modal */}
             {showModal && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -354,7 +327,6 @@ export default function ProposalsList({ professionalId }) {
                         </div>
                         
                         <div className="p-6">
-                            {/* Available Requests List */}
                             {!selectedRequest ? (
                                 <div className="space-y-4">
                                     <p className="text-slate-400 text-sm mb-4">Select an opportunity to submit a proposal:</p>
@@ -370,7 +342,7 @@ export default function ProposalsList({ professionalId }) {
                                                 <p className="text-slate-400 text-sm line-clamp-2 mt-1">{request.description}</p>
                                                 <div className="flex justify-between items-center mt-3">
                                                     <div className="flex items-center gap-3 text-sm text-slate-500">
-                                                        <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> Budget: ${request.budget}</span>
+                                                        <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> Budget: ${request.budget_min}-{request.budget_max}</span>
                                                         <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Posted: {formatDate(request.created_at)}</span>
                                                     </div>
                                                     <ChevronRight className="w-4 h-4 text-primary-400" />
@@ -381,7 +353,6 @@ export default function ProposalsList({ professionalId }) {
                                 </div>
                             ) : (
                                 <form onSubmit={handleSubmitProposal} className="space-y-5">
-                                    {/* Selected Request Info */}
                                     <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
                                         <p className="text-xs text-slate-500 mb-1">Submitting proposal for:</p>
                                         <h3 className="text-white font-semibold">{selectedRequest.title}</h3>
