@@ -1,5 +1,16 @@
 // src/components/HomeHero.jsx - UNIFIED & OPTIMIZED FOR MOBILE
 // ODUSBABA HOME HERO - Mobile-First with Dynamic Stats
+//
+// FLAGGED, NOT CHANGED (2026-08-07): this fetches the real homepage-stats
+// handler correctly, and 2 of its 6 stat fields (earlyMembers, and the
+// derived remainingSpots) do get live data from it. But `confidence`,
+// `availability`, `impact`, and `verifiedJobs` don't exist anywhere in that
+// handler's response — they're the hardcoded defaults below (98, 24, 10, 112)
+// and can never be overwritten by real data, despite the loading spinner
+// implying they're dynamic. This is a product/copy decision, not something I
+// changed — if these are meant to be static marketing claims, consider
+// removing the loading state for just these four; if they're meant to
+// reflect something real, that needs a decision on what they should map to.
 
 import { useState, useEffect } from 'react';
 
