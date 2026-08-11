@@ -1,5 +1,9 @@
 // src/components/CTASection.jsx - UNIFIED & OPTIMIZED FOR MOBILE
 // ODUSBABA CTA Section - Mobile-First with Rich Features
+//
+// FIXED (2026-08-07): the "Get Started Free" link's arrow icon used
+// group-hover:translate-x-1, but the parent <Link> never declared the `group`
+// class — so that hover animation could never actually fire. Added it.
 
 import { Link } from 'react-router-dom';
 import { ArrowRight, Users, Briefcase, Sparkles } from 'lucide-react';
@@ -13,7 +17,6 @@ export default function CTASection() {
                     <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-400" />
                     <span className="text-primary-400 text-xs sm:text-sm font-medium">Trusted by 500+ Companies</span>
                 </div>
-
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4 leading-tight">
                     Ready to Transform Your HR Experience?
                 </h2>
@@ -26,7 +29,7 @@ export default function CTASection() {
                 <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                     <Link
                         to="/sign-up"
-                        className="inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-2.5 sm:py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all duration-200 shadow-lg shadow-primary-500/30 hover:shadow-primary-500/40 hover:scale-105 text-sm sm:text-base"
+                        className="group inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-2.5 sm:py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all duration-200 shadow-lg shadow-primary-500/30 hover:shadow-primary-500/40 hover:scale-105 text-sm sm:text-base"
                     >
                         <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                         Get Started Free
