@@ -1,5 +1,22 @@
 // src/pages/HomePage.jsx - UNIFIED & OPTIMIZED WITH COMPLETE FIXES
 // ODUSBABA Home Page - Complete with All Features, Error Handling & Fixed Articles
+//
+// FIXED (2026-08-07):
+// 1. loadCountryStats() called /api/index?action=country-jobs — this action
+//    doesn't exist as a backend handler, so every country silently showed "0
+//    jobs" permanently (the fetch "succeeds" with the unknown-action fallback
+//    response, which has no `count` field, so it never threw and never
+//    surfaced as an error — just quietly wrong for every visitor). Replaced
+//    with a direct Supabase count query, the same pattern JobsPage.jsx and
+//    the confirmed real jobs-stats handler already use successfully.
+// 2. loadArticles() assumed a `status` text column on `articles` and only
+//    fell back (via a fragile string-match on the Postgres error message) to
+//    a query with NO published-filter at all when that guess failed — meaning
+//    unpublished draft articles could show up publicly on the homepage. The
+//    confirmed real `articles-list` handler in api/index.js already filters
+//    correctly on the real `is_published` boolean column, so this now just
+//    calls that handler directly instead of duplicating (and getting wrong)
+//    the same query client-side.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
@@ -141,7 +158,7 @@ export default function HomePage() {
         }
     ], [stats]);
 
-    // Fetch stats using unified API
+    // Fetch stats using the confirmed real homepage-stats handler
     const fetchStats = useCallback(async () => {
         setStats(prev => ({ ...prev, loading: true, error: null }));
         
@@ -188,15 +205,23 @@ export default function HomePage() {
         }
     }, []);
 
-    // Load country stats using unified API
+    // FIXED: direct Supabase count query per country instead of the
+    // nonexistent ?action=country-jobs endpoint. Matches the confirmed real
+    // jobs schema/filters already used successfully in JobsPage.jsx.
     const loadCountryStats = useCallback(async () => {
         try {
             const countryData = await Promise.all(
                 countries.map(async (country) => {
                     try {
-                        const response = await fetch(`/api/index?action=country-jobs&code=${country.code}`);
-                        const data = await response.json();
-                        return { ...country, jobCount: data.count || 0 };
+                        const { count, error } = await supabase
+                            .from('jobs')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('country_code', country.code)
+                            .eq('is_active', true)
+                            .eq('compliance_status', 'approved');
+                        
+                        if (error) throw error;
+                        return { ...country, jobCount: count || 0 };
                     } catch {
                         return { ...country, jobCount: 0 };
                     }
@@ -208,61 +233,26 @@ export default function HomePage() {
         }
     }, [countries]);
 
-    // ============================================
-    // FIXED: Load Articles with Proper Table/Column Checking (From Code 2)
-    // ============================================
+    // FIXED: was hand-rolling a direct Supabase query that guessed a `status`
+    // text column (real column is `is_published`, confirmed via the real
+    // articles-list handler) and fell back to an unfiltered query — which
+    // could show unpublished drafts publicly — when that guess failed. Now
+    // just calls the already-correct backend handler.
     const loadArticles = useCallback(async () => {
         try {
-            // First check if articles table exists (From Code 2)
-            const { data: tableCheck, error: tableError } = await supabase
-                .from('articles')
-                .select('id')
-                .limit(1);
+            const response = await fetch('/api/index?action=articles-list', {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await response.json();
             
-            // If table doesn't exist or error, skip
-            if (tableError) {
-                console.warn('Articles table not found or error:', tableError.message);
+            if (data.success) {
+                setArticles((data.articles || []).slice(0, 3));
+            } else {
                 setArticles([]);
-                return;
             }
-            
-            // Try with status filter first
-            let { data, error } = await supabase
-                .from('articles')
-                .select('id, title, excerpt, slug, created_at, view_count')
-                .eq('status', 'published')
-                .order('created_at', { ascending: false })
-                .limit(3);
-            
-            // If 'status' column doesn't exist, try without filter (From Code 2)
-            if (error && error.message && error.message.includes('column "status" does not exist')) {
-                console.warn('Status column not found, fetching without filter');
-                const { data: fallbackData, error: fallbackError } = await supabase
-                    .from('articles')
-                    .select('id, title, excerpt, slug, created_at, view_count')
-                    .order('created_at', { ascending: false })
-                    .limit(3);
-                
-                if (fallbackError) throw fallbackError;
-                data = fallbackData;
-            } else if (error) {
-                throw error;
-            }
-            
-            setArticles(data || []);
-        } catch (err) { 
+        } catch (err) {
             console.error('Error loading articles:', err);
-            // Final fallback: try without any filters
-            try {
-                const { data: simpleData } = await supabase
-                    .from('articles')
-                    .select('*')
-                    .limit(3);
-                setArticles(simpleData || []);
-            } catch (finalErr) {
-                console.error('Final articles attempt failed:', finalErr);
-                setArticles([]);
-            }
+            setArticles([]);
         }
     }, []);
 
@@ -468,7 +458,7 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Latest Insights Section - Fixed with proper table/column checking */}
+            {/* Latest Insights Section */}
             <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20 bg-slate-900/30 rounded-3xl">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
                     <div>
