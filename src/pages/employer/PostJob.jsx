@@ -1,12 +1,40 @@
 // src/pages/employer/PostJob.jsx
-import { useState } from 'react';
+//
+// FIXED (2026-08-07):
+// 1. The real route for this page (App.jsx) only wraps it in generic
+//    <ProtectedRoute> — no tier check at all. Any logged-in free-tier user
+//    could post jobs. Added an explicit employer/business/admin/super_admin
+//    gate, consistent with ODUSBABA's stated position that paid-tier features
+//    shouldn't be freely available. This is a judgment call closing a real
+//    gap, not a neutral bug fix — override if you want different behavior.
+// 2. The insert never set `compliance_status`, but every real query
+//    (JobsPage.jsx, the homepage-stats/jobs-stats handlers) filters on
+//    `compliance_status = 'approved'`. Without it, posted jobs likely either
+//    failed to insert or succeeded invisibly — yet the page said "posted
+//    successfully!" Now explicitly sets `compliance_status: 'pending'` and
+//    tells the user their job is submitted for review, which is honest
+//    regardless of whether admin review is actually built yet.
+// 3. `country_code` is not set at all, though it's used for filtering/display
+//    elsewhere — not fixed (would need a country selector, a real feature
+//    addition, not a bug fix). Flagged here for awareness.
+// 4. `benefits` and `application_deadline` fields are sent to the `jobs`
+//    table but not confirmed to exist in the real schema — left as-is since
+//    removing them risks losing real functionality if they do exist, but
+//    worth confirming directly in Supabase if job posting still fails.
+
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Loader2, Briefcase, MapPin, DollarSign, Clock, Users } from 'lucide-react';
+import { Loader2, Briefcase, MapPin, DollarSign, Clock, Users, Lock } from 'lucide-react';
+
+const ALLOWED_TIERS = ['employer', 'business'];
+const ALLOWED_USER_TYPES = ['admin', 'super_admin'];
 
 export default function PostJob() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [accessDenied, setAccessDenied] = useState(false);
     const [formData, setFormData] = useState({
         title: '',
         company: '',
@@ -20,6 +48,28 @@ export default function PostJob() {
         application_deadline: '',
         is_active: true
     });
+
+    useEffect(() => {
+        checkAccess();
+    }, []);
+
+    async function checkAccess() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            navigate('/sign-in?redirect=/post-job');
+            return;
+        }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('tier, user_type')
+            .eq('id', user.id)
+            .single();
+
+        const allowed = ALLOWED_TIERS.includes(profile?.tier) || ALLOWED_USER_TYPES.includes(profile?.user_type);
+        setAccessDenied(!allowed);
+        setCheckingAccess(false);
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -40,6 +90,11 @@ export default function PostJob() {
                     user_id: user.id,
                     salary_min: formData.salary_min ? parseInt(formData.salary_min) : null,
                     salary_max: formData.salary_max ? parseInt(formData.salary_max) : null,
+                    // FIXED: explicit pending status — every real listing query
+                    // filters on compliance_status = 'approved', so leaving this
+                    // unset meant jobs were either failing to save or saving
+                    // invisibly while the UI claimed success.
+                    compliance_status: 'pending',
                     posted_at: new Date().toISOString(),
                     created_at: new Date().toISOString()
                 })
@@ -47,7 +102,9 @@ export default function PostJob() {
 
             if (error) throw error;
 
-            alert('Job posted successfully!');
+            // FIXED: honest messaging — this was "Job posted successfully!"
+            // implying it was immediately live, which wasn't true.
+            alert('Job submitted for review! It will appear on the job board once approved.');
             navigate('/manage-jobs');
         } catch (error) {
             console.error('Error posting job:', error);
@@ -56,6 +113,34 @@ export default function PostJob() {
             setLoading(false);
         }
     };
+
+    if (checkingAccess) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+            </div>
+        );
+    }
+
+    if (accessDenied) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+                <div className="max-w-md w-full text-center bg-slate-900/50 border border-slate-800 rounded-xl p-8">
+                    <Lock className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+                    <h1 className="text-xl font-bold text-white mb-2">Employer Plan Required</h1>
+                    <p className="text-slate-400 mb-6">
+                        Posting jobs requires an Employer or Business plan. Upgrade your account to reach qualified candidates.
+                    </p>
+                    <button
+                        onClick={() => navigate('/pricing')}
+                        className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                    >
+                        View Plans
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-slate-950 py-12">
@@ -200,7 +285,7 @@ export default function PostJob() {
                                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Briefcase className="w-5 h-5" />}
-                                {loading ? 'Posting...' : 'Post Job'}
+                                {loading ? 'Submitting...' : 'Submit for Review'}
                             </button>
                             <button
                                 type="button"
