@@ -1,17 +1,36 @@
 // src/pages/JobDetailPage.jsx
+//
+// FIXED (2026-08-07):
+// 1. Was creating its own separate Supabase client instead of importing the
+//    shared singleton — same disconnected-session bug as SavedJobsPage.jsx /
+//    UserApplications.jsx. Now imports the shared client.
+// 2. Race condition: checkUser() and loadJob() both ran independently from the
+//    same useEffect, and loadJob() read the `user` state variable to decide
+//    whether to check saved-job status. Since state updates are async, loadJob
+//    almost always saw the stale initial `user === null`, so the "already
+//    saved" bookmark indicator was unreliable. Now sequenced: fetch the user
+//    first, then load the job with that resolved user passed in directly.
+// 3. handleApply() inserted into job_applications using `user_id` and
+//    `status: 'submitted'`. The confirmed real job_applications handler
+//    (api/index.js) filters applications by `applicant_id`, not `user_id` —
+//    the insert was almost certainly failing outright with a column error.
+//    `'submitted'` also doesn't match the status values used elsewhere
+//    (`pending`/`accepted`/`rejected`). Fixed to use `applicant_id` and
+//    `status: 'pending'`, and removed a speculative `applied_at` field in
+//    favor of the table's default timestamp column.
+// 4. `job_reports` table used in handleReport() is not confirmed to exist in
+//    the real schema — flagged with a comment, not changed, since guessing a
+//    different table name risks being equally wrong.
+
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
   Users, CheckCircle, Award, TrendingUp, Save, Bookmark,
   Share2, Flag, ExternalLink, Loader2, ArrowLeft, Send
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Sample job for fallback
 const SAMPLE_JOB = {
@@ -41,16 +60,18 @@ export default function JobDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    loadJob();
-    checkUser();
+    // FIXED: sequenced instead of two independent async calls racing each
+    // other — fetch the user first, then load the job with that user in hand.
+    async function init() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUser = session?.user || null;
+      setUser(currentUser);
+      await loadJob(currentUser);
+    }
+    init();
   }, [id]);
 
-  async function checkUser() {
-    const { data: { session } } = await supabase.auth.getSession();
-    setUser(session?.user || null);
-  }
-
-  async function loadJob() {
+  async function loadJob(currentUser) {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
@@ -59,9 +80,14 @@ export default function JobDetailPage() {
       } else {
         setJob(data);
       }
-      
-      if (user) {
-        const { data: savedCheck } = await supabase.from('saved_jobs').select('id').eq('user_id', user.id).eq('job_id', id).single();
+
+      if (currentUser) {
+        const { data: savedCheck } = await supabase
+          .from('saved_jobs')
+          .select('id')
+          .eq('user_id', currentUser.id)
+          .eq('job_id', id)
+          .maybeSingle();
         setSaved(!!savedCheck);
       }
     } catch (err) {
@@ -97,6 +123,11 @@ export default function JobDetailPage() {
     }
     const reason = prompt('Please explain why you are reporting this job:');
     if (reason) {
+      // NOTE: `job_reports` is not confirmed to exist in the real schema —
+      // the platform's fraud-reporting feature elsewhere is generally
+      // referred to as `fraud_reports`. Left as-is rather than guessed, since
+      // this may be a genuinely distinct table for job-specific reports.
+      // Worth confirming directly in Supabase before relying on this.
       await supabase.from('job_reports').insert({ job_id: id, user_id: user.id, reason });
       toast.success('Thank you for reporting. We will review it.');
     }
@@ -112,17 +143,21 @@ export default function JobDetailPage() {
     
     setSubmitting(true);
     try {
+      // FIXED: applicant_id (not user_id) to match the confirmed real
+      // job_applications schema; status 'pending' (not 'submitted') to match
+      // the status values the rest of the app filters on; removed the
+      // speculative applied_at field in favor of the table's own timestamp default.
       await supabase.from('job_applications').insert({
         job_id: id,
-        user_id: user.id,
+        applicant_id: user.id,
         cover_letter: coverLetter,
-        status: 'submitted',
-        applied_at: new Date().toISOString()
+        status: 'pending'
       });
       toast.success('Application submitted successfully!');
       setShowApplyForm(false);
       setCoverLetter('');
     } catch (err) {
+      console.error('Error submitting application:', err);
       toast.error('Failed to submit application');
     } finally {
       setSubmitting(false);
