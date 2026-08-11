@@ -1,14 +1,24 @@
 // src/pages/AssessmentResults.jsx
-// ODUSBABA ASSESSMENT RESULTS PAGE v3.0 - PRODUCTION READY
+// ODUSBABA ASSESSMENT RESULTS PAGE v3.1 - PRODUCTION READY
 // ✅ Complete results display
 // ✅ AI-powered insights
-// ✅ Report download & sharing (Unified API)
+// ✅ Report download & sharing
 // ✅ Answer review section
 // ✅ No external chart dependencies
+//
+// FIXED (2026-08-07): handleDownloadReport() called ?action=assessment-generate-report
+// (a real, confirmed backend handler), but that handler itself generates a
+// reportUrl (https://www.bluskyeconsult.com/reports/{id}) that doesn't
+// correspond to any real route — the button opened a dead link. The report
+// HTML was actually being generated correctly by assessmentService.js's
+// generateAssessmentReport(), it just never reached the user. Now calls that
+// function directly and opens the generated HTML via a Blob URL instead of
+// the broken server-side link — no backend changes needed.
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { generateAssessmentReport } from '../services/assessmentService';
 import { 
     Award, Download, Share2, TrendingUp, CheckCircle, Loader2, 
     AlertCircle, BarChart3, FileText, Mail, Twitter, Linkedin,
@@ -42,7 +52,7 @@ export default function AssessmentResults() {
     const [sharing, setSharing] = useState(false);
 
     // ============================================
-    // LOAD RESULTS (Unified API)
+    // LOAD RESULTS (Unified API — confirmed real, unchanged)
     // ============================================
 
     useEffect(() => {
@@ -74,7 +84,7 @@ export default function AssessmentResults() {
             const isAdmin = profileData?.user_type === 'admin' || profileData?.user_type === 'super_admin';
             setCanDownload(canDownloadTiers.includes(profileData?.tier) || isAdmin);
             
-            // ✅ Using unified API for assessment results
+            // Using unified API for assessment results
             const session = await supabase.auth.getSession();
             const response = await fetch(`${API_BASE}?action=assessment-results&id=${id}`, {
                 headers: { 
@@ -103,7 +113,10 @@ export default function AssessmentResults() {
     }
 
     // ============================================
-    // DOWNLOAD REPORT (Unified API)
+    // DOWNLOAD REPORT
+    // FIXED: generates the report locally via assessmentService.js and opens
+    // it as a Blob URL, instead of relying on a backend-generated link that
+    // pointed nowhere.
     // ============================================
 
     async function handleDownloadReport() {
@@ -115,27 +128,14 @@ export default function AssessmentResults() {
         
         setDownloading(true);
         try {
-            // ✅ Using unified API for report generation
-            const session = await supabase.auth.getSession();
-            const response = await fetch(`${API_BASE}?action=assessment-generate-report`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.data.session?.access_token}`
-                },
-                body: JSON.stringify({
-                    userAssessmentId: id,
-                    userId: user?.id
-                })
-            });
+            const { html } = await generateAssessmentReport(id, user.id);
             
-            const data = await response.json();
+            const blob = new Blob([html], { type: 'text/html' });
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
             
-            if (data.success && data.reportUrl) {
-                window.open(data.reportUrl, '_blank');
-            } else {
-                throw new Error(data.error || 'Failed to generate report');
-            }
+            // Release the blob URL after giving the new tab time to load it
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
         } catch (err) {
             console.error('Error downloading report:', err);
             alert(err.message || 'Failed to generate report. Please try again.');
@@ -177,7 +177,7 @@ export default function AssessmentResults() {
         setSharing(true);
         
         try {
-            // ✅ Using unified API for sharing results
+            // Using unified API for sharing results — confirmed real handler
             const response = await fetch(`${API_BASE}?action=assessment-share-results`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
