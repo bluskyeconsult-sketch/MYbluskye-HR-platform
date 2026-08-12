@@ -1,5 +1,14 @@
 // src/pages/admin/AdminUsers.jsx
-// COMPLETE USER MANAGEMENT - With unified API, search, filtering, role management, and bulk actions
+// COMPLETE USER MANAGEMENT
+//
+// FIXED (2026-08-07): loadUsers/toggleSuspend/updateUserRole called
+// /api/index?action=admin-* actions that don't exist anywhere in
+// api/index.js. loadUsers happened to fall back correctly (it checks
+// data.success, falsy for the metadata response), but
+// toggleSuspend/updateUserRole only checked response.ok — true even for
+// that meaningless response — so clicking Suspend or changing a role
+// silently did nothing at all. Simplified all three to go straight to
+// Supabase, removing the dead API-first attempts entirely.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -10,16 +19,6 @@ import {
     Award, Briefcase, Star, Clock, Ban, UserCheck,
     Building2, X
 } from 'lucide-react';
-
-// ============================================
-// CONFIGURATION
-// ============================================
-
-const API_BASE = '/api/index';
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
 
 export default function AdminUsers() {
     const [users, setUsers] = useState([]);
@@ -59,41 +58,20 @@ export default function AdminUsers() {
 
     async function loadUsers() {
         setLoading(true);
-        
         try {
-            // ✅ Use unified API endpoint
-            const response = await fetch(`${API_BASE}?action=admin-users`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    filters: { role: roleFilter !== 'all' ? roleFilter : null, status: statusFilter !== 'all' ? statusFilter : null }
-                })
-            });
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .order('created_at', { ascending: false });
             
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    setUsers(data.users || []);
-                    calculateStats(data.users || []);
-                    setLoading(false);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn('Unified API failed, falling back to direct Supabase:', err);
-        }
-        
-        // Fallback to direct Supabase query
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .order('created_at', { ascending: false });
-        
-        if (!error) {
+            if (error) throw error;
             setUsers(data || []);
             calculateStats(data || []);
+        } catch (err) {
+            console.error('Error loading users:', err);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
     async function refreshUsers() {
@@ -116,7 +94,6 @@ export default function AdminUsers() {
     function filterUsers() {
         let filtered = [...users];
         
-        // Search filter
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
             filtered = filtered.filter(u => 
@@ -126,12 +103,10 @@ export default function AdminUsers() {
             );
         }
         
-        // Role filter
         if (roleFilter !== 'all') {
             filtered = filtered.filter(u => u.user_type === roleFilter);
         }
         
-        // Status filter
         if (statusFilter === 'active') {
             filtered = filtered.filter(u => !u.is_suspended);
         } else if (statusFilter === 'suspended') {
@@ -143,19 +118,6 @@ export default function AdminUsers() {
 
     async function toggleSuspend(userId, currentStatus) {
         try {
-            const response = await fetch(`${API_BASE}?action=admin-toggle-suspend`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, suspend: !currentStatus })
-            });
-            
-            if (response.ok) {
-                await loadUsers();
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
             await supabase
                 .from('profiles')
                 .update({ 
@@ -164,28 +126,14 @@ export default function AdminUsers() {
                 })
                 .eq('id', userId);
             await loadUsers();
+        } catch (err) {
+            console.error('Error toggling suspension:', err);
         }
     }
 
     async function updateUserRole(userId, newRole) {
         setUpdatingRole(true);
-        
         try {
-            const response = await fetch(`${API_BASE}?action=admin-update-role`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, role: newRole })
-            });
-            
-            if (response.ok) {
-                await loadUsers();
-                setShowRoleModal(false);
-                setSelectedUser(null);
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
             await supabase
                 .from('profiles')
                 .update({ user_type: newRole })
@@ -193,6 +141,8 @@ export default function AdminUsers() {
             await loadUsers();
             setShowRoleModal(false);
             setSelectedUser(null);
+        } catch (err) {
+            console.error('Error updating role:', err);
         } finally {
             setUpdatingRole(false);
         }
