@@ -1,5 +1,24 @@
 // src/pages/admin/AdminJobs.jsx
-// COMPLETE JOB MANAGEMENT - With unified API, search, filtering, status toggle, and job details
+// COMPLETE JOB MANAGEMENT
+//
+// FIXED (2026-08-07):
+// 1. loadJobs/toggleStatus/toggleFeatured/deleteJob all called
+//    /api/index?action=admin-* actions that don't exist anywhere in
+//    api/index.js. loadJobs happened to fall back correctly (it checks
+//    data.success, which is falsy for the metadata response), but
+//    toggleStatus/toggleFeatured/deleteJob only checked response.ok — which
+//    is true even for that meaningless metadata response — so clicking
+//    those buttons silently did nothing at all, no error, no actual change.
+//    Simplified all four to go straight to Supabase, removing the dead
+//    API-first attempts entirely.
+// 2. The job details modal called .map() on selectedJob.requirements, but
+//    PostJob.jsx saves it as a plain textarea string, not an array — this
+//    would throw a TypeError the first time an admin opened details for any
+//    employer-posted job. Fixed to render either shape.
+// 3. Salary display only checked salary_range (a string field set by the
+//    external RSS job-fetching pipeline), but employer-posted jobs from
+//    PostJob.jsx store salary_min/salary_max as separate numbers instead —
+//    now checks both.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -9,16 +28,6 @@ import {
     Clock, AlertCircle, Trash2, Edit, ExternalLink, Users,
     TrendingUp, Award, Shield, Star
 } from 'lucide-react';
-
-// ============================================
-// CONFIGURATION
-// ============================================
-
-const API_BASE = '/api/index';
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
 
 export default function AdminJobs() {
     const [jobs, setJobs] = useState([]);
@@ -58,44 +67,20 @@ export default function AdminJobs() {
 
     async function loadJobs() {
         setLoading(true);
-        
         try {
-            // ✅ Use unified API endpoint
-            const response = await fetch(`${API_BASE}?action=admin-jobs`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    filters: { 
-                        status: statusFilter !== 'all' ? statusFilter : null,
-                        type: typeFilter !== 'all' ? typeFilter : null
-                    }
-                })
-            });
+            const { data, error } = await supabase
+                .from('jobs')
+                .select('*')
+                .order('created_at', { ascending: false });
             
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    setJobs(data.jobs || []);
-                    calculateStats(data.jobs || []);
-                    setLoading(false);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn('Unified API failed, falling back to direct Supabase:', err);
-        }
-        
-        // Fallback to direct Supabase query
-        const { data, error } = await supabase
-            .from('jobs')
-            .select('*')
-            .order('created_at', { ascending: false });
-        
-        if (!error) {
+            if (error) throw error;
             setJobs(data || []);
             calculateStats(data || []);
+        } catch (err) {
+            console.error('Error loading jobs:', err);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
     async function refreshJobs() {
@@ -118,7 +103,6 @@ export default function AdminJobs() {
     function filterJobs() {
         let filtered = [...jobs];
         
-        // Search filter
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
             filtered = filtered.filter(j => 
@@ -129,14 +113,12 @@ export default function AdminJobs() {
             );
         }
         
-        // Status filter
         if (statusFilter === 'active') {
             filtered = filtered.filter(j => j.is_active);
         } else if (statusFilter === 'inactive') {
             filtered = filtered.filter(j => !j.is_active);
         }
         
-        // Type filter
         if (typeFilter !== 'all') {
             filtered = filtered.filter(j => j.job_type === typeFilter);
         }
@@ -146,47 +128,19 @@ export default function AdminJobs() {
 
     async function toggleStatus(jobId, currentStatus) {
         try {
-            const response = await fetch(`${API_BASE}?action=admin-toggle-job-status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobId, active: !currentStatus })
-            });
-            
-            if (response.ok) {
-                await loadJobs();
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
-            await supabase
-                .from('jobs')
-                .update({ is_active: !currentStatus })
-                .eq('id', jobId);
+            await supabase.from('jobs').update({ is_active: !currentStatus }).eq('id', jobId);
             await loadJobs();
+        } catch (err) {
+            console.error('Error toggling job status:', err);
         }
     }
 
     async function toggleFeatured(jobId, currentFeatured) {
         try {
-            const response = await fetch(`${API_BASE}?action=admin-toggle-featured`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobId, featured: !currentFeatured })
-            });
-            
-            if (response.ok) {
-                await loadJobs();
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
-            await supabase
-                .from('jobs')
-                .update({ is_featured: !currentFeatured })
-                .eq('id', jobId);
+            await supabase.from('jobs').update({ is_featured: !currentFeatured }).eq('id', jobId);
             await loadJobs();
+        } catch (err) {
+            console.error('Error toggling featured:', err);
         }
     }
 
@@ -194,21 +148,10 @@ export default function AdminJobs() {
         if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) return;
         
         try {
-            const response = await fetch(`${API_BASE}?action=admin-delete-job`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobId })
-            });
-            
-            if (response.ok) {
-                await loadJobs();
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
             await supabase.from('jobs').delete().eq('id', jobId);
             await loadJobs();
+        } catch (err) {
+            console.error('Error deleting job:', err);
         }
     }
 
@@ -223,6 +166,12 @@ export default function AdminJobs() {
         };
         const { label, color } = config[jobType] || { label: 'Full Time', color: 'bg-slate-500/20 text-slate-400' };
         return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
+    }
+
+    function getSalaryDisplay(job) {
+        if (job.salary_range) return job.salary_range;
+        if (job.salary_min && job.salary_max) return `£${job.salary_min.toLocaleString()} - £${job.salary_max.toLocaleString()}`;
+        return 'Competitive';
     }
 
     if (loading) {
@@ -350,8 +299,8 @@ export default function AdminJobs() {
                                     <td className="px-4 py-3">
                                         <div>
                                             <p className="text-white text-sm font-medium">{job.title}</p>
-                                            {job.salary_range && (
-                                                <p className="text-xs text-emerald-400 mt-0.5">{job.salary_range}</p>
+                                            {(job.salary_range || (job.salary_min && job.salary_max)) && (
+                                                <p className="text-xs text-emerald-400 mt-0.5">{getSalaryDisplay(job)}</p>
                                             )}
                                         </div>
                                     </td>
@@ -483,7 +432,7 @@ export default function AdminJobs() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <DollarSign className="w-4 h-4 text-slate-500" />
-                                    <span className="text-slate-300">{selectedJob.salary_range || 'Competitive'}</span>
+                                    <span className="text-slate-300">{getSalaryDisplay(selectedJob)}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <Briefcase className="w-4 h-4 text-slate-500" />
@@ -502,14 +451,21 @@ export default function AdminJobs() {
                                 </div>
                             )}
                             
-                            {selectedJob.requirements && selectedJob.requirements.length > 0 && (
+                            {/* FIXED: PostJob.jsx saves requirements as a plain
+                                string, not an array — .map() would crash.
+                                Now handles either shape. */}
+                            {selectedJob.requirements && (
                                 <div>
                                     <h4 className="text-white font-semibold mb-2">Requirements</h4>
-                                    <ul className="list-disc list-inside space-y-1">
-                                        {selectedJob.requirements.map((req, idx) => (
-                                            <li key={idx} className="text-slate-400 text-sm">{req}</li>
-                                        ))}
-                                    </ul>
+                                    {Array.isArray(selectedJob.requirements) ? (
+                                        <ul className="list-disc list-inside space-y-1">
+                                            {selectedJob.requirements.map((req, idx) => (
+                                                <li key={idx} className="text-slate-400 text-sm">{req}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-slate-400 text-sm whitespace-pre-wrap">{selectedJob.requirements}</p>
+                                    )}
                                 </div>
                             )}
                             
