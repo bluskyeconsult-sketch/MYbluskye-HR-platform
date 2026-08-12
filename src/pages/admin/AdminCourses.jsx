@@ -1,13 +1,39 @@
 // src/pages/admin/AdminCourses.jsx
+//
+// FIXED (2026-08-07):
+// 1. Created its own separate Supabase client via createClient() instead of
+//    importing the shared singleton — same disconnected-client bug pattern
+//    found and fixed in 4 other files earlier in this project. Auth state
+//    from the rest of the app wasn't visible here.
+// 2. MAJOR: used field names (status, duration_minutes, level,
+//    thumbnail_url) that don't match ANY other confirmed part of the real
+//    app. CoursesPage.jsx, CourseDetail.jsx, and the courses-list/
+//    homepage-stats handlers all use is_published (boolean), duration_hours,
+//    category, and image_url. Since the public course catalog filters on
+//    is_published = true, any course created or edited through this admin
+//    page was invisible to users — this insert never touched that column.
+//    Renamed every field to match, and added a real category dropdown
+//    (using the same list CoursesPage.jsx filters by), since the form
+//    previously had no way to set it at all.
+//
+// FLAGGED, NOT FIXED: imports ConfirmModal from ../../components/ConfirmModal
+// — not reviewed in this session, contents unconfirmed.
+
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { Plus, Edit, Trash2, GraduationCap, Search, RefreshCw, Loader2, CheckCircle, XCircle, Eye, EyeOff, X, Square, Save } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const CATEGORIES = [
+    'HR Fundamentals',
+    'Recruitment',
+    'Employee Relations',
+    'Performance Management',
+    'Compliance',
+    'Diversity',
+    'Talent Management'
+];
 
 export default function AdminCourses() {
   const [courses, setCourses] = useState([]);
@@ -24,7 +50,7 @@ export default function AdminCourses() {
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
-    title: '', description: '', level: 'beginner', duration_minutes: 60, price: 0, thumbnail_url: '', status: 'draft'
+    title: '', description: '', category: CATEGORIES[0], duration_hours: 2, price: 0, image_url: '', is_published: false
   });
 
   const itemsPerPage = 10;
@@ -88,14 +114,19 @@ export default function AdminCourses() {
     finally { setShowDeleteConfirm(null); }
   }
 
-  async function toggleStatus(id, currentStatus) {
-    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
-    try { await supabase.from('courses').update({ status: newStatus }).eq('id', id); toast.success(`Course ${newStatus}`); await loadCourses(); }
+  // FIXED: toggles the real is_published boolean instead of a nonexistent
+  // 'status' string column.
+  async function toggleStatus(id, currentlyPublished) {
+    try {
+      await supabase.from('courses').update({ is_published: !currentlyPublished }).eq('id', id);
+      toast.success(`Course ${!currentlyPublished ? 'published' : 'unpublished'}`);
+      await loadCourses();
+    }
     catch (err) { toast.error('Failed to update status'); }
   }
 
   function resetForm() {
-    setFormData({ title: '', description: '', level: 'beginner', duration_minutes: 60, price: 0, thumbnail_url: '', status: 'draft' });
+    setFormData({ title: '', description: '', category: CATEGORIES[0], duration_hours: 2, price: 0, image_url: '', is_published: false });
   }
 
   function handleEdit(course) { setEditing(course.id); setFormData(course); setShowForm(true); }
@@ -129,13 +160,13 @@ export default function AdminCourses() {
                 <div key={course.id} className="bg-slate-900/50 border rounded-xl overflow-hidden">
                   <div className="p-5">
                     <div className="flex justify-between items-start">
-                      <div><h3 className="font-semibold text-white">{course.title}</h3><p className="text-sm text-slate-400">{course.level} • {course.duration_minutes} min</p></div>
+                      <div><h3 className="font-semibold text-white">{course.title}</h3><p className="text-sm text-slate-400">{course.category} • {course.duration_hours} hrs</p></div>
                       <button onClick={() => toggleSelectCourse(course.id)}>{selectedCourses.has(course.id) ? <CheckCircle className="w-5 h-5 text-primary-400" /> : <Square className="w-5 h-5 text-slate-500" />}</button>
                     </div>
                     <p className="text-slate-400 text-sm mt-2 line-clamp-2">{course.description}</p>
                     <div className="mt-3 flex justify-between items-center">
                       <span className="text-xl font-bold text-primary-400">${course.price}</span>
-                      <button onClick={() => toggleStatus(course.id, course.status)} className={`text-xs px-2 py-1 rounded-full ${course.status === 'published' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>{course.status}</button>
+                      <button onClick={() => toggleStatus(course.id, course.is_published)} className={`text-xs px-2 py-1 rounded-full ${course.is_published ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>{course.is_published ? 'published' : 'draft'}</button>
                     </div>
                     <div className="flex gap-2 mt-4 pt-3 border-t"><button onClick={() => handleEdit(course)} className="flex-1 py-1.5 bg-slate-700 rounded-lg text-sm"><Edit className="w-3.5 h-3.5" /> Edit</button><button onClick={() => deleteCourse(course.id)} className="flex-1 py-1.5 bg-red-600/20 text-red-400 rounded-lg text-sm"><Trash2 className="w-3.5 h-3.5" /> Delete</button></div>
                   </div>
@@ -154,9 +185,20 @@ export default function AdminCourses() {
             <div className="space-y-4">
               <input type="text" placeholder="Title" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
               <textarea placeholder="Description" rows={3} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
-              <div className="grid grid-cols-2 gap-4"><select value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg"><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="expert">Expert</option></select><input type="number" placeholder="Duration (min)" value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: parseInt(e.target.value)})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" /></div>
-              <div className="grid grid-cols-2 gap-4"><input type="number" placeholder="Price" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" /><select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg"><option value="draft">Draft</option><option value="published">Published</option></select></div>
-              <input type="text" placeholder="Thumbnail URL" value={formData.thumbnail_url} onChange={e => setFormData({...formData, thumbnail_url: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
+              <div className="grid grid-cols-2 gap-4">
+                <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+                  {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+                <input type="number" placeholder="Duration (hours)" value={formData.duration_hours} onChange={e => setFormData({...formData, duration_hours: parseFloat(e.target.value)})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input type="number" placeholder="Price" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
+                <select value={formData.is_published ? 'published' : 'draft'} onChange={e => setFormData({...formData, is_published: e.target.value === 'published'})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                </select>
+              </div>
+              <input type="text" placeholder="Image URL" value={formData.image_url} onChange={e => setFormData({...formData, image_url: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
               <div className="flex gap-3 pt-4"><button onClick={saveCourse} disabled={saving} className="flex-1 py-2 bg-primary-600 rounded-lg flex items-center justify-center gap-2">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}{saving ? 'Saving...' : 'Save'}</button><button onClick={() => setShowForm(false)} className="flex-1 py-2 bg-slate-700 rounded-lg">Cancel</button></div>
             </div>
           </div>
