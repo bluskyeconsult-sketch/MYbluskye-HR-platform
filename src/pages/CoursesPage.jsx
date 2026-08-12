@@ -1,9 +1,29 @@
 // src/pages/CoursesPage.jsx
-// ODUSBABA COURSES PAGE v3.0 - PRODUCTION READY
-// ✅ Complete course catalog with search, filters, sorting
-// ✅ Enrollment tracking and progress monitoring
-// ✅ AI-powered course recommendations
-// ✅ Category and level filtering
+// ODUSBABA COURSES PAGE v3.1 - PRODUCTION READY
+//
+// FIXED (2026-08-07):
+// 1. handleEnroll() was fully written and correct but never actually called
+//    anywhere — the course cards were plain <Link>s with no onClick, so
+//    clicking "Start Course" never enrolled anyone. Now calls handleEnroll()
+//    on click for courses the user isn't enrolled in yet.
+// 2. AI recommendations called /api/index?action=ai-course-recommendations,
+//    which doesn't exist anywhere in api/index.js — always failed. Rewired
+//    to use the real 'chat' action (same pattern as the assessmentService.js
+//    fixes), asking for structured JSON and parsing it client-side. No
+//    backend changes needed.
+// 3. isCompleted() only checked enrollment.completed_at, but the confirmed
+//    real update-course-progress handler never sets that field (or status)
+//    — only progress. Now also checks progress === 100, matching the more
+//    robust logic already used in LearnerDashboard.jsx. A small optional
+//    patch to fix update-course-progress itself (so completed_at/status get
+//    set properly) is provided separately.
+//
+// FLAGGED, NOT FIXED: "Start Course"/"Continue Learning" links point to
+// /learning/:id, and the AI recommendations panel's "View" link points to
+// /courses/:id — NEITHER route exists anywhere in App.jsx. There's no course
+// detail/player page built yet, so these links currently 404. This needs an
+// actual page built, not a patch — flagged as the headline finding for this
+// phase.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -30,7 +50,6 @@ export default function CoursesPage() {
     const [aiRecommendations, setAiRecommendations] = useState(null);
     const [aiLoading, setAiLoading] = useState(false);
 
-    // Categories from 2nd code (expanded with icons)
     const categories = [
         { id: 'all', name: 'All Courses', icon: BookOpen },
         { id: 'HR Fundamentals', name: 'HR Fundamentals', icon: Shield },
@@ -65,7 +84,6 @@ export default function CoursesPage() {
             const { data: { user } } = await supabase.auth.getUser();
             setUser(user);
             
-            // Load courses
             const { data: coursesData, error: coursesError } = await supabase
                 .from('courses')
                 .select('*')
@@ -77,11 +95,10 @@ export default function CoursesPage() {
             setCourses(coursesData || []);
             setFilteredCourses(coursesData || []);
             
-            // Load enrolled courses if logged in
             if (user) {
                 const { data: enrollments, error: enrollError } = await supabase
                     .from('course_enrollments')
-                    .select('course_id, progress, completed_at')
+                    .select('course_id, progress, completed_at, status')
                     .eq('user_id', user.id);
                 
                 if (!enrollError && enrollments) {
@@ -102,6 +119,9 @@ export default function CoursesPage() {
             return;
         }
 
+        // Avoid inserting a duplicate row if already enrolled
+        if (isEnrolled(courseId)) return;
+
         try {
             const { error } = await supabase
                 .from('course_enrollments')
@@ -115,26 +135,24 @@ export default function CoursesPage() {
             
             if (error) throw error;
             
-            // Refresh enrollments
             const { data: enrollments } = await supabase
                 .from('course_enrollments')
-                .select('course_id, progress, completed_at')
+                .select('course_id, progress, completed_at, status')
                 .eq('user_id', user.id);
             
             if (enrollments) {
                 setEnrolledCourses(enrollments);
             }
-            
-            alert('✅ Successfully enrolled in course!');
         } catch (error) {
-            alert('❌ Error enrolling in course: ' + error.message);
+            console.error('Error enrolling in course:', error);
+            // Not shown as an alert here since this now fires silently
+            // alongside navigation — errors are logged for diagnosis.
         }
     }
 
     function filterAndSortCourses() {
         let filtered = [...courses];
         
-        // Search filter
         if (searchTerm.trim()) {
             const query = searchTerm.toLowerCase();
             filtered = filtered.filter(c => 
@@ -143,12 +161,10 @@ export default function CoursesPage() {
             );
         }
         
-        // Category filter
         if (selectedCategory !== 'all') {
             filtered = filtered.filter(c => c.category === selectedCategory);
         }
         
-        // Sorting
         filtered.sort((a, b) => {
             switch (sortBy) {
                 case 'newest':
@@ -178,9 +194,17 @@ export default function CoursesPage() {
 
     function isCompleted(courseId) {
         const enrollment = enrolledCourses.find(e => e.course_id === courseId);
-        return !!enrollment?.completed_at;
+        if (!enrollment) return false;
+        // FIXED: also check progress === 100, since the real backend never
+        // sets completed_at or status — this matches LearnerDashboard.jsx's
+        // more robust check.
+        return enrollment.progress === 100 || !!enrollment.completed_at || enrollment.status === 'completed';
     }
 
+    // FIXED: rewired to use the real 'chat' action instead of a nonexistent
+    // 'ai-course-recommendations' action. Asks for structured JSON and
+    // parses it client-side, same pattern already used successfully in
+    // assessmentService.js.
     async function handleAIRecommendations() {
         if (!aiQuestion.trim()) {
             alert('Please describe your career goals');
@@ -191,25 +215,37 @@ export default function CoursesPage() {
         setAiRecommendations(null);
         
         try {
-            const response = await fetch('/api/index?action=ai-course-recommendations', {
+            const courseList = courses
+                .map(c => `- ${c.id}: ${c.title} (${c.category || 'General'}) — ${c.description || ''}`)
+                .join('\n');
+            
+            const systemPrompt = 'You are a career course advisor. Return ONLY valid JSON, no other text, no markdown code fences.';
+            const userMessage = `A learner says: "${aiQuestion}"\n\nAvailable courses:\n${courseList}\n\nRecommend up to 4 of the most relevant courses from the list above. Return a JSON array like: [{"courseId": "the exact id from the list", "reason": "a short reason this fits"}]`;
+            
+            const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    question: aiQuestion,
-                    availableCourses: courses.map(c => ({
-                        id: c.id,
-                        title: c.title,
-                        description: c.description,
-                        category: c.category
-                    }))
+                body: JSON.stringify({
+                    message: userMessage,
+                    systemPrompt,
+                    history: [],
+                    temperature: 0.5,
+                    maxTokens: 600
                 })
             });
             
             const result = await response.json();
-            
             if (!result.success) throw new Error(result.error);
             
-            setAiRecommendations(result.recommendations);
+            const cleaned = result.response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+            const recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+            
+            if (recommendations.length === 0) {
+                throw new Error('No matching recommendations found');
+            }
+            
+            setAiRecommendations(recommendations);
         } catch (error) {
             console.error('AI recommendation error:', error);
             alert('Failed to get recommendations. Please try again.');
@@ -439,8 +475,13 @@ export default function CoursesPage() {
                                             </div>
                                         )}
                                         
-                                        {/* Action Buttons */}
-                                        <Link to={`/learning/${course.id}`}>
+                                        {/* Action Buttons — FIXED: now calls handleEnroll() on click
+                                            for non-enrolled courses, since it previously was never
+                                            invoked anywhere in this file. */}
+                                        <Link
+                                            to={`/learning/${course.id}`}
+                                            onClick={() => { if (!enrolled) handleEnroll(course.id); }}
+                                        >
                                             <button className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center gap-2">
                                                 {enrolled ? (
                                                     <>Continue Learning <ChevronRight className="w-4 h-4" /></>
