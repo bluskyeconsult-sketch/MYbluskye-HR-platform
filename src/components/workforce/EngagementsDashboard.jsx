@@ -5,12 +5,13 @@
 // in api/index.js. workforceService.js has correct working equivalents for
 // three of the four — rewired to use them, same pattern as ProposalsList.jsx.
 //
-// NOT FIXED — genuinely unbuilt: sending a message during an engagement
-// (workforce-send-message) has no equivalent anywhere, in this file or
-// workforceService.js. There's no messages table or function to call. This
-// isn't a bug I can patch without inventing a messaging system from
-// scratch — left as-is, will fail gracefully with the existing error
-// handling. Flagged for a product decision on whether/how to build this.
+// RESOLVED (2026-08-07): sending a message during an engagement
+// (workforce-send-message) had no backend equivalent anywhere. Rather than
+// invent a new messages table, this now sends a real email via the
+// already-confirmed-working `email` action — workforceService.js's
+// getMyEngagements() was updated to also fetch the employer's email
+// alongside the professional's, so both directions of contact are possible.
+// This is email-based contact, not real-time in-app chat.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -78,11 +79,46 @@ export default function EngagementsDashboard({ userId, userType }) {
     async function handleSendMessage(engagementId) {
         if (!messageText.trim()) return;
         
-        // NOT FIXED: there is no messaging backend anywhere — no API action,
-        // no workforceService.js function, no messages table confirmed to
-        // exist. This will always fail until that feature is actually built.
-        // Left with clear error handling rather than a fake success.
-        alert('Messaging isn\'t available yet — this feature hasn\'t been built on the backend. Contact the other party by other means for now.');
+        setSubmitting(true);
+        try {
+            // FIXED: sends a real email via the confirmed-working `email`
+            // action instead of a nonexistent messaging backend.
+            const engagement = engagements.find(e => e.id === engagementId);
+            const recipientEmail = userType === 'employer'
+                ? engagement?.professional?.profiles?.email
+                : engagement?.employer?.email;
+            
+            if (!recipientEmail) {
+                throw new Error('Contact email not available for the other party.');
+            }
+            
+            const response = await fetch('/api/index?action=email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: recipientEmail,
+                    type: 'notification',
+                    templateData: {
+                        subject: `New message about "${engagement?.service_request?.title || 'your engagement'}"`,
+                        message: messageText,
+                        actionLink: `${window.location.origin}/workforce/engagements`,
+                        actionText: 'View Engagement'
+                    }
+                })
+            });
+            
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error);
+            
+            setMessageText('');
+            setSelectedEngagement(null);
+            alert('Message sent!');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert(error.message || 'Failed to send message');
+        } finally {
+            setSubmitting(false);
+        }
     }
 
     async function handleSubmitRating() {
