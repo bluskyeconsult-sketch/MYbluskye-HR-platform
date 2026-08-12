@@ -1,5 +1,20 @@
 // src/pages/admin/VirtualAssistantManager.jsx
 // SUPER ADMIN - AI-Powered Virtual Assistant Manager
+//
+// FIXED (2026-08-07): removed a hardcoded admin-email backdoor (5th
+// instance found across the codebase) — now checks profiles.user_type.
+//
+// CONFIRMED, FLAGGED (architecture decision needed — see project brief):
+// this page — and the aiVirtualAssistantService.js it imports — is real,
+// actively-used code, not orphaned (resolving the Phase 6 open question).
+// But it writes to a `virtual_assistants` DATABASE TABLE, while the actual
+// live /hire-va page (HireVirtualAssistant.jsx) reads from a hardcoded
+// 6-item array baked into api/index.js's 'virtual-assistants' handler.
+// Anything an admin creates or edits here is completely invisible to real
+// users — the same architecture split found in the Workforce Marketplace
+// (Phase 7). Not fixed unilaterally — this is a product decision: should
+// the public VA catalog become database-driven, replacing the hardcoded
+// array? Flagging clearly rather than guessing.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -57,8 +72,21 @@ export default function VirtualAssistantManager() {
 
     async function checkAdminAccess() {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email !== 'bluskyeconsult@gmail.com') {
-            alert('Access denied. Super Admin only.');
+        if (!user) {
+            window.location.href = '/admin-login';
+            return;
+        }
+
+        // FIXED: real database check instead of a hardcoded email.
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('user_type')
+            .eq('id', user.id)
+            .single();
+
+        const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+        if (!isAdmin) {
+            alert('Access denied. Admin access required.');
             window.location.href = '/admin/dashboard';
         }
     }
@@ -120,7 +148,7 @@ export default function VirtualAssistantManager() {
             setAiTopic('');
             setAiSpecialization('');
             loadAssistants();
-            alert('✅ Virtual Assistant created successfully!');
+            alert('✅ Virtual Assistant created successfully! Note: this is only visible in this admin catalog, not on the live /hire-va page — see file header.');
         } else {
             alert('Error creating Virtual Assistant');
         }
@@ -214,6 +242,11 @@ export default function VirtualAssistantManager() {
 
     return (
         <div className="p-6">
+            {/* Architecture-split warning banner */}
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-400">
+                ⚠️ Virtual Assistants created here are stored in a database table that the live <code>/hire-va</code> page doesn't read from — it currently uses a fixed, hardcoded list of 6 assistants. Anything you create or edit here won't be visible to users until that's resolved.
+            </div>
+
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Virtual Assistant Manager</h1>
