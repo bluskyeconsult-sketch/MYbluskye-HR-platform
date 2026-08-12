@@ -2,7 +2,11 @@
 // ODUSBABA v13.2 - Complete Production Ready with Mobile-First Layout
 //
 // FIXED (2026-08-07):
-// 0. Added the missing /learning/:id route — CoursesPage.jsx and
+// 0a. Added the missing /jobs/:id route — JobDetailPage.jsx was fixed back
+//     in Phase 3+4 (disconnected client, race condition, wrong insert
+//     fields) but was NEVER actually imported or routed anywhere in this
+//     file. Every "View Details" link to a job has 404'd this entire time.
+// 0b. Added the missing /learning/:id route — CoursesPage.jsx and
 //    LearnerDashboard.jsx have always linked here, but nothing was routed
 //    to it, so every "Start Course"/"Continue Learning" click 404'd. See
 //    the new src/pages/CourseDetail.jsx.
@@ -468,6 +472,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
+const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
@@ -625,6 +630,7 @@ function AppContent() {
                             {/* Public Routes */}
                             <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                             <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                            <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
                             <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
                             <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
                             <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
