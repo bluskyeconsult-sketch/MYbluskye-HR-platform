@@ -2,6 +2,10 @@
 // ODUSBABA v13.2 - Complete Production Ready with Mobile-First Layout
 //
 // FIXED (2026-08-07):
+// 0. Added the missing /learning/:id route — CoursesPage.jsx and
+//    LearnerDashboard.jsx have always linked here, but nothing was routed
+//    to it, so every "Start Course"/"Continue Learning" click 404'd. See
+//    the new src/pages/CourseDetail.jsx.
 // 1. Navbar.checkAuth, ProtectedRoute.checkAuth, and handleLogout all called
 //    /api/index?action=session, ?action=profile, ?action=logout — none of
 //    which exist in api/index.js. Unknown actions return HTTP 200 with
@@ -492,6 +496,7 @@ const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
+const CourseDetail = lazy(() => import('./pages/CourseDetail'));
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
 const PostJob = lazy(() => import('./pages/employer/PostJob'));
@@ -686,6 +691,7 @@ function AppContent() {
                             <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
                             <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
+                            <Route path="/learning/:id" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
                             <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
                             <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
                             
