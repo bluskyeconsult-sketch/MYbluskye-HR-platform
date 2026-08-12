@@ -130,28 +130,23 @@ function getTransporter() {
 }
 
 // ============================================
-// VA SYSTEM PROMPTS (NEW — 2026-08-07)
-// Role-specific prompts for each known assistant so va-execute can call
-// OpenAI with real context instead of returning static text. Any assistantId
-// not listed here (including future ones added on the frontend) falls back
-// to a sensible generic prompt built from the id itself — nothing needs to
-// be added here just to support a new assistant on the frontend.
+// VA CATEGORY ICONS (2026-08-07)
+// The virtual_assistants table (admin-managed via VirtualAssistantManager.jsx)
+// doesn't store an icon — this maps its category field to a display emoji,
+// used by the 'virtual-assistants' list handler below. The old
+// VA_SYSTEM_PROMPTS/getVASystemPrompt helpers that used to key off a fixed
+// set of hardcoded VA ids have been removed — va-execute now builds each
+// prompt from the real VA record it looks up, so any admin-created
+// assistant works without needing a matching entry here.
 // ============================================
 
-const VA_SYSTEM_PROMPTS = {
-    'cv-expert': 'You are a professional CV/resume writer and ATS optimization expert. Give specific, actionable feedback tailored to what the user shares — quantify achievements where possible, suggest concrete wording improvements, and flag ATS formatting issues. Use markdown formatting for readability.',
-    'cover-letter-pro': 'You are a professional cover letter writer. Write a compelling, tailored cover letter based on the details the user provides — connect their specific experience to the role, keep it under 400 words, and avoid generic filler. Use markdown formatting for readability.',
-    'linkedin-optimizer': 'You are a LinkedIn profile optimization expert. Give specific, actionable suggestions for headline, About section, and experience bullets based on what the user shares — focus on keywords recruiters search for and quantifiable achievements. Use markdown formatting for readability.',
-    'interview-coach': 'You are an interview preparation coach. Based on the role or situation the user describes, provide relevant practice questions, the STAR method framework where useful, and specific tips for their target role. Use markdown formatting for readability.',
-    'salary-negotiator': 'You are a salary negotiation expert. Based on the details the user provides (role, location, experience, current offer), give market-informed negotiation strategy and a script they can adapt. Use markdown formatting for readability.',
-    'skill-analyzer': 'You are a career development expert specializing in skill gap analysis. Based on the target role the user describes, identify likely skill gaps and suggest a concrete, prioritized learning path. Use markdown formatting for readability.'
+const VA_CATEGORY_ICONS = {
+    resume: '📄',
+    career: '💼',
+    interview: '🎯',
+    skill: '📊',
+    legal: '⚖️'
 };
-
-function getVASystemPrompt(assistantId) {
-    if (VA_SYSTEM_PROMPTS[assistantId]) return VA_SYSTEM_PROMPTS[assistantId];
-    const readableName = assistantId.replace(/-/g, ' ');
-    return `You are a professional career assistant specializing in ${readableName}. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`;
-}
 
 // ============================================
 // MOCK DATA (From Code 2)
@@ -222,7 +217,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">New Contact Message</h1>
         </div>
         <div style="padding:24px;">
@@ -1505,25 +1500,51 @@ const handlers = {
     },
 
     // ========== VIRTUAL ASSISTANTS ==========
+    // CHANGED (2026-08-07): now queries the real virtual_assistants table
+    // (managed via VirtualAssistantManager.jsx) instead of returning a
+    // hardcoded 6-item array. This was the architecture split flagged in
+    // Phase 9 — admin-created VAs are now the actual public catalog.
     'virtual-assistants': async (req, res) => {
-        const assistants = [
-            { id: 'cv-expert', name: 'CV Makeover Pro', category: 'resume', icon: '📄', price: 5, description: 'ATS-optimized CV writing and formatting expert', tier: 'free', processingTime: '2-3 min', rating: 4.9, reviews: 128 },
-            { id: 'interview-coach', name: 'Interview Coach AI', category: 'interview', icon: '🎯', price: 3, description: 'Behavioral and technical interview preparation', tier: 'free', processingTime: '1-2 min', rating: 4.8, reviews: 95 },
-            { id: 'salary-negotiator', name: 'Salary Negotiator', category: 'career', icon: '💰', price: 4, description: 'Market research and negotiation scripts', tier: 'registered', processingTime: '2-3 min', rating: 4.7, reviews: 76 },
-            { id: 'skill-analyzer', name: 'Skill Gap Analyst', category: 'skills', icon: '📊', price: 4, description: 'Identify skill gaps and learning paths', tier: 'registered', processingTime: '3-4 min', rating: 4.9, reviews: 112 },
-            { id: 'linkedin-optimizer', name: 'LinkedIn Optimizer', category: 'social', icon: '🔗', price: 5, description: 'Profile optimization for recruiters', tier: 'professional', processingTime: '2-3 min', rating: 4.8, reviews: 89 },
-            { id: 'cover-letter-pro', name: 'Cover Letter Pro', category: 'resume', icon: '✉️', price: 3, description: 'Custom cover letters for any role', tier: 'free', processingTime: '1-2 min', rating: 4.6, reviews: 64 }
-        ];
+        const supabaseClient = getSupabase();
         
-        return res.status(200).json({ success: true, assistants });
+        try {
+            const { data, error } = await supabaseClient
+                .from('virtual_assistants')
+                .select('*')
+                .eq('is_active', true)
+                .order('category', { ascending: true });
+            
+            if (error) throw error;
+            
+            const assistants = (data || []).map(va => ({
+                id: va.id,
+                name: va.name,
+                category: va.category,
+                icon: VA_CATEGORY_ICONS[va.category] || '🤖',
+                price: va.price,
+                description: va.description,
+                longDescription: va.long_description,
+                tier: 'free',
+                processingTime: `${va.processing_time_minutes || 5} min`,
+                rating: 4.8,
+                reviews: 0
+            }));
+            
+            return res.status(200).json({ success: true, assistants });
+        } catch (error) {
+            console.error('Error loading virtual assistants:', error);
+            return res.status(200).json({ success: true, assistants: [], fallback: true, error: error.message });
+        }
     },
 
     // ========== VA EXECUTE ==========
-    // CHANGED (2026-08-07): now calls callOpenAI() for real, using a
-    // role-specific system prompt per assistant and the user's actual input.
-    // The original hardcoded templates are kept as fallbackResponses, used
-    // only if the OpenAI call throws (missing API key, rate limit, network
-    // error, etc.) — same safety-net pattern used elsewhere in this file.
+    // CHANGED (2026-08-07): assistantId is now a real virtual_assistants
+    // table UUID (admin-managed via VirtualAssistantManager.jsx), not one of
+    // a fixed set of hardcoded ids. This looks up the actual VA record to
+    // build a specific system prompt from its name/category/description,
+    // and uses the admin-provided sample_output as the fallback if the
+    // OpenAI call fails — so any admin-created assistant works correctly
+    // without needing a matching hardcoded entry anywhere in this file.
     'va-execute': async (req, res) => {
         const { assistantId, input, userId } = req.body;
         
@@ -1531,25 +1552,28 @@ const handlers = {
             return res.status(400).json({ error: 'Assistant ID and input required' });
         }
         
-        const fallbackResponses = {
-            'cv-expert': `## CV Optimization Results\n\nBased on your request, I've analyzed your CV with these recommendations:\n\n### Key Improvements\n- Add quantifiable achievements (e.g., "Increased sales by 30%")\n- Use action verbs (achieved, improved, managed, created)\n- Include relevant keywords from job descriptions\n- Remove weak language ("responsible for", "helped with")\n\n### ATS Checklist\n- [ ] Use standard section headers (Experience, Education, Skills)\n- [ ] Save as PDF or DOCX\n- [ ] Avoid tables and columns\n- [ ] Include a professional summary\n\nWould you like me to review a specific section of your CV?`,
-            
-            'interview-coach': `## Interview Preparation Guide\n\n### Sample Questions for Your Role\n1. "Tell me about yourself" - 2-minute professional summary\n2. "Why do you want to work here?" - Research the company\n3. "What's your greatest strength?" - Align with job requirements\n4. "Describe a challenge you overcame" - Use STAR method\n5. "Where do you see yourself in 5 years?" - Show ambition\n\n### STAR Method\n- **S**ituation: Set the context\n- **T**ask: What was your responsibility\n- **A**ction: What steps you took\n- **R**esult: What was the outcome\n\n### Questions to Ask Them\n- What does success look like in this role?\n- What's the team culture like?\n- What are the growth opportunities?`,
-            
-            'salary-negotiator': `## Salary Negotiation Guide\n\n### Research Steps\n1. Check Glassdoor, LinkedIn, Levels.fyi for market rates\n2. Consider your experience, skills, and location\n3. Factor in total compensation (bonus, benefits, equity)\n\n### Negotiation Script\n"I'm excited about this opportunity. Based on my research and experience, I'm looking for a range between $X and $Y. I'm flexible based on total compensation."\n\n### What to Negotiate\n- Base salary\n- Signing bonus\n- Annual bonus potential\n- Remote work flexibility\n- Vacation time\n- Professional development budget`,
-            
-            'skill-analyzer': `## Skill Gap Analysis\n\n### Recommended Skills to Develop\n1. **Core Technical Skills** - Based on your target role\n2. **Soft Skills** - Communication, leadership, problem-solving\n3. **Industry Knowledge** - Stay updated with trends\n\n### Learning Resources\n- Free: YouTube tutorials, documentation, blogs\n- Paid: Coursera, Udemy, LinkedIn Learning\n- Certification: Industry-recognized credentials\n\n### Timeline\n- 1 month: Complete foundational courses\n- 3 months: Build practical projects\n- 6 months: Earn certification\n- 1 year: Master advanced concepts`,
-            
-            'linkedin-optimizer': `## LinkedIn Profile Optimization\n\n### Headline Optimization\n- Current: [Your current headline]\n- Suggested: [Role] at [Company] | [Top Skill] | [Achievement]\n\n### About Section Structure\n1. Hook: Who you are and what you do\n2. Value: What problems you solve\n3. Proof: Key achievements (with numbers)\n4. Call to action: Connect or message\n\n### Experience Section\n- Use bullet points with action verbs\n- Quantify achievements with numbers\n- Include relevant keywords for your industry\n\n### Skills Section\n- Add 15-20 relevant skills\n- Get endorsements from colleagues\n- Take skill assessments for top skills`,
-            
-            'cover-letter-pro': `## Cover Letter Template\n\nDear Hiring Manager,\n\nI am excited to apply for the [Position] role at [Company]. With my background in [Your Field] and proven track record of [Key Achievement], I am confident I can contribute to your team's success.\n\nIn my current role at [Current Company], I have:\n- Achieved [quantifiable result] by [action taken]\n- Improved [metric] by [percentage] through [initiative]\n- Led a team of [number] to deliver [project outcome]\n\nI am particularly drawn to [Company] because [specific reason]. I look forward to discussing how my skills can benefit your team.\n\nBest regards,\n[Your Name]`
-        };
+        const supabaseClient = getSupabase();
+        
+        let va = null;
+        try {
+            const { data } = await supabaseClient
+                .from('virtual_assistants')
+                .select('*')
+                .eq('id', assistantId)
+                .single();
+            va = data;
+        } catch (err) {
+            console.warn('VA lookup failed:', err.message);
+        }
+        
+        const systemPrompt = va
+            ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''} Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`
+            : 'You are a professional career assistant. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.';
         
         let output;
         let usedFallback = false;
         
         try {
-            const systemPrompt = getVASystemPrompt(assistantId);
             const data = await callOpenAI([
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: input }
@@ -1558,10 +1582,9 @@ const handlers = {
         } catch (err) {
             console.warn(`VA OpenAI call failed for ${assistantId}, using fallback:`, err.message);
             usedFallback = true;
-            output = fallbackResponses[assistantId] || `## ${assistantId} Results\n\nThank you for using this assistant. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+            output = va?.sample_output || `Thank you for using ${va?.name || 'this assistant'}. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
         }
         
-        const supabaseClient = getSupabase();
         try {
             const { data: credits } = await supabaseClient
                 .from('va_credits')
