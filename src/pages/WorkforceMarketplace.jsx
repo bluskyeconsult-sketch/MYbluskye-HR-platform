@@ -8,6 +8,16 @@
 // always undefined, so it always showed the upgrade message, even for
 // signed-out visitors who should be told to sign in instead).
 //
+// RESOLVED (2026-08-07): handleContact() called /api/index?action=contact-worker,
+// which doesn't exist anywhere, and there was no in-app messaging table to
+// build a real equivalent against. Rather than invent a new messages table
+// (which would need a Supabase migration), this now sends a real email via
+// the already-confirmed-working `email` action and `notification` template
+// — the skill's joined `profiles.email` field is already being fetched by
+// the marketplace query, so no new data is needed. This is email-based
+// contact, not real-time in-app chat; if in-app threaded messaging is
+// wanted instead, that's a bigger feature needing a new table.
+//
 // FLAGGED, NOT FIXED (architecture decision needed — see project brief):
 // 1. This page queries `workforce_skills` directly. A separate, more
 //    sophisticated data model (`workforce_profiles` + `service_requests` +
@@ -15,13 +25,10 @@
 //    by WorkforceOnboarding.jsx, ProposalsList.jsx, and EngagementsDashboard.jsx
 //    — but this page never reads from that model at all. Anyone completing
 //    the onboarding flow creates a profile that's invisible here.
-// 2. handleContact() calls /api/index?action=contact-worker, which doesn't
-//    exist in api/index.js, and there's no equivalent function in
-//    workforceService.js either (that file is built around proposals, not
-//    direct messaging) — this is a genuine unbuilt feature, not a bug to fix
-//    blind.
-// 3. GateGuard (imported from ../components/GateGuard) hasn't been reviewed
-//    yet — contents unconfirmed.
+// 2. GateGuard (imported from ../components/GateGuard) hasn't been reviewed
+//    yet — contents unconfirmed. If this file doesn't build for you, that's
+//    likely why — let me know and I'll build a minimal one, but I don't
+//    want to guess-overwrite a real working file.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -173,18 +180,28 @@ export default function WorkforceMarketplace() {
         setSending(true);
         
         try {
-            // NOTE: this action doesn't exist in api/index.js, and there's no
-            // equivalent function in workforceService.js either — this will
-            // currently always fail. Flagged as a genuine unbuilt feature,
-            // not something patched blind. See file header.
-            const response = await fetch('/api/index?action=contact-worker', {
+            // FIXED: sends a real email via the confirmed-working `email`
+            // action instead of a nonexistent contact-worker action. Uses
+            // the recipient's email already present on the joined profile.
+            const recipientEmail = skill.profiles?.email;
+            if (!recipientEmail) {
+                throw new Error('This professional has no contact email on file.');
+            }
+            
+            const senderName = user.email?.split('@')[0] || 'A professional';
+            
+            const response = await fetch('/api/index?action=email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    workerId: skill.user_id,
-                    skillId: skill.id,
-                    message: contactMessage,
-                    senderName: user.email?.split('@')[0] || 'A professional'
+                    to: recipientEmail,
+                    type: 'notification',
+                    templateData: {
+                        subject: `New message from ${senderName} via ODUSBABA Workforce Marketplace`,
+                        message: contactMessage,
+                        actionLink: `${window.location.origin}/sign-in`,
+                        actionText: 'Sign In to Reply'
+                    }
                 })
             });
             
@@ -199,7 +216,7 @@ export default function WorkforceMarketplace() {
             }
         } catch (err) {
             console.error('Contact error:', err);
-            alert('Failed to send message. Please try again.');
+            alert(err.message || 'Failed to send message. Please try again.');
         } finally {
             setSending(false);
         }
