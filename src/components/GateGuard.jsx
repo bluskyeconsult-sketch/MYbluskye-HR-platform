@@ -1,7 +1,27 @@
 // src/components/GateGuard.jsx
-// ODUSBABA GATE GUARD v6.0 - Production Ready
+// ODUSBABA GATE GUARD v6.1 - Production Ready
 // "Nothing executes unless ODUSBABA allows it"
 // Unified gating component for all protected features with both sync and async checks
+//
+// FIXED (2026-08-07):
+// 1. meetsTier used an ad-hoc chain of string comparisons that never
+//    accounted for 'employer', 'registered', 'admin', or 'super_admin'
+//    tiers — an employer-tier user could incorrectly fail a tier check that
+//    a professional-tier user would pass, even though they're meant to be
+//    equivalent. TierGate (below, in this same file) already had the
+//    correct numeric tier hierarchy — hoisted it to module scope and reused
+//    it in both places instead of the broken ad-hoc version.
+// 2. The `context = {}` default parameter created a brand-new object every
+//    render when a caller didn't pass one (e.g. WorkforceMarketplace.jsx
+//    doesn't) — and since `context` sits in a useEffect dependency array,
+//    this silently re-ran the async permission check on every re-render.
+//    Fixed with a stable shared default reference.
+//
+// NOTE: this file assumes contexts/GovernanceContext.jsx also exports a
+// useGovernance hook (separate from useCapability). That file's contents
+// haven't been reviewed in this session, so this is unconfirmed — flagging
+// for traceability, not changed, since this file was already confirmed to
+// exist and presumably builds correctly in your repo.
 
 import { useState, useEffect, useCallback } from 'react';
 import { useGovernance } from '../contexts/GovernanceContext';
@@ -9,10 +29,28 @@ import { useCapability } from '../hooks/useCapability';
 import { Lock, Crown, Sparkles, ArrowRight, Shield, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+// Shared tier hierarchy — used by both GateGuard's meetsTier check and
+// TierGate below. Previously duplicated (and inconsistent) between the two.
+const TIER_LEVELS = { 
+    visitor: 0, 
+    free: 1, 
+    registered: 1, 
+    pro: 2, 
+    professional: 2, 
+    employer: 2,
+    business: 3, 
+    admin: 4, 
+    super_admin: 4 
+};
+
+// Stable default so `context` doesn't create a new object reference on
+// every render when the caller omits it.
+const EMPTY_CONTEXT = {};
+
 // Main GateGuard Component - Supports both async and sync checks
 export function GateGuard({ 
     action, 
-    context = {}, 
+    context = EMPTY_CONTEXT, 
     children, 
     fallback = null,
     showUpgrade = true,
@@ -34,12 +72,10 @@ export function GateGuard({
     const userTier = getTier();
     const isVisitor = !capabilities.user && userTier === 'visitor';
     
-    // Check tier requirement separately
+    // FIXED: reuses the same numeric tier hierarchy as TierGate instead of
+    // an incomplete ad-hoc chain that missed employer/registered/admin tiers.
     const meetsTier = !requiredTier || 
-        requiredTier === 'visitor' ||
-        userTier === requiredTier ||
-        (userTier === 'professional' && requiredTier === 'free') ||
-        (userTier === 'business' && (requiredTier === 'free' || requiredTier === 'professional')) ||
+        (TIER_LEVELS[userTier] || 0) >= (TIER_LEVELS[requiredTier] || 0) ||
         capabilities.isAdmin;
     
     // Async capability check
@@ -147,7 +183,6 @@ export function UpgradeGate({ action, message, requiredTier, userTier, showUpgra
     
     let displayMessage = message || upgradeMessages[action] || 'Upgrade to unlock this feature';
     
-    // Tier-specific messaging
     if (requiredTier === 'professional') {
         displayMessage = 'Professional plan required for this feature';
     } else if (requiredTier === 'business') {
@@ -156,7 +191,6 @@ export function UpgradeGate({ action, message, requiredTier, userTier, showUpgra
         displayMessage = 'Admin access required for this feature';
     }
     
-    // Admin override
     if (isAdmin) {
         return (
             <div className="text-center py-8 px-4 bg-red-500/10 rounded-xl border border-red-500/20">
@@ -217,20 +251,8 @@ export function TierGate({ tier, children, fallback = null, showUpgrade = true }
     const { getTier, capabilities } = useGovernance();
     const userTier = getTier();
     
-    const tierLevels = { 
-        visitor: 0, 
-        free: 1, 
-        registered: 1, 
-        pro: 2, 
-        professional: 2, 
-        employer: 2,
-        business: 3, 
-        admin: 4, 
-        super_admin: 4 
-    };
-    
-    const userLevel = tierLevels[userTier] || 0;
-    const requiredLevel = tierLevels[tier] || 0;
+    const userLevel = TIER_LEVELS[userTier] || 0;
+    const requiredLevel = TIER_LEVELS[tier] || 0;
     
     if (userLevel >= requiredLevel || capabilities.isAdmin) {
         return <>{children}</>;
