@@ -1,5 +1,19 @@
 // src/pages/admin/AdminFraudReports.jsx
-// COMPLETE FRAUD REPORTS MANAGEMENT - With unified API, detailed view, status tracking, and analytics
+// COMPLETE FRAUD REPORTS MANAGEMENT
+//
+// FIXED (2026-08-07):
+// 1. Rendered <Link className="..." /> as an icon in the Evidence section,
+//    but Link was never imported from lucide-react (and this file doesn't
+//    import React Router's Link either) — any report with evidence_urls
+//    would crash the details modal with a ReferenceError. Imported
+//    lucide-react's Link icon under a distinct name to avoid any ambiguity.
+// 2. loadReports() correctly checks data.success before using the API
+//    response (falls back to Supabase correctly), but updateStatus() only
+//    checked response.ok — true even for the meaningless metadata response
+//    returned by the nonexistent admin-update-report-status action — so
+//    clicking Investigate/Resolve/Dismiss silently did nothing. Simplified
+//    to go straight to Supabase, matching the fix applied to the equivalent
+//    bug in AdminJobs.jsx and AdminUsers.jsx.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -7,18 +21,9 @@ import {
     Flag, AlertTriangle, CheckCircle, XCircle, Eye, Loader2, 
     RefreshCw, Clock, User, Mail, Shield, FileText, Filter,
     Search, ChevronDown, Download, Ban, MessageCircle, Calendar,
-    Briefcase, Building2, AlertCircle, ThumbsUp, ThumbsDown
+    Briefcase, Building2, AlertCircle, ThumbsUp, ThumbsDown,
+    Link as LinkIcon
 } from 'lucide-react';
-
-// ============================================
-// CONFIGURATION
-// ============================================
-
-const API_BASE = '/api/index';
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
 
 export default function AdminFraudReports() {
     const [reports, setReports] = useState([]);
@@ -69,44 +74,20 @@ export default function AdminFraudReports() {
         setRefreshing(true);
         
         try {
-            // ✅ Use unified API endpoint
-            const response = await fetch(`${API_BASE}?action=admin-fraud-reports`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    filters: { 
-                        status: statusFilter !== 'all' ? statusFilter : null,
-                        type: typeFilter !== 'all' ? typeFilter : null
-                    }
-                })
-            });
+            const { data, error } = await supabase
+                .from('fraud_reports')
+                .select('*, reporter:reporter_id(email, full_name), reported_user:reported_user_id(email, full_name)')
+                .order('created_at', { ascending: false });
             
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    setReports(data.reports || []);
-                    calculateStats(data.reports || []);
-                    setLoading(false);
-                    setRefreshing(false);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn('Unified API failed, falling back to direct Supabase:', err);
-        }
-        
-        // Fallback to direct Supabase query
-        const { data, error } = await supabase
-            .from('fraud_reports')
-            .select('*, reporter:reporter_id(email, full_name), reported_user:reported_user_id(email, full_name)')
-            .order('created_at', { ascending: false });
-        
-        if (!error) {
+            if (error) throw error;
             setReports(data || []);
             calculateStats(data || []);
+        } catch (err) {
+            console.error('Error loading fraud reports:', err);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
         }
-        setLoading(false);
-        setRefreshing(false);
     }
 
     async function refreshReports() {
@@ -126,7 +107,6 @@ export default function AdminFraudReports() {
     function filterReports() {
         let filtered = [...reports];
         
-        // Search filter
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
             filtered = filtered.filter(r => 
@@ -137,12 +117,10 @@ export default function AdminFraudReports() {
             );
         }
         
-        // Status filter
         if (statusFilter !== 'all') {
             filtered = filtered.filter(r => r.status === statusFilter);
         }
         
-        // Type filter
         if (typeFilter !== 'all') {
             filtered = filtered.filter(r => r.report_type === typeFilter);
         }
@@ -152,19 +130,6 @@ export default function AdminFraudReports() {
 
     async function updateStatus(reportId, status) {
         try {
-            const response = await fetch(`${API_BASE}?action=admin-update-report-status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reportId, status, resolvedAt: status === 'resolved' ? new Date().toISOString() : null })
-            });
-            
-            if (response.ok) {
-                await loadReports();
-            } else {
-                throw new Error('API call failed');
-            }
-        } catch (err) {
-            console.warn('API failed, using direct Supabase:', err);
             await supabase
                 .from('fraud_reports')
                 .update({ 
@@ -174,6 +139,8 @@ export default function AdminFraudReports() {
                 })
                 .eq('id', reportId);
             await loadReports();
+        } catch (err) {
+            console.error('Error updating report status:', err);
         }
     }
 
@@ -233,7 +200,6 @@ export default function AdminFraudReports() {
                     </button>
                     <button
                         onClick={() => {
-                            // Export reports as JSON
                             const dataStr = JSON.stringify(filteredReports, null, 2);
                             const blob = new Blob([dataStr], { type: 'application/json' });
                             const url = URL.createObjectURL(blob);
@@ -528,7 +494,7 @@ export default function AdminFraudReports() {
                             {selectedReport.evidence_urls && selectedReport.evidence_urls.length > 0 && (
                                 <div className="border-t border-slate-800 pt-4">
                                     <h3 className="text-white font-semibold mb-2 flex items-center gap-2">
-                                        <Link className="w-4 h-4 text-primary-400" />
+                                        <LinkIcon className="w-4 h-4 text-primary-400" />
                                         Evidence
                                     </h3>
                                     <div className="space-y-2">
