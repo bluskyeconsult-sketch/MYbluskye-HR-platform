@@ -1,6 +1,21 @@
 // src/pages/admin/AssessmentManager.jsx
 // SUPER ADMIN - Complete AI-Assisted Assessment Builder
-// Features: AI question generation, AI assessment creation, bulk generation, multiple choice support
+//
+// FIXED (2026-08-07):
+// 1. Removed a hardcoded admin-email backdoor (5th instance found across
+//    the codebase) — now checks profiles.user_type like everywhere else.
+// 2. AI generation sent `count` in the request body, but the real
+//    generate-assessment handler expects `numberOfQuestions` — so whatever
+//    number the admin actually requested was silently ignored, always
+//    generating the handler's default of 5 questions.
+// 3. The real handler's AI response shape is {question, options, correct,
+//    explanation} (a multiple-choice trivia format), but this file read
+//    q.question_text (undefined) and had no logic to save options/correct
+//    answers — every AI-generated question was being saved with a blank
+//    question_text and no answer options. Now correctly maps the real
+//    response shape into assessment_questions + assessment_options, using
+//    the same pattern already used by this file's own manual multiple-choice
+//    form.
 
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
@@ -54,10 +69,22 @@ const useAdminAccess = () => {
         const checkAccess = async () => {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
-                const hasAccess = user?.email === 'bluskyeconsult@gmail.com';
+                if (!user) {
+                    window.location.href = '/admin-login';
+                    return;
+                }
+                
+                // FIXED: real database check instead of a hardcoded email.
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('user_type')
+                    .eq('id', user.id)
+                    .single();
+                
+                const hasAccess = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
                 
                 if (!hasAccess) {
-                    alert('Access denied. Super Admin only.');
+                    alert('Access denied. Admin access required.');
                     window.location.href = '/admin/dashboard';
                 }
                 setIsAdmin(hasAccess);
@@ -235,7 +262,7 @@ export default function AssessmentManager() {
     });
     
     // ============================================
-    // AI-ASSISTED FUNCTIONS (Updated API endpoint)
+    // AI-ASSISTED FUNCTIONS
     // ============================================
     
     const generateAIQuestions = async () => {
@@ -247,13 +274,15 @@ export default function AssessmentManager() {
         setGenerating(true);
         
         try {
+            // FIXED: payload key is numberOfQuestions, matching the real
+            // handler — was previously sent as `count` and silently ignored.
             const response = await fetch('/api/index?action=generate-assessment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
-                    count: aiQuestionCount
+                    numberOfQuestions: aiQuestionCount
                 })
             });
             
@@ -298,6 +327,13 @@ export default function AssessmentManager() {
         return questions;
     };
     
+    // FIXED: the real generate-assessment handler returns questions shaped
+    // {question, options, correct, explanation} — a multiple-choice format
+    // — not {question_text, question_type, dimension}. This previously
+    // saved every AI-generated question with a blank question_text and no
+    // answer options. Now maps both possible shapes (real AI response, and
+    // the mock fallback above) correctly, and saves multiple-choice options
+    // into assessment_options the same way the manual question form does.
     const saveAIGeneratedQuestions = async () => {
         if (!selectedAssessment) {
             alert('Please select an assessment first');
@@ -310,16 +346,37 @@ export default function AssessmentManager() {
         try {
             for (let i = 0; i < aiGeneratedQuestions.length; i++) {
                 const q = aiGeneratedQuestions[i];
-                const { error } = await supabase.from('assessment_questions').insert({
-                    assessment_id: selectedAssessment.id,
-                    question_text: q.question_text,
-                    question_type: q.question_type || 'likert_scale',
-                    points: q.points || 1,
-                    dimension: q.dimension,
-                    sort_order: currentMax + i
-                });
+                const hasOptions = Array.isArray(q.options) && q.options.length > 0;
                 
-                if (error) console.error('Question insert error:', error);
+                const { data: newQuestion, error } = await supabase
+                    .from('assessment_questions')
+                    .insert({
+                        assessment_id: selectedAssessment.id,
+                        question_text: q.question_text || q.question,
+                        question_type: q.question_type || (hasOptions ? 'multiple_choice' : 'likert_scale'),
+                        points: q.points || 1,
+                        dimension: q.dimension,
+                        sort_order: currentMax + i
+                    })
+                    .select()
+                    .single();
+                
+                if (error) {
+                    console.error('Question insert error:', error);
+                    continue;
+                }
+                
+                // Save multiple-choice options if the AI returned them.
+                if (hasOptions && newQuestion) {
+                    for (let j = 0; j < q.options.length; j++) {
+                        await supabase.from('assessment_options').insert({
+                            question_id: newQuestion.id,
+                            option_text: q.options[j],
+                            is_correct: j === q.correct,
+                            sort_order: j
+                        });
+                    }
+                }
             }
             
             await loadQuestions(selectedAssessment.id);
@@ -344,21 +401,20 @@ export default function AssessmentManager() {
         setGenerating(true);
         
         try {
-            // First generate questions
+            // FIXED: numberOfQuestions, not count — see generateAIQuestions.
             const questionsResponse = await fetch('/api/index?action=generate-assessment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
-                    count: aiQuestionCount
+                    numberOfQuestions: aiQuestionCount
                 })
             });
             
             const questionsData = await questionsResponse.json();
             const generatedQuestions = questionsData.success ? questionsData.questions : generateMockQuestions(aiTopic, aiQuestionCount, aiDifficulty);
             
-            // Create assessment
             const assessmentTitle = `${aiTopic} Assessment`;
             const assessmentDescription = `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
             
@@ -379,17 +435,39 @@ export default function AssessmentManager() {
             
             if (assessmentError) throw assessmentError;
             
-            // Save questions
+            // FIXED: same question-shape mapping fix as saveAIGeneratedQuestions.
             for (let i = 0; i < generatedQuestions.length; i++) {
                 const q = generatedQuestions[i];
-                await supabase.from('assessment_questions').insert({
-                    assessment_id: newAssessment.id,
-                    question_text: q.question_text,
-                    question_type: q.question_type || 'likert_scale',
-                    points: q.points || 1,
-                    dimension: q.dimension,
-                    sort_order: i
-                });
+                const hasOptions = Array.isArray(q.options) && q.options.length > 0;
+                
+                const { data: newQuestion, error: qError } = await supabase
+                    .from('assessment_questions')
+                    .insert({
+                        assessment_id: newAssessment.id,
+                        question_text: q.question_text || q.question,
+                        question_type: q.question_type || (hasOptions ? 'multiple_choice' : 'likert_scale'),
+                        points: q.points || 1,
+                        dimension: q.dimension,
+                        sort_order: i
+                    })
+                    .select()
+                    .single();
+                
+                if (qError) {
+                    console.error('Question insert error:', qError);
+                    continue;
+                }
+                
+                if (hasOptions && newQuestion) {
+                    for (let j = 0; j < q.options.length; j++) {
+                        await supabase.from('assessment_options').insert({
+                            question_id: newQuestion.id,
+                            option_text: q.options[j],
+                            is_correct: j === q.correct,
+                            sort_order: j
+                        });
+                    }
+                }
             }
             
             await loadAssessments();
@@ -487,7 +565,6 @@ export default function AssessmentManager() {
             resetQuestionForm();
             if (selectedAssessment) await loadQuestions(selectedAssessment.id);
             
-            // Update question count in assessment
             const newCount = editingQuestion ? questions.length : questions.length + 1;
             await supabase
                 .from('assessments')
@@ -1088,7 +1165,7 @@ export default function AssessmentManager() {
                                         {aiGeneratedQuestions.map((q, idx) => (
                                             <div key={idx} className="bg-slate-800/50 rounded-xl p-2 text-sm">
                                                 <span className="text-slate-500 mr-2">{idx + 1}.</span>
-                                                <span className="text-slate-300">{q.question_text}</span>
+                                                <span className="text-slate-300">{q.question_text || q.question}</span>
                                                 {q.dimension && <span className="text-xs text-slate-500 ml-2">({q.dimension})</span>}
                                             </div>
                                         ))}
