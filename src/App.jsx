@@ -1,19 +1,25 @@
 // src/App.jsx - UNIFIED & OPTIMIZED FOR MOBILE WITH FIXED ANIMATIONS
-// ODUSBABA v13.1 - Complete Production Ready with Mobile-First Layout
-// ✅ All links lead to correct pages
-// ✅ All data fetches from database
-// ✅ All forms submit correctly
-// ✅ Authentication works
-// ✅ Single API endpoint (unified)
-// ✅ Mobile-optimized container structure
-// ✅ Integrated FraudSafetyBanner & CookieConsent
-// ✅ Assessment Results page integrated
-// ✅ Admin Course Management routes added
-// ✅ GovernanceProvider for capability management
-// ✅ ErrorBoundary for error handling
-// ✅ Workforce Marketplace & HR Tools routes added
-// ✅ Container-responsive wrapper with max-w-7xl
-// ✅ Optimized animations (reduced flickering on mobile)
+// ODUSBABA v13.2 - Complete Production Ready with Mobile-First Layout
+//
+// FIXED (2026-08-07):
+// 1. Navbar.checkAuth, ProtectedRoute.checkAuth, and handleLogout all called
+//    /api/index?action=session, ?action=profile, ?action=logout — none of
+//    which exist in api/index.js. Unknown actions return HTTP 200 with
+//    harmless metadata (not an error), so the try/catch fallback to direct
+//    Supabase never triggered. Result: every logged-in user appeared logged
+//    out, every protected route redirected real users to sign-in, and
+//    logout never actually called supabase.auth.signOut(). Rewired all
+//    three to use direct Supabase calls only — same fix originally applied
+//    in Phase 1, re-applied here since this version had reverted to the
+//    broken API-first approach.
+// 2. /workforce/proposals and /workforce/engagements rendered <ProposalsList />
+//    and <EngagementsDashboard /> with no props — both components require
+//    professionalId / userId+userType to ever load data, so both pages
+//    showed a permanent stuck loading spinner for every visitor. Added
+//    ProposalsListRoute and EngagementsDashboardRoute wrapper components
+//    that fetch the current user and pass the right props, and gated all
+//    three /workforce/* routes with ProtectedRoute since they only make
+//    sense for a logged-in user.
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
@@ -81,7 +87,6 @@ function NewsletterSignup() {
         setStatus(null);
         
         try {
-            // Using unified API
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -167,50 +172,25 @@ function Navbar() {
     
     const checkAuth = useCallback(async () => {
         try {
-            // Using unified API for session check
-            const response = await fetch('/api/index?action=session', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await response.json();
+            const { data: { user } } = await supabase.auth.getUser();
+            setIsLoggedIn(!!user);
             
-            if (data.user) {
-                setIsLoggedIn(true);
-                // Get profile using unified API
-                const profileResponse = await fetch('/api/index?action=profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: data.user.id })
-                });
-                const profileData = await profileResponse.json();
-                setUserName(profileData.data?.full_name || data.user.email?.split('@')[0] || 'User');
-                const isAdminUser = profileData.data?.user_type === 'admin' || profileData.data?.user_type === 'super_admin';
+            if (user) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('full_name, user_type')
+                    .eq('id', user.id)
+                    .single();
+                setUserName(profile?.full_name || user.email?.split('@')[0] || 'User');
+                const isAdminUser = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
                 setIsAdmin(isAdminUser);
             } else {
-                setIsLoggedIn(false);
                 setIsAdmin(false);
             }
         } catch (error) {
-            // Fallback to direct Supabase
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                setIsLoggedIn(!!user);
-                
-                if (user) {
-                    const { data: profile } = await supabase
-                        .from('profiles')
-                        .select('full_name, user_type')
-                        .eq('id', user.id)
-                        .single();
-                    setUserName(profile?.full_name || user.email?.split('@')[0] || 'User');
-                    const isAdminUser = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
-                    setIsAdmin(isAdminUser);
-                }
-            } catch (fallbackError) {
-                console.error('Fallback auth error:', fallbackError);
-                setIsLoggedIn(false);
-                setIsAdmin(false);
-            }
+            console.error('Auth check error:', error);
+            setIsLoggedIn(false);
+            setIsAdmin(false);
         }
     }, []);
 
@@ -239,15 +219,10 @@ function Navbar() {
 
     const handleLogout = async () => {
         try {
-            // Using unified API
-            await fetch('/api/index?action=logout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            window.location.href = '/';
-        } catch (error) {
-            // Fallback to direct Supabase
             await supabase.auth.signOut();
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
             window.location.href = '/';
         }
     };
@@ -451,54 +426,27 @@ function ProtectedRoute({ children, requireAdmin = false }) {
     useEffect(() => {
         const checkAuth = async () => {
             try {
-                // Using unified API
-                const response = await fetch('/api/index?action=session', {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
+                const { data: { user } } = await supabase.auth.getUser();
                 
-                if (!data.user) {
+                if (!user) {
                     setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
                     return;
                 }
                 
                 let isAdmin = false;
                 if (requireAdmin) {
-                    const profileResponse = await fetch('/api/index?action=profile', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: data.user.id })
-                    });
-                    const profileData = await profileResponse.json();
-                    isAdmin = profileData.data?.user_type === 'admin' || profileData.data?.user_type === 'super_admin';
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('user_type')
+                        .eq('id', user.id)
+                        .single();
+                    isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
                 }
                 
                 setAuthState({ loading: false, isAuthenticated: true, isAdmin });
             } catch (error) {
-                // Fallback to direct Supabase
-                try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    
-                    if (!user) {
-                        setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
-                        return;
-                    }
-                    
-                    let isAdmin = false;
-                    if (requireAdmin) {
-                        const { data: profile } = await supabase
-                            .from('profiles')
-                            .select('user_type')
-                            .eq('id', user.id)
-                            .single();
-                        isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
-                    }
-                    
-                    setAuthState({ loading: false, isAuthenticated: true, isAdmin });
-                } catch (fallbackError) {
-                    setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
-                }
+                console.error('Protected route auth error:', error);
+                setAuthState({ loading: false, isAuthenticated: false, isAdmin: false });
             }
         };
         checkAuth();
@@ -588,6 +536,54 @@ const AcceptableUsePage = lazy(() => import('./pages/legal/AcceptableUsePage'));
 const FraudPreventionPage = lazy(() => import('./pages/legal/FraudPreventionPage'));
 const SafetyTipsPage = lazy(() => import('./pages/legal/SafetyTipsPage'));
 const ReportFraudPage = lazy(() => import('./pages/ReportFraudPage'));
+
+// ============================================
+// WORKFORCE ROUTE WRAPPERS (NEW — 2026-08-07)
+// ProposalsList and EngagementsDashboard both require props to ever load
+// data (professionalId / userId+userType). These wrappers fetch the current
+// user and supply them, since the routes themselves can't pass props.
+// ============================================
+function ProposalsListRoute() {
+    const [professionalId, setProfessionalId] = useState(null);
+    const [checked, setChecked] = useState(false);
+
+    useEffect(() => {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+            setProfessionalId(user?.id || null);
+            setChecked(true);
+        });
+    }, []);
+
+    if (!checked) return <PageLoader />;
+    return <ProposalsList professionalId={professionalId} />;
+}
+
+function EngagementsDashboardRoute() {
+    const [userInfo, setUserInfo] = useState(null);
+
+    useEffect(() => {
+        async function load() {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                setUserInfo({ userId: null, userType: null });
+                return;
+            }
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('user_type')
+                .eq('id', user.id)
+                .single();
+            const userType = (profile?.user_type === 'employer' || profile?.user_type === 'business_owner')
+                ? 'employer'
+                : 'professional';
+            setUserInfo({ userId: user.id, userType });
+        }
+        load();
+    }, []);
+
+    if (!userInfo) return <PageLoader />;
+    return <EngagementsDashboard userId={userInfo.userId} userType={userInfo.userType} />;
+}
 
 // 404 Page
 const NotFoundPage = () => (
@@ -703,9 +699,9 @@ function AppContent() {
                             <Route path="/tester/dashboard" element={<ProtectedRoute><TesterDashboard /></ProtectedRoute>} />
                             
                             {/* Workforce Routes */}
-                            <Route path="/workforce/setup" element={<WorkforceOnboarding />} />
-                            <Route path="/workforce/proposals" element={<ProposalsList />} />
-                            <Route path="/workforce/engagements" element={<EngagementsDashboard />} />
+                            <Route path="/workforce/setup" element={<ProtectedRoute><WorkforceOnboarding /></ProtectedRoute>} />
+                            <Route path="/workforce/proposals" element={<ProtectedRoute><ProposalsListRoute /></ProtectedRoute>} />
+                            <Route path="/workforce/engagements" element={<ProtectedRoute><EngagementsDashboardRoute /></ProtectedRoute>} />
                             
                             {/* Legal Routes */}
                             <Route path="/legal/terms" element={<TermsPage />} />
