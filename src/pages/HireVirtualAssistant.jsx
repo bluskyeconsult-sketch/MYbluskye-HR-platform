@@ -1,5 +1,14 @@
 // src/pages/HireVirtualAssistant.jsx - UNIFIED & OPTIMIZED
 // ODUSBABA VIRTUAL ASSISTANT PAGE - Complete with All Features & Clean Mobile Design
+//
+// CHANGED (2026-08-07): the hardcoded VIRTUAL_ASSISTANTS array is gone —
+// this now fetches the catalog from ?action=virtual-assistants, which was
+// updated to query the real virtual_assistants database table (managed via
+// VirtualAssistantManager.jsx) instead of returning a fixed list. This
+// closes the architecture split flagged in Phase 9: admin-created VAs are
+// now the actual public catalog. VA ids are now real database UUIDs rather
+// than the old readable slugs (cv-expert, etc.) — nothing else in this file
+// depends on the specific id format, so this is a transparent change.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
@@ -19,131 +28,6 @@ import {
 const API_BASE = '/api/index';
 
 // ============================================
-// VIRTUAL ASSISTANTS DATA (Expanded from Code 2)
-// ============================================
-
-const VIRTUAL_ASSISTANTS = [
-    // Resume & CV Category
-    { 
-        id: 'cv-expert', 
-        name: 'CV Makeover Pro', 
-        category: 'resume', 
-        icon: '📄', 
-        price: 5, 
-        tier: 'free',
-        description: 'ATS-optimized CV writing and formatting expert',
-        longDescription: 'Get professional CV optimization tailored to your target role. Includes ATS keyword analysis, achievement quantification, and formatting improvements.',
-        rating: 4.9, 
-        reviews: 128, 
-        responseTime: '2-3 min', 
-        featured: true 
-    },
-    { 
-        id: 'cover-letter-pro', 
-        name: 'Cover Letter Pro', 
-        category: 'resume', 
-        icon: '✉️', 
-        price: 3, 
-        tier: 'free',
-        description: 'Custom cover letters for any role',
-        longDescription: 'Generate tailored cover letters that highlight your unique value proposition for specific job applications.',
-        rating: 4.8, 
-        reviews: 95, 
-        responseTime: '1-2 min', 
-        featured: true 
-    },
-    { 
-        id: 'linkedin-optimizer', 
-        name: 'LinkedIn Optimizer', 
-        category: 'social', 
-        icon: '🔗', 
-        price: 5, 
-        tier: 'professional',
-        description: 'Profile optimization for recruiters',
-        longDescription: 'Optimize your LinkedIn profile with SEO keywords, compelling summaries, and achievement highlights.',
-        rating: 4.8, 
-        reviews: 89, 
-        responseTime: '2-3 min', 
-        featured: false 
-    },
-    // Interview Category
-    { 
-        id: 'interview-coach', 
-        name: 'Interview Coach AI', 
-        category: 'interview', 
-        icon: '🎯', 
-        price: 4, 
-        tier: 'free',
-        description: 'Behavioral and technical interview preparation',
-        longDescription: 'Practice with AI-powered mock interviews, get feedback on your responses, and receive personalized tips for your target role.',
-        rating: 4.9, 
-        reviews: 156, 
-        responseTime: '1-2 min', 
-        featured: true 
-    },
-    // Career Category
-    { 
-        id: 'salary-negotiator', 
-        name: 'Salary Negotiator', 
-        category: 'career', 
-        icon: '💰', 
-        price: 4, 
-        tier: 'registered',
-        description: 'Market research and negotiation scripts',
-        longDescription: 'Get salary benchmarks for your role and location, plus proven negotiation scripts to maximize your offer.',
-        rating: 4.8, 
-        reviews: 134, 
-        responseTime: '2-3 min', 
-        featured: true 
-    },
-    // Skills Category
-    { 
-        id: 'skill-analyzer', 
-        name: 'Skill Gap Analyst', 
-        category: 'skills', 
-        icon: '📊', 
-        price: 4, 
-        tier: 'registered',
-        description: 'Identify skill gaps and learning paths',
-        longDescription: 'Analyze your current skills against target roles and get personalized learning recommendations.',
-        rating: 4.9, 
-        reviews: 142, 
-        responseTime: '3-4 min', 
-        featured: true 
-    },
-    // Job Search Category
-    { 
-        id: 'job-match-analyzer', 
-        name: 'Job Match Analyzer', 
-        category: 'job', 
-        icon: '🎯', 
-        price: 3, 
-        tier: 'registered',
-        description: 'Fit score calculation',
-        longDescription: 'See how well your skills match job requirements and get personalized improvement suggestions.',
-        rating: 4.8, 
-        reviews: 92, 
-        responseTime: '2 min', 
-        featured: false 
-    },
-    // Legal Category
-    { 
-        id: 'workplace-rights', 
-        name: 'Workplace Rights Advisor', 
-        category: 'legal', 
-        icon: '⚖️', 
-        price: 3, 
-        tier: 'free',
-        description: 'Legal information and guidance',
-        longDescription: 'Know your workplace rights regarding discrimination, harassment, and fair treatment.',
-        rating: 4.8, 
-        reviews: 112, 
-        responseTime: '2-3 min', 
-        featured: false 
-    }
-];
-
-// ============================================
 // CATEGORIES CONFIGURATION
 // ============================================
 
@@ -152,9 +36,7 @@ const CATEGORIES = [
     { id: 'resume', name: 'Resume & CV', icon: FileText },
     { id: 'interview', name: 'Interview Prep', icon: Users },
     { id: 'career', name: 'Career Advice', icon: Briefcase },
-    { id: 'skills', name: 'Skill Development', icon: TrendingUp },
-    { id: 'job', name: 'Job Search', icon: Search },
-    { id: 'social', name: 'Social Media', icon: Users },
+    { id: 'skill', name: 'Skill Development', icon: TrendingUp },
     { id: 'legal', name: 'Legal & Rights', icon: Shield }
 ];
 
@@ -163,6 +45,8 @@ const CATEGORIES = [
 // ============================================
 
 export default function HireVirtualAssistant() {
+    const [virtualAssistants, setVirtualAssistants] = useState([]);
+    const [loadingVAs, setLoadingVAs] = useState(true);
     const [selectedVA, setSelectedVA] = useState(null);
     const [input, setInput] = useState('');
     const [output, setOutput] = useState(null);
@@ -181,6 +65,29 @@ export default function HireVirtualAssistant() {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [retryCount, setRetryCount] = useState(0);
+
+    // ============================================
+    // LOAD VA CATALOG
+    // ============================================
+
+    useEffect(() => {
+        loadVirtualAssistants();
+    }, []);
+
+    async function loadVirtualAssistants() {
+        setLoadingVAs(true);
+        try {
+            const response = await fetch(`${API_BASE}?action=virtual-assistants`);
+            const data = await response.json();
+            if (data.success) {
+                setVirtualAssistants(data.assistants || []);
+            }
+        } catch (err) {
+            console.error('Error loading virtual assistants:', err);
+        } finally {
+            setLoadingVAs(false);
+        }
+    }
 
     // ============================================
     // LOAD USER DATA (Unified API)
@@ -404,17 +311,18 @@ export default function HireVirtualAssistant() {
     // ============================================
 
     const filteredVAs = useMemo(() => {
-        return VIRTUAL_ASSISTANTS.filter(va => {
+        return virtualAssistants.filter(va => {
             const matchesSearch = va.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                  va.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                  (va.longDescription && va.longDescription.toLowerCase().includes(searchTerm.toLowerCase()));
             const matchesCategory = selectedCategory === 'all' || va.category === selectedCategory;
             return matchesSearch && matchesCategory;
         });
-    }, [searchTerm, selectedCategory]);
+    }, [virtualAssistants, searchTerm, selectedCategory]);
 
     const handleRetry = () => {
         setRetryCount(prev => prev + 1);
+        loadVirtualAssistants();
     };
 
     // ============================================
@@ -515,7 +423,7 @@ export default function HireVirtualAssistant() {
                         }`}
                     >
                         <Bot className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" /> Assistants
-                        <span className="ml-1 text-xs text-slate-500">({VIRTUAL_ASSISTANTS.length})</span>
+                        <span className="ml-1 text-xs text-slate-500">({virtualAssistants.length})</span>
                     </button>
                     <button 
                         onClick={() => setActiveTab('history')} 
@@ -539,6 +447,13 @@ export default function HireVirtualAssistant() {
                 {/* ASSISTANTS TAB */}
                 {activeTab === 'assistants' && (
                     <>
+                        {loadingVAs ? (
+                            <div className="text-center py-12">
+                                <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto mb-3" />
+                                <p className="text-slate-400">Loading assistants...</p>
+                            </div>
+                        ) : (
+                        <>
                         {/* Search and Filter */}
                         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
                             <div className="flex-1 relative">
@@ -555,7 +470,7 @@ export default function HireVirtualAssistant() {
                                 {CATEGORIES.map(cat => {
                                     const Icon = cat.icon;
                                     const isActive = selectedCategory === cat.id;
-                                    const count = VIRTUAL_ASSISTANTS.filter(v => v.category === cat.id || cat.id === 'all').length;
+                                    const count = virtualAssistants.filter(v => v.category === cat.id || cat.id === 'all').length;
                                     return (
                                         <button 
                                             key={cat.id} 
@@ -577,10 +492,17 @@ export default function HireVirtualAssistant() {
 
                         {/* Results Count */}
                         <div className="mb-4 text-right">
-                            <p className="text-xs text-slate-500">Showing {filteredVAs.length} of {VIRTUAL_ASSISTANTS.length} assistants</p>
+                            <p className="text-xs text-slate-500">Showing {filteredVAs.length} of {virtualAssistants.length} assistants</p>
                         </div>
 
                         {/* VA Grid */}
+                        {virtualAssistants.length === 0 ? (
+                            <div className="text-center py-8 sm:py-12 text-slate-400">
+                                <Bot className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 text-slate-600" />
+                                <p className="text-base sm:text-lg font-medium text-white mb-1">No assistants available yet</p>
+                                <p className="text-sm">Check back soon.</p>
+                            </div>
+                        ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
                             {filteredVAs.map(va => {
                                 const isSelected = selectedVA?.id === va.id;
@@ -607,7 +529,7 @@ export default function HireVirtualAssistant() {
                                         <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 mb-2 sm:mb-3">
                                             <span className="flex items-center gap-0.5 sm:gap-1"><Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-yellow-400 fill-yellow-400" /> {va.rating}</span>
                                             <span>({va.reviews} reviews)</span>
-                                            <span className="flex items-center gap-0.5 sm:gap-1"><Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> {va.responseTime}</span>
+                                            <span className="flex items-center gap-0.5 sm:gap-1"><Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> {va.responseTime || va.processingTime}</span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 sm:gap-2">
                                             {va.featured && (
@@ -631,8 +553,9 @@ export default function HireVirtualAssistant() {
                                 );
                             })}
                         </div>
+                        )}
 
-                        {filteredVAs.length === 0 && (
+                        {virtualAssistants.length > 0 && filteredVAs.length === 0 && (
                             <div className="text-center py-8 sm:py-12 text-slate-400">
                                 <Bot className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 text-slate-600" />
                                 <p className="text-base sm:text-lg font-medium text-white mb-1">No assistants match your search</p>
@@ -742,6 +665,8 @@ export default function HireVirtualAssistant() {
                                 )}
                             </div>
                         )}
+                        </>
+                        )}
                     </>
                 )}
 
@@ -770,7 +695,7 @@ export default function HireVirtualAssistant() {
                                     </button>
                                 </div>
                                 {taskHistory.map(task => {
-                                    const va = VIRTUAL_ASSISTANTS.find(v => v.id === task.va_id);
+                                    const va = virtualAssistants.find(v => v.id === task.va_id);
                                     const isExpanded = expandedTask === task.id;
                                     return (
                                         <div key={task.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 sm:p-4 hover:border-slate-700 transition">
