@@ -1,8 +1,11 @@
-// api/index.js - UNIFIED API GATEWAY v7.1 (COMPLETE - ALL FEATURES PRESERVED)
+// api/index.js - UNIFIED API GATEWAY v7.2 (COMPLETE - ALL FEATURES PRESERVED)
 // Complete API: Health monitoring, IP geolocation, Email templates, Job fetching (multi-source),
 // AI chat, Assessment generation, Course generation, User applications, Profile updates,
 // Newsletter, Books, Articles, User stats, Analytics events, Tester management, VA system
-// RUTH Standard v7.1 - Production Ready with Enhanced Error Handling
+// RUTH Standard v7.2 - Production Ready with Enhanced Error Handling
+//
+// CHANGED (2026-08-07): update-course-progress now sets status/completed_at
+// once progress reaches 100 — see the handler itself for details.
 //
 // CHANGED (2026-08-07): va-execute now calls OpenAI for real (via the existing
 // callOpenAI() helper, already used identically by chat/generate-assessment/
@@ -1663,18 +1666,29 @@ const handlers = {
     },
 
     // ========== UPDATE COURSE PROGRESS ==========
+    // CHANGED (2026-08-07): now sets status/completed_at once progress
+    // reaches 100 — previously neither field was ever set, so nothing that
+    // checked course completion (e.g. CoursesPage.jsx) could ever see a
+    // course as finished even at 100% progress.
     'update-course-progress': async (req, res) => {
         const { userId, courseId, progress, lessonId } = req.body;
         const supabaseClient = getSupabase();
         
         try {
+            const updates = {
+                progress: progress,
+                last_accessed: new Date().toISOString(),
+                last_lesson_id: lessonId
+            };
+            
+            if (progress >= 100) {
+                updates.status = 'completed';
+                updates.completed_at = new Date().toISOString();
+            }
+            
             await supabaseClient
                 .from('course_enrollments')
-                .update({
-                    progress: progress,
-                    last_accessed: new Date().toISOString(),
-                    last_lesson_id: lessonId
-                })
+                .update(updates)
                 .eq('user_id', userId)
                 .eq('course_id', courseId);
             
