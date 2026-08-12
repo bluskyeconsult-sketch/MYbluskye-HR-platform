@@ -1,8 +1,31 @@
 // src/pages/admin/AdminArticles.jsx
-// COMPLETE PROFESSIONAL ARTICLE MANAGEMENT - With API integration, bulk actions, advanced filters, and analytics
+// COMPLETE PROFESSIONAL ARTICLE MANAGEMENT
+//
+// FIXED (2026-08-07):
+// 1. Created its own disconnected Supabase client via createClient()
+//    instead of importing the shared singleton — same bug pattern found and
+//    fixed in 5 other files earlier in this project.
+// 2. MAJOR schema mismatch: used a `status` string column ('published'/
+//    'draft') throughout, but the real articles table (confirmed via the
+//    articles-list handler and the HomePage.jsx fix) uses `is_published`
+//    (boolean). Publishing an article here never touched the column the
+//    public site actually filters on — same class of bug as
+//    AdminCourses.jsx. Fixed loadStats, loadArticles, toggleStatus,
+//    getStatusBadge, and the CSV export to use is_published.
+// 3. MAJOR: confirmDelete(), confirmBulkDelete(), and toggleStatus() all
+//    checked `if (!response.ok)` before falling back to Supabase — but the
+//    nonexistent admin-* actions return HTTP 200 (not an error), so
+//    response.ok is true, meaning !response.ok is false, meaning the
+//    Supabase fallback NEVER RAN. Every delete and every publish/unpublish
+//    click showed a success toast and reloaded the list, but nothing was
+//    ever actually changed in the database. Simplified all three to go
+//    straight to Supabase.
+//
+// FLAGGED, NOT FIXED: imports ConfirmModal from ../../components/ConfirmModal
+// — not reviewed in this session, contents unconfirmed.
 
 import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
     Plus, Edit, Trash2, FileText, Search, RefreshCw, Loader2, 
@@ -12,10 +35,6 @@ import {
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function AdminArticles() {
     const navigate = useNavigate();
@@ -45,28 +64,6 @@ export default function AdminArticles() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { window.location.href = '/admin-login'; return; }
             
-            // Try API first
-            try {
-                const response = await fetch('/api/index?action=admin-check', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: session.user.id })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success && data.authorized) {
-                        setUser(session.user);
-                        setIsAuthorized(true);
-                        loadArticles();
-                        loadStats();
-                        return;
-                    }
-                }
-            } catch (err) { 
-                console.warn('API check failed, falling back to Supabase:', err); 
-            }
-            
-            // Fallback to Supabase
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('user_type')
@@ -92,31 +89,17 @@ export default function AdminArticles() {
 
     async function loadStats() {
         try {
-            const response = await fetch('/api/index?action=article-stats', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.stats) {
-                    setStats(data.stats);
-                    return;
-                }
-            }
-        } catch (err) { 
-            console.warn('API stats failed:', err); 
+            const { data } = await supabase.from('articles').select('is_published, view_count, content');
+            const total = data?.length || 0;
+            const published = data?.filter(a => a.is_published).length || 0;
+            const draft = data?.filter(a => !a.is_published).length || 0;
+            const views = data?.reduce((sum, a) => sum + (a.view_count || 0), 0) || 0;
+            const totalWords = data?.reduce((sum, a) => sum + (a.content?.length || 0), 0) || 0;
+            const avgReadTime = totalWords > 0 && published > 0 ? Math.round(totalWords / published / 200) : 5;
+            setStats({ total, published, draft, views, avgReadTime });
+        } catch (err) {
+            console.error('Error loading article stats:', err);
         }
-        
-        // Fallback
-        const { data } = await supabase.from('articles').select('status, view_count, content');
-        const total = data?.length || 0;
-        const published = data?.filter(a => a.status === 'published').length || 0;
-        const draft = data?.filter(a => a.status === 'draft').length || 0;
-        const views = data?.reduce((sum, a) => sum + (a.view_count || 0), 0) || 0;
-        const totalWords = data?.reduce((sum, a) => sum + (a.content?.length || 0), 0) || 0;
-        const avgReadTime = totalWords > 0 && published > 0 ? Math.round(totalWords / published / 200) : 5;
-        setStats({ total, published, draft, views, avgReadTime });
     }
 
     async function loadArticles() {
@@ -124,43 +107,13 @@ export default function AdminArticles() {
             setLoading(true);
             setError(null);
             
-            // Try API first
-            const params = new URLSearchParams({
-                page: currentPage,
-                limit: itemsPerPage,
-                search: searchTerm,
-                category: selectedCategory,
-                status: selectedStatus,
-                from: dateRange.from,
-                to: dateRange.to
-            });
-            
-            const response = await fetch(`/api/index?action=articles-list-admin&${params}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    setArticles(data.articles || []);
-                    setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
-                    return;
-                }
-            }
-        } catch (err) { 
-            console.warn('API fetch failed, falling back to Supabase:', err); 
-        }
-        
-        // Fallback to Supabase
-        try {
             let query = supabase
                 .from('articles')
                 .select('*', { count: 'exact' })
                 .order('created_at', { ascending: false });
             
             if (selectedCategory !== 'all') query = query.eq('category', selectedCategory);
-            if (selectedStatus !== 'all') query = query.eq('status', selectedStatus);
+            if (selectedStatus !== 'all') query = query.eq('is_published', selectedStatus === 'published');
             if (searchTerm) query = query.or(`title.ilike.%${searchTerm}%,content.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
             if (dateRange.from) query = query.gte('created_at', dateRange.from);
             if (dateRange.to) query = query.lte('created_at', dateRange.to);
@@ -188,21 +141,13 @@ export default function AdminArticles() {
 
     async function confirmDelete() {
         try {
-            const response = await fetch('/api/index?action=article-delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ articleId: showDeleteConfirm.id })
-            });
-            
-            if (!response.ok) {
-                await supabase.from('articles').delete().eq('id', showDeleteConfirm.id);
-            }
-            
+            await supabase.from('articles').delete().eq('id', showDeleteConfirm.id);
             toast.success('Article deleted');
             await loadArticles();
             await loadStats();
             setSelectedArticles(new Set());
         } catch (err) { 
+            console.error('Error deleting article:', err);
             toast.error('Failed to delete'); 
         } finally { 
             setShowDeleteConfirm(null); 
@@ -215,47 +160,31 @@ export default function AdminArticles() {
 
     async function confirmBulkDelete() {
         try {
-            const response = await fetch('/api/index?action=articles-bulk-delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ articleIds: showDeleteConfirm.ids })
-            });
-            
-            if (!response.ok) {
-                await supabase.from('articles').delete().in('id', showDeleteConfirm.ids);
-            }
-            
+            await supabase.from('articles').delete().in('id', showDeleteConfirm.ids);
             toast.success(`Deleted ${showDeleteConfirm.ids.length} articles`);
             setSelectedArticles(new Set());
             await loadArticles();
             await loadStats();
         } catch (err) { 
+            console.error('Error bulk deleting articles:', err);
             toast.error('Failed to delete'); 
         } finally { 
             setShowDeleteConfirm(null); 
         }
     }
 
-    async function toggleStatus(id, currentStatus) {
-        const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    async function toggleStatus(id, currentlyPublished) {
         try {
-            const response = await fetch('/api/index?action=article-status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ articleId: id, status: newStatus })
-            });
+            await supabase
+                .from('articles')
+                .update({ is_published: !currentlyPublished, updated_at: new Date().toISOString() })
+                .eq('id', id);
             
-            if (!response.ok) {
-                await supabase
-                    .from('articles')
-                    .update({ status: newStatus, updated_at: new Date().toISOString() })
-                    .eq('id', id);
-            }
-            
-            toast.success(`Article ${newStatus === 'published' ? 'published' : 'unpublished'}`);
+            toast.success(`Article ${!currentlyPublished ? 'published' : 'unpublished'}`);
             await loadArticles();
             await loadStats();
         } catch (err) { 
+            console.error('Error toggling article status:', err);
             toast.error('Failed to update status'); 
         }
     }
@@ -263,27 +192,17 @@ export default function AdminArticles() {
     async function exportArticles() {
         setExporting(true);
         try {
-            const response = await fetch('/api/index?action=articles-export', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                const articlesToExport = data.articles || articles;
-                const csv = convertToCSV(articlesToExport);
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `articles_export_${new Date().toISOString().split('T')[0]}.csv`;
-                a.click();
-                URL.revokeObjectURL(url);
-                toast.success('Articles exported');
-            } else {
-                throw new Error('Export failed');
-            }
+            const csv = convertToCSV(articles);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `articles_export_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Articles exported');
         } catch (err) { 
+            console.error('Export error:', err);
             toast.error('Export failed'); 
         } finally { 
             setExporting(false); 
@@ -295,7 +214,7 @@ export default function AdminArticles() {
         const rows = articlesData.map(a => [
             `"${a.title?.replace(/"/g, '""') || ''}"`,
             a.category || '',
-            a.status || '',
+            a.is_published ? 'published' : 'draft',
             a.view_count || 0,
             new Date(a.created_at).toLocaleDateString(),
             a.author || ''
@@ -313,8 +232,8 @@ export default function AdminArticles() {
         setSelectedArticles(newSet); 
     }
 
-    function getStatusBadge(status) {
-        return status === 'published' 
+    function getStatusBadge(isPublished) {
+        return isPublished 
             ? <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><Globe className="w-3 h-3" /> Published</span>
             : <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400"><EyeOff className="w-3 h-3" /> Draft</span>;
     }
@@ -532,8 +451,8 @@ export default function AdminArticles() {
                                                 <span className="text-xs px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full">{article.category || 'Uncategorized'}</span>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <button onClick={() => toggleStatus(article.id, article.status)} className="cursor-pointer">
-                                                    {getStatusBadge(article.status)}
+                                                <button onClick={() => toggleStatus(article.id, article.is_published)} className="cursor-pointer">
+                                                    {getStatusBadge(article.is_published)}
                                                 </button>
                                             </td>
                                             <td className="px-4 py-3 text-slate-300 text-sm">
