@@ -1,5 +1,27 @@
 // src/pages/AdminDashboard.jsx
-// COMPLETE ADMIN DASHBOARD - Copy and replace entire file
+// COMPLETE ADMIN DASHBOARD
+//
+// FIXED (2026-08-07):
+// 1. Removed a hardcoded admin-email backdoor (bluskyeconsult@gmail.com) —
+//    the third instance of this pattern found across the codebase, and the
+//    most serious: this one gated the ENTIRE admin dashboard by exact email
+//    match instead of checking profiles.user_type like everywhere else,
+//    completely bypassing the database-driven role system (and the
+//    App.jsx ProtectedRoute requireAdmin wrapper this page is already
+//    rendered inside of). Now checks user_type, consistent with the rest
+//    of the platform.
+// 2. totalCourses, totalAssessments, and totalVAs were hardcoded (1, 7, 24)
+//    and never actually queried, despite courses/assessments counts being
+//    trivially available. Fixed to real queries where a real table exists;
+//    VAs have no database table (confirmed — a hardcoded array in
+//    api/index.js), so that count now reflects the real array length (6)
+//    instead of an arbitrary number.
+//
+// FLAGGED, NOT FIXED: three Quick Links point to routes that don't exist
+// anywhere in App.jsx — /admin/tester-feedback, /admin/tester-invites,
+// /admin/diagnostics. Building three new admin pages is out of scope for a
+// bug fix — left in place, flagged for a decision on whether to build them
+// or remove the links.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -15,9 +37,9 @@ export default function AdminDashboard() {
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalJobs: 0,
-        totalCourses: 1,
-        totalAssessments: 7,
-        totalVAs: 24,
+        totalCourses: 0,
+        totalAssessments: 0,
+        totalVAs: 6,
         pendingJobs: 0,
         pendingApprovals: 0
     });
@@ -28,43 +50,54 @@ export default function AdminDashboard() {
     }, []);
 
     async function checkAdminAndLoadStats() {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            window.location.href = '/admin-login';
-            return;
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                window.location.href = '/admin-login';
+                return;
+            }
+
+            // FIXED: real database check instead of a hardcoded email.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('user_type')
+                .eq('id', user.id)
+                .single();
+
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+            if (!isAdmin) {
+                window.location.href = '/dashboard';
+                return;
+            }
+            setUser(user);
+
+            // FIXED: real queries for courses/assessments, replacing
+            // hardcoded fake numbers.
+            const [userCountRes, jobCountRes, pendingJobsRes, courseCountRes, assessmentCountRes] = await Promise.all([
+                supabase.from('profiles').select('*', { count: 'exact', head: true }),
+                supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
+                supabase.from('external_jobs').select('*', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+                supabase.from('courses').select('*', { count: 'exact', head: true }).eq('is_published', true),
+                supabase.from('assessments').select('*', { count: 'exact', head: true }).eq('is_active', true)
+            ]);
+
+            setStats({
+                totalUsers: userCountRes.count || 0,
+                totalJobs: jobCountRes.count || 0,
+                totalCourses: courseCountRes.count || 0,
+                totalAssessments: assessmentCountRes.count || 0,
+                // No VA database table exists — this reflects the real
+                // hardcoded catalog length in api/index.js's
+                // 'virtual-assistants' handler, not a query.
+                totalVAs: 6,
+                pendingJobs: pendingJobsRes.count || 0,
+                pendingApprovals: 0
+            });
+        } catch (error) {
+            console.error('Error loading admin dashboard:', error);
+        } finally {
+            setLoading(false);
         }
-        if (user.email !== 'bluskyeconsult@gmail.com') {
-            window.location.href = '/dashboard';
-            return;
-        }
-        setUser(user);
-        
-        // Load stats
-        const { count: userCount } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true });
-        
-        const { count: jobCount } = await supabase
-            .from('jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_active', true);
-        
-        const { count: pendingJobs } = await supabase
-            .from('external_jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'pending_approval');
-        
-        setStats({
-            totalUsers: userCount || 0,
-            totalJobs: jobCount || 0,
-            totalCourses: 1,
-            totalAssessments: 7,
-            totalVAs: 24,
-            pendingJobs: pendingJobs || 0,
-            pendingApprovals: 0
-        });
-        
-        setLoading(false);
     }
 
     if (loading) {
@@ -170,6 +203,10 @@ export default function AdminDashboard() {
                                     <p className="text-white">Manage Users</p>
                                     <p className="text-slate-400 text-sm">View, edit, and moderate user accounts</p>
                                 </Link>
+                                {/* NOTE: the two links below point to routes not
+                                    registered in App.jsx — they currently 404.
+                                    Left in place pending a decision on whether to
+                                    build these pages or remove the links. */}
                                 <Link to="/admin/tester-feedback" className="block p-2 rounded-lg hover:bg-slate-800 transition">
                                     <p className="text-white">Tester Feedback</p>
                                     <p className="text-slate-400 text-sm">Review tester feedback and suggestions</p>
@@ -240,6 +277,7 @@ export default function AdminDashboard() {
                                     <p className="text-white">Security Dashboard</p>
                                     <p className="text-slate-400 text-sm">Monitor security events and alerts</p>
                                 </Link>
+                                {/* NOTE: not a registered route — see header comment */}
                                 <Link to="/admin/diagnostics" className="block p-2 rounded-lg hover:bg-slate-800 transition">
                                     <p className="text-white">Diagnostics</p>
                                     <p className="text-slate-400 text-sm">Run system health checks</p>
