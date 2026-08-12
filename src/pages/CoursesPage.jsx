@@ -18,12 +18,10 @@
 //    patch to fix update-course-progress itself (so completed_at/status get
 //    set properly) is provided separately.
 //
-// FLAGGED, NOT FIXED: "Start Course"/"Continue Learning" links point to
-// /learning/:id, and the AI recommendations panel's "View" link points to
-// /courses/:id — NEITHER route exists anywhere in App.jsx. There's no course
-// detail/player page built yet, so these links currently 404. This needs an
-// actual page built, not a patch — flagged as the headline finding for this
-// phase.
+// RESOLVED (2026-08-07): all course links in this file point to
+// /learning/:id, which previously had no route or page — every click 404'd.
+// Both are now fixed: a new src/pages/CourseDetail.jsx has been built and
+// wired up in App.jsx.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
