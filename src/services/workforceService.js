@@ -1,6 +1,13 @@
 // src/services/workforceService.js
 // Complete Workforce Marketplace Service
 // Professional profiles, service requests, proposals, engagements, ratings
+//
+// FIXED (2026-08-07): getMyEngagements() only ever joined the professional's
+// profile info, never the employer's — so when a professional wanted to
+// message their employer (EngagementsDashboard.jsx), there was no employer
+// email available anywhere in the fetched data. Added
+// employer:profiles!employer_id(full_name, email) to the select so both
+// directions of contact are possible.
 
 import { supabase } from '../lib/supabase';
 
@@ -223,9 +230,12 @@ export async function createEngagement(proposalId, employerId, professionalId, r
 }
 
 export async function getMyEngagements(userId, userType) {
+    // FIXED: now also joins the employer's profile (full_name, email), not
+    // just the professional's — needed so both sides of an engagement have
+    // a real contact email available for messaging.
     let query = supabase
         .from('engagements')
-        .select('*, service_request:service_requests(*), professional:workforce_profiles(*, profiles!inner(full_name, email))');
+        .select('*, service_request:service_requests(*), professional:workforce_profiles(*, profiles!inner(full_name, email)), employer:profiles!employer_id(full_name, email)');
 
     if (userType === 'employer') {
         query = query.eq('employer_id', userId);
@@ -258,7 +268,6 @@ export async function updateEngagementStatus(engagementId, userId, status) {
 // ============================================
 
 export async function submitRating(engagementId, reviewerId, revieweeId, rating, review, categories = {}) {
-    // Check if already rated
     const { data: existing } = await supabase
         .from('ratings_reviews')
         .select('id')
@@ -286,10 +295,7 @@ export async function submitRating(engagementId, reviewerId, revieweeId, rating,
 
     if (error) throw error;
 
-    // Update average rating for the reviewee
     await updateAverageRating(revieweeId);
-
-    // Log activity
     await logEngagementActivity(engagementId, 'rating_submitted', { rating, review });
 
     return { success: true, ratingId: data.id };
@@ -304,13 +310,11 @@ async function updateAverageRating(revieweeId) {
     if (ratings && ratings.length > 0) {
         const avg = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;
         
-        // Update in profiles
         await supabase
             .from('profiles')
             .update({ rating_avg: avg, rating_count: ratings.length })
             .eq('id', revieweeId);
         
-        // Update in workforce_profiles if applicable
         await supabase
             .from('workforce_profiles')
             .update({ rating_avg: avg, rating_count: ratings.length })
@@ -354,20 +358,17 @@ export async function logEngagementActivity(engagementId, action, metadata = {})
 // ============================================
 
 export async function getProfessionalStatistics(professionalId) {
-    // Get total engagements
     const { count: totalEngagements } = await supabase
         .from('engagements')
         .select('*', { count: 'exact', head: true })
         .eq('professional_id', professionalId);
 
-    // Get completed engagements
     const { count: completedEngagements } = await supabase
         .from('engagements')
         .select('*', { count: 'exact', head: true })
         .eq('professional_id', professionalId)
         .eq('status', 'completed');
 
-    // Get ratings average
     const { data: ratings } = await supabase
         .from('ratings_reviews')
         .select('rating')
