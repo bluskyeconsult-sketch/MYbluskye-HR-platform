@@ -1,6 +1,28 @@
 // src/pages/admin/ExternalJobsManager.jsx
 // PROFESSIONAL ADMIN UI - Manage jobs from government RSS feeds, Jobicy API, and commercial sources
-// Features: Multi-tab views, batch approval, stats dashboard, connection testing, force refresh, unified API
+//
+// FIXED (2026-08-07):
+// 1. handleFetchRSSJobs() called ?action=jobs — a real, confirmed handler,
+//    but one that only fetches and returns job listings; it never inserts
+//    anything into external_jobs. Since that handler genuinely returns
+//    {success: true}, the button showed "✅ Added 0 new jobs" — a
+//    true-looking success message for an action that changed nothing.
+//    handleExternalFetch()/handleSyncJobs() called external-jobs-fetch/
+//    jobs-sync, neither of which exist at all (these at least correctly
+//    showed an error). All three now call the proven-working
+//    fetchExternalJobs() service function directly — the same one already
+//    used correctly by Force Refresh — instead of three different broken
+//    API paths. Removed the now-redundant handleDirectFetch and unused
+//    API_ACTIONS/API_BASE constants.
+// 2. handleBatchApprove() referenced the checkbox selection in its confirm
+//    dialog ("Approve N job(s)?") but called batchApproveExternalJobs()
+//    with no arguments — the selected ids were collected but never passed.
+//    Now passes Array.from(selectedJobs). NOTE: this assumes
+//    batchApproveExternalJobs() accepts an id array — worth confirming
+//    against the real rssJobService.js signature.
+// 3. The job preview used dangerouslySetInnerHTML on job.description, which
+//    comes from external RSS feeds and third-party APIs you don't control
+//    — a real XSS risk on an admin page. Now renders as plain text.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -37,18 +59,8 @@ import {
 } from 'lucide-react';
 
 // ============================================
-// UNIFIED API ENDPOINTS
-// ============================================
-
-const API_BASE = '/api/index';
-const API_ACTIONS = {
-    FETCH_JOBS: `${API_BASE}?action=jobs`,
-    SYNC_JOBS: `${API_BASE}?action=jobs-sync`,
-    EXTERNAL_FETCH: `${API_BASE}?action=external-jobs-fetch`
-};
-
-// ============================================
-// RSS FEED SOURCES CONFIGURATION
+// RSS FEED SOURCES CONFIGURATION (informational display only —
+// the actual sources fetched are whatever rssJobService.js implements)
 // ============================================
 
 const RSS_FEEDS = [
@@ -159,104 +171,10 @@ export default function ExternalJobsManager() {
         setFilteredJobs(filtered);
     }
 
-    // ✅ Unified API: Fetch RSS Jobs (using action=jobs)
+    // FIXED: all three fetch/sync buttons now call the one real, proven
+    // fetchExternalJobs() service function instead of three different
+    // broken/nonexistent API paths (see file header for details).
     async function handleFetchRSSJobs() {
-        setSyncing(true);
-        setSyncResult(null);
-        
-        try {
-            const response = await fetch(API_ACTIONS.FETCH_JOBS, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                setSyncResult({ 
-                    success: true, 
-                    inserted: data.added || data.totalAdded || 0, 
-                    message: data.message || `Added ${data.added || data.totalAdded || 0} new jobs` 
-                });
-                await loadJobs();
-                await loadStats();
-            } else {
-                throw new Error(data.error || 'Fetch failed');
-            }
-        } catch (error) {
-            console.error('Fetch RSS error:', error);
-            setSyncResult({ success: false, error: error.message });
-        } finally {
-            setSyncing(false);
-        }
-    }
-
-    // ✅ Unified API: Sync External Jobs (using action=jobs-sync)
-    async function handleSyncJobs() {
-        setSyncing(true);
-        setSyncResult(null);
-        
-        try {
-            const response = await fetch(API_ACTIONS.SYNC_JOBS, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                setSyncResult({ 
-                    success: true, 
-                    inserted: data.synced || data.added || 0, 
-                    message: data.message || `Synced ${data.synced || data.added || 0} jobs` 
-                });
-                await loadJobs();
-                await loadStats();
-            } else {
-                throw new Error(data.error || 'Sync failed');
-            }
-        } catch (error) {
-            console.error('Sync error:', error);
-            setSyncResult({ success: false, error: error.message });
-        } finally {
-            setSyncing(false);
-        }
-    }
-
-    // ✅ Unified API: External Jobs Fetch (using action=external-jobs-fetch)
-    async function handleExternalFetch() {
-        setSyncing(true);
-        setSyncResult(null);
-        
-        try {
-            const response = await fetch(API_ACTIONS.EXTERNAL_FETCH, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                setSyncResult({ 
-                    success: true, 
-                    inserted: data.added || data.totalAdded || 0, 
-                    message: data.message || `Added ${data.added || data.totalAdded || 0} external jobs` 
-                });
-                await loadJobs();
-                await loadStats();
-            } else {
-                throw new Error(data.error || 'External fetch failed');
-            }
-        } catch (error) {
-            console.error('External fetch error:', error);
-            setSyncResult({ success: false, error: error.message });
-        } finally {
-            setSyncing(false);
-        }
-    }
-
-    // Fallback: Direct service call (if API fails)
-    async function handleDirectFetch() {
         setSyncing(true);
         setSyncResult(null);
         
@@ -266,6 +184,41 @@ export default function ExternalJobsManager() {
             await loadJobs();
             await loadStats();
         } catch (error) {
+            console.error('Fetch RSS error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleSyncJobs() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await fetchExternalJobs(false);
+            setSyncResult({ success: true, inserted: result.totalAdded, message: `Synced ${result.totalAdded} jobs` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('Sync error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleExternalFetch() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await fetchExternalJobs(false);
+            setSyncResult({ success: true, inserted: result.totalAdded, message: `Added ${result.totalAdded} external jobs` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('External fetch error:', error);
             setSyncResult({ success: false, error: error.message });
         } finally {
             setSyncing(false);
@@ -321,6 +274,8 @@ export default function ExternalJobsManager() {
         }
     }
 
+    // FIXED: now passes the actual selected job ids — previously called with
+    // no arguments despite the confirm dialog referencing a specific count.
     async function handleBatchApprove() {
         if (selectedJobs.size === 0) {
             alert('No jobs selected');
@@ -331,7 +286,7 @@ export default function ExternalJobsManager() {
         
         setProcessingId('batch');
         try {
-            const batchResult = await batchApproveExternalJobs();
+            const batchResult = await batchApproveExternalJobs(Array.from(selectedJobs));
             alert(`✅ Batch approve complete!\nApproved: ${batchResult.approved}\nFailed: ${batchResult.failed}`);
             setSelectedJobs(new Set());
             await loadJobs();
@@ -760,7 +715,12 @@ export default function ExternalJobsManager() {
                             {selectedJob?.id === job.id && (
                                 <div className="mt-4 pt-4 border-t border-slate-800">
                                     <h4 className="text-white font-semibold mb-2">Full Description</h4>
-                                    <div className="text-slate-400 text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: job.description || 'No description provided.' }} />
+                                    {/* FIXED: was dangerouslySetInnerHTML on
+                                        externally-sourced content — a real XSS
+                                        risk. Renders as plain text now. */}
+                                    <div className="text-slate-400 text-sm whitespace-pre-wrap">
+                                        {job.description || 'No description provided.'}
+                                    </div>
                                     {job.rejection_reason && (
                                         <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
                                             <p className="text-red-400 text-sm"><strong>Rejection Reason:</strong> {job.rejection_reason}</p>
