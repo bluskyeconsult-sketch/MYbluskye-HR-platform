@@ -1,682 +1,324 @@
-// src/pages/admin/ManageBooks.jsx
-// COMPLETE PROFESSIONAL BOOKS MANAGEMENT - Add, edit, delete books with file uploads
-// Features: Search, category filter, featured books, PDF preview, enhanced metadata
+// src/pages/admin/EmailTest.jsx
+// COMPLETE EMAIL TEST PAGE - Test SMTP configuration with error handling
 //
-// FIXED (2026-08-07): never set is_published anywhere — the third confirmed
-// instance of this exact bug class (courses, articles, now books). The real
-// books-list handler filters on is_published = true, so every book created
-// or edited through this admin page would never appear on the public books
-// page. Added an explicit toggle, matching the pattern already used in
-// AdminCourses.jsx and ArticleEditor.jsx, defaulting new books to
-// unpublished so nothing goes live by accident.
-//
-// FLAGGED, NOT REVIEWED: imports FileUpload from ../../components/FileUpload
-// — not seen in this session, contents unconfirmed.
+// FIXED (2026-08-07): posted to /api/send-email, which doesn't exist
+// anywhere in this project — the real email endpoint is
+// /api/index?action=email, already confirmed working. This test page has
+// never actually been able to send a real email until now.
 
-import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
-import FileUpload from '../../components/FileUpload';
-import { 
-    BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
-    Download, Star, Calendar, DollarSign, User, 
-    Tag, AlertCircle, CheckCircle, X, Image as ImageIcon,
-    FileText, Award, TrendingUp, Users, Briefcase, Code,
-    Search, Filter, ChevronLeft, ChevronRight
-} from 'lucide-react';
+import { useState } from 'react';
+import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle, HelpCircle, Shield } from 'lucide-react';
 
-// ============================================
-// CONSTANTS & CONFIGURATION
-// ============================================
+export default function EmailTest() {
+    const [email, setEmail] = useState('');
+    const [sending, setSending] = useState(false);
+    const [result, setResult] = useState(null);
+    const [selectedTemplate, setSelectedTemplate] = useState('basic');
 
-const CATEGORIES = [
-    { id: 'hr', name: 'Human Resources', icon: Users, color: 'primary', description: 'HR management, recruitment, employee relations' },
-    { id: 'leadership', name: 'Leadership', icon: Award, color: 'emerald', description: 'Team management, executive skills, strategy' },
-    { id: 'technology', name: 'Technology', icon: Code, color: 'purple', description: 'Tech trends, digital transformation, AI' },
-    { id: 'career', name: 'Career Development', icon: TrendingUp, color: 'amber', description: 'Career planning, growth, advancement' },
-    { id: 'management', name: 'Management', icon: Briefcase, color: 'blue', description: 'Operations, project management, strategy' },
-    { id: 'soft-skills', name: 'Soft Skills', icon: Users, color: 'pink', description: 'Communication, teamwork, emotional intelligence' }
-];
+    const emailTemplates = {
+        basic: {
+            name: 'Basic Test',
+            subject: 'ODUSBABA Email Test',
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 48px;">📧</div>
+                            <h1 style="color: #10b981;">Email Test Successful!</h1>
+                        </div>
+                        <p style="color: #94a3b8;">Your ODUSBABA email system is working correctly.</p>
+                        <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                            <p style="margin: 0;"><strong>Test Details:</strong></p>
+                            <p style="margin: 8px 0 0; font-size: 12px;">Sent at: ${new Date().toLocaleString()}</p>
+                            <p style="margin: 4px 0 0; font-size: 12px;">Server: Vercel Serverless</p>
+                        </div>
+                        <hr style="border-color: #1e293b; margin: 20px 0;">
+                        <p style="color: #475569; font-size: 12px; text-align: center;">BluSkye Integrated Consult - Creating Value for Partnership</p>
+                    </div>
+                </body>
+                </html>
+            `
+        },
+        newsletter: {
+            name: 'Newsletter Style',
+            subject: 'ODUSBABA Newsletter Test',
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; overflow: hidden;">
+                        <div style="background: linear-gradient(135deg, #0ea5e9, #3b82f6); padding: 30px; text-align: center;">
+                            <h1 style="color: white; margin: 0;">ODUSBABA Newsletter</h1>
+                            <p style="color: #cbd5e1; margin-top: 8px;">Test Edition</p>
+                        </div>
+                        <div style="padding: 30px; color: #94a3b8;">
+                            <h2 style="color: white;">Welcome to the Test!</h2>
+                            <p>This is a test newsletter to verify your email configuration.</p>
+                            <ul>
+                                <li>✅ SMTP configured correctly</li>
+                                <li>✅ Templates working</li>
+                                <li>✅ Email delivery confirmed</li>
+                            </ul>
+                            <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin-top: 20px;">
+                                <p style="margin: 0;">💡 <strong>Next Steps:</strong> Your email system is ready for production!</p>
+                            </div>
+                        </div>
+                        <div style="background-color: #0a0f1c; padding: 20px; text-align: center; font-size: 12px; color: #475569;">
+                            <p>BluSkye Integrated Consult - Creating Value for Partnership</p>
+                            <p><a href="https://www.bluskyeconsult.com" style="color: #0ea5e9;">Visit ODUSBABA</a></p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `
+        },
+        welcome: {
+            name: 'Welcome Email',
+            subject: 'Welcome to ODUSBABA!',
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 48px;">🎉</div>
+                            <h1 style="color: #0ea5e9;">Welcome to ODUSBABA!</h1>
+                        </div>
+                        <p style="color: #94a3b8;">Hello,</p>
+                        <p style="color: #94a3b8;">Thank you for testing our email system. Your account is ready to go!</p>
+                        <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                            <p style="margin: 0;"><strong>Get started with:</strong></p>
+                            <ul style="margin-top: 8px;">
+                                <li>🤖 AI Career Assistant</li>
+                                <li>📄 CV Optimization</li>
+                                <li>💼 Job Matching</li>
+                            </ul>
+                        </div>
+                        <div style="text-align: center;">
+                            <a href="https://www.bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Go to Dashboard →</a>
+                        </div>
+                        <hr style="border-color: #1e293b; margin: 20px 0;">
+                        <p style="color: #475569; font-size: 12px; text-align: center;">BluSkye Integrated Consult</p>
+                    </div>
+                </body>
+                </html>
+            `
+        }
+    };
 
-const ITEMS_PER_PAGE = 12;
+    const handleTemplateChange = (templateKey) => {
+        setSelectedTemplate(templateKey);
+        setResult(null);
+    };
 
-const getCategoryIcon = (categoryId) => {
-    const category = CATEGORIES.find(c => c.id === categoryId);
-    return category?.icon || BookOpen;
-};
-
-const getCategoryColor = (categoryId) => {
-    const category = CATEGORIES.find(c => c.id === categoryId);
-    return category?.color || 'slate';
-};
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
-
-export default function ManageBooks() {
-    const [books, setBooks] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [showModal, setShowModal] = useState(false);
-    const [editingBook, setEditingBook] = useState(null);
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState('all');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
-    const [formData, setFormData] = useState({
-        title: '',
-        author: '',
-        description: '',
-        price: 0,
-        cover_url: '',
-        category: '',
-        is_featured: false,
-        pdf_url: '',
-        publish_date: new Date().toISOString().split('T')[0],
-        isbn: '',
-        pages: 0,
-        language: 'English',
-        edition: 1,
-        publisher: '',
-        is_published: false
-    });
-
-    useEffect(() => {
-        fetchBooks();
-    }, []);
-
-    async function fetchBooks() {
-        setLoading(true);
-        const { data, error } = await supabase
-            .from('books')
-            .select('*')
-            .order('created_at', { ascending: false });
-        
-        if (!error) setBooks(data || []);
-        setLoading(false);
-    }
-
-    async function handleSubmit(e) {
+    async function handleTest(e) {
         e.preventDefault();
-        setSubmitting(true);
-        setError('');
-        setSuccessMessage('');
-
-        // Validation
-        if (!formData.title.trim()) {
-            setError('Book title is required');
-            setSubmitting(false);
-            return;
-        }
         
-        if (!formData.author.trim()) {
-            setError('Author name is required');
-            setSubmitting(false);
+        if (!email) {
+            setResult({ success: false, message: 'Please enter an email address' });
             return;
         }
 
+        // Validate email format
+        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+        if (!emailRegex.test(email)) {
+            setResult({ success: false, message: 'Please enter a valid email address' });
+            return;
+        }
+
+        setSending(true);
+        setResult(null);
+        
+        const template = emailTemplates[selectedTemplate];
+        
         try {
-            if (editingBook) {
-                const { error } = await supabase
-                    .from('books')
-                    .update({
-                        ...formData,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', editingBook.id);
-                
-                if (error) throw error;
-                setSuccessMessage('Book updated successfully!');
+            const response = await fetch('/api/index?action=email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    to: email, 
+                    subject: `${template.subject} - ${new Date().toLocaleString()}`, 
+                    html: template.html
+                })
+            });
+            
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text();
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}`);
+            }
+            
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                setResult({ 
+                    success: true, 
+                    message: `✅ Test email sent successfully! Check your inbox (${email}).`,
+                    details: { messageId: data.messageId }
+                });
+                setEmail('');
             } else {
-                const { error } = await supabase
-                    .from('books')
-                    .insert({
-                        ...formData,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    });
-                
-                if (error) throw error;
-                setSuccessMessage('Book added successfully!');
+                setResult({ 
+                    success: false, 
+                    message: data.error || `HTTP ${response.status}: Failed to send` 
+                });
             }
-            
-            // Reset form and close modal after delay
-            setTimeout(() => {
-                setShowModal(false);
-                resetForm();
-                fetchBooks();
-                setSuccessMessage('');
-            }, 1500);
-            
-        } catch (err) {
-            console.error('Error saving book:', err);
-            setError(err.message || 'Failed to save book');
+        } catch (error) {
+            console.error('Email test error:', error);
+            setResult({ 
+                success: false, 
+                message: error.message || 'Network error. Please try again.' 
+            });
         } finally {
-            setSubmitting(false);
+            setSending(false);
         }
-    }
-
-    async function handleDelete(id) {
-        if (confirm('Are you sure you want to delete this book? This action cannot be undone.')) {
-            const { error } = await supabase
-                .from('books')
-                .delete()
-                .eq('id', id);
-            
-            if (!error) {
-                fetchBooks();
-                setSuccessMessage('Book deleted successfully');
-                setTimeout(() => setSuccessMessage(''), 3000);
-            }
-        }
-    }
-
-    function resetForm() {
-        setEditingBook(null);
-        setFormData({
-            title: '',
-            author: '',
-            description: '',
-            price: 0,
-            cover_url: '',
-            category: '',
-            is_featured: false,
-            pdf_url: '',
-            publish_date: new Date().toISOString().split('T')[0],
-            isbn: '',
-            pages: 0,
-            language: 'English',
-            edition: 1,
-            publisher: '',
-            is_published: false
-        });
-        setError('');
-    }
-
-    function openEditModal(book) {
-        setEditingBook(book);
-        setFormData(book);
-        setShowModal(true);
-        setError('');
-    }
-
-    // Filter books
-    const filteredBooks = books.filter(book => {
-        const matchesCategory = selectedCategory === 'all' || book.category === selectedCategory;
-        const matchesSearch = searchTerm === '' || 
-            book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            book.author.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (book.isbn && book.isbn.includes(searchTerm));
-        return matchesCategory && matchesSearch;
-    });
-
-    // Pagination
-    const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
-    const paginatedBooks = filteredBooks.slice(
-        (currentPage - 1) * ITEMS_PER_PAGE,
-        currentPage * ITEMS_PER_PAGE
-    );
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
-            </div>
-        );
     }
 
     return (
-        <div className="p-6">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-white">Manage Books</h1>
-                    <p className="text-slate-400">Add, edit, or remove books from the ODUSBABA library</p>
-                </div>
-                <button 
-                    onClick={() => { resetForm(); setShowModal(true); }} 
-                    className="px-4 py-2 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 flex items-center gap-2 shadow-lg shadow-primary-500/20"
-                >
-                    <Plus className="w-4 h-4" /> 
-                    Add New Book
-                </button>
+        <div className="p-6 max-w-3xl mx-auto">
+            <div className="mb-8">
+                <h1 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                    <Mail className="w-6 h-6 text-primary-400" />
+                    Email Configuration Test
+                </h1>
+                <p className="text-slate-400">Verify your SMTP settings are working correctly</p>
             </div>
 
-            {/* Success Message */}
-            {successMessage && (
-                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    <p className="text-emerald-400 text-sm">{successMessage}</p>
-                </div>
-            )}
-
-            {/* Search and Filter Bar */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input
-                        type="text"
-                        placeholder="Search books by title, author, or ISBN..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                    <button
-                        onClick={() => setSelectedCategory('all')}
-                        className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
-                            selectedCategory === 'all'
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                        }`}
-                    >
-                        All Books
-                    </button>
-                    {CATEGORIES.map(cat => (
-                        <button
-                            key={cat.id}
-                            onClick={() => setSelectedCategory(cat.id)}
-                            className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition flex items-center gap-1 ${
-                                selectedCategory === cat.id
-                                    ? `bg-${cat.color}-600 text-white`
-                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                            }`}
-                            title={cat.description}
-                        >
-                            <cat.icon className="w-3 h-3" />
-                            {cat.name}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Books Grid */}
-            {paginatedBooks.length === 0 ? (
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
-                    <BookOpen className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-white mb-2">No books found</h3>
-                    <p className="text-slate-400">
-                        {books.length === 0 
-                            ? 'No books in the library yet. Click "Add New Book" to get started.'
-                            : 'No books match your search criteria.'}
-                    </p>
-                    {(searchTerm || selectedCategory !== 'all') && (
-                        <button
-                            onClick={() => { setSearchTerm(''); setSelectedCategory('all'); }}
-                            className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
-                        >
-                            Clear Filters
-                        </button>
-                    )}
-                </div>
-            ) : (
-                <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                        {paginatedBooks.map(book => {
-                            const Icon = getCategoryIcon(book.category);
-                            const categoryColor = getCategoryColor(book.category);
-                            
-                            return (
-                                <div 
-                                    key={book.id} 
-                                    className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all hover:-translate-y-1"
-                                >
-                                    {/* Book Cover */}
-                                    {book.cover_url ? (
-                                        <div className="relative h-48 overflow-hidden">
-                                            <img 
-                                                src={book.cover_url} 
-                                                alt={book.title} 
-                                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                                            />
-                                            {book.is_featured && (
-                                                <div className="absolute top-2 right-2 px-2 py-1 bg-amber-500/90 rounded-lg text-xs text-white font-semibold flex items-center gap-1">
-                                                    <Star className="w-3 h-3" /> Featured
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div className="h-48 bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center">
-                                            <BookOpen className="w-12 h-12 text-primary-400 mb-2" />
-                                            <span className="text-xs text-slate-500">No cover image</span>
-                                        </div>
-                                    )}
-                                    
-                                    {/* Book Info */}
-                                    <div className="p-4">
-                                        <div className="flex items-start justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`p-1.5 rounded-lg bg-${categoryColor}-500/10`}>
-                                                    <Icon className={`w-3 h-3 text-${categoryColor}-400`} />
-                                                </div>
-                                                <span className="text-xs text-slate-500 capitalize">{book.category || 'Uncategorized'}</span>
-                                            </div>
-                                            <span className="text-lg font-bold text-primary-400">${book.price}</span>
-                                        </div>
-                                        
-                                        <h3 className="text-white font-semibold text-lg mb-1 line-clamp-1">{book.title}</h3>
-                                        <p className="text-slate-400 text-sm mb-2">by {book.author}</p>
-                                        {/* FIXED: added — surfaces publish
-                                            status directly on the card. */}
-                                        <span className={`inline-block text-xs px-2 py-0.5 rounded-full mb-2 ${book.is_published ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                                            {book.is_published ? 'Published' : 'Draft'}
-                                        </span>
-                                        
-                                        <div className="flex items-center gap-3 text-xs text-slate-500 mb-3 flex-wrap">
-                                            {book.publish_date && (
-                                                <span className="flex items-center gap-1">
-                                                    <Calendar className="w-3 h-3" />
-                                                    {new Date(book.publish_date).getFullYear()}
-                                                </span>
-                                            )}
-                                            {book.pages > 0 && (
-                                                <span className="flex items-center gap-1">
-                                                    <FileText className="w-3 h-3" />
-                                                    {book.pages} pages
-                                                </span>
-                                            )}
-                                            {book.pdf_url && (
-                                                <span className="flex items-center gap-1 text-emerald-400">
-                                                    <Download className="w-3 h-3" />
-                                                    PDF
-                                                </span>
-                                            )}
-                                        </div>
-                                        
-                                        {/* Action Buttons */}
-                                        <div className="flex gap-2 pt-2 border-t border-slate-800">
-                                            <button 
-                                                onClick={() => openEditModal(book)} 
-                                                className="flex-1 py-1.5 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition flex items-center justify-center gap-1 text-sm"
-                                            >
-                                                <Edit2 className="w-3 h-3" /> Edit
-                                            </button>
-                                            <button 
-                                                onClick={() => handleDelete(book.id)} 
-                                                className="flex-1 py-1.5 bg-slate-800 rounded-lg text-red-400 hover:bg-red-500/20 hover:text-red-300 transition flex items-center justify-center gap-1 text-sm"
-                                            >
-                                                <Trash2 className="w-3 h-3" /> Delete
-                                            </button>
-                                            {book.pdf_url && (
-                                                <a 
-                                                    href={book.pdf_url} 
-                                                    target="_blank" 
-                                                    rel="noopener noreferrer" 
-                                                    className="py-1.5 px-3 bg-slate-800 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition"
-                                                    title="Preview PDF"
-                                                >
-                                                    <Eye className="w-3 h-3" />
-                                                </a>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                        <div className="flex justify-center gap-2 mt-8">
-                            <button
-                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage === 1}
-                                className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            >
-                                <ChevronLeft className="w-4 h-4" />
-                            </button>
-                            <span className="px-4 py-2 bg-slate-800 rounded-lg text-white text-sm">
-                                Page {currentPage} of {totalPages}
-                            </span>
-                            <button
-                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage === totalPages}
-                                className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            >
-                                <ChevronRight className="w-4 h-4" />
-                            </button>
-                        </div>
-                    )}
-                </>
-            )}
-
-            {/* Add/Edit Modal */}
-            {showModal && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-white">
-                                {editingBook ? 'Edit Book' : 'Add New Book'}
-                            </h2>
-                            <button 
-                                onClick={() => setShowModal(false)} 
-                                className="p-1 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Main Form */}
+                <div className="lg:col-span-2">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                        <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+                            <Send className="w-5 h-5 text-primary-400" />
+                            Send Test Email
+                        </h2>
                         
-                        {error && (
-                            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-red-400" />
-                                <p className="text-red-400 text-sm">{error}</p>
+                        <form onSubmit={handleTest} className="space-y-4">
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">
+                                    Email Address
+                                </label>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="admin@bluskyeconsult.com"
+                                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    required
+                                    disabled={sending}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-2">
+                                    Email Template
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {Object.entries(emailTemplates).map(([key, template]) => (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => handleTemplateChange(key)}
+                                            className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                                                selectedTemplate === key
+                                                    ? 'bg-primary-600 text-white'
+                                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                        >
+                                            {template.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={sending}
+                                className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-medium shadow-lg shadow-primary-500/20"
+                            >
+                                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                {sending ? 'Sending...' : 'Send Test Email'}
+                            </button>
+                        </form>
+
+                        {result && (
+                            <div className={`mt-4 p-3 rounded-lg flex items-start gap-2 ${
+                                result.success 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                                {result.success ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+                                <div>
+                                    <span className="text-sm">{result.message}</span>
+                                    {result.details?.messageId && (
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Message ID: {result.details.messageId}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                         )}
-                        
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Title *</label>
-                                    <input
-                                        type="text"
-                                        value={formData.title}
-                                        onChange={e => setFormData({...formData, title: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Author *</label>
-                                    <input
-                                        type="text"
-                                        value={formData.author}
-                                        onChange={e => setFormData({...formData, author: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                        required
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">Description</label>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={e => setFormData({...formData, description: e.target.value})}
-                                    rows="3"
-                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    placeholder="Book description..."
-                                />
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Price ($)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={formData.price}
-                                        onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Category</label>
-                                    <select
-                                        value={formData.category}
-                                        onChange={e => setFormData({...formData, category: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    >
-                                        <option value="">Select Category</option>
-                                        {CATEGORIES.map(cat => (
-                                            <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">ISBN</label>
-                                    <input
-                                        type="text"
-                                        value={formData.isbn}
-                                        onChange={e => setFormData({...formData, isbn: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                        placeholder="978-0-00-000000-0"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Pages</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={formData.pages}
-                                        onChange={e => setFormData({...formData, pages: parseInt(e.target.value) || 0})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Publisher</label>
-                                    <input
-                                        type="text"
-                                        value={formData.publisher}
-                                        onChange={e => setFormData({...formData, publisher: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                        placeholder="Publisher name"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Language</label>
-                                    <select
-                                        value={formData.language}
-                                        onChange={e => setFormData({...formData, language: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    >
-                                        <option value="English">English</option>
-                                        <option value="Spanish">Spanish</option>
-                                        <option value="French">French</option>
-                                        <option value="German">German</option>
-                                        <option value="Chinese">Chinese</option>
-                                        <option value="Japanese">Japanese</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Edition</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={formData.edition}
-                                        onChange={e => setFormData({...formData, edition: parseInt(e.target.value) || 1})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Publish Date</label>
-                                    <input
-                                        type="date"
-                                        value={formData.publish_date}
-                                        onChange={e => setFormData({...formData, publish_date: e.target.value})}
-                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">Cover Image</label>
-                                <FileUpload 
-                                    bucket="book_covers" 
-                                    folder="covers" 
-                                    acceptedType="image" 
-                                    onUploadComplete={(url) => setFormData({...formData, cover_url: url})} 
-                                    existingUrl={formData.cover_url} 
-                                    label="Upload Cover Image"
-                                />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-1">PDF File (Optional)</label>
-                                <FileUpload 
-                                    bucket="admin_uploads" 
-                                    folder="books" 
-                                    acceptedType="document" 
-                                    onUploadComplete={(url) => setFormData({...formData, pdf_url: url})} 
-                                    existingUrl={formData.pdf_url} 
-                                    label="Upload PDF"
-                                />
-                            </div>
-                            
-                            <div className="flex flex-wrap items-center gap-4">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.is_featured}
-                                        onChange={e => setFormData({...formData, is_featured: e.target.checked})}
-                                        className="w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500"
-                                    />
-                                    <span className="text-white text-sm flex items-center gap-1">
-                                        <Star className="w-4 h-4 text-amber-400" />
-                                        Feature this book
-                                    </span>
-                                </label>
-                                {/* FIXED: added — this is what actually
-                                    controls public visibility. */}
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.is_published}
-                                        onChange={e => setFormData({...formData, is_published: e.target.checked})}
-                                        className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500"
-                                    />
-                                    <span className="text-white text-sm flex items-center gap-1">
-                                        <CheckCircle className="w-4 h-4 text-emerald-400" />
-                                        Published (visible on public Books page)
-                                    </span>
-                                </label>
-                            </div>
-                            
-                            <div className="flex gap-3 pt-4">
-                                <button
-                                    type="submit"
-                                    disabled={submitting}
-                                    className="flex-1 py-2 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
-                                >
-                                    {submitting ? (
-                                        <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
-                                    ) : (
-                                        <><CheckCircle className="w-4 h-4" /> {editingBook ? 'Update Book' : 'Add Book'}</>
-                                    )}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowModal(false)}
-                                    className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-all duration-200"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
                     </div>
                 </div>
-            )}
+
+                {/* Info Panel */}
+                <div className="space-y-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Shield className="w-5 h-5 text-emerald-400" />
+                            <h3 className="text-white font-semibold">SMTP Status</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Host:</span>
+                                <span className="text-white font-mono text-xs">
+                                    {import.meta.env.VITE_SMTP_HOST || 'Not set'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Port:</span>
+                                <span className="text-white">{import.meta.env.VITE_SMTP_PORT || '587'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">User:</span>
+                                <span className="text-white">{import.meta.env.VITE_SMTP_USER ? '✓ Configured' : 'Not set'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="w-5 h-5 text-amber-400" />
+                            <h3 className="text-white font-semibold">Important Notes</h3>
+                        </div>
+                        <ul className="text-xs text-slate-400 space-y-2 list-disc list-inside">
+                            <li>Email may take a few minutes to arrive</li>
+                            <li>Check your spam/junk folder if not received</li>
+                            <li>Some email providers may delay first-time emails</li>
+                            <li>Rate limit: 1 email per minute per address</li>
+                        </ul>
+                    </div>
+
+                    <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <HelpCircle className="w-5 h-5 text-sky-400" />
+                            <h3 className="text-white font-semibold">Troubleshooting</h3>
+                        </div>
+                        <ul className="text-xs text-slate-400 space-y-1">
+                            <li>• Ensure SMTP credentials are correct</li>
+                            <li>• Check if SMTP port is open (587 or 465)</li>
+                            <li>• Verify sender email is authorized</li>
+                            <li>• Check Vercel environment variables</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
