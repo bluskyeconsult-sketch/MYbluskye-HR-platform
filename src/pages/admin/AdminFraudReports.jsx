@@ -287,9 +287,69 @@ export default function AdminFraudReports() {
                 </div>
             </div>
 
-            {/* Reports Table */}
+            {/* Reports Table (desktop) + Card List (mobile) */}
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Mobile card list — a 7-column table can't work on a phone
+                    screen, so this replaces it below the md breakpoint. */}
+                <div className="md:hidden divide-y divide-slate-800">
+                    {filteredReports.map((report) => (
+                        <div key={report.id} className="p-4">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                                {getTypeBadge(report.report_type)}
+                                {getStatusBadge(report.status)}
+                            </div>
+                            <p className="text-slate-300 text-sm mb-2 line-clamp-2">
+                                {report.description || 'No description provided'}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mb-3">
+                                <span className="flex items-center gap-1">
+                                    <User className="w-3 h-3" /> From: {report.reporter?.email?.split('@')[0] || 'Unknown'}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" /> About: {report.reported_user?.email?.split('@')[0] || 'Unknown'}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" /> {new Date(report.created_at).toLocaleDateString()}
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {report.status === 'pending' && (
+                                    <button
+                                        onClick={() => updateStatus(report.id, 'investigating')}
+                                        className="px-3 py-1.5 bg-blue-600 rounded-lg text-xs text-white flex items-center gap-1"
+                                    >
+                                        <AlertTriangle className="w-3 h-3" /> Investigate
+                                    </button>
+                                )}
+                                {(report.status === 'pending' || report.status === 'investigating') && (
+                                    <button
+                                        onClick={() => updateStatus(report.id, 'resolved')}
+                                        className="px-3 py-1.5 bg-emerald-600 rounded-lg text-xs text-white flex items-center gap-1"
+                                    >
+                                        <CheckCircle className="w-3 h-3" /> Resolve
+                                    </button>
+                                )}
+                                {report.status !== 'dismissed' && (
+                                    <button
+                                        onClick={() => updateStatus(report.id, 'dismissed')}
+                                        className="px-3 py-1.5 bg-red-600 rounded-lg text-xs text-white flex items-center gap-1"
+                                    >
+                                        <XCircle className="w-3 h-3" /> Dismiss
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => { setSelectedReport(report); setShowDetailsModal(true); }}
+                                    className="px-3 py-1.5 bg-slate-700 rounded-lg text-xs text-white flex items-center gap-1"
+                                >
+                                    <Eye className="w-3 h-3" /> View
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-800/50 border-b border-slate-800">
                             <tr>
