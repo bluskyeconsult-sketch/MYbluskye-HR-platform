@@ -1,10 +1,37 @@
 // src/pages/admin/ArticleEditor.jsx
 // PROFESSIONAL ARTICLE EDITOR - AI-powered content creation with markdown support, SEO optimization, and fallback handling
-// Features: AI article generation, content improvement, SEO optimization, markdown preview, tags, categories, and professional UI
+//
+// FIXED (2026-08-07):
+// 1. Used a `status` string field ('draft'/'published') throughout, but the
+//    real articles table (confirmed via the articles-list handler and the
+//    HomePage.jsx fix, and already corrected in AdminArticles.jsx) uses
+//    `is_published` (boolean). This is the file that actually publishes
+//    article content — even after fixing AdminArticles.jsx's list view,
+//    clicking Publish HERE still wouldn't set the column the public site
+//    filters on. Fixed throughout.
+// 2. Created its own Supabase client via createClient() instead of the
+//    shared singleton — same disconnected-client pattern found and fixed in
+//    6+ other files this project.
+// 3. The three AI buttons called /api/ai/generate-article,
+//    /api/ai/improve-article, /api/ai/generate-seo-title — a URL pattern
+//    that doesn't exist anywhere else in this project (every real endpoint
+//    goes through /api/index?action=...). These always 404, so the file
+//    silently fell back to fully local, template-based text every single
+//    time — never real AI, despite looking like it had a working/fallback
+//    split. Rewired all three to use the real, confirmed 'chat' action
+//    first, keeping the existing template functions as the actual fallback
+//    if that real call fails — same pattern used for the CoursesPage.jsx
+//    and assessmentService.js AI fixes.
+//
+// FLAGGED, NOT CHANGED: sendNotification() calls a Supabase Edge Function
+// named 'send-article-notification' — a different mechanism than anything
+// else in this project (which uses api/index.js or direct table queries
+// exclusively). Unconfirmed whether this edge function exists; left as-is
+// since it already fails silently/gracefully without blocking the save.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { 
     Save, Eye, Send, X, Plus, Trash2, Sparkles, Loader2, 
     Copy, Check, RefreshCw, FileText, Tag, Calendar, User, 
@@ -13,34 +40,23 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// ============================================
-// PROFESSIONAL CONFIGURATION
-// ============================================
-
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
 const DEFAULT_AUTHOR = 'ODUSBABA Team';
 
 // ============================================
-// FALLBACK FUNCTIONS (When AI API is unavailable)
+// FALLBACK FUNCTIONS (used only if the real 'chat' action fails)
 // ============================================
 
 const fallbackImproveContent = (text) => {
     if (!text?.trim()) return text;
     
     let improved = text;
-    
-    // Professional formatting improvements
     improved = improved.replace(/([.!?])\s*([a-z])/g, (_, p1, p2) => `${p1} ${p2.toUpperCase()}`);
     improved = improved.charAt(0).toUpperCase() + improved.slice(1);
     improved = improved.replace(/\s+/g, ' ');
     improved = improved.replace(/\s+([.,!?:;])/g, '$1');
     
-    // Add paragraph breaks for long text
     if (improved.length > 500 && !improved.includes('\n\n')) {
         const sentences = improved.split('. ');
         if (sentences.length > 3) {
@@ -49,7 +65,6 @@ const fallbackImproveContent = (text) => {
         }
     }
     
-    // Professional typography fixes
     const corrections = {
         'teh': 'the', 'adn': 'and', 'wih': 'with', 'thier': 'their',
         'recieve': 'receive', 'acheive': 'achieve', 'practise': 'practice',
@@ -92,7 +107,6 @@ export default function ArticleEditor() {
     const { id } = useParams();
     const navigate = useNavigate();
     
-    // State Management
     const [article, setArticle] = useState({
         title: '',
         slug: '',
@@ -102,7 +116,7 @@ export default function ArticleEditor() {
         tags: [],
         featured_image: '',
         author: DEFAULT_AUTHOR,
-        status: 'draft',
+        is_published: false,
         send_notification: false,
         seo_title: '',
         seo_description: '',
@@ -124,7 +138,6 @@ export default function ArticleEditor() {
     const [aiFallbackUsed, setAiFallbackUsed] = useState(false);
     const [fullscreen, setFullscreen] = useState(false);
 
-    // Effects
     useEffect(() => {
         if (id && id !== 'new') loadArticle();
     }, [id]);
@@ -142,7 +155,6 @@ export default function ArticleEditor() {
         }
     }, [aiFallbackUsed]);
 
-    // Database Operations - Using Direct Supabase Client
     async function loadArticle() {
         setLoading(true);
         const { data, error } = await supabase
@@ -169,12 +181,14 @@ export default function ArticleEditor() {
         }
         
         setSaving(true);
+        // FIXED: is_published boolean, not a status string — matches the
+        // real column the public articles-list handler filters on.
         const articleData = {
             ...article,
-            status: publish ? 'published' : 'draft',
+            is_published: publish,
             slug: article.slug || generateSlug(article.title),
             updated_at: new Date().toISOString(),
-            published_at: publish && article.status !== 'published' ? new Date().toISOString() : article.published_at
+            published_at: publish && !article.is_published ? new Date().toISOString() : article.published_at
         };
 
         try {
@@ -223,7 +237,9 @@ export default function ArticleEditor() {
         }
     }
 
-    // AI Functions
+    // FIXED: was calling a nonexistent /api/ai/generate-article path (always
+    // 404'd, always silently used the local template). Now uses the real
+    // 'chat' action first, with the same template as a genuine fallback.
     async function handleAIGenerate() {
         if (!aiTopic.trim()) {
             alert('Please enter a topic');
@@ -234,29 +250,32 @@ export default function ArticleEditor() {
         setAiFallbackUsed(false);
         
         try {
-            const response = await fetch('/api/ai/generate-article', {
+            const systemPrompt = 'You are a professional content writer for an HR and career platform. Write a complete, well-structured article in markdown with a top-level # title, clear section headers, and a conclusion. Return ONLY the article markdown, no preamble or commentary.';
+            const userMessage = `Write a professional article about: "${aiTopic}". Aim for 500-800 words with an introduction, 2-4 main sections, and a conclusion.`;
+            
+            const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic: aiTopic, tone: 'professional', length: 'medium' })
+                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.7, maxTokens: 1500 })
             });
             
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
             const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Generation failed');
             
-            if (data.success) {
-                setArticle({
-                    ...article,
-                    title: data.title || aiTopic,
-                    content: data.content,
-                    excerpt: data.excerpt || data.content.substring(0, MAX_EXCERPT_LENGTH)
-                });
-                alert('✅ Article generated successfully!');
-                setShowAIPanel(false);
-                setAiTopic('');
-            } else {
-                throw new Error(data.error || 'Generation failed');
-            }
+            const content = data.response.trim();
+            const titleMatch = content.match(/^#\s+(.+)$/m);
+            const title = titleMatch ? titleMatch[1].trim() : aiTopic;
+            const bodyForExcerpt = content.replace(/^#\s+.+$/m, '').trim();
+            
+            setArticle({
+                ...article,
+                title,
+                content,
+                excerpt: bodyForExcerpt.substring(0, MAX_EXCERPT_LENGTH)
+            });
+            alert('✅ Article generated successfully!');
+            setShowAIPanel(false);
+            setAiTopic('');
         } catch (error) {
             console.error('AI generation error:', error);
             const fallbackContent = fallbackGenerateArticle(aiTopic);
@@ -275,6 +294,8 @@ export default function ArticleEditor() {
         }
     }
 
+    // FIXED: was calling a nonexistent /api/ai/improve-article path — now
+    // uses the real 'chat' action first.
     async function handleImproveContent() {
         if (!article.content.trim()) {
             alert('Please add some content first');
@@ -285,22 +306,19 @@ export default function ArticleEditor() {
         setAiFallbackUsed(false);
         
         try {
-            const response = await fetch('/api/ai/improve-article', {
+            const systemPrompt = 'You are a professional editor. Improve the grammar, clarity, and flow of the given article while preserving its markdown formatting, meaning, and structure. Return ONLY the improved article text, no commentary.';
+            
+            const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: article.content, improvement_type: 'clarity' })
+                body: JSON.stringify({ message: article.content, systemPrompt, history: [], temperature: 0.4, maxTokens: 2000 })
             });
             
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
             const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Improvement failed');
             
-            if (data.success) {
-                setArticle({ ...article, content: data.content });
-                alert('✅ Content improved successfully!');
-            } else {
-                throw new Error(data.error || 'Improvement failed');
-            }
+            setArticle({ ...article, content: data.response.trim() });
+            alert('✅ Content improved successfully!');
         } catch (error) {
             console.error('AI improvement error:', error);
             const improvedContent = fallbackImproveContent(article.content);
@@ -312,6 +330,8 @@ export default function ArticleEditor() {
         }
     }
 
+    // FIXED: was calling a nonexistent /api/ai/generate-seo-title path — now
+    // uses the real 'chat' action first.
     async function generateSEOTitle() {
         if (!article.title) {
             alert('Please enter a title first');
@@ -322,21 +342,21 @@ export default function ArticleEditor() {
         setAiFallbackUsed(false);
         
         try {
-            const response = await fetch('/api/ai/generate-seo-title', {
+            const systemPrompt = 'You are an SEO specialist. Return ONLY a single SEO-optimized title, under 60 characters, no quotes, no explanation.';
+            const userMessage = `Original article title: "${article.title}"`;
+            
+            const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: article.title })
+                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.5, maxTokens: 40 })
             });
             
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
             const data = await response.json();
-            if (data.success && data.seo_title) {
-                setArticle({ ...article, seo_title: data.seo_title });
-                alert('✅ SEO title generated!');
-            } else {
-                throw new Error(data.error || 'Generation failed');
-            }
+            if (!data.success) throw new Error(data.error || 'Generation failed');
+            
+            const seoTitle = data.response.trim().replace(/^["']|["']$/g, '').substring(0, 60);
+            setArticle({ ...article, seo_title: seoTitle });
+            alert('✅ SEO title generated!');
         } catch (error) {
             console.error('SEO title generation error:', error);
             const fallbackTitle = fallbackGenerateSEOTitle(article.title);
@@ -348,7 +368,6 @@ export default function ArticleEditor() {
         }
     }
 
-    // Utility Functions
     const copyToClipboard = (text) => {
         if (!text) return;
         navigator.clipboard.writeText(text);
@@ -421,7 +440,6 @@ export default function ArticleEditor() {
                     </div>
                 </div>
 
-                {/* AI Fallback Warning Banner */}
                 {aiFallbackUsed && (
                     <div className="mb-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
                         <WifiOff className="w-4 h-4 text-amber-400" />
@@ -429,7 +447,6 @@ export default function ArticleEditor() {
                     </div>
                 )}
 
-                {/* AI Panel */}
                 {showAIPanel && !preview && (
                     <div className="mb-6 p-5 bg-gradient-to-r from-purple-900/20 to-primary-900/20 border border-purple-500/30 rounded-xl">
                         <div className="flex justify-between items-center mb-4">
@@ -464,14 +481,12 @@ export default function ArticleEditor() {
 
                 {!preview ? (
                     <div className="space-y-6">
-                        {/* Title */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Title *</label>
                             <input type="text" value={article.title} onChange={(e) => setArticle({ ...article, title: e.target.value.slice(0, MAX_TITLE_LENGTH), slug: generateSlug(e.target.value), seo_title: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg" placeholder="Article title..." />
                             <p className="text-xs text-slate-500 mt-1">{article.title.length}/{MAX_TITLE_LENGTH} characters</p>
                         </div>
 
-                        {/* Slug & SEO */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-1">URL Slug</label>
@@ -494,14 +509,12 @@ export default function ArticleEditor() {
                             </div>
                         </div>
 
-                        {/* Excerpt */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Excerpt (SEO Meta Description)</label>
                             <textarea rows={2} value={article.excerpt} onChange={(e) => setArticle({ ...article, excerpt: e.target.value.slice(0, MAX_EXCERPT_LENGTH) })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Brief summary for search engines..." />
                             <p className="text-xs text-slate-500 mt-1">{article.excerpt.length}/{MAX_EXCERPT_LENGTH} characters</p>
                         </div>
 
-                        {/* Category & Author */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
@@ -516,7 +529,6 @@ export default function ArticleEditor() {
                             </div>
                         </div>
 
-                        {/* Tags */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Tags</label>
                             <div className="flex gap-2 mb-2">
@@ -533,7 +545,6 @@ export default function ArticleEditor() {
                             </div>
                         </div>
 
-                        {/* Featured Image URL */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Featured Image URL</label>
                             <div className="flex gap-2">
@@ -544,7 +555,6 @@ export default function ArticleEditor() {
                             </div>
                         </div>
 
-                        {/* Content */}
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Content (Markdown supported)</label>
                             <textarea rows={18} value={article.content} onChange={(e) => setArticle({ ...article, content: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Write your article content here... Use markdown for formatting." />
@@ -556,7 +566,6 @@ export default function ArticleEditor() {
                             </div>
                         </div>
 
-                        {/* Notification Option */}
                         <div className="flex items-center gap-3 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
                             <input type="checkbox" id="send_notification" checked={article.send_notification} onChange={(e) => setArticle({ ...article, send_notification: e.target.checked })} className="w-4 h-4 rounded border-slate-600 text-primary-500 focus:ring-primary-500" />
                             <label htmlFor="send_notification" className="text-slate-300 text-sm">Send email notification to subscribers when published</label>
