@@ -77,6 +77,61 @@ function checkRateLimit(key, limit = RATE_LIMIT_REQUESTS) {
     return true;
 }
 
+// ============================================
+// SECURITY: IP blocking + event logging (NEW — 2026-08-07)
+// Powers SecurityDashboard.jsx, which was previously reading from
+// security_events (nothing ever wrote to it) and writing to blocked_ips
+// (nothing ever checked it). isIPBlocked() is called once, globally, at the
+// top of the main handler below, before any action runs. logSecurityEvent()
+// is called wherever the gateway can genuinely observe something
+// security-relevant — currently blocked-IP attempts and rate-limit
+// violations. Both fail open/silent — a broken security check must never
+// itself become an outage, and logging failures must never break the
+// request they're logging.
+//
+// KNOWN LIMITATION: login happens directly between the browser and Supabase
+// Auth (supabase.auth.signInWithPassword) — it never passes through this
+// gateway, so failed-login-attempt tracking isn't possible from here
+// without a bigger architecture change (routing auth through a dedicated
+// backend action instead of calling Supabase Auth directly from the
+// client).
+// ============================================
+
+function getRequestIP(req) {
+    return (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
+}
+
+async function isIPBlocked(ip) {
+    try {
+        const supabaseClient = getSupabase();
+        const { data } = await supabaseClient
+            .from('blocked_ips')
+            .select('id')
+            .eq('ip_address', ip)
+            .gt('expires_at', new Date().toISOString())
+            .maybeSingle();
+        return !!data;
+    } catch (err) {
+        console.warn('IP block check failed, failing open:', err.message);
+        return false;
+    }
+}
+
+async function logSecurityEvent(eventType, ip, severity = 'info', metadata = {}) {
+    try {
+        const supabaseClient = getSupabase();
+        await supabaseClient.from('security_events').insert({
+            event_type: eventType,
+            ip_address: ip,
+            severity,
+            metadata,
+            created_at: new Date().toISOString()
+        });
+    } catch (err) {
+        console.warn('Security event logging failed:', err.message);
+    }
+}
+
 function isValidEmail(email) {
     const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
     return emailRegex.test(email);
@@ -1092,6 +1147,8 @@ const handlers = {
 
         const rateLimitKey = `email:${to}:${type || 'general'}`;
         if (!checkRateLimit(rateLimitKey, 3)) {
+            // NEW (2026-08-07): log the rate-limit violation as a security event.
+            await logSecurityEvent('rate_limit_exceeded', getRequestIP(req), 'warning', { action: 'email', to, type: type || 'general' });
             return res.status(429).json({ error: 'Too many requests. Please wait.' });
         }
 
@@ -1752,6 +1809,95 @@ const handlers = {
         }
     },
 
+    // ========== TRACK PAGE VIEW (NEW — 2026-08-07) ==========
+    // Powers AnalyticsDashboard.jsx, which was previously reading from
+    // analytics_sessions/analytics_page_views tables that nothing ever
+    // wrote to. This single endpoint does everything needed per page view:
+    // finds or creates the session, extracts geolocation from Vercel's edge
+    // headers (same real mechanism the 'ip' handler already uses), detects
+    // device/browser server-side from the User-Agent header, and logs the
+    // page view. Called from a small tracking hook in App.jsx on every
+    // route change. Designed to fail silently from the caller's
+    // perspective — tracking should never be able to break the site.
+    'track-page-view': async (req, res) => {
+        const { sessionId, pageUrl, userId } = req.body;
+
+        if (!sessionId || !pageUrl) {
+            return res.status(400).json({ error: 'sessionId and pageUrl required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        const country = req.headers['x-vercel-ip-country'] || null;
+        const city = req.headers['x-vercel-ip-city'] || null;
+        const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
+
+        const ua = req.headers['user-agent'] || '';
+        let deviceType = 'desktop';
+        if (/tablet|ipad/i.test(ua)) deviceType = 'tablet';
+        else if (/mobile|android|iphone/i.test(ua)) deviceType = 'mobile';
+
+        let browser = 'unknown';
+        if (/edg/i.test(ua)) browser = 'Edge';
+        else if (/chrome/i.test(ua)) browser = 'Chrome';
+        else if (/safari/i.test(ua)) browser = 'Safari';
+        else if (/firefox/i.test(ua)) browser = 'Firefox';
+
+        try {
+            const { data: existingSession } = await supabaseClient
+                .from('analytics_sessions')
+                .select('id, page_count, start_time')
+                .eq('session_id', sessionId)
+                .maybeSingle();
+
+            if (existingSession) {
+                const durationSeconds = Math.floor((Date.now() - new Date(existingSession.start_time).getTime()) / 1000);
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .update({
+                        page_count: (existingSession.page_count || 0) + 1,
+                        duration_seconds: durationSeconds,
+                        end_time: new Date().toISOString()
+                    })
+                    .eq('id', existingSession.id);
+            } else {
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .insert({
+                        session_id: sessionId,
+                        ip_address: ip,
+                        country,
+                        city,
+                        device_type: deviceType,
+                        browser,
+                        start_time: new Date().toISOString(),
+                        page_count: 1,
+                        duration_seconds: 0,
+                        user_id: userId || null
+                    });
+            }
+
+            await supabaseClient
+                .from('analytics_page_views')
+                .insert({
+                    session_id: sessionId,
+                    page_url: pageUrl,
+                    ip_address: ip,
+                    country,
+                    city,
+                    device_type: deviceType,
+                    user_id: userId || null,
+                    created_at: new Date().toISOString()
+                });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.warn('Track page view error:', error.message);
+            // Fail silently — tracking must never break the site.
+            return res.status(200).json({ success: false });
+        }
+    },
+
     // ========== HOMEPAGE STATS (Enhanced with fallback) ==========
     'homepage-stats': async (req, res) => {
         const supabaseClient = getSupabase();
@@ -1866,6 +2012,13 @@ export default async function handler(req, res) {
     
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
+    }
+    
+    // NEW (2026-08-07): global IP block check, before any action runs.
+    const requestIP = getRequestIP(req);
+    if (await isIPBlocked(requestIP)) {
+        await logSecurityEvent('blocked_ip_attempt', requestIP, 'warning', { action: req.query.action || null });
+        return res.status(403).json({ error: 'Access denied' });
     }
     
     const { action } = req.query;
