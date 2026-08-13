@@ -1,9 +1,22 @@
 // src/pages/admin/TestingModeSettings.jsx
-// ODUSBABA TESTING MODE SETTINGS v3.0 - PRODUCTION READY
+// ODUSBABA TESTING MODE SETTINGS v3.1 - PRODUCTION READY
 // ✅ Complete tester mode management with database sync
 // ✅ Tester statistics dashboard
 // ✅ Admin-only access with proper authentication
 // ✅ Persists across page refreshes
+//
+// FIXED (2026-08-07):
+// 1. Removed a hardcoded admin-email backdoor (6th confirmed instance
+//    across the codebase) — the user_type check alone was already correct;
+//    the email OR-clause was a redundant bypass.
+// 2. loadTesterStats()'s average-VA-uses calculation passed a Supabase
+//    query builder object directly into .in(), which requires an actual
+//    array — this isn't valid and throws. Since this sat inside the same
+//    try/catch as the rest of the function, that failure meant
+//    setTesterStats() never ran at all, silently leaving ALL FOUR stat
+//    cards (including the two that had already loaded correctly) stuck at
+//    0. Fixed by resolving tester profile ids into a real array first, then
+//    using a count-based query instead of fetching full rows.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -40,7 +53,7 @@ export default function TestingModeSettings() {
                 return;
             }
             
-            // Check if user is admin or super_admin
+            // FIXED: real database check only, no hardcoded email bypass.
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('user_type, email')
@@ -48,8 +61,7 @@ export default function TestingModeSettings() {
                 .single();
             
             const isAdminUser = profile?.user_type === 'admin' || 
-                               profile?.user_type === 'super_admin' || 
-                               user.email === 'bluskyeconsult@gmail.com';
+                               profile?.user_type === 'super_admin';
             
             if (!isAdminUser) {
                 window.location.href = '/admin-login';
@@ -73,7 +85,6 @@ export default function TestingModeSettings() {
         setSyncStatus(null);
         
         try {
-            // Try to get from database
             const { data, error } = await supabase
                 .from('system_config')
                 .select('config_value')
@@ -86,7 +97,6 @@ export default function TestingModeSettings() {
                 localStorage.setItem('testing_mode', enabled ? 'enabled' : 'disabled');
                 setSyncStatus('success');
             } else {
-                // Fallback to localStorage
                 const saved = localStorage.getItem('testing_mode');
                 const enabled = saved === 'enabled';
                 setTestingMode(enabled);
@@ -105,13 +115,11 @@ export default function TestingModeSettings() {
 
     async function loadTesterStats() {
         try {
-            // Get total testers
             const { count: total } = await supabase
                 .from('profiles')
                 .select('id', { count: 'exact', head: true })
                 .eq('user_type', 'tester');
             
-            // Get expiring testers (within next 30 days)
             const thirtyDaysFromNow = new Date();
             thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
             
@@ -121,22 +129,29 @@ export default function TestingModeSettings() {
                 .eq('status', 'active')
                 .lt('expires_at', thirtyDaysFromNow.toISOString());
             
-            // Get converted testers (became paid users)
             const { count: converted } = await supabase
                 .from('profiles')
                 .select('id', { count: 'exact', head: true })
                 .eq('user_type', 'tester')
                 .eq('converted_to_paid', true);
             
-            // Get average VA uses
-            const { data: vaTasks } = await supabase
-                .from('va_tasks')
-                .select('user_id')
-                .in('user_id', 
-                    supabase.from('profiles').select('id').eq('user_type', 'tester')
-                );
+            // FIXED: .in() requires a resolved array, not a query builder.
+            // Resolve tester profile ids first, then use a count-based query.
+            let avgUses = 0;
+            const { data: testerProfiles } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('user_type', 'tester');
             
-            const avgUses = vaTasks?.length ? Math.round(vaTasks.length / (total || 1)) : 0;
+            const testerIds = (testerProfiles || []).map(p => p.id);
+            
+            if (testerIds.length > 0) {
+                const { count: vaTaskCount } = await supabase
+                    .from('va_tasks')
+                    .select('id', { count: 'exact', head: true })
+                    .in('user_id', testerIds);
+                avgUses = Math.round((vaTaskCount || 0) / testerIds.length);
+            }
             
             setTesterStats({
                 total: total || 0,
@@ -161,7 +176,6 @@ export default function TestingModeSettings() {
         const stringValue = newValue ? 'enabled' : 'disabled';
         
         try {
-            // Save to database
             const { error: dbError } = await supabase
                 .from('system_config')
                 .upsert({
@@ -177,19 +191,16 @@ export default function TestingModeSettings() {
             setTestingMode(newValue);
             localStorage.setItem('testing_mode', stringValue);
             
-            // Show confirmation
             alert(`✅ Testing mode ${newValue ? 'enabled' : 'disabled'}.\n\nNew registrations will ${newValue ? 'become testers (10 free uses / 30 days)' : 'be regular users (free tier with 5 AI credits)'}.`);
             
         } catch (dbError) {
             console.error('Failed to save to database:', dbError);
-            // Fallback to localStorage
             localStorage.setItem('testing_mode', stringValue);
             setSyncStatus('error');
             setTestingMode(newValue);
             alert(`⚠️ Testing mode ${newValue ? 'enabled' : 'disabled'} (local only). Database sync may be unavailable.`);
         } finally {
             setSaving(false);
-            // Refresh stats after toggling
             await loadTesterStats();
         }
     }
