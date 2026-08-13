@@ -1,6 +1,17 @@
 // src/pages/admin/ManageBooks.jsx
 // COMPLETE PROFESSIONAL BOOKS MANAGEMENT - Add, edit, delete books with file uploads
 // Features: Search, category filter, featured books, PDF preview, enhanced metadata
+//
+// FIXED (2026-08-07): never set is_published anywhere — the third confirmed
+// instance of this exact bug class (courses, articles, now books). The real
+// books-list handler filters on is_published = true, so every book created
+// or edited through this admin page would never appear on the public books
+// page. Added an explicit toggle, matching the pattern already used in
+// AdminCourses.jsx and ArticleEditor.jsx, defaulting new books to
+// unpublished so nothing goes live by accident.
+//
+// FLAGGED, NOT REVIEWED: imports FileUpload from ../../components/FileUpload
+// — not seen in this session, contents unconfirmed.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -67,7 +78,8 @@ export default function ManageBooks() {
         pages: 0,
         language: 'English',
         edition: 1,
-        publisher: ''
+        publisher: '',
+        is_published: false
     });
 
     useEffect(() => {
@@ -176,7 +188,8 @@ export default function ManageBooks() {
             pages: 0,
             language: 'English',
             edition: 1,
-            publisher: ''
+            publisher: '',
+            is_published: false
         });
         setError('');
     }
@@ -345,6 +358,11 @@ export default function ManageBooks() {
                                         
                                         <h3 className="text-white font-semibold text-lg mb-1 line-clamp-1">{book.title}</h3>
                                         <p className="text-slate-400 text-sm mb-2">by {book.author}</p>
+                                        {/* FIXED: added — surfaces publish
+                                            status directly on the card. */}
+                                        <span className={`inline-block text-xs px-2 py-0.5 rounded-full mb-2 ${book.is_published ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                            {book.is_published ? 'Published' : 'Draft'}
+                                        </span>
                                         
                                         <div className="flex items-center gap-3 text-xs text-slate-500 mb-3 flex-wrap">
                                             {book.publish_date && (
@@ -606,7 +624,7 @@ export default function ManageBooks() {
                                 />
                             </div>
                             
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-4">
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -617,6 +635,20 @@ export default function ManageBooks() {
                                     <span className="text-white text-sm flex items-center gap-1">
                                         <Star className="w-4 h-4 text-amber-400" />
                                         Feature this book
+                                    </span>
+                                </label>
+                                {/* FIXED: added — this is what actually
+                                    controls public visibility. */}
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.is_published}
+                                        onChange={e => setFormData({...formData, is_published: e.target.checked})}
+                                        className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500"
+                                    />
+                                    <span className="text-white text-sm flex items-center gap-1">
+                                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                                        Published (visible on public Books page)
                                     </span>
                                 </label>
                             </div>
