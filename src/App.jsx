@@ -610,10 +610,46 @@ const NotFoundPage = () => (
 );
 
 // ============================================
+// ANALYTICS TRACKING (NEW — 2026-08-07)
+// Fires ?action=track-page-view on every route change. sessionId lives in
+// sessionStorage, scoped to one browser tab/visit — the standard definition
+// of a "session." Fails silently; tracking must never affect the app.
+// ============================================
+function useAnalyticsTracking() {
+    const location = useLocation();
+
+    useEffect(() => {
+        let sessionId = sessionStorage.getItem('odusbaba_session_id');
+        if (!sessionId) {
+            sessionId = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+            sessionStorage.setItem('odusbaba_session_id', sessionId);
+        }
+
+        (async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                await fetch('/api/index?action=track-page-view', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId,
+                        pageUrl: location.pathname,
+                        userId: user?.id || null
+                    })
+                });
+            } catch (err) {
+                console.warn('Analytics tracking failed:', err);
+            }
+        })();
+    }, [location.pathname]);
+}
+
+// ============================================
 // MAIN APP CONTENT
 // ============================================
 function AppContent() {
     const location = useLocation();
+    useAnalyticsTracking();
     
     return (
         <>
