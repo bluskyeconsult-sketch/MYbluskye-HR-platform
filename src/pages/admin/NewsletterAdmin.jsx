@@ -1,5 +1,25 @@
 // src/pages/admin/NewsletterAdmin.jsx
 // COMPLETE PROFESSIONAL NEWSLETTER ADMIN - With API integration, preview, scheduling, and analytics
+//
+// FIXED (2026-08-07):
+// 1. handleCreateNewsletter() checked `if (!response.ok)` before falling
+//    back to a direct Supabase insert — but the nonexistent
+//    newsletter-create action returns HTTP 200 (not an error), so that
+//    condition was always false and the fallback never ran. Creating a
+//    newsletter silently did nothing. Simplified to go straight to
+//    Supabase, since no real newsletter-create action exists.
+// 2. handleSendNow()/handleSendTest() called ?action=newsletter-send, which
+//    doesn't exist, with no fallback at all — both always showed a false
+//    "sending started!" success message while doing nothing. Rebuilt both
+//    to actually send, using infrastructure that's already confirmed real:
+//    fetch active subscribers directly, then call the real `email` action
+//    with the `newsletter` template already defined in api/index.js, once
+//    per subscriber.
+//
+// FLAGGED, NOT REVIEWED: imports AdminLayout from
+// ../../components/admin/AdminLayout — no other admin page in this project
+// uses this wrapper. Unconfirmed whether it exists; if this page fails to
+// build, that's the likely reason.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -131,6 +151,10 @@ export default function NewsletterAdmin() {
         setRefreshing(false);
     }
 
+    // FIXED: no real newsletter-create action exists, so this now goes
+    // straight to Supabase instead of a dead API-first attempt. "Send now"
+    // is no longer promised at creation time — newsletters are created as
+    // draft/scheduled, then actually sent via the fixed handleSendNow below.
     async function handleCreateNewsletter(e) {
         e.preventDefault();
         setSending(true);
@@ -138,44 +162,26 @@ export default function NewsletterAdmin() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             
-            // Try API first
-            const response = await fetch('/api/index?action=newsletter-create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: formData.title,
-                    subject: formData.subject,
-                    content: formData.content,
-                    content_html: formData.content,
-                    scheduled_for: formData.scheduled_for || null,
-                    send_now: formData.send_now,
-                    created_by: user?.id
-                })
+            const { error } = await supabase.from('newsletters').insert({
+                title: formData.title,
+                subject: formData.subject,
+                content: formData.content,
+                content_html: formData.content,
+                status: formData.scheduled_for ? 'scheduled' : 'draft',
+                scheduled_for: formData.scheduled_for || null,
+                created_by: user?.id
             });
             
-            if (!response.ok) {
-                // Fallback to direct Supabase insert
-                await supabase.from('newsletters').insert({
-                    title: formData.title,
-                    subject: formData.subject,
-                    content: formData.content,
-                    content_html: formData.content,
-                    status: formData.scheduled_for ? 'scheduled' : (formData.send_now ? 'sending' : 'draft'),
-                    scheduled_for: formData.scheduled_for || null,
-                    created_by: user?.id
-                });
-            }
+            if (error) throw error;
             
             setShowCreateModal(false);
             setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false });
             await loadData();
             await loadStats();
             
-            if (formData.send_now) {
-                alert('Newsletter created and sending started!');
-            } else {
-                alert('Newsletter created successfully!');
-            }
+            alert(formData.send_now
+                ? 'Newsletter created. Use "Send Now" on the list to actually send it to subscribers.'
+                : 'Newsletter created successfully!');
             
         } catch (error) {
             console.error('Error creating newsletter:', error);
@@ -185,44 +191,91 @@ export default function NewsletterAdmin() {
         }
     }
 
+    // FIXED: ?action=newsletter-send doesn't exist and had no fallback at
+    // all — this always showed a false success message while sending
+    // nothing. Now actually sends: fetches active subscribers directly and
+    // uses the real, confirmed `email` action with the `newsletter`
+    // template already defined in api/index.js, once per subscriber.
     async function handleSendNow(newsletterId) {
         if (!confirm('Send this newsletter now to all subscribers?')) return;
         
+        setSending(true);
         try {
-            const response = await fetch('/api/index?action=newsletter-send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ newsletterId, test: false })
-            });
+            const newsletter = newsletters.find(n => n.id === newsletterId);
+            if (!newsletter) throw new Error('Newsletter not found');
             
-            if (response.ok) {
-                alert('Newsletter sending started!');
-                await loadData();
-            } else {
-                throw new Error('Send failed');
+            const { data: activeSubscribers, error: subError } = await supabase
+                .from('newsletter_subscribers')
+                .select('email')
+                .eq('status', 'active');
+            
+            if (subError) throw subError;
+            
+            if (!activeSubscribers || activeSubscribers.length === 0) {
+                alert('No active subscribers to send to.');
+                setSending(false);
+                return;
             }
+            
+            let successCount = 0;
+            for (const sub of activeSubscribers) {
+                try {
+                    const res = await fetch('/api/index?action=email', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            to: sub.email,
+                            subject: newsletter.subject,
+                            type: 'newsletter',
+                            templateData: { content: newsletter.content_html || newsletter.content }
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success) successCount++;
+                } catch (sendErr) {
+                    console.warn('Failed to send to', sub.email, sendErr);
+                }
+            }
+            
+            await supabase
+                .from('newsletters')
+                .update({ status: 'sent', sent_at: new Date().toISOString() })
+                .eq('id', newsletterId);
+            
+            alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers.`);
+            await loadData();
         } catch (error) {
             console.error('Error sending newsletter:', error);
-            alert('Failed to send newsletter. Please try again.');
+            alert('Failed to send newsletter: ' + error.message);
+        } finally {
+            setSending(false);
         }
     }
 
+    // FIXED: same broken action as handleSendNow — now sends a real test
+    // email to the current admin's own address via the real `email` action.
     async function handleSendTest(newsletter) {
         try {
-            const response = await fetch('/api/index?action=newsletter-send', {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.email) throw new Error('Could not determine your admin email address');
+            
+            const res = await fetch('/api/index?action=email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ newsletterId: newsletter.id, test: true })
+                body: JSON.stringify({
+                    to: user.email,
+                    subject: `[TEST] ${newsletter.subject}`,
+                    type: 'newsletter',
+                    templateData: { content: newsletter.content_html || newsletter.content }
+                })
             });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Send failed');
             
-            if (response.ok) {
-                alert('Test email sent to admin!');
-            } else {
-                throw new Error('Test send failed');
-            }
+            alert(`Test email sent to ${user.email}!`);
         } catch (error) {
             console.error('Error sending test:', error);
-            alert('Failed to send test email.');
+            alert('Failed to send test email: ' + error.message);
         }
     }
 
