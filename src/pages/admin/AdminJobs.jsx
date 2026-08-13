@@ -277,9 +277,76 @@ export default function AdminJobs() {
                 </div>
             </div>
 
-            {/* Jobs Table */}
+            {/* Jobs Table (desktop) + Card List (mobile) */}
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Mobile card list — an 8-column table can't work on a phone
+                    screen, so this replaces it below the md breakpoint. */}
+                <div className="md:hidden divide-y divide-slate-800">
+                    {filteredJobs.map((job) => (
+                        <div key={job.id} className="p-4">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-white text-sm font-medium truncate">{job.title}</p>
+                                    <p className="text-slate-400 text-xs flex items-center gap-1 mt-0.5">
+                                        <Building2 className="w-3 h-3 flex-shrink-0" /> {job.company}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => toggleFeatured(job.id, job.is_featured)}
+                                    className={`p-1 rounded flex-shrink-0 ${job.is_featured ? 'text-amber-400' : 'text-slate-500'}`}
+                                    title={job.is_featured ? 'Remove featured' : 'Mark as featured'}
+                                >
+                                    <Star className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mb-2">
+                                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || 'Remote'}</span>
+                                {getJobTypeBadge(job.job_type)}
+                                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(job.created_at).toLocaleDateString()}</span>
+                            </div>
+                            {(job.salary_range || (job.salary_min && job.salary_max)) && (
+                                <p className="text-emerald-400 text-xs mb-2">{getSalaryDisplay(job)}</p>
+                            )}
+                            <div className="flex items-center justify-between mb-3">
+                                {job.is_active ? (
+                                    <span className="text-emerald-400 text-xs flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Active
+                                    </span>
+                                ) : (
+                                    <span className="text-red-400 text-xs flex items-center gap-1">
+                                        <XCircle className="w-3 h-3" /> Inactive
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => { setSelectedJob(job); setShowDetailsModal(true); }}
+                                    className="flex-1 py-2 text-slate-300 border border-slate-700 rounded-lg text-sm flex items-center justify-center gap-1.5"
+                                >
+                                    <Eye className="w-4 h-4" /> View
+                                </button>
+                                <button
+                                    onClick={() => toggleStatus(job.id, job.is_active)}
+                                    className={`flex-1 py-2 rounded-lg text-sm flex items-center justify-center gap-1.5 ${
+                                        job.is_active ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+                                    }`}
+                                >
+                                    {job.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                                    {job.is_active ? 'Deactivate' : 'Activate'}
+                                </button>
+                                <button
+                                    onClick={() => deleteJob(job.id)}
+                                    className="py-2 px-3 bg-red-500/20 text-red-400 rounded-lg text-sm"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-800/50 border-b border-slate-800">
                             <tr>
