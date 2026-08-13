@@ -1,5 +1,21 @@
 // src/pages/admin/KnowledgeSourceManager.jsx
 // SUPER ADMIN ONLY - Manage approved external knowledge sources for AI Chat
+//
+// FIXED (2026-08-07): checkAdminAccess() only checked
+// user.email === 'bluskyeconsult@gmail.com' — no user_type check at all,
+// despite the file being explicitly commented "SUPER ADMIN ONLY". This is
+// the 7th confirmed instance of the hardcoded admin-email pattern across
+// this codebase, and the most exposed one yet — this page had zero
+// database-driven access control. Fixed to check profiles.user_type,
+// consistent with every other admin page.
+//
+// FLAGGED, NOT FIXED: handleRefresh() posts to /api/refresh-knowledge,
+// which doesn't exist anywhere in this project (real endpoints all go
+// through /api/index?action=...). This isn't a simple URL fix — actually
+// refreshing a knowledge source means fetching and re-processing external
+// URL content for the AI chat, which is a genuinely unbuilt feature, not a
+// bug. Left as-is; it will fail with a clear error rather than a false
+// success.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -11,6 +27,7 @@ export default function KnowledgeSourceManager() {
     const [showModal, setShowModal] = useState(false);
     const [editingSource, setEditingSource] = useState(null);
     const [refreshingId, setRefreshingId] = useState(null);
+    const [isAuthorized, setIsAuthorized] = useState(false);
     const [formData, setFormData] = useState({
         source_name: '',
         source_url: '',
@@ -20,16 +37,34 @@ export default function KnowledgeSourceManager() {
     });
 
     useEffect(() => {
-        fetchSources();
         checkAdminAccess();
     }, []);
 
     async function checkAdminAccess() {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email !== 'bluskyeconsult@gmail.com') {
-            alert('Access denied. Super Admin only.');
-            window.location.href = '/admin/dashboard';
+        if (!user) {
+            window.location.href = '/admin-login';
+            return;
         }
+
+        // FIXED: real database check instead of a hardcoded email with no
+        // fallback at all.
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('user_type')
+            .eq('id', user.id)
+            .single();
+
+        const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+        if (!isAdmin) {
+            alert('Access denied. Admin access required.');
+            window.location.href = '/admin/dashboard';
+            return;
+        }
+
+        setIsAuthorized(true);
+        fetchSources();
     }
 
     async function fetchSources() {
@@ -67,17 +102,21 @@ export default function KnowledgeSourceManager() {
     async function handleRefresh(sourceId) {
         setRefreshingId(sourceId);
         
-        const response = await fetch('/api/refresh-knowledge', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sourceId })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            alert('Knowledge base refreshed successfully');
-        } else {
-            alert('Failed to refresh: ' + result.error);
+        try {
+            const response = await fetch('/api/refresh-knowledge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceId })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                alert('Knowledge base refreshed successfully');
+            } else {
+                alert('Failed to refresh: ' + (result.error || 'This feature is not yet built on the backend.'));
+            }
+        } catch (error) {
+            alert('Failed to refresh: this feature is not yet built on the backend.');
         }
         
         setRefreshingId(null);
@@ -102,7 +141,7 @@ export default function KnowledgeSourceManager() {
         return badges[type] || badges.general;
     }
 
-    if (loading) {
+    if (loading || !isAuthorized) {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
@@ -126,7 +165,46 @@ export default function KnowledgeSourceManager() {
             </div>
 
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Mobile card list */}
+                <div className="md:hidden divide-y divide-slate-800">
+                    {sources.map(source => (
+                        <div key={source.id} className="p-4">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <p className="text-white font-medium truncate">{source.source_name}</p>
+                                <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${getTypeBadge(source.source_type)}`}>
+                                    {source.source_type}
+                                </span>
+                            </div>
+                            <a href={source.source_url} target="_blank" rel="noopener noreferrer" className="text-primary-400 text-sm hover:underline block truncate mb-2">
+                                {source.source_url}
+                            </a>
+                            <div className="flex items-center justify-between mb-3">
+                                {source.is_active ? (
+                                    <span className="flex items-center gap-1 text-green-400 text-xs"><CheckCircle className="w-3 h-3" /> Active</span>
+                                ) : (
+                                    <span className="flex items-center gap-1 text-red-400 text-xs"><XCircle className="w-3 h-3" /> Inactive</span>
+                                )}
+                                <span className="text-slate-500 text-xs">
+                                    {source.last_fetched_at ? new Date(source.last_fetched_at).toLocaleDateString() : 'Never fetched'}
+                                </span>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => handleRefresh(source.id)} disabled={refreshingId === source.id} className="flex-1 py-2 bg-slate-800 rounded-lg text-slate-300 text-sm flex items-center justify-center gap-1.5">
+                                    {refreshingId === source.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
+                                </button>
+                                <button onClick={() => { setEditingSource(source); setFormData(source); setShowModal(true); }} className="flex-1 py-2 bg-slate-800 rounded-lg text-slate-300 text-sm flex items-center justify-center gap-1.5">
+                                    <Edit2 className="w-4 h-4" /> Edit
+                                </button>
+                                <button onClick={() => handleDelete(source.id)} className="py-2 px-3 bg-red-500/20 text-red-400 rounded-lg text-sm">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-800/50 border-b border-slate-800">
                             <tr>
