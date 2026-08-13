@@ -1,4 +1,24 @@
 // src/pages/admin/CourseEditor.jsx - COMPLETE WITH AI
+//
+// FIXED (2026-08-07): used cover_image and featured_image as two separate
+// fields, but CoursesPage.jsx, CourseDetail.jsx, and the corrected
+// AdminCourses.jsx all use a single image_url field — any cover image set
+// through this editor would never actually show up on the public course
+// cards or detail page. Consolidated to image_url.
+//
+// FLAGGED, NOT BUILT: generateCoverImage()/generateLessonAudio()/
+// generateLessonIllustration() call ?action=generateCourseImage,
+// generateLessonAudio, generateLessonImage — none of these exist in
+// api/index.js. They correctly fail with a clear error (not a silent lie),
+// so left as-is; actually building these would need a real image-generation
+// API and text-to-speech service integrated, which is a new feature, not a
+// bug fix.
+//
+// Also cleaned up a no-op post-save state update (updateLesson call whose
+// result was never visible before navigating away), and made the lesson
+// action-button row wrap on narrow screens instead of assuming it always
+// fits in one row.
+
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -20,8 +40,7 @@ export default function CourseEditor() {
         is_published: false,
         is_free: false,
         price: 0,
-        cover_image: '',
-        featured_image: '',
+        image_url: '',
         illustration_style: 'modern',
         has_audio: false
     });
@@ -76,14 +95,14 @@ export default function CourseEditor() {
             
             const data = await response.json();
             if (data.success && data.imageUrl) {
-                setCourse({ ...course, cover_image: data.imageUrl, featured_image: data.imageUrl });
+                setCourse({ ...course, image_url: data.imageUrl });
                 alert('✨ Cover image generated successfully!');
             } else {
                 throw new Error(data.error || 'Generation failed');
             }
         } catch (error) {
             console.error('Image generation error:', error);
-            alert('Failed to generate image. Please try again.');
+            alert('Failed to generate image. This feature needs a real image-generation backend endpoint, which isn\'t built yet — please add an image URL manually for now.');
         } finally {
             setGeneratingImage(false);
         }
@@ -109,13 +128,11 @@ export default function CourseEditor() {
             
             const data = await response.json();
             if (data.success && data.audioUrl) {
-                // Update lesson with audio URL
                 const updatedLessons = lessons.map(l => 
                     l.id === lessonId ? { ...l, audio_url: data.audioUrl, has_audio: true } : l
                 );
                 setLessons(updatedLessons);
                 
-                // Save to database
                 await supabase.from('course_audio').insert({
                     lesson_id: lessonId,
                     audio_url: data.audioUrl,
@@ -130,7 +147,7 @@ export default function CourseEditor() {
             }
         } catch (error) {
             console.error('Audio generation error:', error);
-            alert('Failed to generate audio. Please try again.');
+            alert('Failed to generate audio. This feature needs a real text-to-speech backend endpoint, which isn\'t built yet.');
         } finally {
             setGeneratingAudio(false);
         }
@@ -149,7 +166,6 @@ export default function CourseEditor() {
             
             const data = await response.json();
             if (data.success && data.imageUrl) {
-                // Save to database
                 await supabase.from('course_images').insert({
                     lesson_id: lessonId,
                     image_url: data.imageUrl,
@@ -159,13 +175,13 @@ export default function CourseEditor() {
                 });
                 
                 alert('🎨 Illustration generated successfully!');
-                await loadCourse(); // Reload to show new image
+                await loadCourse();
             } else {
                 throw new Error(data.error || 'Generation failed');
             }
         } catch (error) {
             console.error('Illustration generation error:', error);
-            alert('Failed to generate illustration. Please try again.');
+            alert('Failed to generate illustration. This feature needs a real image-generation backend endpoint, which isn\'t built yet.');
         } finally {
             setGeneratingImage(false);
         }
@@ -191,7 +207,7 @@ export default function CourseEditor() {
     async function removeLesson(lessonId) {
         if (confirm('Delete this lesson?')) {
             setLessons(lessons.filter(l => l.id !== lessonId));
-            if (lessonId !== 'temp_' + lessonId) {
+            if (!lessonId.startsWith('temp_')) {
                 await supabase.from('course_lessons').delete().eq('id', lessonId);
             }
         }
@@ -206,7 +222,6 @@ export default function CourseEditor() {
         setSaving(true);
         
         try {
-            // Save course
             let courseId = id;
             if (id === 'new') {
                 const { data, error } = await supabase
@@ -220,8 +235,7 @@ export default function CourseEditor() {
                         is_published: course.is_published,
                         is_free: course.is_free,
                         price: course.price,
-                        cover_image: course.cover_image,
-                        featured_image: course.featured_image,
+                        image_url: course.image_url,
                         illustration_style: course.illustration_style,
                         has_audio: course.has_audio
                     })
@@ -238,10 +252,13 @@ export default function CourseEditor() {
                 courseId = id;
             }
             
-            // Save lessons
+            // FIXED: removed the pointless updateLesson(lesson.id, {id: data.id})
+            // call that previously followed each insert here — its result was
+            // never visible before navigating away right after this loop, so
+            // it had no effect. A fresh load on return already picks up real ids.
             for (const lesson of lessons) {
                 if (lesson.id.startsWith('temp_')) {
-                    const { data, error } = await supabase
+                    const { error } = await supabase
                         .from('course_lessons')
                         .insert({
                             course_id: courseId,
@@ -250,13 +267,9 @@ export default function CourseEditor() {
                             sort_order: lesson.sort_order,
                             duration_minutes: lesson.duration_minutes,
                             is_free: lesson.is_free
-                        })
-                        .select()
-                        .single();
+                        });
                     
                     if (error) throw error;
-                    // Update temp ID with real ID
-                    updateLesson(lesson.id, { id: data.id });
                 } else {
                     await supabase
                         .from('course_lessons')
@@ -293,11 +306,11 @@ export default function CourseEditor() {
         <div className="min-h-screen bg-slate-950 py-8">
             <div className="max-w-5xl mx-auto px-4">
                 {/* Header */}
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex flex-wrap justify-between items-center gap-3 mb-8">
                     <h1 className="text-2xl font-bold text-white">
                         {id === 'new' ? 'Create Course' : 'Edit Course'}
                     </h1>
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 flex-wrap">
                         <button
                             onClick={() => setCourse({ ...course, is_published: !course.is_published })}
                             className={`px-4 py-2 rounded-lg transition ${
@@ -379,18 +392,18 @@ export default function CourseEditor() {
                         </div>
                         <div>
                             <label className="block text-sm text-slate-400 mb-1">Cover Image URL</label>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col sm:flex-row gap-2">
                                 <input
                                     type="text"
-                                    value={course.cover_image}
-                                    onChange={(e) => setCourse({ ...course, cover_image: e.target.value })}
+                                    value={course.image_url}
+                                    onChange={(e) => setCourse({ ...course, image_url: e.target.value })}
                                     className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                                     placeholder="https://..."
                                 />
                                 <button
                                     onClick={generateCoverImage}
                                     disabled={generatingImage}
-                                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50 flex items-center gap-2"
+                                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50 flex items-center justify-center gap-2 flex-shrink-0"
                                 >
                                     {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                                     Generate AI
@@ -459,8 +472,12 @@ export default function CourseEditor() {
                                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono text-sm"
                                             placeholder="Lesson content (markdown supported)..."
                                         />
-                                        <div className="flex gap-3">
-                                            <div className="flex-1">
+                                        {/* FIXED: was a single flex row assuming
+                                            enough width for 4 items — now wraps
+                                            on narrow screens instead of getting
+                                            cut off. */}
+                                        <div className="flex flex-wrap gap-3">
+                                            <div className="w-full sm:w-auto sm:flex-1 min-w-[140px]">
                                                 <label className="block text-xs text-slate-500 mb-1">Duration (minutes)</label>
                                                 <input
                                                     type="number"
@@ -469,7 +486,7 @@ export default function CourseEditor() {
                                                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                                                 />
                                             </div>
-                                            <div className="flex items-end gap-2">
+                                            <div className="flex flex-wrap items-end gap-2">
                                                 <button
                                                     onClick={() => generateLessonAudio(lesson.id, lesson.content)}
                                                     disabled={generatingAudio}
