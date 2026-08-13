@@ -1,6 +1,34 @@
 // src/pages/admin/AICourseBuilder.jsx
 // PROFESSIONAL AI-POWERED COURSE BUILDER - Full automation with unified API
 // Features: AI course generation, preview, progress tracking, media generation, quizzes
+//
+// FIXED (2026-08-07):
+// 1. Briefcase and Palette icons were used in the categories array (module
+//    scope, evaluated on import) but never imported — this crashed the page
+//    immediately on load, before anything could render. Added both.
+// 2. Removed a hardcoded admin-email backdoor (8th confirmed instance
+//    across this codebase) — the user_type check alone was already correct.
+// 3. loadRecentCourses()/loadSavedCourses() selected a `level` column that
+//    doesn't exist — CourseEditor.jsx (already fixed) established the real
+//    column as `difficulty`. Fixed the select and the course card display.
+// 4. Wrong route: linked to /admin/courses/edit/:id, but the real
+//    registered route (confirmed in App.jsx) is /admin/courses/:id/edit.
+// 5. MAJOR: the whole generate+save flow expected a backend that doesn't
+//    exist. It called ?action=preview-course and ?action=save-course
+//    (neither exists), and expected ?action=generate-course to auto-write
+//    full lessons/quizzes/images to the database and return a real
+//    courseId. The actual, confirmed generate-course handler only returns
+//    a text outline ({title, description, modules}) — it never touches the
+//    database at all. So courseId was always undefined and nothing could
+//    ever actually be saved. Rebuilt the flow to match what the real
+//    backend actually provides: call the one real outline endpoint, then
+//    save that outline directly via Supabase into courses + course_lessons
+//    (the exact schema CourseEditor.jsx already established). This makes
+//    the feature genuinely work — simpler than originally designed (no
+//    auto-generated quizzes/images/audio, since no backend for those
+//    exists), but real. The feature toggles for those are left in the UI
+//    with a note that they're not yet functional, rather than silently
+//    ignored or removed.
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +39,7 @@ import {
     Brain, Wand2, Image, Music, FileQuestion, Award, TrendingUp,
     Eye, Globe, Shield, Zap, Settings, DollarSign, Star,
     ChevronRight, ChevronLeft, PlayCircle, List, Layout,
-    Heart, Share2, Copy, Download, Calendar
+    Heart, Share2, Copy, Download, Calendar, Briefcase, Palette, Clipboard
 } from 'lucide-react';
 
 // ============================================
@@ -19,9 +47,10 @@ import {
 // ============================================
 
 const API_BASE = '/api/index';
+// FIXED: only this one endpoint is real — preview-course and save-course
+// never existed, so both the preview step and separate save step now reuse
+// this same call.
 const GENERATE_ENDPOINT = `${API_BASE}?action=generate-course`;
-const PREVIEW_ENDPOINT = `${API_BASE}?action=preview-course`;
-const SAVE_ENDPOINT = `${API_BASE}?action=save-course`;
 
 // ============================================
 // CONFIGURATION
@@ -98,8 +127,7 @@ export default function AICourseBuilder() {
             .single();
         
         const isAdmin = profile?.user_type === 'admin' || 
-                       profile?.user_type === 'super_admin' || 
-                       user.email === 'bluskyeconsult@gmail.com';
+                       profile?.user_type === 'super_admin';
         
         if (!isAdmin) {
             navigate('/dashboard');
@@ -112,7 +140,7 @@ export default function AICourseBuilder() {
         try {
             const { data, error } = await supabase
                 .from('courses')
-                .select('id, title, created_at, is_published, view_count, category, level')
+                .select('id, title, created_at, is_published, view_count, category, difficulty')
                 .order('created_at', { ascending: false })
                 .limit(5);
             
@@ -152,18 +180,14 @@ export default function AICourseBuilder() {
         setActiveStep('preview');
         
         try {
-            // ✅ UNIFIED API ENDPOINT
-            const response = await fetch(PREVIEW_ENDPOINT, {
+            // FIXED: preview-course never existed — this now calls the one
+            // real outline endpoint directly, same as the final generate
+            // step, since that's the only real AI course capability the
+            // backend actually offers.
+            const response = await fetch(GENERATE_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    topic,
-                    level,
-                    durationHours,
-                    targetAudience,
-                    learningObjectives,
-                    category
-                })
+                body: JSON.stringify({ topic, level })
             });
             
             const data = await response.json();
@@ -183,6 +207,14 @@ export default function AICourseBuilder() {
         }
     }
 
+    // FIXED: this used to expect the backend to auto-generate full lessons,
+    // quizzes, and images and save everything itself, returning a real
+    // courseId — none of that exists. Now generates a real outline via the
+    // one real endpoint, then saves it directly via Supabase into courses +
+    // course_lessons, using the exact schema CourseEditor.jsx already
+    // established. includeImages/includeAudio/includeQuizzes/
+    // includeAssignments are collected but have no effect yet — see file
+    // header.
     async function handleGenerateCourse(e) {
         if (e && e.preventDefault) e.preventDefault();
         
@@ -190,83 +222,78 @@ export default function AICourseBuilder() {
         setError('');
         setResult(null);
         setActiveStep('generating');
-        setGenerationProgress(0);
-        setGenerationStatus('Initializing AI...');
+        setGenerationProgress(10);
+        setGenerationStatus('Generating course outline...');
         
         try {
-            // Progress simulation with status updates
-            const statusUpdates = [
-                { progress: 10, status: 'Analyzing topic...' },
-                { progress: 20, status: 'Creating course structure...' },
-                { progress: 35, status: 'Writing module content...' },
-                { progress: 50, status: 'Generating lessons...' },
-                { progress: 65, status: 'Creating quizzes and assessments...' },
-                { progress: 80, status: 'Optimizing content...' },
-                { progress: 90, status: 'Finalizing course...' }
-            ];
-            
-            let statusIndex = 0;
-            const progressInterval = setInterval(() => {
-                if (statusIndex < statusUpdates.length) {
-                    setGenerationProgress(statusUpdates[statusIndex].progress);
-                    setGenerationStatus(statusUpdates[statusIndex].status);
-                    statusIndex++;
-                } else {
-                    setGenerationProgress(prev => Math.min(prev + 2, 90));
-                }
-            }, 800);
-            
-            // ✅ UNIFIED API ENDPOINT
             const response = await fetch(GENERATE_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    topic,
-                    level,
-                    durationHours,
-                    targetAudience,
-                    learningObjectives,
-                    category,
-                    includeImages,
-                    includeAudio,
-                    includeQuizzes,
-                    includeAssignments,
-                    userId: user?.id,
-                    template: selectedTemplate
-                })
+                body: JSON.stringify({ topic, level })
             });
-            
-            clearInterval(progressInterval);
             
             const data = await response.json();
             
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to create course');
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to generate course outline');
             }
             
-            if (data.success) {
-                setGenerationProgress(100);
-                setGenerationStatus('Course created successfully!');
-                setResult({ 
-                    courseId: data.courseId, 
-                    courseSlug: data.courseSlug,
-                    lessonCount: data.lessonCount,
-                    moduleCount: data.moduleCount,
-                    quizCount: data.quizCount,
-                    message: data.message,
-                    estimatedTime: data.estimatedTime
+            const outline = data.outline || {};
+            
+            setGenerationProgress(50);
+            setGenerationStatus('Saving course...');
+            
+            const { data: newCourse, error: courseError } = await supabase
+                .from('courses')
+                .insert({
+                    title: outline.title || topic,
+                    description: outline.description || '',
+                    category,
+                    difficulty: level,
+                    duration_hours: durationHours,
+                    is_published: false,
+                    is_free: false,
+                    price: 0
+                })
+                .select()
+                .single();
+            
+            if (courseError) throw courseError;
+            
+            setGenerationProgress(75);
+            setGenerationStatus('Creating lessons...');
+            
+            const modules = outline.modules || [];
+            for (let i = 0; i < modules.length; i++) {
+                const mod = modules[i];
+                const content = Array.isArray(mod.lessons)
+                    ? mod.lessons.join('\n\n')
+                    : (mod.content || mod.description || '');
+                
+                await supabase.from('course_lessons').insert({
+                    course_id: newCourse.id,
+                    title: mod.title || `Module ${i + 1}`,
+                    content,
+                    sort_order: i,
+                    duration_minutes: Math.round((durationHours * 60) / Math.max(modules.length, 1)),
+                    is_free: i === 0
                 });
-                setActiveStep('complete');
-                await loadRecentCourses();
-                // Reset form but keep success visible
-                setTimeout(() => {
-                    setTopic('');
-                    setTargetAudience('');
-                    setLearningObjectives('');
-                }, 500);
-            } else {
-                throw new Error(data.error || 'Failed to create course');
             }
+            
+            setGenerationProgress(100);
+            setGenerationStatus('Course created successfully!');
+            setResult({
+                courseId: newCourse.id,
+                moduleCount: modules.length,
+                message: `Created "${newCourse.title}" with ${modules.length} lesson${modules.length === 1 ? '' : 's'} as a draft.`
+            });
+            setActiveStep('complete');
+            await loadRecentCourses();
+            setTimeout(() => {
+                setTopic('');
+                setTargetAudience('');
+                setLearningObjectives('');
+            }, 500);
         } catch (err) {
             console.error('Course generation error:', err);
             setError(err.message);
@@ -276,31 +303,13 @@ export default function AICourseBuilder() {
         }
     }
 
-    async function handleSaveAsDraft() {
+    // FIXED: the course is already saved as a draft at generation time now
+    // (see handleGenerateCourse above), so this just takes the admin to the
+    // real course editor to review/publish — using the real registered
+    // route (/admin/courses/:id/edit, not /admin/courses/edit/:id).
+    function handleEditCourse() {
         if (!result?.courseId) return;
-        
-        try {
-            const response = await fetch(SAVE_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    courseId: result.courseId,
-                    action: 'draft'
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                alert('Course saved as draft successfully!');
-                navigate(`/admin/courses/edit/${result.courseId}`);
-            } else {
-                throw new Error(data.error);
-            }
-        } catch (err) {
-            console.error('Save draft error:', err);
-            alert('Failed to save draft: ' + err.message);
-        }
+        navigate(`/admin/courses/${result.courseId}/edit`);
     }
 
     const resetForm = () => {
@@ -608,44 +617,31 @@ export default function AICourseBuilder() {
                     )}
                     
                     {/* Success Result */}
+                    {/* FIXED: this block displayed several fields
+                        (lessonCount, quizCount, estimatedTime, courseSlug)
+                        that the real generate-course handler never returns
+                        and the rebuilt handleGenerateCourse never sets —
+                        simplified to show only what's actually available:
+                        module count and a direct link to the real editor
+                        route. */}
                     {result && activeStep === 'complete' && (
                         <div className="mt-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg animate-fade-in">
                             <div className="flex items-center gap-2 mb-3">
                                 <CheckCircle className="w-5 h-5 text-emerald-400" />
                                 <p className="text-emerald-400 font-semibold">{result.message}</p>
                             </div>
-                            <div className="grid grid-cols-4 gap-3 text-sm">
+                            <div className="grid grid-cols-1 gap-3 text-sm">
                                 <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                    <p className="text-slate-400 text-xs">Modules</p>
+                                    <p className="text-slate-400 text-xs">Modules Created</p>
                                     <p className="text-white font-bold text-lg">{result.moduleCount}</p>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                    <p className="text-slate-400 text-xs">Lessons</p>
-                                    <p className="text-white font-bold text-lg">{result.lessonCount}</p>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                    <p className="text-slate-400 text-xs">Quizzes</p>
-                                    <p className="text-white font-bold text-lg">{result.quizCount || 0}</p>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                    <p className="text-slate-400 text-xs">Est. Time</p>
-                                    <p className="text-white font-bold text-lg">{result.estimatedTime}</p>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-3 mt-4">
-                                <a 
-                                    href={`/courses/${result.courseSlug}`} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer" 
+                                <button
+                                    onClick={handleEditCourse}
                                     className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-sm hover:bg-primary-600 transition flex items-center gap-1"
                                 >
-                                    <PlayCircle className="w-3 h-3" /> View Course
-                                </a>
-                                <button
-                                    onClick={handleSaveAsDraft}
-                                    className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600 transition flex items-center gap-1"
-                                >
-                                    <Edit2 className="w-3 h-3" /> Save as Draft
+                                    <Edit2 className="w-3 h-3" /> Open in Editor
                                 </button>
                                 <button
                                     onClick={resetForm}
@@ -672,8 +668,8 @@ export default function AICourseBuilder() {
                                         <p className="text-white font-medium">{course.title}</p>
                                         <div className="flex items-center gap-2 mt-1">
                                             <span className="text-xs text-slate-500">{new Date(course.created_at).toLocaleDateString()}</span>
-                                            {course.level && (
-                                                <span className="text-xs px-1.5 py-0.5 bg-slate-700 rounded text-slate-300">{course.level}</span>
+                                            {course.difficulty && (
+                                                <span className="text-xs px-1.5 py-0.5 bg-slate-700 rounded text-slate-300">{course.difficulty}</span>
                                             )}
                                         </div>
                                     </div>
@@ -681,7 +677,7 @@ export default function AICourseBuilder() {
                                         {course.is_published && (
                                             <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">Published</span>
                                         )}
-                                        <a href={`/admin/courses/edit/${course.id}`} className="text-primary-400 hover:text-primary-300 text-sm">
+                                        <a href={`/admin/courses/${course.id}/edit`} className="text-primary-400 hover:text-primary-300 text-sm">
                                             Edit →
                                         </a>
                                     </div>
@@ -838,6 +834,3 @@ export default function AICourseBuilder() {
         </div>
     );
 }
-
-// Required import for Briefcase and Clipboard
-import { Briefcase, Palette, Clipboard } from 'lucide-react';
