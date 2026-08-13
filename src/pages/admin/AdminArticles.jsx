@@ -418,7 +418,51 @@ export default function AdminArticles() {
                         </div>
 
                         {/* Articles Table */}
-                        <div className="overflow-x-auto bg-slate-900/50 border border-slate-800 rounded-xl">
+                        {/* Mobile card list — a 7-column table can't work on
+                            a phone screen, so this replaces it below md. */}
+                        <div className="md:hidden bg-slate-900/50 border border-slate-800 rounded-xl divide-y divide-slate-800">
+                            {articles.map(article => (
+                                <div key={article.id} className="p-4">
+                                    <div className="flex items-start gap-2 mb-2">
+                                        <button onClick={() => toggleSelectArticle(article.id)} className="mt-0.5 flex-shrink-0">
+                                            {selectedArticles.has(article.id) ? <CheckCircle className="w-4 h-4 text-primary-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+                                        </button>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-white font-medium text-sm line-clamp-1">{article.title}</p>
+                                            {article.excerpt && (
+                                                <p className="text-slate-500 text-xs truncate">{article.excerpt.substring(0, 60)}...</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                                        <span className="text-xs px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full">{article.category || 'Uncategorized'}</span>
+                                        <button onClick={() => toggleStatus(article.id, article.is_published)}>
+                                            {getStatusBadge(article.is_published)}
+                                        </button>
+                                        <span className="text-slate-400 text-xs flex items-center gap-1">
+                                            <Eye className="w-3 h-3" /> {article.view_count || 0}
+                                        </span>
+                                        <span className="text-slate-500 text-xs flex items-center gap-1">
+                                            <Calendar className="w-3 h-3" /> {new Date(article.created_at).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <a href={`/articles/${article.slug}`} target="_blank" rel="noopener noreferrer" className="flex-1 py-2 bg-slate-800 rounded-lg text-center text-slate-300 text-sm flex items-center justify-center gap-1.5">
+                                            <Eye className="w-4 h-4" /> View
+                                        </a>
+                                        <Link to={`/admin/articles/${article.id}`} className="flex-1 py-2 bg-slate-800 rounded-lg text-center text-slate-300 text-sm flex items-center justify-center gap-1.5">
+                                            <Edit className="w-4 h-4" /> Edit
+                                        </Link>
+                                        <button onClick={() => deleteArticle(article.id)} className="py-2 px-3 bg-red-500/20 text-red-400 rounded-lg text-sm">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Desktop table */}
+                        <div className="hidden md:block overflow-x-auto bg-slate-900/50 border border-slate-800 rounded-xl">
                             <table className="w-full">
                                 <thead className="bg-slate-800/50">
                                     <tr>
