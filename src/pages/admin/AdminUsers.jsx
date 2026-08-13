@@ -9,6 +9,11 @@
 // that meaningless response — so clicking Suspend or changing a role
 // silently did nothing at all. Simplified all three to go straight to
 // Supabase, removing the dead API-first attempts entirely.
+//
+// FIXED (2026-08-07): the user table had no mobile treatment at all — a
+// 6-column table with only overflow-x-auto is unusable on a phone screen.
+// Added a stacked card list that renders below the md breakpoint, with the
+// table now shown only at md: and up.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -276,9 +281,71 @@ export default function AdminUsers() {
                 </div>
             </div>
 
-            {/* Users Table */}
+            {/* Users Table (desktop) + Card List (mobile) */}
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Mobile card list — replaces the table below md breakpoint,
+                    since a 6-column table is unusable on a phone screen. */}
+                <div className="md:hidden divide-y divide-slate-800">
+                    {filteredUsers.map((user) => (
+                        <div key={user.id} className="p-4">
+                            <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-full bg-primary-500/20 flex items-center justify-center flex-shrink-0">
+                                    <span className="text-primary-400 text-sm font-medium">
+                                        {getInitials(user.full_name, user.email)}
+                                    </span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-white text-sm font-medium truncate">{user.full_name || 'N/A'}</p>
+                                    <p className="text-slate-400 text-xs truncate flex items-center gap-1">
+                                        <Mail className="w-3 h-3 flex-shrink-0" /> {user.email}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    {getRoleBadge(user.user_type)}
+                                    {user.is_suspended ? (
+                                        <span className="text-red-400 text-xs flex items-center gap-1">
+                                            <XCircle className="w-3 h-3" /> Suspended
+                                        </span>
+                                    ) : (
+                                        <span className="text-emerald-400 text-xs flex items-center gap-1">
+                                            <CheckCircle className="w-3 h-3" /> Active
+                                        </span>
+                                    )}
+                                </div>
+                                <span className="text-slate-500 text-xs flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" /> {new Date(user.created_at).toLocaleDateString()}
+                                </span>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setSelectedUser(user);
+                                        setShowRoleModal(true);
+                                    }}
+                                    className="flex-1 py-2 text-slate-300 border border-slate-700 rounded-lg text-sm flex items-center justify-center gap-1.5"
+                                >
+                                    <Shield className="w-4 h-4" /> Change Role
+                                </button>
+                                <button
+                                    onClick={() => toggleSuspend(user.id, user.is_suspended)}
+                                    className={`flex-1 py-2 rounded-lg text-sm flex items-center justify-center gap-1.5 ${
+                                        user.is_suspended 
+                                            ? 'bg-emerald-500/20 text-emerald-400' 
+                                            : 'bg-red-500/20 text-red-400'
+                                    }`}
+                                >
+                                    {user.is_suspended ? <UserCheck className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                                    {user.is_suspended ? 'Activate' : 'Suspend'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-800/50 border-b border-slate-800">
                             <tr>
