@@ -1,10 +1,21 @@
-import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { Eye, EyeOff, Users, Key, Globe, Save } from 'lucide-react';
+// src/pages/admin/TesterVisibilitySettings.jsx
+//
+// FIXED (2026-08-07): created its own Supabase client via createClient()
+// instead of importing the shared singleton — same disconnected-client
+// pattern found and fixed in 7+ other files this project.
+//
+// FLAGGED, NOT FIXED: this page writes show_login_button/show_register_button/
+// show_footer_link/registration_mode to system_config, but nothing anywhere
+// in the reviewed codebase (Navbar, Footer, both inline in App.jsx) actually
+// reads this config to conditionally show/hide anything — toggling these
+// settings currently has no visible effect on the site. Also confirms
+// again: the note text below references /admin/tester-invites, a route
+// that doesn't exist anywhere in App.jsx (same dead link flagged in
+// AdminDashboard.jsx).
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { Eye, EyeOff, Users, Key, Globe, Save } from 'lucide-react';
 
 export default function TesterVisibilitySettings() {
     const [settings, setSettings] = useState({
@@ -57,7 +68,7 @@ export default function TesterVisibilitySettings() {
         
         setSettings(newSettings);
         setSaving(false);
-        alert('Settings saved successfully!');
+        alert('Settings saved successfully! Note: these settings are not yet read anywhere in the app — see file header.');
     }
 
     if (loading) return <div className="p-8 text-center text-slate-400">Loading settings...</div>;
