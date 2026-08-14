@@ -257,13 +257,18 @@ function getTransporter() {
 // assistant works without needing a matching entry here.
 // ============================================
 
+// FIXED (2026-08-08): matches the real category check constraint on
+// virtual_assistants (career, resume, writing, productivity only) —
+// interview/skill/job/legal were never valid values, so any VA created
+// with one of those (impossible now, since the constraint blocks it) would
+// never have hit this map anyway. Kept a sensible fallback icon for any
+// unrecognized category rather than assuming these four are truly
+// exhaustive forever.
 const VA_CATEGORY_ICONS = {
     resume: '📄',
     career: '💼',
-    interview: '🎯',
-    skill: '📊',
-    job: '🎯',
-    legal: '⚖️'
+    writing: '✍️',
+    productivity: '⚡'
 };
 
 // ============================================
