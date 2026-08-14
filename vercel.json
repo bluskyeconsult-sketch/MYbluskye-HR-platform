@@ -12,10 +12,6 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index?action=$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
@@ -39,6 +35,10 @@
         {
           "key": "Access-Control-Max-Age",
           "value": "86400"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
         }
       ]
     },
