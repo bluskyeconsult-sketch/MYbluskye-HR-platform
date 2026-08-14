@@ -6,13 +6,11 @@
 // through this editor would never actually show up on the public course
 // cards or detail page. Consolidated to image_url.
 //
-// FLAGGED, NOT BUILT: generateCoverImage()/generateLessonAudio()/
-// generateLessonIllustration() call ?action=generateCourseImage,
-// generateLessonAudio, generateLessonImage — none of these exist in
-// api/index.js. They correctly fail with a clear error (not a silent lie),
-// so left as-is; actually building these would need a real image-generation
-// API and text-to-speech service integrated, which is a new feature, not a
-// bug fix.
+// FIXED (2026-08-08): generateCoverImage()/generateLessonAudio()/
+// generateLessonIllustration() now call real backend actions
+// (generateCourseImage/generateLessonAudio/generateLessonImage in
+// api/index.js), using DALL-E 3 and OpenAI TTS. See that file for setup
+// notes on the required 'course-audio' Supabase Storage bucket.
 //
 // Also cleaned up a no-op post-save state update (updateLesson call whose
 // result was never visible before navigating away), and made the lesson
@@ -102,7 +100,7 @@ export default function CourseEditor() {
             }
         } catch (error) {
             console.error('Image generation error:', error);
-            alert('Failed to generate image. This feature needs a real image-generation backend endpoint, which isn\'t built yet — please add an image URL manually for now.');
+            alert('Failed to generate image: ' + error.message + '. If this mentions OpenAI API key, check your environment variables.');
         } finally {
             setGeneratingImage(false);
         }
@@ -147,7 +145,7 @@ export default function CourseEditor() {
             }
         } catch (error) {
             console.error('Audio generation error:', error);
-            alert('Failed to generate audio. This feature needs a real text-to-speech backend endpoint, which isn\'t built yet.');
+            alert('Failed to generate audio: ' + error.message + '. If this mentions a storage bucket, see the file header for setup steps.');
         } finally {
             setGeneratingAudio(false);
         }
@@ -181,7 +179,7 @@ export default function CourseEditor() {
             }
         } catch (error) {
             console.error('Illustration generation error:', error);
-            alert('Failed to generate illustration. This feature needs a real image-generation backend endpoint, which isn\'t built yet.');
+            alert('Failed to generate illustration: ' + error.message);
         } finally {
             setGeneratingImage(false);
         }
