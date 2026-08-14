@@ -275,24 +275,36 @@ class ODUSABAApi {
     }
     
     // ========== HR TOOLS ==========
+    // FIXED (2026-08-08): all 5 of these were stubs that always rejected —
+    // the entire HR Tools page has shown a raw technical error message to
+    // every user for every tool since it was built. Now call real backend
+    // actions, added to api/index.js alongside this fix.
     async analyzeCV(cvText) {
-        return this.notImplemented('analyzeCV', 'analyzeCV');
+        return this.postRequest('analyzeCV', { cvText });
     }
     
     async simulateInterview(role, questions) {
-        return this.notImplemented('simulateInterview', 'simulate-interview');
+        return this.postRequest('simulate-interview', { role, questions });
     }
     
     async checkRights(situation, country) {
-        return this.notImplemented('checkRights', 'checkRights');
+        return this.postRequest('checkRights', { situation, country });
     }
     
     async generateGrievance(details) {
-        return this.notImplemented('generateGrievance', 'generateGrievance');
+        return this.postRequest('generateGrievance', details);
     }
     
     async analyzeContract(contractText) {
-        return this.notImplemented('analyzeContract', 'analyze-contract');
+        return this.postRequest('analyze-contract', { contractText });
+    }
+    
+    // NEW (2026-08-08): HRToolsPage.jsx's salary calculator previously
+    // called analyzeCV as an explicit placeholder ("// For salary
+    // calculator, use a more structured approach... Placeholder"). Given a
+    // real backend action, so it now does what it's supposed to.
+    async calculateSalary(details) {
+        return this.postRequest('calculate-salary', details);
     }
     
     // ========== AI CHAT ==========
