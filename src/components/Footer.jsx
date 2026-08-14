@@ -1,14 +1,49 @@
 // src/components/Footer.jsx
 // COMPLETE FOOTER - With stats, all sections, and no external dependencies
+//
+// FIXED (2026-08-08): synced with the tester-visibility wiring already
+// added to App.jsx's inline Footer — this separate file didn't have it,
+// so the "Become a Tester" link handling would have been inconsistent
+// depending on which Footer actually renders. Also swapped the inline,
+// simplified placeholder Logo for the real Logo.jsx component, so the
+// footer shows the actual logo image (with its own fallback) instead of a
+// plain "OB" square that never attempts to load the real image at all.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import Logo from './Logo';
+
+// Fetches tester_visibility from system_config — same query used by
+// App.jsx's inline Footer/Navbar, duplicated here rather than shared via a
+// hook file since this component tree doesn't currently import from App.jsx.
+function useTesterVisibility() {
+    const [settings, setSettings] = useState(null);
+
+    useEffect(() => {
+        async function load() {
+            try {
+                const { data } = await supabase
+                    .from('system_config')
+                    .select('config_value')
+                    .eq('config_key', 'tester_visibility')
+                    .maybeSingle();
+                if (data?.config_value) setSettings(data.config_value);
+            } catch (err) {
+                console.warn('Failed to load tester visibility settings:', err);
+            }
+        }
+        load();
+    }, []);
+
+    return settings;
+}
 
 export default function Footer() {
     const currentYear = new Date().getFullYear();
     const [stats, setStats] = useState({ users: 0, jobs: 0, courses: 0, assessments: 0 });
     const [statsLoaded, setStatsLoaded] = useState(false);
+    const testerVisibility = useTesterVisibility();
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -72,6 +107,10 @@ export default function Footer() {
                 { name: "Report Fraud", path: "/report-fraud" },
                 { name: "Support", path: "/contact" },
                 { name: "Become a Tester", path: "/tester-register" },
+                // FIXED (2026-08-08): conditionally added to match App.jsx's
+                // inline Footer — only shown when tester_visibility's
+                // show_footer_link is true.
+                ...(testerVisibility?.show_footer_link ? [{ name: "Tester Portal", path: "/tester-login" }] : [])
             ]
         },
         {
@@ -110,15 +149,10 @@ export default function Footer() {
         </svg>
     );
 
-    // Logo Component inline
-    const Logo = () => (
-        <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-sky-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">OB</span>
-            </div>
-            <span className="text-white font-bold text-lg">ODUSBABA</span>
-        </div>
-    );
+    // FIXED (2026-08-08): removed the simplified inline Logo placeholder
+    // (a plain "OB" square with no image attempt at all) in favor of the
+    // real Logo.jsx component, which actually tries to load the real logo
+    // image with its own fallback chain.
 
     return (
         <footer className="bg-slate-950 border-t border-slate-800 mt-8">
