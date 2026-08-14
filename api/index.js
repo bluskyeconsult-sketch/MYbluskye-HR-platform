@@ -272,7 +272,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">New Contact Message</h1>
         </div>
         <div style="padding:24px;">
@@ -1910,7 +1910,11 @@ const handlers = {
             courses: 15,
             assessments: 8,
             earlyMembers: 45,
-            testerSpots: 55
+            testerSpots: 55,
+            // NEW (2026-08-07): backs HomeHero.jsx's "Impact" stat with a
+            // real count instead of a hardcoded number that never updated.
+            vaTasksCompleted: 0,
+            countriesSupported: 9
         };
 
         try {
@@ -1977,6 +1981,19 @@ const handlers = {
                 }
             } catch (e) {
                 errors.push('tester profiles: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('va_tasks')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('status', 'completed');
+                if (count > 0) {
+                    stats.vaTasksCompleted = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('va_tasks: ' + e.message);
             }
 
             return res.status(200).json({
