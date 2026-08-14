@@ -1,25 +1,21 @@
 // src/components/HomeHero.jsx - UNIFIED & OPTIMIZED FOR MOBILE
 // ODUSBABA HOME HERO - Mobile-First with Dynamic Stats
 //
-// FLAGGED, NOT CHANGED (2026-08-07): this fetches the real homepage-stats
-// handler correctly, and 2 of its 6 stat fields (earlyMembers, and the
-// derived remainingSpots) do get live data from it. But `confidence`,
-// `availability`, `impact`, and `verifiedJobs` don't exist anywhere in that
-// handler's response — they're the hardcoded defaults below (98, 24, 10, 112)
-// and can never be overwritten by real data, despite the loading spinner
-// implying they're dynamic. This is a product/copy decision, not something I
-// changed — if these are meant to be static marketing claims, consider
-// removing the loading state for just these four; if they're meant to
-// reflect something real, that needs a decision on what they should map to.
+// FIXED (2026-08-07): the main stat grid was already rewired to process
+// claims (100% Verified, 24/7, Governed & Protected) plus a real jobsPosted
+// count, resolving the earlier flag about permanently fake "Confidence"/
+// "Impact" numbers on a trust-sensitive platform. This pass fixes the same
+// problem in the "Trusted By" section further down, which still had three
+// fabricated numbers (500+ Active Users, 100+ Companies, 4.8/5 Rating) —
+// "Active Users" now uses the real activeUsers count already fetched here;
+// the other two (no real backing data exists for either) are replaced with
+// honest, non-numeric claims instead of invented figures.
 
 import { useState, useEffect } from 'react';
 
 export default function HomeHero() {
     const [stats, setStats] = useState({
-        confidence: 98,
-        availability: 24,
-        impact: 10,
-        verifiedJobs: 112,
+        jobsPosted: 0,
         earlyMembers: 2,
         loading: true
     });
@@ -118,38 +114,48 @@ export default function HomeHero() {
                 </div>
 
                 {/* Stats Grid - 2x2 on mobile, 4x1 on desktop */}
+                {/* FIXED (2026-08-07): "Confidence 98%" and "Impact 10k+" were
+                    permanently hardcoded, disconnected numbers — the two
+                    riskiest kinds of stat for an early-stage platform whose
+                    entire brand is built on verification and trust. Replaced
+                    with process/quality claims that are true regardless of
+                    scale, matching the Stay Safe / Fraud Prevention language
+                    used elsewhere on the site. "Verified Jobs" now pulls the
+                    real jobsPosted count from homepage-stats instead of a
+                    fake number. "24/7 Availability" is unchanged — it was
+                    already an honest process claim, not a volume claim. */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mt-12 sm:mt-16">
-                    {/* Confidence Score */}
+                    {/* AI + Human Verified */}
                     <div className="text-center p-3 sm:p-4 bg-white/5 rounded-xl backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-200">
                         <div className="text-xl sm:text-2xl md:text-3xl font-bold text-primary-400">
-                            {stats.loading ? '...' : `${stats.confidence}%`}
+                            100%
                         </div>
-                        <div className="text-slate-400 text-xs sm:text-sm mt-1">CONFIDENCE</div>
-                        <div className="text-[10px] sm:text-xs text-slate-500">AI-Verified Trust Score</div>
+                        <div className="text-slate-400 text-xs sm:text-sm mt-1">VERIFIED</div>
+                        <div className="text-[10px] sm:text-xs text-slate-500">AI + Human Verified</div>
                     </div>
 
                     {/* Availability */}
                     <div className="text-center p-3 sm:p-4 bg-white/5 rounded-xl backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-200">
                         <div className="text-xl sm:text-2xl md:text-3xl font-bold text-primary-400">
-                            {stats.loading ? '...' : `${stats.availability}/7`}
+                            24/7
                         </div>
                         <div className="text-slate-400 text-xs sm:text-sm mt-1">AVAILABILITY</div>
                         <div className="text-[10px] sm:text-xs text-slate-500">24/7 AI-Powered Support</div>
                     </div>
 
-                    {/* Impact */}
+                    {/* Governed & Fraud-Protected */}
                     <div className="text-center p-3 sm:p-4 bg-white/5 rounded-xl backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-200">
                         <div className="text-xl sm:text-2xl md:text-3xl font-bold text-primary-400">
-                            {stats.loading ? '...' : `${stats.impact}k+`}
+                            Governed
                         </div>
-                        <div className="text-slate-400 text-xs sm:text-sm mt-1">IMPACT</div>
-                        <div className="text-[10px] sm:text-xs text-slate-500">Documents Generated</div>
+                        <div className="text-slate-400 text-xs sm:text-sm mt-1">& PROTECTED</div>
+                        <div className="text-[10px] sm:text-xs text-slate-500">Fraud-Protected Platform</div>
                     </div>
 
-                    {/* Verified Jobs */}
+                    {/* Verified Jobs — now real */}
                     <div className="text-center p-3 sm:p-4 bg-white/5 rounded-xl backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-200">
                         <div className="text-xl sm:text-2xl md:text-3xl font-bold text-primary-400">
-                            {stats.loading ? '...' : `${stats.verifiedJobs}+`}
+                            {stats.loading ? '...' : `${stats.jobsPosted || 0}+`}
                         </div>
                         <div className="text-slate-400 text-xs sm:text-sm mt-1">Verified Jobs</div>
                         <div className="text-[10px] sm:text-xs text-slate-500">From trusted employers</div>
@@ -190,13 +196,15 @@ export default function HomeHero() {
                     </a>
                 </div>
 
-                {/* Trusted By Section - Added for credibility */}
+                {/* Trusted By Section — FIXED: replaced two fabricated
+                    numbers with honest claims; "Active Users" now uses the
+                    real count already fetched above. */}
                 <div className="text-center mt-8 sm:mt-12">
                     <p className="text-slate-500 text-xs sm:text-sm mb-2 sm:mb-3">Trusted by professionals worldwide</p>
                     <div className="flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8 opacity-50">
-                        <span className="text-slate-400 text-xs sm:text-sm">✓ 500+ Active Users</span>
-                        <span className="text-slate-400 text-xs sm:text-sm">✓ 100+ Companies</span>
-                        <span className="text-slate-400 text-xs sm:text-sm">✓ 4.8/5 Rating</span>
+                        <span className="text-slate-400 text-xs sm:text-sm">✓ {stats.loading ? '...' : (stats.activeUsers || 0)}+ Active Users</span>
+                        <span className="text-slate-400 text-xs sm:text-sm">✓ Verified Employers</span>
+                        <span className="text-slate-400 text-xs sm:text-sm">✓ Fraud-Protected Hiring</span>
                     </div>
                 </div>
             </div>
