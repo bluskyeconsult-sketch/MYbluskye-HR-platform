@@ -243,10 +243,47 @@ export default function ExternalJobsManager() {
         }
     }
 
+    // NEW (2026-08-08): approving an external job previously only updated
+    // its status within external_jobs — it never actually copied the job
+    // into the real jobs table, which is what JobsPage.jsx (the actual
+    // public job board) reads from. Confirmed via the platform's own job
+    // board documentation: approval should copy the job into jobs with
+    // source_type='authoritative', compliance_status='approved',
+    // is_active=true. Added here directly (rather than inside the opaque
+    // rssJobService.js) so this happens regardless of what
+    // approveExternalJob() does internally.
+    async function copyApprovedJobToJobsTable(externalJob) {
+        const { error } = await supabase.from('jobs').insert({
+            title: externalJob.title,
+            description: externalJob.description,
+            company: externalJob.company,
+            location: externalJob.location,
+            source_country: externalJob.source_country,
+            source_name: externalJob.source_name,
+            source_type: 'authoritative',
+            salary_range: externalJob.salary_range,
+            job_type: externalJob.job_type || 'full_time',
+            is_remote: externalJob.job_type === 'remote',
+            is_active: true,
+            sponsorship_eligible: externalJob.sponsorship_eligible || false,
+            compliance_status: 'approved',
+            external_url: externalJob.external_apply_url || externalJob.external_url,
+            external_apply_url: externalJob.external_apply_url || externalJob.external_url,
+            posted_at: new Date().toISOString()
+        });
+
+        if (error) {
+            console.error('Failed to copy job into jobs table:', error);
+            throw new Error(`Job approved but failed to appear on the public board: ${error.message}`);
+        }
+    }
+
     async function handleApprove(jobId) {
         setProcessingId(jobId);
         try {
+            const jobToApprove = jobs.find(j => j.id === jobId);
             await approveExternalJob(jobId);
+            if (jobToApprove) await copyApprovedJobToJobsTable(jobToApprove);
             await loadJobs();
             await loadStats();
             setSelectedJobs(new Set(Array.from(selectedJobs).filter(id => id !== jobId)));
@@ -276,6 +313,8 @@ export default function ExternalJobsManager() {
 
     // FIXED: now passes the actual selected job ids — previously called with
     // no arguments despite the confirm dialog referencing a specific count.
+    // Also now copies each approved job into the jobs table (see
+    // copyApprovedJobToJobsTable above).
     async function handleBatchApprove() {
         if (selectedJobs.size === 0) {
             alert('No jobs selected');
@@ -286,8 +325,20 @@ export default function ExternalJobsManager() {
         
         setProcessingId('batch');
         try {
+            const jobsToApprove = jobs.filter(j => selectedJobs.has(j.id));
             const batchResult = await batchApproveExternalJobs(Array.from(selectedJobs));
-            alert(`✅ Batch approve complete!\nApproved: ${batchResult.approved}\nFailed: ${batchResult.failed}`);
+            
+            let copyFailures = 0;
+            for (const job of jobsToApprove) {
+                try {
+                    await copyApprovedJobToJobsTable(job);
+                } catch (copyError) {
+                    console.error('Copy failed for', job.title, copyError);
+                    copyFailures++;
+                }
+            }
+            
+            alert(`✅ Batch approve complete!\nApproved: ${batchResult.approved}\nFailed: ${batchResult.failed}${copyFailures > 0 ? `\n⚠️ ${copyFailures} approved job(s) failed to appear on the public board — check console` : ''}`);
             setSelectedJobs(new Set());
             await loadJobs();
             await loadStats();
