@@ -168,6 +168,68 @@ async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
     return response.json();
 }
 
+// ============================================
+// callOpenAIImage / callOpenAIAudio (NEW — 2026-08-07)
+// Real DALL-E and TTS helpers, backing the generateCourseImage/
+// generateLessonImage/generateLessonAudio handlers below. CourseEditor.jsx
+// already calls these three actions correctly — they previously had no
+// real backend and always failed with an honest error. Both confirmed core
+// features per the platform's own product documentation, not stretch
+// features, so building them for real rather than leaving flagged.
+// ============================================
+
+async function callOpenAIImage(prompt) {
+    const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'dall-e-3',
+            prompt,
+            n: 1,
+            size: '1024x1024',
+            quality: 'standard'
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.data[0].url;
+}
+
+async function callOpenAIAudio(text, voice = 'alloy') {
+    const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    // TTS input has a 4096-character limit — trim defensively rather than
+    // erroring on longer lesson content.
+    const trimmedText = text.length > 4000 ? text.substring(0, 4000) : text;
+
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'tts-1',
+            input: trimmedText,
+            voice
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || `HTTP ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+}
+
 function getTransporter() {
     return nodemailer.createTransport({
         host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
@@ -200,6 +262,7 @@ const VA_CATEGORY_ICONS = {
     career: '💼',
     interview: '🎯',
     skill: '📊',
+    job: '🎯',
     legal: '⚖️'
 };
 
@@ -661,6 +724,96 @@ const handlers = {
         }
     },
 
+    // ========== FETCH JOBS (NEW — 2026-08-08) ==========
+    // The nightly cron in vercel.json has been calling
+    // ?action=fetch-jobs since deployment — but no handler with that name
+    // existed anywhere in this file, so it silently hit the "unknown
+    // action" fallback every single night. Automated external job fetching
+    // has very likely never actually run. This reuses the same real
+    // fetchAllJobs() logic as the 'jobs' handler above, but — per the
+    // platform's own job board documentation — inserts results into
+    // external_jobs (status: 'pending_approval') for admin review, rather
+    // than returning them directly, with deduplication by
+    // title + company + source_country as documented.
+    'fetch-jobs': async (req, res) => {
+        const supabaseClient = getSupabase();
+
+        try {
+            const result = await fetchAllJobs();
+            const fetchedJobs = result.jobs || [];
+
+            let inserted = 0;
+            let skipped = 0;
+            const errors = [];
+
+            for (const job of fetchedJobs) {
+                try {
+                    const { data: existing } = await supabaseClient
+                        .from('external_jobs')
+                        .select('id')
+                        .eq('title', job.title)
+                        .eq('company', job.company)
+                        .eq('source_country', job.source_country || 'Global')
+                        .maybeSingle();
+
+                    if (existing) {
+                        skipped++;
+                        continue;
+                    }
+
+                    const { error: insertError } = await supabaseClient
+                        .from('external_jobs')
+                        .insert({
+                            title: job.title,
+                            company: job.company,
+                            location: job.location,
+                            description: job.description,
+                            salary_range: job.salary_range,
+                            job_type: job.job_type,
+                            source_name: job.source_name,
+                            source_country: job.source_country,
+                            external_apply_url: job.external_url,
+                            sponsorship_eligible: job.sponsorship_eligible || false,
+                            status: 'pending_approval',
+                            is_active: true
+                        });
+
+                    if (insertError) {
+                        errors.push({ job: job.title, error: insertError.message });
+                    } else {
+                        inserted++;
+                    }
+                } catch (jobError) {
+                    errors.push({ job: job.title, error: jobError.message });
+                }
+            }
+
+            await supabaseClient.from('external_job_fetch_log').insert({
+                total_fetched: fetchedJobs.length,
+                inserted,
+                skipped,
+                errors: errors.length > 0 ? errors : null,
+                created_at: new Date().toISOString()
+            }).select().maybeSingle().catch(() => {
+                // external_job_fetch_log logging is best-effort — if the
+                // table/columns don't exactly match, don't fail the fetch
+                // over it.
+            });
+
+            return res.status(200).json({
+                success: true,
+                fetched: fetchedJobs.length,
+                inserted,
+                skipped,
+                errors: errors.length > 0 ? errors : undefined,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error('fetch-jobs error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== JOBS STATS ==========
     'jobs-stats': async (req, res) => {
         const supabaseClient = getSupabase();
@@ -773,6 +926,86 @@ const handlers = {
                     modules: [{ title: `Introduction to ${topic}`, lessons: ['Getting Started', 'Core Concepts'] }]
                 }
             });
+        }
+    },
+
+    // ========== COURSE IMAGE / AUDIO GENERATION (NEW — 2026-08-07) ==========
+    // Backs CourseEditor.jsx's generateCoverImage/generateLessonIllustration/
+    // generateLessonAudio functions, which previously had no real backend
+    // and always failed with an honest error. Confirmed core features per
+    // the platform's own product documentation.
+    //
+    // NOTE ON IMAGE URLS: DALL-E returns a temporary OpenAI-hosted URL that
+    // expires after about an hour. This is fine for previewing right after
+    // generation, but for a permanent cover image, save it to your own
+    // storage (or re-run generation) before relying on it long-term — this
+    // handler does not currently re-upload to Supabase Storage.
+    //
+    // NOTE ON AUDIO: unlike images, TTS returns raw audio bytes, not a URL —
+    // this handler uploads it to a Supabase Storage bucket named
+    // 'course-audio'. If that bucket doesn't exist yet, create it in your
+    // Supabase dashboard (Storage → New bucket → name it exactly
+    // 'course-audio' → make it Public) before using this feature.
+    generateCourseImage: async (req, res) => {
+        const { prompt } = req.body;
+        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+
+        try {
+            const imageUrl = await callOpenAIImage(prompt);
+            return res.status(200).json({ success: true, imageUrl });
+        } catch (error) {
+            console.error('Course image generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    generateLessonImage: async (req, res) => {
+        const { prompt } = req.body;
+        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+
+        try {
+            const imageUrl = await callOpenAIImage(prompt);
+            return res.status(200).json({ success: true, imageUrl });
+        } catch (error) {
+            console.error('Lesson image generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    generateLessonAudio: async (req, res) => {
+        const { text, lessonId } = req.body;
+        if (!text) return res.status(400).json({ error: 'Text is required' });
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const audioBuffer = await callOpenAIAudio(text, 'alloy');
+            const fileName = `audio/${lessonId || 'lesson'}-${Date.now()}.mp3`;
+
+            const { error: uploadError } = await supabaseClient.storage
+                .from('course-audio')
+                .upload(fileName, audioBuffer, { contentType: 'audio/mpeg', upsert: true });
+
+            if (uploadError) {
+                throw new Error(
+                    uploadError.message.includes('not found') || uploadError.message.includes('Bucket')
+                        ? "Storage bucket 'course-audio' doesn't exist yet — create it in your Supabase dashboard (Storage → New bucket → name it 'course-audio' → make it Public), then try again."
+                        : uploadError.message
+                );
+            }
+
+            const { data: publicUrlData } = supabaseClient.storage
+                .from('course-audio')
+                .getPublicUrl(fileName);
+
+            // Rough duration estimate: ~150 words per minute average speech rate.
+            const wordCount = text.trim().split(/\s+/).length;
+            const estimatedDuration = Math.ceil((wordCount / 150) * 60);
+
+            return res.status(200).json({ success: true, audioUrl: publicUrlData.publicUrl, duration: estimatedDuration });
+        } catch (error) {
+            console.error('Lesson audio generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
         }
     },
 
@@ -1761,6 +1994,8 @@ const handlers = {
                 last_lesson_id: lessonId
             };
             
+            let certificateId = null;
+            
             if (progress >= 100) {
                 updates.status = 'completed';
                 updates.completed_at = new Date().toISOString();
@@ -1772,9 +2007,70 @@ const handlers = {
                 .eq('user_id', userId)
                 .eq('course_id', courseId);
             
-            return res.status(200).json({ success: true, progress });
+            // NEW (2026-08-07): auto-issue a certificate on first completion,
+            // confirmed as a core feature in the platform's product
+            // documentation. unique(user_id, course_id) on course_certificates
+            // means this is safe to attempt on every completion call — a
+            // duplicate insert just fails silently and is ignored, so a user
+            // re-triggering 100% progress doesn't create multiple certificates.
+            if (progress >= 100) {
+                const certificateNumber = `ODB-${courseId.toString().substring(0, 8).toUpperCase()}-${userId.toString().substring(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+                
+                const { data: newCert, error: certError } = await supabaseClient
+                    .from('course_certificates')
+                    .insert({
+                        user_id: userId,
+                        course_id: courseId,
+                        certificate_number: certificateNumber
+                    })
+                    .select('id')
+                    .single();
+                
+                if (!certError && newCert) {
+                    certificateId = newCert.id;
+                } else if (certError) {
+                    // Likely already has a certificate (unique constraint) —
+                    // look it up instead of treating this as a failure.
+                    const { data: existingCert } = await supabaseClient
+                        .from('course_certificates')
+                        .select('id')
+                        .eq('user_id', userId)
+                        .eq('course_id', courseId)
+                        .maybeSingle();
+                    if (existingCert) certificateId = existingCert.id;
+                }
+            }
+            
+            return res.status(200).json({ success: true, progress, certificateId });
         } catch (error) {
             return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== GET CERTIFICATE (NEW — 2026-08-07) ==========
+    // Backs the public certificate view/share page — joins course title and
+    // recipient name so the certificate page doesn't need multiple queries
+    // or expose more than necessary via direct client-side joins.
+    'get-certificate': async (req, res) => {
+        const { certificateId } = req.query;
+        if (!certificateId) return res.status(400).json({ error: 'certificateId is required' });
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: cert, error } = await supabaseClient
+                .from('course_certificates')
+                .select('*, courses(title, category, duration_hours), profiles(full_name)')
+                .eq('id', certificateId)
+                .single();
+
+            if (error || !cert) {
+                return res.status(404).json({ success: false, error: 'Certificate not found' });
+            }
+
+            return res.status(200).json({ success: true, certificate: cert });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
         }
     },
 
