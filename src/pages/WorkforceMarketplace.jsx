@@ -1,47 +1,39 @@
 // src/pages/WorkforceMarketplace.jsx
-// ODUSBABA WORKFORCE MARKETPLACE v5.1 - PRODUCTION READY
+// ODUSBABA WORKFORCE MARKETPLACE v6.0 - PRODUCTION READY
 //
-// FIXED (2026-08-07): destructured `userTier` from useCapability(), but the
-// real hook returns `tier`, not `userTier` — same bug found in JobsPage.jsx,
-// except here it wasn't dead code: it silently broke the "Sign in to
-// Contact" vs "Upgrade to Contact" message shown to visitors (userTier was
-// always undefined, so it always showed the upgrade message, even for
-// signed-out visitors who should be told to sign in instead).
+// CHANGED (2026-08-07): per ODUSBABA's decision, this page now sources from
+// the richer workforce_profiles + service_requests + proposals + engagements
+// + ratings_reviews model instead of the simpler workforce_skills table.
+// This resolves the Phase 7 architecture split: WorkforceOnboarding.jsx,
+// ProposalsList.jsx, and EngagementsDashboard.jsx were already built and
+// fixed against this model (via workforceService.js, confirmed bug-free),
+// but the actual public browse page — this file — never read from it,
+// meaning anyone completing onboarding was invisible here. Now the whole
+// flow (onboarding -> browse -> propose -> engage -> rate) is connected
+// end-to-end using code that already existed and already worked.
 //
-// RESOLVED (2026-08-07): handleContact() called /api/index?action=contact-worker,
-// which doesn't exist anywhere, and there was no in-app messaging table to
-// build a real equivalent against. Rather than invent a new messages table
-// (which would need a Supabase migration), this now sends a real email via
-// the already-confirmed-working `email` action and `notification` template
-// — the skill's joined `profiles.email` field is already being fetched by
-// the marketplace query, so no new data is needed. This is email-based
-// contact, not real-time in-app chat; if in-app threaded messaging is
-// wanted instead, that's a bigger feature needing a new table.
+// This uses workforceService.js's getVerifiedProfessions() directly, the
+// same real, already-confirmed-correct function used nowhere else in the
+// UI until now. Existing workforce_skills data isn't deleted — this page
+// simply no longer reads from that table, so any old skill listings won't
+// appear here going forward.
 //
-// FLAGGED, NOT FIXED (architecture decision needed — see project brief):
-// 1. This page queries `workforce_skills` directly. A separate, more
-//    sophisticated data model (`workforce_profiles` + `service_requests` +
-//    `proposals` + `engagements`) exists in workforceService.js and is used
-//    by WorkforceOnboarding.jsx, ProposalsList.jsx, and EngagementsDashboard.jsx
-//    — but this page never reads from that model at all. Anyone completing
-//    the onboarding flow creates a profile that's invisible here.
-// 2. GateGuard (imported from ../components/GateGuard) hasn't been reviewed
-//    yet — contents unconfirmed. If this file doesn't build for you, that's
-//    likely why — let me know and I'll build a minimal one, but I don't
-//    want to guess-overwrite a real working file.
+// Contact — still email-based (see the earlier fix), since
+// getVerifiedProfessions() joins the same profiles.email field the
+// previous version used.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
 import GateGuard from '../components/GateGuard';
+import { getVerifiedProfessions } from '../services/workforceService';
 import { 
     Users, Search, Star, Award, Shield, CheckCircle, 
     Loader2, AlertCircle, Mail, X, Code, Palette, Brain, Database,
-    MessageCircle, Briefcase, TrendingUp
+    MessageCircle, Briefcase, TrendingUp, DollarSign, Clock
 } from 'lucide-react';
 
-// Skill categories
 const SKILL_CATEGORIES = [
     { id: 'all', name: 'All Categories', icon: Briefcase },
     { id: 'technology', name: 'Technology', icon: Code },
@@ -58,19 +50,18 @@ const SKILL_CATEGORIES = [
 ];
 
 export default function WorkforceMarketplace() {
-    // FIXED: `tier` (not `userTier`) is the real field returned by useCapability()
     const { capabilities, tier, canSync } = useCapability();
-    const [skills, setSkills] = useState([]);
-    const [filteredSkills, setFilteredSkills] = useState([]);
+    const [professionals, setProfessionals] = useState([]);
+    const [filteredProfessionals, setFilteredProfessionals] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
-    const [sortBy, setSortBy] = useState('trust_score');
-    const [selectedSkill, setSelectedSkill] = useState(null);
+    const [sortBy, setSortBy] = useState('rating');
+    const [selectedProfessional, setSelectedProfessional] = useState(null);
     const [contactMessage, setContactMessage] = useState('');
     const [sending, setSending] = useState(false);
-    const [stats, setStats] = useState({ total: 0, verified: 0, avgTrustScore: 0 });
+    const [stats, setStats] = useState({ total: 0, verified: 0, avgRating: 0 });
     const [user, setUser] = useState(null);
 
     useEffect(() => {
@@ -79,8 +70,8 @@ export default function WorkforceMarketplace() {
     }, []);
 
     useEffect(() => {
-        filterAndSortSkills();
-    }, [skills, searchQuery, selectedCategory, sortBy]);
+        filterAndSortProfessionals();
+    }, [professionals, searchQuery, selectedCategory, sortBy]);
 
     async function getCurrentUser() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -91,29 +82,17 @@ export default function WorkforceMarketplace() {
         try {
             setLoading(true);
             setError(null);
-            
-            // Direct Supabase query for reliability
-            const { data, error: dbError } = await supabase
-                .from('workforce_skills')
-                .select('*, profiles(full_name, avatar_url, email, location, bio)')
-                .eq('status', 'approved')
-                .order('trust_score', { ascending: false });
-            
-            if (dbError) throw dbError;
-            
-            const skillsData = data || [];
-            setSkills(skillsData);
-            
-            // Calculate stats
-            const verifiedCount = skillsData.filter(s => s.verification_status === 'verified' || s.status === 'approved').length;
-            const avgScore = skillsData.reduce((sum, s) => sum + (s.trust_score || 0), 0) / (skillsData.length || 1);
-            
+
+            const data = await getVerifiedProfessions(100);
+            setProfessionals(data);
+
+            const avgRating = data.reduce((sum, p) => sum + (p.rating_avg || 0), 0) / (data.length || 1);
+
             setStats({
-                total: skillsData.length,
-                verified: verifiedCount,
-                avgTrustScore: avgScore.toFixed(1)
+                total: data.length,
+                verified: data.length,
+                avgRating: avgRating.toFixed(1)
             });
-            
         } catch (err) {
             console.error('Error loading marketplace:', err);
             setError(err.message);
@@ -122,74 +101,72 @@ export default function WorkforceMarketplace() {
         }
     }
 
-    function filterAndSortSkills() {
-        let filtered = [...skills];
-        
-        // Search filter
+    function filterAndSortProfessionals() {
+        let filtered = [...professionals];
+
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(skill => 
-                skill.skill_name?.toLowerCase().includes(query) ||
-                (skill.category && skill.category.toLowerCase().includes(query)) ||
-                skill.profiles?.full_name?.toLowerCase().includes(query)
+            filtered = filtered.filter(p =>
+                p.headline?.toLowerCase().includes(query) ||
+                p.bio?.toLowerCase().includes(query) ||
+                (Array.isArray(p.skills) && p.skills.some(s => s.toLowerCase().includes(query))) ||
+                p.profiles?.full_name?.toLowerCase().includes(query)
             );
         }
-        
-        // Category filter
+
         if (selectedCategory !== 'all') {
-            filtered = filtered.filter(skill => skill.category === selectedCategory);
+            filtered = filtered.filter(p =>
+                Array.isArray(p.skills) && p.skills.some(s => s.toLowerCase().includes(selectedCategory))
+            );
         }
-        
-        // Sorting
+
         filtered.sort((a, b) => {
-            if (sortBy === 'trust_score') return (b.trust_score || 0) - (a.trust_score || 0);
-            if (sortBy === 'years_experience') return (b.years_experience || 0) - (a.years_experience || 0);
-            if (sortBy === 'name') return (a.skill_name || '').localeCompare(b.skill_name || '');
+            if (sortBy === 'rating') return (b.rating_avg || 0) - (a.rating_avg || 0);
+            if (sortBy === 'experience') return (b.experience_years || 0) - (a.experience_years || 0);
+            if (sortBy === 'rate_low') return (a.hourly_rate || 0) - (b.hourly_rate || 0);
+            if (sortBy === 'rate_high') return (b.hourly_rate || 0) - (a.hourly_rate || 0);
             return 0;
         });
-        
-        setFilteredSkills(filtered);
+
+        setFilteredProfessionals(filtered);
     }
 
-    function getTrustScoreColor(score) {
-        if (score >= 90) return 'text-emerald-400';
-        if (score >= 75) return 'text-blue-400';
-        if (score >= 60) return 'text-amber-400';
+    function getRatingColor(rating) {
+        if (rating >= 4.5) return 'text-emerald-400';
+        if (rating >= 3.5) return 'text-blue-400';
+        if (rating >= 2.5) return 'text-amber-400';
         return 'text-slate-400';
     }
 
-    function getTrustScoreBadge(score) {
-        if (score >= 90) return { label: 'Elite', color: 'bg-emerald-500/20 text-emerald-400' };
-        if (score >= 75) return { label: 'Verified Pro', color: 'bg-blue-500/20 text-blue-400' };
-        if (score >= 60) return { label: 'Rising Talent', color: 'bg-amber-500/20 text-amber-400' };
-        return { label: 'Emerging', color: 'bg-slate-500/20 text-slate-400' };
+    function getRatingBadge(rating) {
+        if (rating >= 4.5) return { label: 'Top Rated', color: 'bg-emerald-500/20 text-emerald-400' };
+        if (rating >= 3.5) return { label: 'Highly Rated', color: 'bg-blue-500/20 text-blue-400' };
+        if (rating > 0) return { label: 'Rated', color: 'bg-amber-500/20 text-amber-400' };
+        return { label: 'New', color: 'bg-slate-500/20 text-slate-400' };
     }
 
-    async function handleContact(skill) {
+    async function handleContact(professional) {
         if (!user) {
             alert('Please sign in to contact professionals');
             window.location.href = '/sign-in?redirect=/workforce';
             return;
         }
-        
+
         if (!contactMessage.trim()) {
             alert('Please enter a message');
             return;
         }
-        
+
         setSending(true);
-        
+
         try {
-            // FIXED: sends a real email via the confirmed-working `email`
-            // action instead of a nonexistent contact-worker action. Uses
-            // the recipient's email already present on the joined profile.
-            const recipientEmail = skill.profiles?.email;
+            const recipientEmail = professional.profiles?.email;
             if (!recipientEmail) {
                 throw new Error('This professional has no contact email on file.');
             }
-            
+
             const senderName = user.email?.split('@')[0] || 'A professional';
-            
+
             const response = await fetch('/api/index?action=email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -204,12 +181,12 @@ export default function WorkforceMarketplace() {
                     }
                 })
             });
-            
+
             const data = await response.json();
-            
+
             if (data.success) {
-                alert('Message sent successfully!');
-                setSelectedSkill(null);
+                alert('Message sent successfully! For ongoing project work, consider submitting a formal proposal instead.');
+                setSelectedProfessional(null);
                 setContactMessage('');
             } else {
                 alert(data.error || 'Failed to send message');
@@ -220,23 +197,6 @@ export default function WorkforceMarketplace() {
         } finally {
             setSending(false);
         }
-    }
-
-    function getCategoryIcon(category) {
-        const icons = {
-            technology: '💻',
-            hr: '👔',
-            management: '📊',
-            creative: '🎨',
-            admin: '📋',
-            ai: '🤖',
-            data: '📈',
-            marketing: '📢',
-            design: '🎨',
-            leadership: '👑',
-            legal: '⚖️'
-        };
-        return icons[category] || '📌';
     }
 
     const canContact = canSync('contact_worker');
@@ -256,8 +216,8 @@ export default function WorkforceMarketplace() {
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Marketplace</h1>
                     <p className="text-slate-400 mb-6">{error}</p>
-                    <button 
-                        onClick={() => window.location.reload()} 
+                    <button
+                        onClick={() => window.location.reload()}
                         className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                     >
                         Try Again
@@ -270,8 +230,7 @@ export default function WorkforceMarketplace() {
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
             <div className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
-                
-                {/* Header */}
+
                 <div className="text-center mb-8">
                     <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
                         <Users className="w-10 h-10 text-white" />
@@ -280,24 +239,22 @@ export default function WorkforceMarketplace() {
                         Workforce Marketplace
                     </h1>
                     <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-                        Verified skills, rated professionals, trusted hiring
+                        Verified professionals, real proposals, trusted engagements
                     </p>
                 </div>
 
-                {/* Trust Banner */}
                 <div className="mb-8 p-4 bg-gradient-to-r from-emerald-900/20 to-sky-900/20 border border-emerald-500/30 rounded-xl">
                     <div className="flex items-start gap-3">
                         <Shield className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                         <div>
-                            <p className="text-white text-sm font-medium">100% Verified Skills Marketplace</p>
+                            <p className="text-white text-sm font-medium">100% Verified Professional Marketplace</p>
                             <p className="text-slate-400 text-xs">
-                                Every skill is AI-reviewed and admin-approved before listing. Trust scores reflect verified activity and completed work.
+                                Every profile is reviewed and verified before listing. Ratings reflect completed engagements.
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Stats Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
@@ -310,25 +267,24 @@ export default function WorkforceMarketplace() {
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
-                            <CheckCircle className="w-8 h-8 text-emerald-400 opacity-50" />
+                            <Star className="w-8 h-8 text-amber-400 opacity-50" />
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.verified}</div>
-                                <div className="text-sm text-slate-400">Verified Skills</div>
+                                <div className="text-2xl font-bold text-white">{stats.avgRating}</div>
+                                <div className="text-sm text-slate-400">Avg. Rating</div>
                             </div>
                         </div>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition">
                         <div className="flex items-center gap-3">
-                            <Award className="w-8 h-8 text-amber-400 opacity-50" />
+                            <CheckCircle className="w-8 h-8 text-emerald-400 opacity-50" />
                             <div>
-                                <div className="text-2xl font-bold text-white">{stats.avgTrustScore}</div>
-                                <div className="text-sm text-slate-400">Avg. Trust Score</div>
+                                <div className="text-2xl font-bold text-white">{stats.verified}</div>
+                                <div className="text-sm text-slate-400">Available Now</div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Search and Filters */}
                 <div className="flex flex-col lg:flex-row gap-4 mb-8">
                     <div className="flex-1 relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -336,7 +292,7 @@ export default function WorkforceMarketplace() {
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search by skill name, category, or professional..."
+                            placeholder="Search by skill, headline, or professional name..."
                             className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                         />
                     </div>
@@ -355,17 +311,17 @@ export default function WorkforceMarketplace() {
                             onChange={(e) => setSortBy(e.target.value)}
                             className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                         >
-                            <option value="trust_score">Sort by Trust Score</option>
-                            <option value="years_experience">Sort by Experience</option>
-                            <option value="name">Sort by Name</option>
+                            <option value="rating">Sort by Rating</option>
+                            <option value="experience">Sort by Experience</option>
+                            <option value="rate_low">Rate: Low to High</option>
+                            <option value="rate_high">Rate: High to Low</option>
                         </select>
                     </div>
                 </div>
 
-                {/* Results Count */}
                 <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
                     <p className="text-sm text-slate-400">
-                        Showing <span className="text-white font-medium">{filteredSkills.length}</span> of <span className="text-white font-medium">{skills.length}</span> verified professionals
+                        Showing <span className="text-white font-medium">{filteredProfessionals.length}</span> of <span className="text-white font-medium">{professionals.length}</span> verified professionals
                     </p>
                     {(searchQuery || selectedCategory !== 'all') && (
                         <button
@@ -380,20 +336,25 @@ export default function WorkforceMarketplace() {
                     )}
                 </div>
 
-                {/* Skills Grid */}
-                {filteredSkills.length === 0 ? (
+                {filteredProfessionals.length === 0 ? (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
-                        {skills.length === 0 ? (
+                        {professionals.length === 0 ? (
                             <>
                                 <Users className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                                <h3 className="text-xl font-semibold text-white mb-2">No Listings Yet</h3>
-                                <p className="text-slate-400 mb-6">Check back soon for verified professional skills.</p>
+                                <h3 className="text-xl font-semibold text-white mb-2">No Professionals Listed Yet</h3>
+                                <p className="text-slate-400 mb-6">Check back soon, or complete your own profile to be the first.</p>
+                                <Link
+                                    to="/workforce/setup"
+                                    className="inline-block px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                                >
+                                    Create Your Profile
+                                </Link>
                             </>
                         ) : (
                             <>
                                 <Search className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                                <h3 className="text-xl font-semibold text-white mb-2">No Matching Listings</h3>
-                                <p className="text-slate-400 mb-6">No skills match "{searchQuery}" or the selected category.</p>
+                                <h3 className="text-xl font-semibold text-white mb-2">No Matching Professionals</h3>
+                                <p className="text-slate-400 mb-6">No one matches "{searchQuery}" or the selected category.</p>
                                 <button
                                     onClick={() => {
                                         setSearchQuery('');
@@ -408,79 +369,92 @@ export default function WorkforceMarketplace() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredSkills.map(skill => {
-                            const trustBadge = getTrustScoreBadge(skill.trust_score);
-                            const trustColor = getTrustScoreColor(skill.trust_score);
-                            const profile = skill.profiles;
-                            
+                        {filteredProfessionals.map(professional => {
+                            const ratingBadge = getRatingBadge(professional.rating_avg);
+                            const ratingColor = getRatingColor(professional.rating_avg);
+                            const profile = professional.profiles;
+
                             return (
-                                <div 
-                                    key={skill.id} 
+                                <div
+                                    key={professional.id}
                                     className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 hover:border-primary-500/30 transition-all duration-200 group"
                                 >
-                                    {/* Header */}
                                     <div className="flex items-start justify-between mb-3">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white font-bold text-lg">
-                                                {profile?.full_name?.[0]?.toUpperCase() || getCategoryIcon(skill.category)}
+                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white font-bold text-lg overflow-hidden">
+                                                {profile?.avatar_url ? (
+                                                    <img src={profile.avatar_url} alt={profile.full_name} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    profile?.full_name?.[0]?.toUpperCase() || '?'
+                                                )}
                                             </div>
                                             <div>
                                                 <h3 className="text-lg font-semibold text-white group-hover:text-primary-400 transition">
-                                                    {skill.skill_name}
+                                                    {profile?.full_name || 'Verified Professional'}
                                                 </h3>
-                                                <p className="text-xs text-slate-400">{profile?.full_name || 'Verified Professional'}</p>
+                                                <p className="text-xs text-slate-400 line-clamp-1">{professional.headline}</p>
                                             </div>
                                         </div>
-                                        <div className={`text-xs px-2 py-0.5 rounded-full ${trustBadge.color}`}>
-                                            {trustBadge.label}
+                                        <div className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${ratingBadge.color}`}>
+                                            {ratingBadge.label}
                                         </div>
                                     </div>
-                                    
-                                    {/* Details */}
+
                                     <div className="space-y-2 mb-4">
-                                        <p className="text-sm text-slate-400">
-                                            {skill.category || 'General'} • {skill.years_experience || skill.experience_years || 0}+ years experience
-                                        </p>
+                                        <div className="flex items-center gap-3 text-sm text-slate-400">
+                                            <span>{professional.experience_years || 0}+ years experience</span>
+                                            {professional.hourly_rate && (
+                                                <span className="flex items-center gap-1">
+                                                    <DollarSign className="w-3 h-3" /> {professional.hourly_rate}/hr
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center gap-1">
                                                 <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                                                <span className={`text-sm font-medium ${trustColor}`}>{skill.trust_score || 0}</span>
+                                                <span className={`text-sm font-medium ${ratingColor}`}>
+                                                    {professional.rating_avg ? professional.rating_avg.toFixed(1) : 'New'}
+                                                </span>
                                             </div>
-                                            <span className="text-xs text-slate-500">Trust Score</span>
-                                            {skill.completed_jobs > 0 && (
-                                                <span className="text-xs text-slate-500">• {skill.completed_jobs} jobs completed</span>
+                                            {professional.rating_count > 0 && (
+                                                <span className="text-xs text-slate-500">({professional.rating_count} reviews)</span>
                                             )}
                                         </div>
                                     </div>
-                                    
-                                    {/* Description */}
-                                    {skill.description && (
-                                        <p className="text-slate-400 text-sm mb-3 line-clamp-2">{skill.description}</p>
+
+                                    {Array.isArray(professional.skills) && professional.skills.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 mb-3">
+                                            {professional.skills.slice(0, 4).map((skill, idx) => (
+                                                <span key={idx} className="text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-300">
+                                                    {skill}
+                                                </span>
+                                            ))}
+                                            {professional.skills.length > 4 && (
+                                                <span className="text-xs px-2 py-0.5 text-slate-500">+{professional.skills.length - 4} more</span>
+                                            )}
+                                        </div>
                                     )}
-                                    
-                                    {/* Trust Indicators */}
+
+                                    {professional.bio && (
+                                        <p className="text-slate-400 text-sm mb-3 line-clamp-2">{professional.bio}</p>
+                                    )}
+
                                     <div className="flex flex-wrap gap-2 mb-4 pt-2 border-t border-slate-800">
-                                        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                                            <Shield className="w-3 h-3" /> AI Verified
+                                        <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                                            <CheckCircle className="w-3 h-3" /> Verified
                                         </span>
-                                        {(skill.verification_status === 'verified' || skill.status === 'approved') && (
-                                            <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
-                                                <CheckCircle className="w-3 h-3" /> Human Reviewed
-                                            </span>
-                                        )}
-                                        {skill.trust_score >= 80 && (
+                                        {professional.rating_avg >= 4.5 && (
                                             <span className="inline-flex items-center gap-1 text-xs text-amber-400">
                                                 <Award className="w-3 h-3" /> Top Rated
                                             </span>
                                         )}
                                     </div>
-                                    
-                                    {/* Contact Button with GateGuard */}
-                                    <GateGuard 
-                                        action="contact_worker" 
+
+                                    <GateGuard
+                                        action="contact_worker"
                                         showUpgrade={true}
                                         fallback={
-                                            <button 
+                                            <button
                                                 disabled
                                                 className="w-full py-2 bg-slate-700 text-slate-400 rounded-lg text-sm flex items-center justify-center gap-2 cursor-not-allowed"
                                             >
@@ -490,19 +464,18 @@ export default function WorkforceMarketplace() {
                                         }
                                     >
                                         <button
-                                            onClick={() => setSelectedSkill(selectedSkill?.id === skill.id ? null : skill)}
+                                            onClick={() => setSelectedProfessional(selectedProfessional?.id === professional.id ? null : professional)}
                                             className="w-full py-2 border border-primary-500 text-primary-500 rounded-lg hover:bg-primary-500/10 transition text-sm flex items-center justify-center gap-2"
                                         >
-                                            {selectedSkill?.id === skill.id ? (
+                                            {selectedProfessional?.id === professional.id ? (
                                                 <>Cancel</>
                                             ) : (
                                                 <><MessageCircle className="w-4 h-4" /> Contact Professional</>
                                             )}
                                         </button>
                                     </GateGuard>
-                                    
-                                    {/* Contact Form */}
-                                    {selectedSkill?.id === skill.id && (
+
+                                    {selectedProfessional?.id === professional.id && (
                                         <div className="mt-4 pt-4 border-t border-slate-700">
                                             <textarea
                                                 value={contactMessage}
@@ -512,7 +485,7 @@ export default function WorkforceMarketplace() {
                                                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                                             />
                                             <button
-                                                onClick={() => handleContact(skill)}
+                                                onClick={() => handleContact(professional)}
                                                 disabled={sending}
                                                 className="w-full mt-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                                             >
@@ -531,18 +504,17 @@ export default function WorkforceMarketplace() {
                         })}
                     </div>
                 )}
-                
-                {/* Trust Footer */}
+
                 <div className="mt-8 p-4 bg-slate-900/30 border border-slate-800 rounded-xl">
                     <div className="flex flex-wrap justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <Shield className="w-5 h-5 text-emerald-400" />
                             <p className="text-slate-400 text-sm">
-                                All professionals are <span className="text-white font-medium">AI-verified</span> and <span className="text-white font-medium">human-reviewed</span>
+                                All professionals are <span className="text-white font-medium">verified</span> before listing
                             </p>
                         </div>
-                        <Link to="/workforce/about" className="text-primary-400 hover:text-primary-300 text-sm flex items-center gap-1">
-                            Learn about verification →
+                        <Link to="/workforce/setup" className="text-primary-400 hover:text-primary-300 text-sm flex items-center gap-1">
+                            Join as a professional →
                         </Link>
                     </div>
                 </div>
