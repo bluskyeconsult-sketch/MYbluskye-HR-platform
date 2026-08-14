@@ -337,20 +337,35 @@ export function GovernanceProvider({ children }) {
         
         const allowed = capabilities[requiredCapability] === true;
         
+        // FIXED (2026-08-08): this previously computed `allowed` the same
+        // way regardless of enforcementMode, then had a branch that only
+        // ever returned the same value `allowed` already held — meaning
+        // 'observe' and 'block' modes were functionally identical. The
+        // whole point of an observe mode is to let admins see what
+        // enforcement WOULD do (via the audit log below) without actually
+        // disrupting real users while a new capability matrix is being
+        // rolled out or tested. Now: block mode enforces normally; observe
+        // mode always allows the action through, but still logs whether it
+        // would have been denied, so the audit trail is genuinely useful
+        // for reviewing before flipping to block.
+        const wouldBlock = !allowed;
+        
         // Log capability check
         await audit('capability_check', {
             action,
             requiredCapability,
             allowed,
+            wouldBlock,
+            enforcementMode,
             context,
             userTier: capabilities.tier
         });
         
-        // If in block mode and action not allowed, deny
-        if (enforcementMode === 'block' && !allowed) {
-            return false;
+        if (enforcementMode === 'observe') {
+            return true;
         }
         
+        // block mode: enforce for real
         return allowed;
     }
 
