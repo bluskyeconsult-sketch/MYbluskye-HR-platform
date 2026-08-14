@@ -165,6 +165,37 @@ function AIChat() {
 }
 
 // ============================================
+// TESTER VISIBILITY (NEW — 2026-08-07)
+// TesterVisibilitySettings.jsx already saves these settings correctly to
+// system_config, but nothing anywhere read them — the tester login/register
+// links didn't exist in Navbar/Footer at all, shown or hidden. This hook
+// fetches the config (system_config already has a public read policy, so
+// this works for logged-out visitors too) and both components below now
+// conditionally render real links based on it.
+// ============================================
+function useTesterVisibility() {
+    const [settings, setSettings] = useState(null);
+
+    useEffect(() => {
+        async function load() {
+            try {
+                const { data } = await supabase
+                    .from('system_config')
+                    .select('config_value')
+                    .eq('config_key', 'tester_visibility')
+                    .maybeSingle();
+                if (data?.config_value) setSettings(data.config_value);
+            } catch (err) {
+                console.warn('Failed to load tester visibility settings:', err);
+            }
+        }
+        load();
+    }, []);
+
+    return settings;
+}
+
+// ============================================
 // COMPLETE NAVBAR (All Links Functional)
 // ============================================
 function Navbar() {
@@ -174,6 +205,7 @@ function Navbar() {
     const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
     const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
     const [userName, setUserName] = useState('');
+    const testerVisibility = useTesterVisibility();
     
     const adminDropdownRef = useRef(null);
     const accountDropdownRef = useRef(null);
@@ -311,7 +343,13 @@ function Navbar() {
                                 )}
                             </div>
                         ) : (
-                            <div className="flex gap-3">
+                            <div className="flex items-center gap-3">
+                                {testerVisibility?.show_login_button && (
+                                    <a href="/tester-login" className="text-slate-400 hover:text-white text-sm">Tester Login</a>
+                                )}
+                                {testerVisibility?.show_register_button && (
+                                    <a href="/tester-register" className="text-amber-400 hover:text-amber-300 text-sm font-medium">Become a Tester</a>
+                                )}
                                 <a href="/sign-in" className="text-slate-300 hover:text-white text-sm">Sign In</a>
                                 <a href="/sign-up" className="bg-primary-600 px-4 py-1.5 rounded-lg text-white hover:bg-primary-700 text-sm">Sign Up</a>
                             </div>
@@ -351,6 +389,12 @@ function Navbar() {
                             </>
                         ) : (
                             <div className="pt-2">
+                                {testerVisibility?.show_login_button && (
+                                    <a href="/tester-login" className="block py-2 text-slate-400 hover:text-white">Tester Login</a>
+                                )}
+                                {testerVisibility?.show_register_button && (
+                                    <a href="/tester-register" className="block py-2 text-amber-400 hover:text-amber-300 font-medium">Become a Tester</a>
+                                )}
                                 <a href="/sign-in" className="block py-2 text-slate-300 hover:text-white">Sign In</a>
                                 <a href="/sign-up" className="block py-2 text-primary-400 hover:text-primary-300">Sign Up</a>
                             </div>
@@ -366,6 +410,8 @@ function Navbar() {
 // FOOTER (All Links Functional)
 // ============================================
 function Footer() {
+    const testerVisibility = useTesterVisibility();
+
     return (
         <footer className="bg-slate-900 border-t border-slate-800 py-8 mt-8">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -382,6 +428,9 @@ function Footer() {
                             <li><a href="/courses" className="text-slate-400 text-sm hover:text-white transition">Take Courses</a></li>
                             <li><a href="/assessments" className="text-slate-400 text-sm hover:text-white transition">Take Assessments</a></li>
                             <li><a href="/hire-va" className="text-slate-400 text-sm hover:text-white transition">Hire Virtual Assistant</a></li>
+                            {testerVisibility?.show_footer_link && (
+                                <li><a href="/tester-login" className="text-amber-400 text-sm hover:text-amber-300 transition">Tester Portal</a></li>
+                            )}
                         </ul>
                     </div>
                     <div>
@@ -530,6 +579,9 @@ const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
+const AdminTesterFeedback = lazy(() => import('./pages/admin/AdminTesterFeedback'));
+const AdminTesterInvites = lazy(() => import('./pages/admin/AdminTesterInvites'));
+const AdminDiagnostics = lazy(() => import('./pages/admin/AdminDiagnostics'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -718,6 +770,9 @@ function AppContent() {
                             <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
                             <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
+                            <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminTesterFeedback /></ProtectedRoute>} />
+                            <Route path="/admin/tester-invites" element={<ProtectedRoute requireAdmin><AdminTesterInvites /></ProtectedRoute>} />
+                            <Route path="/admin/diagnostics" element={<ProtectedRoute requireAdmin><AdminDiagnostics /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
