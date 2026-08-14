@@ -23,7 +23,7 @@ import {
     Bot, Plus, Edit2, Trash2, Eye, Loader2, Sparkles, 
     CheckCircle, XCircle, DollarSign, Clock, Tag, Zap,
     Brain, Wand2, Save, X, TrendingUp, Award, Target,
-    MessageCircle, FileText, Briefcase, Users, Scale
+    MessageCircle, FileText, Briefcase, Users
 } from 'lucide-react';
 
 export default function VirtualAssistantManager() {
@@ -57,15 +57,19 @@ export default function VirtualAssistantManager() {
     const [newFeature, setNewFeature] = useState('');
     const [newTag, setNewTag] = useState('');
 
+    // FIXED (2026-08-08): confirmed via the real database check constraint
+    // (virtual_assistants_category_check) that only these 4 exact values
+    // are allowed — 'interview', 'skill', 'legal', and 'job' (all
+    // previously offered here) fail every time. Any admin who picked one of
+    // those would have hit a confusing database error with no indication
+    // it was the category dropdown at fault. Rebuilt to match ground truth
+    // exactly rather than the platform's descriptive documentation, which
+    // didn't reflect what the database actually enforces.
     const categories = [
         { id: 'resume', name: 'Resume & CV', icon: FileText, color: 'bg-blue-500/20 text-blue-400' },
         { id: 'career', name: 'Career Advice', icon: Briefcase, color: 'bg-emerald-500/20 text-emerald-400' },
-        { id: 'interview', name: 'Interview Prep', icon: MessageCircle, color: 'bg-purple-500/20 text-purple-400' },
-        { id: 'skill', name: 'Skill Development', icon: TrendingUp, color: 'bg-amber-500/20 text-amber-400' },
-        // NEW (2026-08-08): confirmed via the platform's own VA category
-        // spec (job/purple/Job Match Analyzer) — was missing entirely.
-        { id: 'job', name: 'Job Search', icon: Briefcase, color: 'bg-violet-500/20 text-violet-400' },
-        { id: 'legal', name: 'Legal & Rights', icon: Scale, color: 'bg-red-500/20 text-red-400' }
+        { id: 'writing', name: 'Writing', icon: MessageCircle, color: 'bg-purple-500/20 text-purple-400' },
+        { id: 'productivity', name: 'Productivity', icon: TrendingUp, color: 'bg-amber-500/20 text-amber-400' }
     ];
 
     useEffect(() => {
