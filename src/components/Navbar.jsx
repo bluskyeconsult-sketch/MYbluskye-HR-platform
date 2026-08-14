@@ -1,5 +1,5 @@
 // src/components/Navbar.jsx - UNIFIED & OPTIMIZED
-// ODUSBABA PROFESSIONAL NAVBAR v7.0 - Mobile-First with Unified API
+// ODUSBABA PROFESSIONAL NAVBAR v7.1 - Mobile-First with Unified API
 // ✅ Complete responsive design with mobile-first approach
 // ✅ Clean mobile overlay with backdrop (from Code 2)
 // ✅ All navigation links verified
@@ -10,6 +10,23 @@
 // ✅ Lightweight animations (no Framer Motion dependency)
 // ✅ Fixed logo handling with fallback
 // ✅ Touch-optimized mobile menu
+//
+// FIXED (2026-08-08): CRITICAL — checkUser() registered a new
+// supabase.auth.onAuthStateChange() listener every time it ran, and it ran
+// on every single route change across the whole site. The cleanup function
+// it returned was trapped inside an async function's Promise, so React
+// never called it — every navigation leaked one more listener forever.
+// After browsing a few pages, dozens of leaked listeners would all fire
+// concurrently on the next auth event (like signing in), all racing to
+// mutate the same underlying session object — this is almost certainly the
+// exact cause of the "Cannot add property changedAccessToken, object is
+// not extensible" crash reported on the sign-in page. Moved the listener
+// to its own useEffect with an empty dependency array (registers once,
+// cleans up once), matching the already-correct pattern in App.jsx's
+// inline Navbar. Also removed calls to ?action=session, ?action=profile,
+// and ?action=logout — none of these exist in api/index.js, so every one
+// of them always failed and fell through to a fallback anyway; simplified
+// to call the direct Supabase methods directly.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -95,6 +112,38 @@ export default function Navbar() {
         setUserMenuOpen(false);
     }, [location.pathname]);
 
+    // FIXED (2026-08-08): CRITICAL — this listener setup used to live
+    // inside checkUser() itself, which was called from the useEffect above
+    // on EVERY route change. Since checkUser() is async, the
+    // `() => subscription.unsubscribe()` it returned became a Promise, not
+    // a real React cleanup function — React never saw or called it. Every
+    // single page navigation across the whole site registered a brand new
+    // supabase.auth.onAuthStateChange() listener that never got cleaned
+    // up. After browsing a few pages, dozens of leaked listeners would all
+    // fire simultaneously on the next auth event, all trying to process
+    // the same session object concurrently — this is almost certainly the
+    // exact cause of the "Cannot add property changedAccessToken, object
+    // is not extensible" crash on sign-in. Moved to its own useEffect with
+    // an empty dependency array, so it registers exactly once on mount and
+    // is properly unsubscribed on unmount — the same correct pattern
+    // App.jsx's own inline Navbar already used.
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            setUser(session?.user || null);
+            if (session?.user) {
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('user_type, tier, full_name, avatar_url')
+                    .eq('id', session.user.id)
+                    .single();
+                setProfile(data);
+            } else {
+                setProfile(null);
+            }
+        });
+        return () => subscription.unsubscribe();
+    }, []);
+
     useEffect(() => {
         // Close dropdowns when clicking outside
         const handleClickOutside = (event) => {
@@ -118,52 +167,17 @@ export default function Navbar() {
         return () => document.body.classList.remove('overflow-hidden', 'fixed', 'w-full');
     }, [mobileMenuOpen]);
 
+    // FIXED (2026-08-08): removed calls to ?action=session, ?action=profile
+    // — neither exists in api/index.js, so this always hit the catch block
+    // and fell through to the "fallback" every single time. Simplified to
+    // go straight to the direct Supabase calls (the same fix already
+    // applied to App.jsx's inline Navbar back in Phase 1). No longer sets
+    // up an auth listener here — that now lives in its own effect above.
     async function checkUser() {
         try {
-            // Using unified API for session check
-            const sessionResponse = await fetch(`${API_BASE}?action=session`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const sessionData = await sessionResponse.json();
-            
-            setUser(sessionData.user || null);
-            
-            if (sessionData.user) {
-                // Get profile using unified API
-                const profileResponse = await fetch(`${API_BASE}?action=profile`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: sessionData.user.id })
-                });
-                const profileData = await profileResponse.json();
-                setProfile(profileData.data);
-            }
-        } catch (error) {
-            console.error('Auth check error:', error);
-            // Fallback to direct Supabase if API fails
-            try {
-                const { data: { session } } = await supabase.auth.getSession();
-                setUser(session?.user || null);
-                
-                if (session?.user) {
-                    const { data } = await supabase
-                        .from('profiles')
-                        .select('user_type, tier, full_name, avatar_url')
-                        .eq('id', session.user.id)
-                        .single();
-                    setProfile(data);
-                }
-            } catch (fallbackError) {
-                console.error('Fallback auth error:', fallbackError);
-            }
-        } finally {
-            setLoading(false);
-        }
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            const { data: { session } } = await supabase.auth.getSession();
             setUser(session?.user || null);
+            
             if (session?.user) {
                 const { data } = await supabase
                     .from('profiles')
@@ -171,12 +185,12 @@ export default function Navbar() {
                     .eq('id', session.user.id)
                     .single();
                 setProfile(data);
-            } else {
-                setProfile(null);
             }
-        });
-
-        return () => subscription.unsubscribe();
+        } catch (error) {
+            console.error('Auth check error:', error);
+        } finally {
+            setLoading(false);
+        }
     }
 
     async function loadTesterVisibility() {
@@ -195,21 +209,18 @@ export default function Navbar() {
         }
     }
 
+    // FIXED (2026-08-08): removed the call to ?action=logout, which doesn't
+    // exist in api/index.js — this always hit the catch block and fell
+    // through to the fallback every time anyway. Simplified to go straight
+    // to the direct Supabase call.
     const handleLogout = async () => {
         try {
-            // Use unified API for logout
-            await fetch(`${API_BASE}?action=logout`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            await supabase.auth.signOut();
             navigate('/');
             setMobileMenuOpen(false);
             setUserMenuOpen(false);
         } catch (error) {
             console.error('Logout error:', error);
-            // Fallback to direct Supabase
-            await supabase.auth.signOut();
-            navigate('/');
         }
     };
 
