@@ -1,10 +1,18 @@
 // src/pages/HRToolsPage.jsx
-// ODUSBABA HR TOOLS v4.0 - PRODUCTION READY
+// ODUSBABA HR TOOLS v4.1 - PRODUCTION READY
 // ✅ AI-powered HR tools
 // ✅ CV analyzer, rights checker, grievance generator
 // ✅ Contract analyzer, interview simulator
 // ✅ GateGuard integration for access control
 // ✅ API integration with real AI processing
+//
+// FIXED (2026-08-08): all 6 tools on this page called api.js methods that
+// were explicit stubs (analyzeCV, simulateInterview, checkRights,
+// generateGrievance, analyzeContract all always rejected immediately;
+// salary_calculator called analyzeCV as a labeled placeholder) — every
+// tool on this page has shown a raw technical error message to every user
+// since it was built. All 6 now have real backend handlers in
+// api/index.js, reusing the existing callOpenAI() pattern.
 
 import { useState } from 'react';
 import { useCapability } from '../hooks/useCapability';
@@ -69,8 +77,10 @@ export default function HRToolsPage() {
                     break;
                     
                 case 'salary_calculator':
-                    // For salary calculator, use a more structured approach
-                    const salaryData = await api.analyzeCV(input); // Placeholder
+                    // FIXED (2026-08-08): was calling api.analyzeCV() as an
+                    // explicit placeholder — now uses the real
+                    // calculateSalary action built alongside this fix.
+                    const salaryData = await api.calculateSalary({ situation: input, details: input });
                     setOutput(salaryData.result || formatFallbackResponse(activeTool));
                     break;
                     
