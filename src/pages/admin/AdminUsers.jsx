@@ -121,6 +121,24 @@ export default function AdminUsers() {
         setFilteredUsers(filtered);
     }
 
+    // NEW (2026-08-08): confirmed by SOP 9.2 as a documented tester
+    // management action — was missing entirely. Converts a tester account
+    // to a regular registered user with one click, reusing the same
+    // update-role logic already proven correct in updateUserRole below.
+    async function convertTesterToRegistered(userId) {
+        if (!confirm('Convert this tester to a registered user? They will lose tester-specific perks and move to the standard registered tier.')) return;
+        try {
+            await supabase
+                .from('profiles')
+                .update({ user_type: 'registered' })
+                .eq('id', userId);
+            await loadUsers();
+        } catch (err) {
+            console.error('Error converting tester:', err);
+            alert('Failed to convert tester: ' + err.message);
+        }
+    }
+
     async function toggleSuspend(userId, currentStatus) {
         try {
             await supabase
@@ -328,6 +346,14 @@ export default function AdminUsers() {
                                 >
                                     <Shield className="w-4 h-4" /> Change Role
                                 </button>
+                                {user.user_type === 'tester' && (
+                                    <button
+                                        onClick={() => convertTesterToRegistered(user.id)}
+                                        className="flex-1 py-2 bg-primary-500/20 text-primary-400 rounded-lg text-sm flex items-center justify-center gap-1.5"
+                                    >
+                                        <UserCheck className="w-4 h-4" /> Convert
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => toggleSuspend(user.id, user.is_suspended)}
                                     className={`flex-1 py-2 rounded-lg text-sm flex items-center justify-center gap-1.5 ${
@@ -412,6 +438,15 @@ export default function AdminUsers() {
                                             >
                                                 <Shield className="w-4 h-4" />
                                             </button>
+                                            {user.user_type === 'tester' && (
+                                                <button
+                                                    onClick={() => convertTesterToRegistered(user.id)}
+                                                    className="p-1.5 text-primary-400 hover:bg-primary-500/20 transition rounded-lg"
+                                                    title="Convert to registered user"
+                                                >
+                                                    <UserCheck className="w-4 h-4" />
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => toggleSuspend(user.id, user.is_suspended)}
                                                 className={`p-1.5 rounded-lg transition ${
