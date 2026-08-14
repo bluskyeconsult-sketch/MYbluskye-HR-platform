@@ -26,13 +26,40 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useGovernance } from '../contexts/GovernanceContext';
 import { 
     Users, Briefcase, BookOpen, ClipboardList, Bot, Mail, 
     Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
-    Clock, CheckCircle, XCircle, AlertCircle
+    Clock, CheckCircle, XCircle, AlertCircle, Eye, ShieldAlert
 } from 'lucide-react';
 
 export default function AdminDashboard() {
+    // NEW (2026-08-08): Enforcement Mode toggle. The backend logic for this
+    // already existed in full in GovernanceContext.jsx (loading/saving
+    // system_config.enforcement_mode, gating changes to canGovern/
+    // super_admin) — the only missing piece was ever having a UI to click
+    // it. A real logic bug in that backend (observe and block modes
+    // producing identical results) was also fixed alongside this.
+    const { enforcementMode, setEnforcement, capabilities } = useGovernance();
+    const [changingMode, setChangingMode] = useState(false);
+
+    async function handleToggleEnforcement() {
+        const newMode = enforcementMode === 'block' ? 'observe' : 'block';
+        const confirmMsg = newMode === 'observe'
+            ? 'Switch to Observe mode? Every tier-gated action across the site will be ALLOWED for every user, regardless of their tier — only logged, not blocked. Use this to test a new capability matrix safely.'
+            : 'Switch to Block mode? Tier-gated actions will be enforced normally again.';
+        if (!confirm(confirmMsg)) return;
+
+        setChangingMode(true);
+        try {
+            await setEnforcement(newMode);
+        } catch (err) {
+            alert(err.message || 'Failed to change enforcement mode');
+        } finally {
+            setChangingMode(false);
+        }
+    }
+
     const [user, setUser] = useState(null);
     const [stats, setStats] = useState({
         totalUsers: 0,
@@ -116,6 +143,45 @@ export default function AdminDashboard() {
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
                     <p className="text-slate-400">Welcome back, {user?.email}</p>
+                </div>
+
+                {/* Enforcement Mode Toggle */}
+                <div className={`mb-8 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    enforcementMode === 'observe'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-slate-900/50 border-slate-800'
+                }`}>
+                    <div className="flex items-center gap-3">
+                        {enforcementMode === 'observe' ? (
+                            <Eye className="w-6 h-6 text-amber-400 flex-shrink-0" />
+                        ) : (
+                            <ShieldAlert className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                        )}
+                        <div>
+                            <p className="text-white font-semibold">
+                                Enforcement Mode: <span className={enforcementMode === 'observe' ? 'text-amber-400' : 'text-emerald-400'}>
+                                    {enforcementMode === 'observe' ? 'Observe' : 'Block'}
+                                </span>
+                            </p>
+                            <p className="text-slate-400 text-sm">
+                                {enforcementMode === 'observe'
+                                    ? 'Tier-gated actions are currently allowed for everyone — only logged, not blocked.'
+                                    : 'Tier-gated actions are being enforced normally.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleToggleEnforcement}
+                        disabled={changingMode || !capabilities?.canGovern}
+                        title={!capabilities?.canGovern ? 'Only super_admin can change enforcement mode' : ''}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                            enforcementMode === 'observe'
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-amber-600 text-white hover:bg-amber-700'
+                        }`}
+                    >
+                        {changingMode ? 'Changing...' : enforcementMode === 'observe' ? 'Switch to Block' : 'Switch to Observe'}
+                    </button>
                 </div>
 
                 {/* Stats Cards */}
