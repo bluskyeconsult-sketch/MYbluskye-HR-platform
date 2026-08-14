@@ -902,6 +902,117 @@ const handlers = {
         }
     },
 
+    // ========== HR TOOLS (NEW — 2026-08-08) ==========
+    // HRToolsPage.jsx has always called these 6 actions, and api.js always
+    // rejected before ever making a request, since none of these handlers
+    // existed — the entire HR Tools page has shown a raw technical error
+    // message to every user for every tool since the page was built.
+    // Confirmed as core, country-aware features per the platform's own
+    // product documentation. All reuse the existing callOpenAI() helper,
+    // same pattern as every other AI feature in this file.
+
+    analyzeCV: async (req, res) => {
+        const { cvText } = req.body;
+        if (!cvText) return res.status(400).json({ error: 'cvText is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an expert CV/resume reviewer. Analyze the CV for ATS compatibility, clarity, and impact. Give specific, actionable feedback: strengths, areas for improvement, an estimated ATS score out of 100, and concrete next steps. Use markdown formatting.' },
+                { role: 'user', content: cvText }
+            ], 1200, 0.6);
+
+            return res.status(200).json({ success: true, analysis: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'simulate-interview': async (req, res) => {
+        const { role, questions } = req.body;
+        if (!role) return res.status(400).json({ error: 'role is required' });
+
+        try {
+            const priorQuestions = Array.isArray(questions) && questions.length > 0
+                ? `Previously asked: ${questions.join('; ')}. Ask a different question this time.`
+                : '';
+
+            const data = await callOpenAI([
+                { role: 'system', content: `You are an experienced interviewer running a mock interview. Given the candidate's target role and background, ask one realistic interview question (behavioral or technical, appropriate to the role), then provide guidance on how to structure a strong answer using the STAR method where relevant. Use markdown formatting.` },
+                { role: 'user', content: `${role}. ${priorQuestions}` }
+            ], 800, 0.7);
+
+            return res.status(200).json({ success: true, feedback: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    checkRights: async (req, res) => {
+        const { situation, country } = req.body;
+        if (!situation) return res.status(400).json({ error: 'situation is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: `You are a workplace rights advisor. Give general information about employment rights relevant to ${country || 'the UK'} based on the situation described — dismissal, discrimination, working hours, leave entitlements, etc. as applicable. End with a clear note that this is general information, not legal advice, and recommend consulting a qualified employment lawyer or the relevant national labor authority for specific guidance. Use markdown formatting.` },
+                { role: 'user', content: situation }
+            ], 1000, 0.5);
+
+            return res.status(200).json({ success: true, advice: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    generateGrievance: async (req, res) => {
+        const { situation, details } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an HR professional drafting a formal grievance letter. Write a professional, factual grievance letter template based on the situation described — include placeholders like [Date], [Manager Name] where specific details aren\'t given. Structure: subject line, background, details of the issue, desired resolution, closing. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1200, 0.5);
+
+            return res.status(200).json({ success: true, grievance: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'analyze-contract': async (req, res) => {
+        const { contractText } = req.body;
+        if (!contractText) return res.status(400).json({ error: 'contractText is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an employment contract reviewer. Analyze the contract terms for potentially concerning clauses (restrictive non-competes, unclear termination terms, missing statutory entitlements, unusual liability clauses, etc.). Flag specific issues found, explain why each matters in plain language, and note this is general review, not legal advice — recommend a qualified employment lawyer for anything significant. Use markdown formatting.' },
+                { role: 'user', content: contractText }
+            ], 1200, 0.5);
+
+            return res.status(200).json({ success: true, analysis: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'calculate-salary': async (req, res) => {
+        const { situation, details } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are a compensation analyst. Given a job title, location, experience level, and industry, provide a realistic market salary range estimate with reasoning (factors that push it higher or lower), and 2-3 practical negotiation tips. Be clear this is an estimate based on general market knowledge, not a guaranteed figure. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1000, 0.5);
+
+            return res.status(200).json({ success: true, result: data.choices[0].message.content });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== GENERATE COURSE ==========
     'generate-course': async (req, res) => {
         const { topic, level = 'beginner' } = req.body;
