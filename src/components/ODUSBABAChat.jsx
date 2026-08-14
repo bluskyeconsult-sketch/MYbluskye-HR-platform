@@ -1,11 +1,28 @@
 // src/components/ODUSBABAChat.jsx
-// ODUSBABA AI CHAT v7.0 - PRODUCTION READY
+// ODUSBABA AI CHAT v7.1 - PRODUCTION READY
 // ✅ Intent detection and intelligent routing via Unified API
 // ✅ Role-based access, tier-gated features
 // ✅ Job search handler restored
 // ✅ Legal information fetching for 9 countries
 // ✅ Conversation history, typing indicators
 // ✅ Guest mode support with limit tracking
+//
+// FIXED (2026-08-08): the biggest bug found in this whole project review —
+// sendMessage() sent {messages: [...], userId, conversationId, userTier} to
+// the real chat handler, which requires a single `message` string field and
+// rejects with a 400 if it's missing. Since this payload never included
+// that field, every single chat message sent through this widget — present
+// on every page of the site — has hit the generic "having trouble
+// connecting" error, never a real AI response. Fixed to match the real
+// handler's actual shape (message + history + systemPrompt).
+//
+// FLAGGED, NOT FIXED: data.remaining is read from the chat response to
+// update the credit display, but the real chat handler never returns a
+// `remaining` field and has no credit-deduction logic at all — meaning
+// profiles.ai_credits_remaining is likely never actually decremented by
+// chat usage, even though the UI displays and gates on it. Worth a
+// follow-up if credit-limited chat usage matters to you; low urgency
+// compared to the fix above.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -373,21 +390,34 @@ export default function ODUSBABAChat() {
             }
 
             // Prepare conversation history for API
+            // FIXED (2026-08-08): the real chat handler in api/index.js
+            // requires a separate `message` string field (req.body.message)
+            // and appends it to history itself server-side — this was
+            // instead sending everything bundled into a `messages` array
+            // with no `message` field at all, so the handler's
+            // `if (!message) return res.status(400)...` check failed on
+            // every single message ever sent. This is the core AI chat
+            // widget, present on every page — it has very likely never
+            // returned a real AI response for any user. Also added a
+            // systemPrompt so the AI actually responds in ODUSBABA's
+            // established persona instead of a bare generic assistant.
             const history = messages.slice(-MAX_HISTORY_MESSAGES).map(m => ({
                 role: m.sender === 'user' ? 'user' : 'assistant',
                 content: m.message
             }));
-            history.push({ role: 'user', content: currentInput });
+
+            const systemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The user's current tier is: ${userProfile?.tier || (user ? 'free' : 'visitor')}.`;
 
             // ✅ Call unified API endpoint
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    messages: history, 
+                    message: currentInput,
+                    history,
+                    systemPrompt,
                     userId: user?.id,
-                    conversationId,
-                    userTier: userProfile?.tier || (user ? 'free' : 'visitor')
+                    conversationId
                 })
             });
 
