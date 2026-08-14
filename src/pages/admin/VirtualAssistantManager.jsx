@@ -62,6 +62,9 @@ export default function VirtualAssistantManager() {
         { id: 'career', name: 'Career Advice', icon: Briefcase, color: 'bg-emerald-500/20 text-emerald-400' },
         { id: 'interview', name: 'Interview Prep', icon: MessageCircle, color: 'bg-purple-500/20 text-purple-400' },
         { id: 'skill', name: 'Skill Development', icon: TrendingUp, color: 'bg-amber-500/20 text-amber-400' },
+        // NEW (2026-08-08): confirmed via the platform's own VA category
+        // spec (job/purple/Job Match Analyzer) — was missing entirely.
+        { id: 'job', name: 'Job Search', icon: Briefcase, color: 'bg-violet-500/20 text-violet-400' },
         { id: 'legal', name: 'Legal & Rights', icon: Scale, color: 'bg-red-500/20 text-red-400' }
     ];
 
