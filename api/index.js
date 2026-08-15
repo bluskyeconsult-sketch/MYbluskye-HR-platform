@@ -729,95 +729,13 @@ const handlers = {
         }
     },
 
-    // ========== FETCH JOBS (NEW — 2026-08-08) ==========
-    // The nightly cron in vercel.json has been calling
-    // ?action=fetch-jobs since deployment — but no handler with that name
-    // existed anywhere in this file, so it silently hit the "unknown
-    // action" fallback every single night. Automated external job fetching
-    // has very likely never actually run. This reuses the same real
-    // fetchAllJobs() logic as the 'jobs' handler above, but — per the
-    // platform's own job board documentation — inserts results into
-    // external_jobs (status: 'pending_approval') for admin review, rather
-    // than returning them directly, with deduplication by
-    // title + company + source_country as documented.
-    'fetch-jobs': async (req, res) => {
-        const supabaseClient = getSupabase();
 
-        try {
-            const result = await fetchAllJobs();
-            const fetchedJobs = result.jobs || [];
-
-            let inserted = 0;
-            let skipped = 0;
-            const errors = [];
-
-            for (const job of fetchedJobs) {
-                try {
-                    const { data: existing } = await supabaseClient
-                        .from('external_jobs')
-                        .select('id')
-                        .eq('title', job.title)
-                        .eq('company', job.company)
-                        .eq('source_country', job.source_country || 'Global')
-                        .maybeSingle();
-
-                    if (existing) {
-                        skipped++;
-                        continue;
-                    }
-
-                    const { error: insertError } = await supabaseClient
-                        .from('external_jobs')
-                        .insert({
-                            title: job.title,
-                            company: job.company,
-                            location: job.location,
-                            description: job.description,
-                            salary_range: job.salary_range,
-                            job_type: job.job_type,
-                            source_name: job.source_name,
-                            source_country: job.source_country,
-                            external_apply_url: job.external_url,
-                            sponsorship_eligible: job.sponsorship_eligible || false,
-                            status: 'pending_approval',
-                            is_active: true
-                        });
-
-                    if (insertError) {
-                        errors.push({ job: job.title, error: insertError.message });
-                    } else {
-                        inserted++;
-                    }
-                } catch (jobError) {
-                    errors.push({ job: job.title, error: jobError.message });
-                }
-            }
-
-            await supabaseClient.from('external_job_fetch_log').insert({
-                total_fetched: fetchedJobs.length,
-                inserted,
-                skipped,
-                errors: errors.length > 0 ? errors : null,
-                created_at: new Date().toISOString()
-            }).select().maybeSingle().catch(() => {
-                // external_job_fetch_log logging is best-effort — if the
-                // table/columns don't exactly match, don't fail the fetch
-                // over it.
-            });
-
-            return res.status(200).json({
-                success: true,
-                fetched: fetchedJobs.length,
-                inserted,
-                skipped,
-                errors: errors.length > 0 ? errors : undefined,
-                timestamp: new Date().toISOString()
-            });
-        } catch (error) {
-            console.error('fetch-jobs error:', error);
-            return res.status(500).json({ success: false, error: error.message });
-        }
-    },
+    // NEW (2026-08-16): the 'fetch-jobs' action that used to live here was
+    // removed — it duplicated api/cron/sync-external-jobs.js, which wraps
+    // the proven-correct rssJobService.js and is what vercel.json's cron
+    // config actually targets now. Keeping both was redundant; the real
+    // cron file is the better implementation (reuses tested service code
+    // rather than reimplementing fetch logic independently).
 
     // ========== JOBS STATS ==========
     'jobs-stats': async (req, res) => {
