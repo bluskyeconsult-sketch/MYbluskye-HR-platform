@@ -584,6 +584,8 @@ const AdminTesterFeedback = lazy(() => import('./pages/admin/AdminTesterFeedback
 const AdminTesterInvites = lazy(() => import('./pages/admin/AdminTesterInvites'));
 const AdminDiagnostics = lazy(() => import('./pages/admin/AdminDiagnostics'));
 const AdminWorkforce = lazy(() => import('./pages/admin/AdminWorkforce'));
+const AffiliateManagement = lazy(() => import('./pages/admin/AffiliateManagement'));
+const UsageMeter = lazy(() => import('./pages/admin/UsageMeter'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -776,6 +778,8 @@ function AppContent() {
                             <Route path="/admin/tester-invites" element={<ProtectedRoute requireAdmin><AdminTesterInvites /></ProtectedRoute>} />
                             <Route path="/admin/diagnostics" element={<ProtectedRoute requireAdmin><AdminDiagnostics /></ProtectedRoute>} />
                             <Route path="/admin/workforce" element={<ProtectedRoute requireAdmin><AdminWorkforce /></ProtectedRoute>} />
+                            <Route path="/admin/affiliate-management" element={<ProtectedRoute requireAdmin><AffiliateManagement /></ProtectedRoute>} />
+                            <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><UsageMeter /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
