@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { Activity, Users, Database, Zap, AlertTriangle, TrendingUp } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-08-09):
+// 1. Disconnected Supabase client (same pattern as AffiliateManagement.jsx
+//    — see that file for why this matters).
+// 2. Queried a table called `sessions`, which doesn't exist anywhere in
+//    the real schema — this would have silently failed and always shown 0
+//    active users. Connected to the real analytics_sessions table (built
+//    earlier this session) instead, which tracks exactly this.
 
 export default function UsageMeter() {
   const [metrics, setMetrics] = useState({
@@ -31,7 +35,7 @@ export default function UsageMeter() {
     
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const { count: activeUsers7d } = await supabase.from('sessions')?.select('*', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo.toISOString());
+    const { count: activeUsers7d } = await supabase.from('analytics_sessions').select('*', { count: 'exact', head: true }).gte('start_time', sevenDaysAgo.toISOString());
     
     const { count: totalJobs } = await supabase.from('jobs').select('*', { count: 'exact', head: true });
     const { count: totalApplications } = await supabase.from('job_applications').select('*', { count: 'exact', head: true });
