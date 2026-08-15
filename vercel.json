@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/index?action=fetch-jobs",
+      "path": "/api/cron/sync-external-jobs",
       "schedule": "0 2 * * *"
     }
   ],
