@@ -252,6 +252,18 @@ export default function AdminDashboard() {
                             <Sparkles className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
                             <span className="text-white text-sm">AI Course</span>
                         </Link>
+                        {/* NEW (2026-08-09): AffiliateManagement.jsx and
+                            UsageMeter.jsx were built as real features but
+                            never wired to a route or nav link — added here
+                            so they're actually reachable. */}
+                        <Link to="/admin/affiliate-management" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Users className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Affiliates</span>
+                        </Link>
+                        <Link to="/admin/usage-meter" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <TrendingUp className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Usage Meter</span>
+                        </Link>
                     </div>
                 </div>
 
