@@ -14,15 +14,25 @@
 //    used correctly by Force Refresh — instead of three different broken
 //    API paths. Removed the now-redundant handleDirectFetch and unused
 //    API_ACTIONS/API_BASE constants.
-// 2. handleBatchApprove() referenced the checkbox selection in its confirm
-//    dialog ("Approve N job(s)?") but called batchApproveExternalJobs()
-//    with no arguments — the selected ids were collected but never passed.
-//    Now passes Array.from(selectedJobs). NOTE: this assumes
-//    batchApproveExternalJobs() accepts an id array — worth confirming
-//    against the real rssJobService.js signature.
-// 3. The job preview used dangerouslySetInnerHTML on job.description, which
+// 2. The job preview used dangerouslySetInnerHTML on job.description, which
 //    comes from external RSS feeds and third-party APIs you don't control
 //    — a real XSS risk on an admin page. Now renders as plain text.
+//
+// FIXED (2026-08-08), CORRECTED (2026-08-09): an earlier fix here added a
+// copyApprovedJobToJobsTable() helper, based on an incorrect assumption
+// that approveExternalJob() (in rssJobService.js) didn't already copy
+// approved jobs into the real jobs table. It does — completely and
+// correctly, including setting external_jobs.approved_job_id to link back,
+// which the added helper never did. Calling both meant every approval was
+// creating two duplicate rows in jobs. Removed entirely.
+//
+// Also corrected handleBatchApprove(): batchApproveExternalJobs() in
+// rssJobService.js takes a numeric limit (approves the oldest N pending
+// jobs globally), not an array of specific ids — it was being called with
+// Array.from(selectedJobs), which doesn't match its real signature at all.
+// There's no approve-by-specific-ids function, so this now loops
+// approveExternalJob() over each selected id individually instead, which
+// actually approves what the admin checked.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -30,7 +40,6 @@ import {
     getPendingExternalJobs, 
     approveExternalJob, 
     rejectExternalJob, 
-    batchApproveExternalJobs,
     getExternalJobsStats,
     fetchExternalJobs,
     testRSSConnection
@@ -243,47 +252,18 @@ export default function ExternalJobsManager() {
         }
     }
 
-    // NEW (2026-08-08): approving an external job previously only updated
-    // its status within external_jobs — it never actually copied the job
-    // into the real jobs table, which is what JobsPage.jsx (the actual
-    // public job board) reads from. Confirmed via the platform's own job
-    // board documentation: approval should copy the job into jobs with
-    // source_type='authoritative', compliance_status='approved',
-    // is_active=true. Added here directly (rather than inside the opaque
-    // rssJobService.js) so this happens regardless of what
-    // approveExternalJob() does internally.
-    async function copyApprovedJobToJobsTable(externalJob) {
-        const { error } = await supabase.from('jobs').insert({
-            title: externalJob.title,
-            description: externalJob.description,
-            company: externalJob.company,
-            location: externalJob.location,
-            source_country: externalJob.source_country,
-            source_name: externalJob.source_name,
-            source_type: 'authoritative',
-            salary_range: externalJob.salary_range,
-            job_type: externalJob.job_type || 'full_time',
-            is_remote: externalJob.job_type === 'remote',
-            is_active: true,
-            sponsorship_eligible: externalJob.sponsorship_eligible || false,
-            compliance_status: 'approved',
-            external_url: externalJob.external_apply_url || externalJob.external_url,
-            external_apply_url: externalJob.external_apply_url || externalJob.external_url,
-            posted_at: new Date().toISOString()
-        });
-
-        if (error) {
-            console.error('Failed to copy job into jobs table:', error);
-            throw new Error(`Job approved but failed to appear on the public board: ${error.message}`);
-        }
-    }
-
+    // FIXED (2026-08-08), CORRECTION: the earlier copyApprovedJobToJobsTable()
+    // addition here was based on an incorrect assumption that
+    // approveExternalJob() (in rssJobService.js) didn't copy the job into
+    // the real jobs table. It actually already does — properly, including
+    // setting external_jobs.approved_job_id to link back, which this
+    // duplicate logic never did. Calling both meant every single approval
+    // was creating two duplicate rows in jobs. Removed the redundant
+    // function entirely; approveExternalJob() alone is complete and correct.
     async function handleApprove(jobId) {
         setProcessingId(jobId);
         try {
-            const jobToApprove = jobs.find(j => j.id === jobId);
             await approveExternalJob(jobId);
-            if (jobToApprove) await copyApprovedJobToJobsTable(jobToApprove);
             await loadJobs();
             await loadStats();
             setSelectedJobs(new Set(Array.from(selectedJobs).filter(id => id !== jobId)));
@@ -311,10 +291,14 @@ export default function ExternalJobsManager() {
         }
     }
 
-    // FIXED: now passes the actual selected job ids — previously called with
-    // no arguments despite the confirm dialog referencing a specific count.
-    // Also now copies each approved job into the jobs table (see
-    // copyApprovedJobToJobsTable above).
+    // FIXED (2026-08-08), CORRECTION: batchApproveExternalJobs() in
+    // rssJobService.js takes a numeric limit, not an array of ids — it
+    // approves the oldest N pending jobs globally, regardless of which
+    // checkboxes the admin actually selected. That doesn't match what this
+    // UI implies (approve exactly what's checked), and there's no
+    // approve-by-specific-ids function to call instead. Now loops
+    // approveExternalJob() over each selected id individually — slower for
+    // large selections, but actually approves what the admin selected.
     async function handleBatchApprove() {
         if (selectedJobs.size === 0) {
             alert('No jobs selected');
@@ -325,20 +309,23 @@ export default function ExternalJobsManager() {
         
         setProcessingId('batch');
         try {
-            const jobsToApprove = jobs.filter(j => selectedJobs.has(j.id));
-            const batchResult = await batchApproveExternalJobs(Array.from(selectedJobs));
+            const idsToApprove = Array.from(selectedJobs);
+            let approved = 0;
+            let failed = 0;
+            const errors = [];
             
-            let copyFailures = 0;
-            for (const job of jobsToApprove) {
+            for (const id of idsToApprove) {
                 try {
-                    await copyApprovedJobToJobsTable(job);
-                } catch (copyError) {
-                    console.error('Copy failed for', job.title, copyError);
-                    copyFailures++;
+                    await approveExternalJob(id);
+                    approved++;
+                } catch (err) {
+                    failed++;
+                    errors.push({ id, error: err.message });
+                    console.error('Failed to approve', id, err);
                 }
             }
             
-            alert(`✅ Batch approve complete!\nApproved: ${batchResult.approved}\nFailed: ${batchResult.failed}${copyFailures > 0 ? `\n⚠️ ${copyFailures} approved job(s) failed to appear on the public board — check console` : ''}`);
+            alert(`✅ Batch approve complete!\nApproved: ${approved}\nFailed: ${failed}${failed > 0 ? '\nCheck console for details' : ''}`);
             setSelectedJobs(new Set());
             await loadJobs();
             await loadStats();
