@@ -47,6 +47,15 @@ export default function NewsletterAdmin() {
         send_now: false
     });
     const [sending, setSending] = useState(false);
+    // NEW (2026-08-16): segment targeting for handleSendNow — the SOP
+    // describes segments (Job Seekers, Employers, Testers) but this always
+    // sent to every active subscriber regardless. Since I don't have
+    // confirmed schema for whether newsletter_subscribers links to
+    // profiles.user_type, this is built defensively — falls back to "All
+    // Active" behavior (guaranteed to work, unchanged) and only attempts
+    // the join for other segments, failing with a clear, specific error if
+    // the schema doesn't support it rather than silently sending to nobody.
+    const [sendSegment, setSendSegment] = useState('all');
     const [stats, setStats] = useState({
         totalSent: 0,
         openRate: 0,
@@ -197,22 +206,44 @@ export default function NewsletterAdmin() {
     // uses the real, confirmed `email` action with the `newsletter`
     // template already defined in api/index.js, once per subscriber.
     async function handleSendNow(newsletterId) {
-        if (!confirm('Send this newsletter now to all subscribers?')) return;
+        const segmentLabels = { all: 'All Active Subscribers', registered: 'Job Seekers (registered)', employer: 'Employers', tester: 'Testers' };
+        if (!confirm(`Send this newsletter now to: ${segmentLabels[sendSegment]}?`)) return;
         
         setSending(true);
         try {
             const newsletter = newsletters.find(n => n.id === newsletterId);
             if (!newsletter) throw new Error('Newsletter not found');
             
-            const { data: activeSubscribers, error: subError } = await supabase
-                .from('newsletter_subscribers')
-                .select('email')
-                .eq('status', 'active');
+            let activeSubscribers;
             
-            if (subError) throw subError;
+            if (sendSegment === 'all') {
+                const { data, error: subError } = await supabase
+                    .from('newsletter_subscribers')
+                    .select('email')
+                    .eq('status', 'active');
+                if (subError) throw subError;
+                activeSubscribers = data;
+            } else {
+                // Segment targeting requires newsletter_subscribers to link
+                // to profiles via user_id. If that column/relationship
+                // doesn't exist, this throws — caught below with a specific,
+                // actionable message rather than silently sending to nobody.
+                const { data, error: subError } = await supabase
+                    .from('newsletter_subscribers')
+                    .select('email, profiles!inner(user_type)')
+                    .eq('status', 'active')
+                    .eq('profiles.user_type', sendSegment);
+                
+                if (subError) {
+                    throw new Error(
+                        `Segment targeting isn't available: ${subError.message}. This likely means newsletter_subscribers doesn't have a user_id column linking to profiles — subscribers may be guest emails not tied to accounts. Use "All Active Subscribers" instead, or add that link if segmentation is needed.`
+                    );
+                }
+                activeSubscribers = data;
+            }
             
             if (!activeSubscribers || activeSubscribers.length === 0) {
-                alert('No active subscribers to send to.');
+                alert('No active subscribers to send to for this segment.');
                 setSending(false);
                 return;
             }
@@ -242,7 +273,7 @@ export default function NewsletterAdmin() {
                 .update({ status: 'sent', sent_at: new Date().toISOString() })
                 .eq('id', newsletterId);
             
-            alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers.`);
+            alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers (${segmentLabels[sendSegment]}).`);
             await loadData();
         } catch (error) {
             console.error('Error sending newsletter:', error);
@@ -439,6 +470,22 @@ export default function NewsletterAdmin() {
                         <option value="draft">Draft</option>
                         <option value="scheduled">Scheduled</option>
                         <option value="sent">Sent</option>
+                    </select>
+                    {/* NEW (2026-08-16): segment selector — applies to
+                        whichever newsletter's "Send Now" is clicked next.
+                        Falls back to "All Active" behavior if the schema
+                        doesn't support segment targeting (see
+                        handleSendNow). */}
+                    <select
+                        value={sendSegment}
+                        onChange={(e) => setSendSegment(e.target.value)}
+                        title="Segment to send to when clicking Send Now"
+                        className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                        <option value="all">Send to: All Active</option>
+                        <option value="registered">Send to: Job Seekers</option>
+                        <option value="employer">Send to: Employers</option>
+                        <option value="tester">Send to: Testers</option>
                     </select>
                 </div>
             </div>
