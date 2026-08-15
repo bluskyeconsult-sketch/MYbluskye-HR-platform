@@ -1013,6 +1013,80 @@ const handlers = {
         }
     },
 
+    // ========== STRIPE CHECKOUT (NEW — 2026-08-09) ==========
+    // Phase D: creates a Stripe Checkout session for a tier upgrade. The
+    // actual tier upgrade happens in api/stripe-webhook.js when Stripe
+    // confirms payment — never here, since a session being *created*
+    // doesn't mean the user actually paid.
+    //
+    // SETUP REQUIRED: in your Stripe Dashboard, create a Product + Price
+    // for each paid tier (Professional, Employer, Business), then set
+    // these environment variables in Vercel to the resulting Price IDs:
+    // STRIPE_PRICE_PROFESSIONAL, STRIPE_PRICE_EMPLOYER, STRIPE_PRICE_BUSINESS
+    'create-checkout-session': async (req, res) => {
+        const { tierName, userId, userEmail } = req.body;
+        if (!tierName || !userId) {
+            return res.status(400).json({ error: 'tierName and userId are required' });
+        }
+
+        const priceIdMap = {
+            professional: process.env.STRIPE_PRICE_PROFESSIONAL,
+            employer: process.env.STRIPE_PRICE_EMPLOYER,
+            business: process.env.STRIPE_PRICE_BUSINESS
+        };
+
+        const priceId = priceIdMap[tierName];
+        if (!priceId) {
+            return res.status(400).json({ error: `No Stripe price configured for tier: ${tierName}. Set STRIPE_PRICE_${tierName.toUpperCase()} in your environment variables.` });
+        }
+
+        try {
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+
+            const session = await stripe.checkout.sessions.create({
+                mode: 'subscription',
+                payment_method_types: ['card'],
+                line_items: [{ price: priceId, quantity: 1 }],
+                success_url: `${siteUrl}/dashboard?upgraded=true`,
+                cancel_url: `${siteUrl}/pricing`,
+                client_reference_id: userId,
+                customer_email: userEmail,
+                metadata: { userId, tierName }
+            });
+
+            return res.status(200).json({ success: true, url: session.url, sessionId: session.id });
+        } catch (error) {
+            console.error('Stripe checkout session error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Lets a user manage or cancel their existing subscription via
+    // Stripe's own hosted billing portal, rather than building that UI
+    // from scratch.
+    'create-billing-portal-session': async (req, res) => {
+        const { customerId } = req.body;
+        if (!customerId) return res.status(400).json({ error: 'customerId is required' });
+
+        try {
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+
+            const session = await stripe.billingPortal.sessions.create({
+                customer: customerId,
+                return_url: `${siteUrl}/dashboard`
+            });
+
+            return res.status(200).json({ success: true, url: session.url });
+        } catch (error) {
+            console.error('Stripe billing portal error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== GENERATE COURSE ==========
     'generate-course': async (req, res) => {
         const { topic, level = 'beginner' } = req.body;
