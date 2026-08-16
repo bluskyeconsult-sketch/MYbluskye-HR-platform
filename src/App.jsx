@@ -46,6 +46,12 @@ import CookieConsent from './components/CookieConsent';
 import { GovernanceProvider } from './contexts/GovernanceContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ODUSBABAChat from './components/ODUSBABAChat';
+// NEW (2026-08-16): every screenshot from this entire session showed
+// "ODUSBABA" as plain text — the live Navbar never once attempted to show
+// an image logo. Logo.jsx existed as a separate, correctly-built component
+// (with its own real bug, fixed alongside this) but was never actually
+// wired in here.
+import Logo from './components/Logo';
 
 // ============================================
 // SIMPLE SCROLL TO TOP
@@ -284,7 +290,10 @@ function Navbar() {
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center py-3">
-                    <a href="/" className="text-white font-bold text-xl hover:text-primary-400 transition">ODUSBABA</a>
+                    <a href="/" className="flex items-center gap-2 text-white font-bold text-xl hover:text-primary-400 transition">
+                        <Logo size="sm" showText={false} />
+                        ODUSBABA
+                    </a>
 
                     <div className="hidden md:flex items-center gap-5">
                         {navLinks.map(link => (
@@ -586,6 +595,8 @@ const AdminDiagnostics = lazy(() => import('./pages/admin/AdminDiagnostics'));
 const AdminWorkforce = lazy(() => import('./pages/admin/AdminWorkforce'));
 const AffiliateManagement = lazy(() => import('./pages/admin/AffiliateManagement'));
 const UsageMeter = lazy(() => import('./pages/admin/UsageMeter'));
+const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
+const EmployerVerification = lazy(() => import('./pages/EmployerVerification'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -780,6 +791,8 @@ function AppContent() {
                             <Route path="/admin/workforce" element={<ProtectedRoute requireAdmin><AdminWorkforce /></ProtectedRoute>} />
                             <Route path="/admin/affiliate-management" element={<ProtectedRoute requireAdmin><AffiliateManagement /></ProtectedRoute>} />
                             <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><UsageMeter /></ProtectedRoute>} />
+                            <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminAudit /></ProtectedRoute>} />
+                            <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
