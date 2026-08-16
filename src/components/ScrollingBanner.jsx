@@ -1,8 +1,27 @@
 // src/components/ScrollingBanner.jsx
 // COMPLETE PROFESSIONAL SCROLLING BANNER - Dynamic content, unified API, accessibility
+//
+// FIXED (2026-08-16):
+// 1. Dismissal used localStorage, which persists forever — the user
+//    explicitly wants dismiss-per-view behavior: dismissible now, but
+//    reappearing on every fresh page load/refresh. Removed the
+//    localStorage persistence entirely; plain React state naturally does
+//    exactly this, since it resets on every full page load by definition.
+// 2. fetchBannerContent() called /api/index?action=banner-content, which
+//    doesn't exist anywhere in the backend — it failed gracefully (falls
+//    back to DEFAULT_MESSAGES, no crash), but was still a pointless
+//    network request on every page load with nothing behind it. Removed;
+//    uses the default messages directly. If dynamic, admin-managed banner
+//    content is wanted later, that's a real feature to build (an admin
+//    CRUD + a real backend action), not a quick fix.
+// 3. Icon imports (GraduationCap, Rocket, Bot, BarChart3, Target) were
+//    declared at the bottom of the file, used at the top in iconMap — this
+//    technically works because ES module imports are hoisted regardless of
+//    position, but it's confusing to read and easy to break. Moved to the
+//    top with the other imports.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Sparkles, Zap, Gift, TrendingUp, BookOpen, Briefcase, Star, Award, Clock, Bell } from 'lucide-react';
+import { X, Sparkles, Zap, Gift, TrendingUp, BookOpen, Briefcase, Star, Award, Clock, Bell, GraduationCap, Rocket, Bot, BarChart3, Target } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
 // Default fallback messages (used if API fails)
@@ -32,43 +51,10 @@ export default function ScrollingBanner() {
     const navigate = useNavigate();
     const [isVisible, setIsVisible] = useState(true);
     const [isPaused, setIsPaused] = useState(false);
-    const [messages, setMessages] = useState(DEFAULT_MESSAGES);
-    const [loading, setLoading] = useState(true);
+    const [messages] = useState(DEFAULT_MESSAGES);
     const scrollRef = useRef(null);
     const animationRef = useRef(null);
     const scrollSpeed = useRef(0.8); // pixels per frame
-
-    // Fetch dynamic banner content from unified API
-    useEffect(() => {
-        fetchBannerContent();
-        
-        // Check if banner was dismissed
-        const dismissed = localStorage.getItem('banner_dismissed');
-        if (dismissed === 'true') {
-            setIsVisible(false);
-        }
-    }, []);
-
-    async function fetchBannerContent() {
-        try {
-            // Use unified API endpoint
-            const response = await fetch('/api/index?action=banner-content', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success && result.data && result.data.length > 0) {
-                    setMessages(result.data);
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to fetch banner content, using defaults:', error);
-        } finally {
-            setLoading(false);
-        }
-    }
 
     // Optimized scroll animation using requestAnimationFrame
     useEffect(() => {
@@ -115,7 +101,6 @@ export default function ScrollingBanner() {
 
     const handleDismiss = useCallback(() => {
         setIsVisible(false);
-        localStorage.setItem('banner_dismissed', 'true');
     }, []);
 
     const handleMessageClick = useCallback((link) => {
@@ -189,13 +174,6 @@ export default function ScrollingBanner() {
                         </div>
                     </div>
                     
-                    {/* Loading indicator (shown briefly) */}
-                    {loading && (
-                        <div className="ml-3 flex-shrink-0">
-                            <div className="w-4 h-4 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
-                        </div>
-                    )}
-                    
                     {/* Dismiss Button */}
                     <button 
                         onClick={handleDismiss}
@@ -213,6 +191,3 @@ export default function ScrollingBanner() {
         </div>
     );
 }
-
-// Import missing icons
-import { GraduationCap, Rocket, Bot, BarChart3, Target } from 'lucide-react';
