@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { Shield } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-08-16): disconnected Supabase client (same pattern found and
+// fixed repeatedly this session) — now uses the shared singleton. Also
+// wired into App.jsx, since this component was never actually mounted
+// anywhere on the live site.
 
 export default function TermsPopup() {
   const [isOpen, setIsOpen] = useState(false);
