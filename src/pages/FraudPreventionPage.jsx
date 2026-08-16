@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
   Shield, 
   AlertTriangle, 
@@ -27,66 +28,83 @@ export default function FraudPreventionPage() {
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // FIXED (2026-08-16): this form never actually saved anything —
+  // "Simulate API call - Replace with actual backend" — now saves to the
+  // real fraud_reports table, the same one AdminFraudReports.jsx already
+  // manages.
   const handleReportSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     
-    // Simulate API call - Replace with actual backend
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Send to Supabase or email
-    console.log('Fraud Report:', { type: reportType, description: reportDescription });
-    
-    setReportSubmitted(true);
-    setLoading(false);
-    setReportType('');
-    setReportDescription('');
-    
-    setTimeout(() => setReportSubmitted(false), 5000);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase.from('fraud_reports').insert({
+        report_type: reportType,
+        description: reportDescription,
+        reported_by: user?.id || null,
+        status: 'pending'
+      });
+
+      if (error) throw error;
+
+      setReportSubmitted(true);
+      setReportType('');
+      setReportDescription('');
+      setTimeout(() => setReportSubmitted(false), 5000);
+    } catch (error) {
+      console.error('Fraud report submission error:', error);
+      alert('Failed to submit report: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // FIXED (2026-08-16): every stat below was fabricated — no ML model with
+  // a measured "detection rate" exists (the real fraud detection built
+  // this session is a simple rule-based database trigger), no transaction-
+  // monitoring AI exists (payments go through Stripe directly), and the
+  // specific counts ("5,000+ verified", "1M+ requests", "10,000+ scams
+  // prevented") don't match this platform's actual confirmed scale
+  // anywhere else in the codebase. Presenting invented statistics on a
+  // page specifically about fraud protection is a serious credibility and
+  // litigation risk — replaced with accurate descriptions of what the
+  // platform actually does, with no fabricated numbers.
   const securityFeatures = [
     {
       icon: Shield,
-      title: "AI-Powered Fraud Detection",
-      description: "Real-time monitoring of suspicious patterns and behaviors",
-      color: "purple",
-      stats: "99.9% detection rate"
+      title: "Automated Fraud Screening",
+      description: "New job listings are automatically checked for common red flags before going live",
+      color: "purple"
     },
     {
       icon: UserCheck,
       title: "Manual Skill Verification",
-      description: "Every professional undergoes rigorous verification by our team",
-      color: "blue",
-      stats: "5,000+ verified"
+      description: "Professional profiles are reviewed by our team before appearing on the marketplace",
+      color: "blue"
     },
     {
       icon: Fingerprint,
-      title: "IP Tracking & Rate Limiting",
-      description: "Advanced tracking to prevent automated abuse and fraud",
-      color: "green",
-      stats: "1M+ requests monitored"
+      title: "Rate Limiting",
+      description: "Automated protections help prevent abuse and bulk fraudulent activity",
+      color: "green"
     },
     {
       icon: Award,
-      title: "Verified Employer Badges",
-      description: "Legitimate employers must pass strict verification process",
-      color: "yellow",
-      stats: "100% verified"
+      title: "Employer Verification",
+      description: "Employers can submit business verification to build trust with candidates",
+      color: "yellow"
     },
     {
       icon: Flag,
       title: "User Reporting System",
-      description: "24/7 reporting with dedicated response team",
-      color: "red",
-      stats: "< 2hr response"
+      description: "Report suspicious activity directly — our team reviews every report",
+      color: "red"
     },
     {
       icon: BarChart3,
-      title: "Transaction Monitoring",
-      description: "AI monitors all financial transactions for anomalies",
-      color: "indigo",
-      stats: "Real-time"
+      title: "Admin Review",
+      description: "Flagged listings and reports are reviewed by our team before action is taken",
+      color: "indigo"
     }
   ];
 
@@ -167,27 +185,9 @@ export default function FraudPreventionPage() {
         </div>
       </div>
 
-      {/* Trust Indicators */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-green-400">99.9%</div>
-            <div className="text-xs text-slate-500">Fraud Detection Rate</div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-blue-400">24/7</div>
-            <div className="text-xs text-slate-500">Monitoring</div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-purple-400">&lt;2hr</div>
-            <div className="text-xs text-slate-500">Response Time</div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-emerald-400">10,000+</div>
-            <div className="text-xs text-slate-500">Scams Prevented</div>
-          </div>
-        </div>
-      </div>
+      {/* FIXED (2026-08-16): removed fabricated stats (99.9% detection
+          rate, 10,000+ scams prevented, etc.) — none had any real system
+          or measurement behind them. */}
 
       {/* Security Features Grid */}
       <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
@@ -200,7 +200,6 @@ export default function FraudPreventionPage() {
               </div>
               <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
               <p className="text-slate-400 text-sm mb-3">{feature.description}</p>
-              <div className="text-xs text-slate-500">{feature.stats}</div>
             </div>
           ))}
         </div>
@@ -367,7 +366,7 @@ export default function FraudPreventionPage() {
             <a href="mailto:security@bluskyeconsult.com" className="text-purple-400 hover:text-purple-300">
               security@bluskyeconsult.com
             </a>
-            <p className="text-xs text-slate-500 mt-4">Response within 2 hours for critical issues</p>
+            <p className="text-xs text-slate-500 mt-4">We aim to respond to critical security issues as quickly as possible</p>
           </div>
           
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
