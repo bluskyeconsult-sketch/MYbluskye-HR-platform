@@ -9,13 +9,10 @@
 // database-driven access control. Fixed to check profiles.user_type,
 // consistent with every other admin page.
 //
-// FLAGGED, NOT FIXED: handleRefresh() posts to /api/refresh-knowledge,
-// which doesn't exist anywhere in this project (real endpoints all go
-// through /api/index?action=...). This isn't a simple URL fix — actually
-// refreshing a knowledge source means fetching and re-processing external
-// URL content for the AI chat, which is a genuinely unbuilt feature, not a
-// bug. Left as-is; it will fail with a clear error rather than a false
-// success.
+// FIXED (2026-08-16): handleRefresh() posted to /api/refresh-knowledge,
+// which didn't exist anywhere in this project. Now calls a real
+// refresh-knowledge action that actually fetches the source URL, strips it
+// to plain text, and stores it in the new ai_knowledge_base table.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -99,11 +96,14 @@ export default function KnowledgeSourceManager() {
         fetchSources();
     }
 
+    // FIXED (2026-08-16): now calls the real refresh-knowledge action
+    // built alongside this fix (previously /api/refresh-knowledge didn't
+    // exist anywhere — this always failed with the fallback message).
     async function handleRefresh(sourceId) {
         setRefreshingId(sourceId);
         
         try {
-            const response = await fetch('/api/refresh-knowledge', {
+            const response = await fetch('/api/index?action=refresh-knowledge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sourceId })
@@ -111,12 +111,12 @@ export default function KnowledgeSourceManager() {
             
             const result = await response.json();
             if (result.success) {
-                alert('Knowledge base refreshed successfully');
+                alert(`Knowledge base refreshed successfully (${result.contentLength} characters fetched)`);
             } else {
-                alert('Failed to refresh: ' + (result.error || 'This feature is not yet built on the backend.'));
+                alert('Failed to refresh: ' + (result.error || 'Unknown error'));
             }
         } catch (error) {
-            alert('Failed to refresh: this feature is not yet built on the backend.');
+            alert('Failed to refresh: ' + error.message);
         }
         
         setRefreshingId(null);
