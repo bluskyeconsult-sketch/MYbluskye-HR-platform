@@ -189,7 +189,7 @@ export default function PrivacyPage() {
       items: [
         "We ensure appropriate safeguards are in place (Standard Contractual Clauses)",
         "We comply with GDPR requirements for international transfers",
-        "Data is stored on servers located in the UK and EU"
+        "Your data is hosted using our infrastructure providers' cloud servers, which may be located in various regions as part of their standard global operations"
       ]
     },
     {
