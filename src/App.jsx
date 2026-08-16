@@ -293,9 +293,9 @@ function Navbar() {
     return (
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center py-3">
+                <div className="flex justify-between items-center py-2">
                     <a href="/" className="flex items-center gap-3 text-white font-bold text-xl hover:text-primary-400 transition">
-                        <Logo size="lg" showText={false} />
+                        <Logo size="xl" showText={false} />
                         ODUSBABA
                     </a>
 
@@ -601,6 +601,7 @@ const AffiliateManagement = lazy(() => import('./pages/admin/AffiliateManagement
 const UsageMeter = lazy(() => import('./pages/admin/UsageMeter'));
 const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
 const EmployerVerification = lazy(() => import('./pages/EmployerVerification'));
+const AdminEmployerVerification = lazy(() => import('./pages/admin/AdminEmployerVerification'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -812,6 +813,7 @@ function AppContent() {
                             <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><UsageMeter /></ProtectedRoute>} />
                             <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminAudit /></ProtectedRoute>} />
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
+                            <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminEmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
