@@ -16,13 +16,10 @@
 // connecting" error, never a real AI response. Fixed to match the real
 // handler's actual shape (message + history + systemPrompt).
 //
-// FLAGGED, NOT FIXED: data.remaining is read from the chat response to
-// update the credit display, but the real chat handler never returns a
-// `remaining` field and has no credit-deduction logic at all — meaning
-// profiles.ai_credits_remaining is likely never actually decremented by
-// chat usage, even though the UI displays and gates on it. Worth a
-// follow-up if credit-limited chat usage matters to you; low urgency
-// compared to the fix above.
+// FIXED (2026-08-16): the chat handler now actually deducts credits and
+// returns a real `remaining` value — this was previously flagged as a gap
+// (the field existed here waiting for a value that never came). No other
+// change needed here; this component was already built correctly for it.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
