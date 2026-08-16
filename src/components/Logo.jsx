@@ -1,9 +1,26 @@
 // src/components/Logo.jsx
 // OPTIMIZED MERGE - Supports images with smart fallback, clean and efficient
+//
+// FIXED (2026-08-16): the real logo file lives at src/assets/BluSkye.png
+// (confirmed via the repo's own file listing) — but this component tried
+// to load it via guessed direct URL paths (/BluSkye.png, /images/...),
+// which only works for files placed in the public/ folder. Files in
+// src/assets/ aren't served at a direct URL at all in Vite unless
+// imported as a module, so every one of those guesses would have failed
+// and silently fallen back to the Brain icon placeholder — matching every
+// screenshot from this entire session, which never showed a real logo.
+// Fixed to import the asset properly, which Vite resolves to a real,
+// working URL at build time regardless of folder placement.
+//
+// Separately: this component was never actually wired into the live
+// Navbar/Footer at all — App.jsx's inline Navbar has only ever rendered
+// "ODUSBABA" as plain text, no image attempt whatsoever. Fixing this
+// component alone doesn't show a logo anywhere until it's actually used.
 
 import { Link } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Brain } from 'lucide-react';
+import bluskyeLogo from '../assets/BluSkye.png';
 
 // Size configurations (shared between image and icon)
 const SIZE_CONFIG = {
@@ -33,50 +50,16 @@ const SIZE_CONFIG = {
     }
 };
 
-// Logo paths (prioritized)
-const LOGO_PATHS = [
-    '/images/BluSkye.png',
-    '/BluSkye.png',
-    '/images/BluSkye-logo.png',
-    '/logo.png'
-];
-
 export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
-    const [useImage, setUseImage] = useState(true);
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [currentPath, setCurrentPath] = useState(LOGO_PATHS[0]);
-    const [attemptIndex, setAttemptIndex] = useState(0);
-    
+    const [imageError, setImageError] = useState(false);
     const config = SIZE_CONFIG[size] || SIZE_CONFIG.md;
 
-    // Try to load image on mount
-    useEffect(() => {
-        const tryLoadImage = (index = 0) => {
-            if (index >= LOGO_PATHS.length) {
-                setUseImage(false);
-                return;
-            }
-            
-            const img = new Image();
-            img.onload = () => {
-                setCurrentPath(LOGO_PATHS[index]);
-                setUseImage(true);
-                setImageLoaded(true);
-            };
-            img.onerror = () => {
-                tryLoadImage(index + 1);
-            };
-            img.src = LOGO_PATHS[index];
-        };
-        
-        tryLoadImage(0);
-    }, []);
-
-    // Logo content (image or icon)
-    const LogoContent = useImage && imageLoaded ? (
+    // Logo content (image or icon fallback)
+    const LogoContent = !imageError ? (
         <img 
-            src={currentPath}
+            src={bluskyeLogo}
             alt="BluSkye Integrated Consult"
+            onError={() => setImageError(true)}
             className={`${config.icon} object-contain group-hover:scale-105 transition-transform duration-300`}
         />
     ) : (
