@@ -43,6 +43,8 @@ import { supabase } from './lib/supabase';
 // ============================================
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
+import ScrollingBanner from './components/ScrollingBanner';
+import TermsPopup from './components/TermsPopup';
 import { GovernanceProvider } from './contexts/GovernanceContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ODUSBABAChat from './components/ODUSBABAChat';
@@ -722,6 +724,9 @@ function AppContent() {
         <>
             <ScrollToTop />
             <Navbar />
+            {/* NEW (2026-08-16): ScrollingBanner and TermsPopup were both
+                built but never actually mounted anywhere — wired in here. */}
+            <ScrollingBanner />
             <FraudSafetyBanner />
             
             {/* ✅ Mobile-optimized main container */}
@@ -847,6 +852,7 @@ function AppContent() {
             <NewsletterSignup />
             <ODUSBABAChat />
             <CookieConsent />
+            <TermsPopup />
             <Footer />
         </>
     );
