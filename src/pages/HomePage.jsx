@@ -29,8 +29,6 @@ import {
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
 import CTASection from '../components/CTASection';
-import PromoBanner from '../components/PromoBanner';
-import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
 // Animation variants
 const containerVariants = {
@@ -298,12 +296,14 @@ export default function HomePage() {
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 overflow-x-hidden">
             {/* Hero Section */}
             <HomeHero />
-            
-            {/* Promo Banner */}
-            <PromoBanner />
-            
-            {/* Cinematic Text Advert */}
-            <CinematicTextAdvert />
+
+            {/* REMOVED (2026-08-16): PromoBanner and CinematicTextAdvert —
+                PromoBanner contained genuinely fictitious data ("4.9/5 from
+                500+ subscribers", "10,000+ subscribers"), hardcoded
+                literals with no real data source at all, inconsistent with
+                the site's actual confirmed stats elsewhere. Both removed
+                per explicit request to clean up promotional/marketing
+                filler from the homepage. */}
 
             {/* Stats Section - Real-time metrics */}
             <div ref={statsRef} id="stats-section" className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
@@ -320,17 +320,29 @@ export default function HomePage() {
                     </p>
                     
                     {/* Fallback indicator */}
+                    {/* FIXED (2026-08-07): stats.error was already captured
+                        in the catch block of fetchStats() but never
+                        displayed anywhere — this made the exact failure
+                        reason invisible without opening DevTools. Now shows
+                        directly on the page, no devtools required. */}
                     {stats.fallback && (
-                        <div className="mt-2 flex items-center justify-center gap-2 text-amber-400 text-xs">
-                            <AlertCircle className="w-3 h-3" />
-                            <span>Using estimated data</span>
-                            <button 
-                                onClick={handleRetry}
-                                className="flex items-center gap-1 text-primary-400 hover:text-primary-300 transition"
-                            >
-                                <RefreshCw className="w-3 h-3" />
-                                Retry
-                            </button>
+                        <div className="mt-2 flex flex-col items-center justify-center gap-1 text-amber-400 text-xs">
+                            <div className="flex items-center gap-2">
+                                <AlertCircle className="w-3 h-3" />
+                                <span>Using estimated data</span>
+                                <button 
+                                    onClick={handleRetry}
+                                    className="flex items-center gap-1 text-primary-400 hover:text-primary-300 transition"
+                                >
+                                    <RefreshCw className="w-3 h-3" />
+                                    Retry
+                                </button>
+                            </div>
+                            {stats.error && (
+                                <span className="text-slate-500 font-mono text-[10px]">
+                                    Error detail: {stats.error}
+                                </span>
+                            )}
                         </div>
                     )}
                 </div>
