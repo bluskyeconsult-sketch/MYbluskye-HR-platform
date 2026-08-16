@@ -69,6 +69,33 @@ export default async function handler(req, res) {
             case 'checkout.session.completed': {
                 const session = event.data.object;
                 const userId = session.client_reference_id || session.metadata?.userId;
+
+                // NEW (2026-08-16): one-time credit purchases (distinct
+                // from tier subscriptions) — adds to va_credits.balance,
+                // the same table/column va-execute already deducts from.
+                if (session.metadata?.type === 'credit_purchase') {
+                    const creditsToAdd = parseInt(session.metadata?.credits, 10);
+                    if (userId && creditsToAdd) {
+                        const { data: existing } = await supabase
+                            .from('va_credits')
+                            .select('balance')
+                            .eq('user_id', userId)
+                            .single();
+
+                        if (existing) {
+                            await supabase
+                                .from('va_credits')
+                                .update({ balance: (existing.balance || 0) + creditsToAdd })
+                                .eq('user_id', userId);
+                        } else {
+                            await supabase
+                                .from('va_credits')
+                                .insert({ user_id: userId, balance: creditsToAdd });
+                        }
+                    }
+                    break;
+                }
+
                 const tierName = session.metadata?.tierName;
 
                 if (!userId || !tierName) {
