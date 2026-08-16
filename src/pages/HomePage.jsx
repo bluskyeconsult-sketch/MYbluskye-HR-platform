@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
 import CTASection from '../components/CTASection';
+import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
 // Animation variants
 const containerVariants = {
@@ -297,13 +298,13 @@ export default function HomePage() {
             {/* Hero Section */}
             <HomeHero />
 
-            {/* REMOVED (2026-08-16): PromoBanner and CinematicTextAdvert —
-                PromoBanner contained genuinely fictitious data ("4.9/5 from
-                500+ subscribers", "10,000+ subscribers"), hardcoded
-                literals with no real data source at all, inconsistent with
-                the site's actual confirmed stats elsewhere. Both removed
-                per explicit request to clean up promotional/marketing
-                filler from the homepage. */}
+            {/* REBUILT (2026-08-16): re-introduced with accurate,
+                platform-specific copy — no fabricated numbers or generic
+                filler. PromoBanner stays removed per the earlier request
+                (it contained genuinely fictitious subscriber stats). */}
+            <div className="w-full max-w-7xl mx-auto px-4 pt-8 sm:pt-12">
+                <CinematicTextAdvert />
+            </div>
 
             {/* Stats Section - Real-time metrics */}
             <div ref={statsRef} id="stats-section" className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
