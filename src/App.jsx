@@ -45,6 +45,8 @@ import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import ScrollingBanner from './components/ScrollingBanner';
 import TermsPopup from './components/TermsPopup';
+import BrainstormPartner from './components/BrainstormPartner';
+import { useCapability } from './hooks/useCapability';
 import { GovernanceProvider } from './contexts/GovernanceContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ODUSBABAChat from './components/ODUSBABAChat';
@@ -292,8 +294,8 @@ function Navbar() {
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center py-3">
-                    <a href="/" className="flex items-center gap-2 text-white font-bold text-xl hover:text-primary-400 transition">
-                        <Logo size="sm" showText={false} />
+                    <a href="/" className="flex items-center gap-3 text-white font-bold text-xl hover:text-primary-400 transition">
+                        <Logo size="lg" showText={false} />
                         ODUSBABA
                     </a>
 
@@ -719,6 +721,18 @@ function useAnalyticsTracking() {
 function AppContent() {
     const location = useLocation();
     useAnalyticsTracking();
+    // NEW (2026-08-16): BrainstormPartner is an internal team tool (its own
+    // header calls it out as such), not something to expose to every
+    // visitor — gated here rather than inside the component itself.
+    // IMPORTANT: useCapability()'s return object defines `isAdmin` twice —
+    // once as a boolean (tier helpers) and again later as `() => isAdmin`
+    // (backward-compat convenience method). JS keeps the later duplicate
+    // key, so destructuring `isAdmin` directly returns a function
+    // reference, which is always truthy — that would make this check pass
+    // for every visitor. Using capabilities.isAdmin/isSuperAdmin instead,
+    // which are unambiguous booleans with no such collision.
+    const { capabilities } = useCapability();
+    const isTeamMember = capabilities.isAdmin || capabilities.isSuperAdmin;
     
     return (
         <>
@@ -853,6 +867,7 @@ function AppContent() {
             <ODUSBABAChat />
             <CookieConsent />
             <TermsPopup />
+            {isTeamMember && <BrainstormPartner />}
             <Footer />
         </>
     );
