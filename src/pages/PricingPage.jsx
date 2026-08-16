@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Check, X, HelpCircle, CreditCard, Briefcase, Brain, FileText, Bell, Bookmark, MessageCircle, Users, Zap } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Check, X, HelpCircle, CreditCard, Briefcase, Brain, FileText, Bell, Bookmark, MessageCircle, Users, Zap, Loader2 } from 'lucide-react';
 
 const tiers = [
   {
@@ -184,6 +185,49 @@ const benefitCategories = [
 
 export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState('monthly');
+  // FIXED (2026-08-09): the Subscribe button for every paid tier previously
+  // linked to /pricing/checkout, a route that doesn't exist anywhere in
+  // App.jsx — every paid subscription attempt has always dead-ended,
+  // independent of Stripe not being connected yet. Now calls the real
+  // create-checkout-session action (Phase D) and redirects to Stripe's
+  // hosted checkout page.
+  const [checkoutLoading, setCheckoutLoading] = useState(null); // tracks which tier is loading
+
+  async function handleSubscribe(tierName) {
+    setCheckoutLoading(tierName);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        // Stripe checkout needs a real userId to attribute the payment to
+        // — send them to sign up first, then back to pricing.
+        window.location.href = `/sign-up?redirect=/pricing`;
+        return;
+      }
+
+      const response = await fetch('/api/index?action=create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tierName: tierName.toLowerCase(),
+          userId: user.id,
+          userEmail: user.email
+        })
+      });
+
+      const data = await response.json();
+
+      if (!data.success || !data.url) {
+        throw new Error(data.error || 'Failed to start checkout');
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      console.error('Checkout error:', error);
+      alert('Unable to start checkout: ' + error.message);
+      setCheckoutLoading(null);
+    }
+  }
 
   function formatValue(value, key) {
     if (value === true) return <Check className="w-5 h-5 text-emerald-400 mx-auto" />;
@@ -194,6 +238,43 @@ export default function PricingPage() {
     if (typeof value === 'number') return <span className="text-sm text-white">{value}</span>;
     if (typeof value === 'string') return <span className="text-sm text-white">{value}</span>;
     return <span className="text-sm text-white">{value}</span>;
+  }
+
+  // NEW (2026-08-16): the credit-purchase section below was pure display —
+  // no click handlers at all, despite looking like real pricing tiles.
+  // Wired to the same Stripe checkout pattern as tier subscriptions, but
+  // as a one-time payment (mode: 'payment') adding to va_credits.balance
+  // instead of upgrading the account tier.
+  const [creditCheckoutLoading, setCreditCheckoutLoading] = useState(null);
+
+  async function handlePurchaseCredits(credits) {
+    setCreditCheckoutLoading(credits);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        window.location.href = `/sign-up?redirect=/pricing`;
+        return;
+      }
+
+      const response = await fetch('/api/index?action=create-credit-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credits, userId: user.id, userEmail: user.email })
+      });
+
+      const data = await response.json();
+
+      if (!data.success || !data.url) {
+        throw new Error(data.error || 'Failed to start checkout');
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      console.error('Credit checkout error:', error);
+      alert('Unable to start checkout: ' + error.message);
+      setCreditCheckoutLoading(null);
+    }
   }
 
   return (
@@ -254,12 +335,17 @@ export default function PricingPage() {
                 )}
                 {tier.price === 0 && <p className="text-xs text-emerald-400 mt-1">Free forever</p>}
               </div>
-              <a
-                href={tier.price === 0 ? '/sign-up' : '/pricing/checkout'}
-                className={`block w-full py-2 rounded-lg text-white font-medium transition-all ${tier.buttonColor}`}
+              <button
+                onClick={() => tier.price === 0 ? (window.location.href = '/sign-up') : handleSubscribe(tier.name)}
+                disabled={checkoutLoading === tier.name}
+                className={`block w-full py-2 rounded-lg text-white font-medium transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${tier.buttonColor}`}
               >
-                {tier.price === 0 ? 'Get Started' : 'Subscribe Now'}
-              </a>
+                {checkoutLoading === tier.name ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting...</>
+                ) : (
+                  tier.price === 0 ? 'Get Started' : 'Subscribe Now'
+                )}
+              </button>
             </div>
           ))}
         </div>
@@ -310,32 +396,31 @@ export default function PricingPage() {
           <h2 className="text-xl font-bold text-white mb-4 text-center">Need Extra? Purchase Credits</h2>
           <p className="text-slate-400 text-center mb-6">Get additional VA tasks and assessments beyond your plan's included limits</p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 max-w-3xl mx-auto">
-            <div className="bg-slate-800 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-white">5 Credits</div>
-              <div className="text-emerald-400">$25</div>
-              <div className="text-xs text-slate-500">$5/credit</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-white">10 Credits</div>
-              <div className="text-emerald-400">$45</div>
-              <div className="text-xs text-slate-500">$4.50/credit</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3 text-center border border-emerald-500/30">
-              <div className="text-lg font-bold text-white">25 Credits</div>
-              <div className="text-emerald-400">$95</div>
-              <div className="text-xs text-slate-500">$3.80/credit</div>
-              <span className="text-xs text-emerald-400">Best Value</span>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-white">50 Credits</div>
-              <div className="text-emerald-400">$165</div>
-              <div className="text-xs text-slate-500">$3.30/credit</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-white">100 Credits</div>
-              <div className="text-emerald-400">$299</div>
-              <div className="text-xs text-slate-500">$2.99/credit</div>
-            </div>
+            {[
+              { credits: 5, price: '$25', perCredit: '$5/credit' },
+              { credits: 10, price: '$45', perCredit: '$4.50/credit' },
+              { credits: 25, price: '$95', perCredit: '$3.80/credit', bestValue: true },
+              { credits: 50, price: '$165', perCredit: '$3.30/credit' },
+              { credits: 100, price: '$299', perCredit: '$2.99/credit' }
+            ].map((pack) => (
+              <button
+                key={pack.credits}
+                onClick={() => handlePurchaseCredits(pack.credits)}
+                disabled={creditCheckoutLoading === pack.credits}
+                className={`bg-slate-800 hover:bg-slate-700 rounded-lg p-3 text-center transition disabled:opacity-60 disabled:cursor-not-allowed ${pack.bestValue ? 'border border-emerald-500/30' : ''}`}
+              >
+                <div className="text-lg font-bold text-white">{pack.credits} Credits</div>
+                <div className="text-emerald-400">{pack.price}</div>
+                <div className="text-xs text-slate-500">{pack.perCredit}</div>
+                {pack.bestValue && <span className="text-xs text-emerald-400">Best Value</span>}
+                {creditCheckoutLoading === pack.credits && (
+                  <div className="flex items-center justify-center gap-1 mt-1">
+                    <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+                    <span className="text-xs text-slate-400">Redirecting...</span>
+                  </div>
+                )}
+              </button>
+            ))}
           </div>
           <p className="text-xs text-slate-500 text-center mt-4">Credits never expire. Use for any VA task or assessment.</p>
         </div>
