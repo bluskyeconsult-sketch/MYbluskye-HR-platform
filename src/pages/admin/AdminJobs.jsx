@@ -286,7 +286,17 @@ export default function AdminJobs() {
                         <div key={job.id} className="p-4">
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="min-w-0 flex-1">
-                                    <p className="text-white text-sm font-medium truncate">{job.title}</p>
+                                    <p className="text-white text-sm font-medium truncate flex items-center gap-1.5">
+                                        {job.title}
+                                        {/* NEW (2026-08-16): surfaces the
+                                            automated fraud-detection trigger's
+                                            output. */}
+                                        {job.fraud_risk_score > 0 && (
+                                            <span title={Array.isArray(job.fraud_signals) ? job.fraud_signals.join(', ') : ''} className="flex-shrink-0">
+                                                <AlertCircle className={`w-3.5 h-3.5 ${job.fraud_risk_score >= 50 ? 'text-red-400' : 'text-amber-400'}`} />
+                                            </span>
+                                        )}
+                                    </p>
                                     <p className="text-slate-400 text-xs flex items-center gap-1 mt-0.5">
                                         <Building2 className="w-3 h-3 flex-shrink-0" /> {job.company}
                                     </p>
@@ -365,7 +375,14 @@ export default function AdminJobs() {
                                 <tr key={job.id} className="border-b border-slate-800 hover:bg-slate-800/30 transition group">
                                     <td className="px-4 py-3">
                                         <div>
-                                            <p className="text-white text-sm font-medium">{job.title}</p>
+                                            <p className="text-white text-sm font-medium flex items-center gap-1.5">
+                                                {job.title}
+                                                {job.fraud_risk_score > 0 && (
+                                                    <span title={Array.isArray(job.fraud_signals) ? job.fraud_signals.join(', ') : ''}>
+                                                        <AlertCircle className={`w-3.5 h-3.5 ${job.fraud_risk_score >= 50 ? 'text-red-400' : 'text-amber-400'}`} />
+                                                    </span>
+                                                )}
+                                            </p>
                                             {(job.salary_range || (job.salary_min && job.salary_max)) && (
                                                 <p className="text-xs text-emerald-400 mt-0.5">{getSalaryDisplay(job)}</p>
                                             )}
