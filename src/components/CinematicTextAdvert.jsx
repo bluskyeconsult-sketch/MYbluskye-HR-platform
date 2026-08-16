@@ -3,7 +3,14 @@
 //
 // FIXED (2026-08-07): the "Proven Methodologies" slide linked to /testimonials,
 // which doesn't exist in the confirmed real route list (App.jsx) — a dead link.
-// Removed that CTA rather than guessing a replacement destination.
+//
+// REBUILT (2026-08-16): removed slides with generic corporate filler
+// ("Transform Your Career", "Strategic Solutions for Modern Business") and
+// the fabricated claim "Join thousands of successful professionals" — no
+// verified basis for that number anywhere in this platform's real,
+// confirmed stats. Replaced with slides describing real, specific platform
+// capabilities only — nothing here is a number or claim that can't be
+// backed up by what the platform actually does.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,58 +26,52 @@ const DEFAULT_MESSAGES = [
         ctaLink: "/sign-up"
     },
     {
-        text: "Transform Your Career with BluSkye Consult",
-        subtext: "Expert Guidance for Professional Growth",
-        icon: "🎯",
-        gradient: "from-emerald-500 to-teal-500",
-        duration: 4000,
-        ctaText: "Learn More",
-        ctaLink: "/about"
-    },
-    {
         text: "AI-Powered Career Intelligence",
-        subtext: "Powered by ODUSBABA's advanced neural networks",
+        subtext: "Governed AI guidance for job search, CV optimization, and career decisions",
         icon: "🧠",
         gradient: "from-purple-500 to-pink-500",
         duration: 3500
     },
     {
         text: "Live Government Job Feeds",
-        subtext: "Real-time opportunities from 7+ countries",
+        subtext: "Real-time opportunities from official portals across 7+ countries",
         icon: "🌍",
         gradient: "from-blue-500 to-cyan-500",
         duration: 3500
     },
     {
-        text: "Strategic Solutions for Modern Business",
-        subtext: "Tailored strategies for unique challenges",
-        icon: "📊",
-        gradient: "from-orange-500 to-red-500",
-        duration: 3500
+        text: "Verified Workforce Marketplace",
+        subtext: "Professionals list verified skills, not just resumes",
+        icon: "✅",
+        gradient: "from-emerald-500 to-teal-500",
+        duration: 3500,
+        ctaText: "Explore Workforce",
+        ctaLink: "/workforce"
     },
     {
         text: "Professional CV Optimization",
-        subtext: "ATS-friendly, recruiter-approved format",
+        subtext: "ATS-friendly analysis and recruiter-ready formatting",
         icon: "📄",
         gradient: "from-amber-500 to-orange-500",
         duration: 3500
     },
     {
-        text: "24/7 Virtual Assistant",
-        subtext: "Career guidance at your fingertips",
+        text: "24/7 Virtual Assistants",
+        subtext: "On-demand support for CVs, cover letters, interview prep, and more",
         icon: "🤖",
         gradient: "from-indigo-500 to-purple-500",
-        duration: 3500
+        duration: 3500,
+        ctaText: "Hire a VA",
+        ctaLink: "/hire-va"
     },
     {
-        text: "Proven Methodologies, Exceptional Results",
-        subtext: "Join thousands of successful professionals",
-        icon: "⭐",
-        gradient: "from-yellow-500 to-amber-500",
-        duration: 3500
-        // FIXED: removed ctaText/ctaLink that pointed to /testimonials — that
-        // route doesn't exist in the confirmed real route list, so it was a
-        // dead link.
+        text: "Skills & Career Assessments",
+        subtext: "Psychometric and skill-based assessments with AI-generated insights",
+        icon: "📊",
+        gradient: "from-red-500 to-pink-500",
+        duration: 3500,
+        ctaText: "Take an Assessment",
+        ctaLink: "/assessments"
     }
 ];
 
