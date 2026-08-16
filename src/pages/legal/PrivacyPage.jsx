@@ -104,7 +104,7 @@ export default function PrivacyPage() {
             "Supabase (database and authentication)",
             "Stripe (payment processing)",
             "OpenAI (AI-powered VA tasks and assessments)",
-            "Cloud providers (AWS/Google Cloud for hosting)",
+            "Vercel (application hosting and infrastructure)",
             "Analytics providers (to improve our services)"
           ]
         },
@@ -466,15 +466,20 @@ export default function PrivacyPage() {
         </div>
 
         {/* Compliance Badges */}
+        {/* FIXED (2026-08-16): removed "SOC2 Type II" — this is a specific,
+            formally-audited third-party certification (an actual AICPA
+            audit product, not a design goal), not something achieved by
+            following good security practices. Claiming it without having
+            actually completed that audit is a false certification claim —
+            a real litigation/false-advertising risk, not a style choice.
+            GDPR/CCPA badges left as-is since those describe compliance
+            with a law, not possession of an audit certificate. */}
         <div className="mt-8 flex flex-wrap justify-center gap-6 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             <Shield className="w-3 h-3" /> GDPR Compliant
           </span>
           <span className="flex items-center gap-1">
             <Shield className="w-3 h-3" /> CCPA Ready
-          </span>
-          <span className="flex items-center gap-1">
-            <Lock className="w-3 h-3" /> SOC2 Type II
           </span>
           <span className="flex items-center gap-1">
             <Globe className="w-3 h-3" /> International Transfers
