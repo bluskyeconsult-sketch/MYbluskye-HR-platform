@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { Shield, CheckCircle, AlertTriangle, Building2, FileText, Mail, Phone, MapPin, Globe, Loader2 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-08-16):
+// 1. Disconnected Supabase client (same pattern found and fixed
+//    repeatedly this session) — now uses the shared singleton.
+// 2. Used bg-success/10, text-success, bg-danger/10, text-danger — these
+//    aren't real colors anywhere else in this project (every other file
+//    uses the standard emerald/red Tailwind palette), so these status
+//    boxes almost certainly rendered with no background/text color at
+//    all. Replaced with the same emerald/red pattern used everywhere else.
+// 3. Not wired to any route in App.jsx at all — added at
+//    /employer-verification.
 
 export default function EmployerVerification() {
     const [verification, setVerification] = useState(null);
@@ -51,10 +58,10 @@ export default function EmployerVerification() {
         setSubmitting(false);
     }
 
-    if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
+    if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-400" /></div>;
 
     return (
-        <div className="min-h-screen bg-background py-12 px-4">
+        <div className="min-h-screen bg-slate-950 py-12 px-4">
             <div className="max-w-3xl mx-auto">
                 <div className="text-center mb-8">
                     <h1 className="text-3xl font-bold text-white mb-2">Employer Verification</h1>
@@ -62,11 +69,11 @@ export default function EmployerVerification() {
                 </div>
                 
                 {verification?.verification_status === 'verified' ? (
-                    <div className="bg-success/10 border border-success/30 rounded-xl p-6 text-center"><CheckCircle className="w-12 h-12 text-success mx-auto mb-3" /><h2 className="text-xl font-bold text-white mb-2">✓ Verified Business</h2><p className="text-slate-400">Your business has been verified. You can now post jobs and access all employer features.</p></div>
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 text-center"><CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" /><h2 className="text-xl font-bold text-white mb-2">✓ Verified Business</h2><p className="text-slate-400">Your business has been verified. You can now post jobs and access all employer features.</p></div>
                 ) : verification?.verification_status === 'pending' ? (
                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center"><AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-3" /><h2 className="text-xl font-bold text-white mb-2">Pending Review</h2><p className="text-slate-400">Your verification is being reviewed. This typically takes 24-48 hours.</p></div>
                 ) : verification?.verification_status === 'rejected' ? (
-                    <div className="bg-danger/10 border border-danger/30 rounded-xl p-6 text-center"><AlertTriangle className="w-12 h-12 text-danger mx-auto mb-3" /><h2 className="text-xl font-bold text-white mb-2">Verification Failed</h2><p className="text-slate-400">{verification.rejection_reason || 'Please contact support for assistance.'}</p></div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center"><AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-3" /><h2 className="text-xl font-bold text-white mb-2">Verification Failed</h2><p className="text-slate-400">{verification.rejection_reason || 'Please contact support for assistance.'}</p></div>
                 ) : (
                     <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5">
                         <div className="flex items-center gap-2 mb-4 p-3 bg-primary-500/10 rounded-lg border border-primary-500/20"><Shield className="w-5 h-5 text-primary-400" /><p className="text-sm text-slate-300">Your information is secure and will only be used for verification and fraud prevention purposes. False information may result in account suspension.</p></div>
