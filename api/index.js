@@ -771,13 +771,48 @@ const handlers = {
 
     // ========== AI CHAT ==========
     chat: async (req, res) => {
-        const { message, history, systemPrompt, temperature = 0.7, maxTokens = 800 } = req.body;
+        const { message, history, systemPrompt, temperature = 0.7, maxTokens = 800, userId } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
         }
 
         try {
+            // NEW (2026-08-16): credit deduction, previously entirely
+            // missing — profiles.ai_credits_remaining was displayed and
+            // gated client-side in ODUSBABAChat.jsx, but never actually
+            // decremented anywhere, meaning the credit system was purely
+            // decorative. Only applies when a userId is provided, so
+            // admin-only callers that don't pass one (article generation,
+            // etc.) are unaffected — and unlimited tiers are still
+            // unlimited here too, matching the same logic ODUSBABAChat.jsx
+            // already used client-side.
+            const supabaseClient = getSupabase();
+            let remaining = null;
+            let isUnlimited = true;
+
+            if (userId) {
+                const { data: profile } = await supabaseClient
+                    .from('profiles')
+                    .select('ai_credits_remaining, user_type, tier')
+                    .eq('id', userId)
+                    .single();
+
+                isUnlimited = profile?.user_type === 'admin' || profile?.user_type === 'super_admin' || profile?.tier === 'business';
+
+                if (!isUnlimited) {
+                    const current = profile?.ai_credits_remaining ?? 0;
+                    if (current <= 0) {
+                        return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan.', remaining: 0 });
+                    }
+                    remaining = current - 1;
+                    await supabaseClient
+                        .from('profiles')
+                        .update({ ai_credits_remaining: remaining })
+                        .eq('id', userId);
+                }
+            }
+
             let messages = history || [];
             messages.push({ role: 'user', content: message });
             
@@ -789,7 +824,8 @@ const handlers = {
             return res.status(200).json({
                 success: true,
                 response: data.choices[0].message.content,
-                usage: data.usage
+                usage: data.usage,
+                remaining: isUnlimited ? 'unlimited' : remaining
             });
         } catch (error) {
             return res.status(500).json({ error: error.message });
@@ -1001,6 +1037,135 @@ const handlers = {
             return res.status(200).json({ success: true, url: session.url });
         } catch (error) {
             console.error('Stripe billing portal error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Purchasable credit bundles for VA tasks/assessments (one-time
+    // payment, distinct from subscriptions) — matches PricingPage.jsx's
+    // credit pricing section, which was display-only until now.
+    'create-credit-checkout-session': async (req, res) => {
+        const { credits, userId, userEmail } = req.body;
+        if (!credits || !userId) {
+            return res.status(400).json({ error: 'credits and userId are required' });
+        }
+
+        const creditPrices = { 5: 2500, 10: 4500, 25: 9500, 50: 16500, 100: 29900 }; // cents
+        const amount = creditPrices[credits];
+        if (!amount) {
+            return res.status(400).json({ error: `No pricing configured for ${credits} credits` });
+        }
+
+        try {
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+
+            const session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                payment_method_types: ['card'],
+                line_items: [{
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: `${credits} ODUSBABA Credits` },
+                        unit_amount: amount
+                    },
+                    quantity: 1
+                }],
+                success_url: `${siteUrl}/dashboard?creditsAdded=true`,
+                cancel_url: `${siteUrl}/pricing`,
+                client_reference_id: userId,
+                customer_email: userEmail,
+                metadata: { userId, credits: String(credits), type: 'credit_purchase' }
+            });
+
+            return res.status(200).json({ success: true, url: session.url, sessionId: session.id });
+        } catch (error) {
+            console.error('Credit checkout session error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-08-16): real implementation of the previously-flagged
+    // "Refresh" button in KnowledgeSourceManager.jsx — fetches the
+    // source's URL, strips HTML down to plain text, and stores it in
+    // ai_knowledge_base. Uses basic regex-based extraction rather than a
+    // full HTML parser to avoid adding heavy dependencies for this one
+    // feature — good enough for text-heavy pages like the government
+    // portals and law references these sources are.
+    'refresh-knowledge': async (req, res) => {
+        const { sourceId } = req.body;
+        if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: source, error: sourceError } = await supabaseClient
+                .from('ai_knowledge_sources')
+                .select('id, source_url, source_name')
+                .eq('id', sourceId)
+                .single();
+
+            if (sourceError || !source) {
+                return res.status(404).json({ success: false, error: 'Knowledge source not found' });
+            }
+
+            let content = '';
+            let fetchStatus = 'success';
+            let errorMessage = null;
+
+            try {
+                const response = await safeFetch(source.source_url, 15000);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const html = await response.text();
+
+                // Strip scripts, styles, then all remaining tags; collapse
+                // whitespace; cap length for storage/token efficiency.
+                content = html
+                    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&amp;/g, '&')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .substring(0, 20000);
+
+                if (!content) {
+                    fetchStatus = 'empty';
+                    errorMessage = 'No text content found at this URL';
+                }
+            } catch (fetchError) {
+                fetchStatus = 'error';
+                errorMessage = fetchError.message;
+            }
+
+            const { error: insertError } = await supabaseClient
+                .from('ai_knowledge_base')
+                .insert({
+                    source_id: sourceId,
+                    content: content || null,
+                    fetch_status: fetchStatus,
+                    error_message: errorMessage
+                });
+
+            if (insertError) {
+                return res.status(500).json({ success: false, error: `Fetched content but failed to save it: ${insertError.message}` });
+            }
+
+            await supabaseClient
+                .from('ai_knowledge_sources')
+                .update({ last_fetched_at: new Date().toISOString() })
+                .eq('id', sourceId);
+
+            if (fetchStatus !== 'success') {
+                return res.status(200).json({ success: false, error: errorMessage });
+            }
+
+            return res.status(200).json({ success: true, contentLength: content.length });
+        } catch (error) {
+            console.error('refresh-knowledge error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
