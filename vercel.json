@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/sync-external-jobs",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/index?action=grant-monthly-credits",
+      "schedule": "0 3 1 * *"
     }
   ],
   "functions": {
