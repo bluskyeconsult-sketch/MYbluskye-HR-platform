@@ -279,24 +279,24 @@ class ODUSABAApi {
     // the entire HR Tools page has shown a raw technical error message to
     // every user for every tool since it was built. Now call real backend
     // actions, added to api/index.js alongside this fix.
-    async analyzeCV(cvText) {
-        return this.postRequest('analyzeCV', { cvText });
+    async analyzeCV(cvText, userId) {
+        return this.postRequest('analyzeCV', { cvText, userId });
     }
     
-    async simulateInterview(role, questions) {
-        return this.postRequest('simulate-interview', { role, questions });
+    async simulateInterview(role, questions, userId) {
+        return this.postRequest('simulate-interview', { role, questions, userId });
     }
     
-    async checkRights(situation, country) {
-        return this.postRequest('checkRights', { situation, country });
+    async checkRights(situation, country, userId) {
+        return this.postRequest('checkRights', { situation, country, userId });
     }
     
     async generateGrievance(details) {
         return this.postRequest('generateGrievance', details);
     }
     
-    async analyzeContract(contractText) {
-        return this.postRequest('analyze-contract', { contractText });
+    async analyzeContract(contractText, userId) {
+        return this.postRequest('analyze-contract', { contractText, userId });
     }
     
     // NEW (2026-08-08): HRToolsPage.jsx's salary calculator previously
@@ -305,6 +305,23 @@ class ODUSABAApi {
     // real backend action, so it now does what it's supposed to.
     async calculateSalary(details) {
         return this.postRequest('calculate-salary', details);
+    }
+
+    // NEW (2026-08-16): 4 HR Tools expansion methods.
+    async generateCoverLetter(details) {
+        return this.postRequest('generate-cover-letter', details);
+    }
+
+    async optimizeLinkedIn(details) {
+        return this.postRequest('optimize-linkedin', details);
+    }
+
+    async writeJobDescription(details) {
+        return this.postRequest('write-job-description', details);
+    }
+
+    async writePerformanceReview(details) {
+        return this.postRequest('write-performance-review', details);
     }
     
     // ========== AI CHAT ==========
