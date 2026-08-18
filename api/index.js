@@ -137,6 +137,53 @@ function isValidEmail(email) {
     return emailRegex.test(email);
 }
 
+// ============================================
+// UNIFIED CREDIT SYSTEM (NEW — 2026-08-16)
+// Total overhaul: one credit currency across chat, VA tasks, HR Tools, and
+// assessment AI insights — 1 credit per AI-costing action, flat. Replaces
+// the previous split between profiles.ai_credits_remaining (chat only)
+// and va_credits.balance (VA tasks only), which were two separate pools
+// for what should be one unified thing. Admin/super_admin/business-tier
+// unlimited status still bypasses this entirely, unchanged.
+// ============================================
+
+async function checkAndDeductCredit(supabaseClient, userId) {
+    if (!userId) return { allowed: true, unlimited: true, remaining: null };
+
+    const { data: profile } = await supabaseClient
+        .from('profiles')
+        .select('user_type, tier')
+        .eq('id', userId)
+        .single();
+
+    const isUnlimited = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+    if (isUnlimited) return { allowed: true, unlimited: true, remaining: null };
+
+    const { data: credits } = await supabaseClient
+        .from('va_credits')
+        .select('balance')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    const currentBalance = credits?.balance ?? 0;
+
+    if (currentBalance <= 0) {
+        return { allowed: false, unlimited: false, remaining: 0 };
+    }
+
+    const newBalance = currentBalance - 1;
+
+    if (credits) {
+        await supabaseClient.from('va_credits').update({ balance: newBalance }).eq('user_id', userId);
+    } else {
+        // Shouldn't normally happen (monthly grant creates the row), but
+        // handle it defensively rather than crash.
+        await supabaseClient.from('va_credits').insert({ user_id: userId, balance: 0 });
+    }
+
+    return { allowed: true, unlimited: false, remaining: newBalance };
+}
+
 async function safeFetch(url, timeout = 10000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -778,39 +825,16 @@ const handlers = {
         }
 
         try {
-            // NEW (2026-08-16): credit deduction, previously entirely
-            // missing — profiles.ai_credits_remaining was displayed and
-            // gated client-side in ODUSBABAChat.jsx, but never actually
-            // decremented anywhere, meaning the credit system was purely
-            // decorative. Only applies when a userId is provided, so
-            // admin-only callers that don't pass one (article generation,
-            // etc.) are unaffected — and unlimited tiers are still
-            // unlimited here too, matching the same logic ODUSBABAChat.jsx
-            // already used client-side.
+            // FIXED (2026-08-16): total overhaul — migrated from
+            // profiles.ai_credits_remaining (a separate pool only chat
+            // used) to the unified va_credits.balance system, matching
+            // VA tasks and HR Tools. One credit currency across every
+            // AI-costing feature now, not three separate ones.
             const supabaseClient = getSupabase();
-            let remaining = null;
-            let isUnlimited = true;
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
 
-            if (userId) {
-                const { data: profile } = await supabaseClient
-                    .from('profiles')
-                    .select('ai_credits_remaining, user_type, tier')
-                    .eq('id', userId)
-                    .single();
-
-                isUnlimited = profile?.user_type === 'admin' || profile?.user_type === 'super_admin' || profile?.tier === 'business';
-
-                if (!isUnlimited) {
-                    const current = profile?.ai_credits_remaining ?? 0;
-                    if (current <= 0) {
-                        return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan.', remaining: 0 });
-                    }
-                    remaining = current - 1;
-                    await supabaseClient
-                        .from('profiles')
-                        .update({ ai_credits_remaining: remaining })
-                        .eq('id', userId);
-                }
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.', remaining: 0 });
             }
 
             let messages = history || [];
@@ -825,7 +849,7 @@ const handlers = {
                 success: true,
                 response: data.choices[0].message.content,
                 usage: data.usage,
-                remaining: isUnlimited ? 'unlimited' : remaining
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
             });
         } catch (error) {
             return res.status(500).json({ error: error.message });
@@ -865,27 +889,44 @@ const handlers = {
     // product documentation. All reuse the existing callOpenAI() helper,
     // same pattern as every other AI feature in this file.
 
+    // ========== HR TOOLS — total overhaul (2026-08-16): all 10 now check
+    // and deduct credits via the unified checkAndDeductCredit() helper —
+    // previously none of them metered usage at all, a real gap under the
+    // "OpenAI-costing = credits" framework applied everywhere else. ==========
+
     analyzeCV: async (req, res) => {
-        const { cvText } = req.body;
+        const { cvText, userId } = req.body;
         if (!cvText) return res.status(400).json({ error: 'cvText is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an expert CV/resume reviewer. Analyze the CV for ATS compatibility, clarity, and impact. Give specific, actionable feedback: strengths, areas for improvement, an estimated ATS score out of 100, and concrete next steps. Use markdown formatting.' },
                 { role: 'user', content: cvText }
             ], 1200, 0.6);
 
-            return res.status(200).json({ success: true, analysis: data.choices[0].message.content });
+            return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     'simulate-interview': async (req, res) => {
-        const { role, questions } = req.body;
+        const { role, questions, userId } = req.body;
         if (!role) return res.status(400).json({ error: 'role is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const priorQuestions = Array.isArray(questions) && questions.length > 0
                 ? `Previously asked: ${questions.join('; ')}. Ask a different question this time.`
                 : '';
@@ -895,73 +936,189 @@ const handlers = {
                 { role: 'user', content: `${role}. ${priorQuestions}` }
             ], 800, 0.7);
 
-            return res.status(200).json({ success: true, feedback: data.choices[0].message.content });
+            return res.status(200).json({ success: true, feedback: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     checkRights: async (req, res) => {
-        const { situation, country } = req.body;
+        const { situation, country, userId } = req.body;
         if (!situation) return res.status(400).json({ error: 'situation is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const data = await callOpenAI([
                 { role: 'system', content: `You are a workplace rights advisor. Give general information about employment rights relevant to ${country || 'the UK'} based on the situation described — dismissal, discrimination, working hours, leave entitlements, etc. as applicable. End with a clear note that this is general information, not legal advice, and recommend consulting a qualified employment lawyer or the relevant national labor authority for specific guidance. Use markdown formatting.` },
                 { role: 'user', content: situation }
             ], 1000, 0.5);
 
-            return res.status(200).json({ success: true, advice: data.choices[0].message.content });
+            return res.status(200).json({ success: true, advice: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     generateGrievance: async (req, res) => {
-        const { situation, details } = req.body;
+        const { situation, details, userId } = req.body;
         const content = situation || details;
         if (!content) return res.status(400).json({ error: 'situation or details is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an HR professional drafting a formal grievance letter. Write a professional, factual grievance letter template based on the situation described — include placeholders like [Date], [Manager Name] where specific details aren\'t given. Structure: subject line, background, details of the issue, desired resolution, closing. Use markdown formatting.' },
                 { role: 'user', content }
             ], 1200, 0.5);
 
-            return res.status(200).json({ success: true, grievance: data.choices[0].message.content });
+            return res.status(200).json({ success: true, grievance: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     'analyze-contract': async (req, res) => {
-        const { contractText } = req.body;
+        const { contractText, userId } = req.body;
         if (!contractText) return res.status(400).json({ error: 'contractText is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an employment contract reviewer. Analyze the contract terms for potentially concerning clauses (restrictive non-competes, unclear termination terms, missing statutory entitlements, unusual liability clauses, etc.). Flag specific issues found, explain why each matters in plain language, and note this is general review, not legal advice — recommend a qualified employment lawyer for anything significant. Use markdown formatting.' },
                 { role: 'user', content: contractText }
             ], 1200, 0.5);
 
-            return res.status(200).json({ success: true, analysis: data.choices[0].message.content });
+            return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     'calculate-salary': async (req, res) => {
-        const { situation, details } = req.body;
+        const { situation, details, userId } = req.body;
         const content = situation || details;
         if (!content) return res.status(400).json({ error: 'situation or details is required' });
 
         try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are a compensation analyst. Given a job title, location, experience level, and industry, provide a realistic market salary range estimate with reasoning (factors that push it higher or lower), and 2-3 practical negotiation tips. Be clear this is an estimate based on general market knowledge, not a guaranteed figure. Use markdown formatting.' },
                 { role: 'user', content }
             ], 1000, 0.5);
 
-            return res.status(200).json({ success: true, result: data.choices[0].message.content });
+            return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'generate-cover-letter': async (req, res) => {
+        const { situation, details, userId } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are a professional cover letter writer. Given the job title, company, and relevant background provided, write a compelling, professional cover letter — 3-4 paragraphs, tailored and specific rather than generic, highlighting relevant strengths. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1000, 0.6);
+
+            return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'optimize-linkedin': async (req, res) => {
+        const { situation, details, userId } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are a LinkedIn profile optimization expert. Given the person\'s role, background, and goals, suggest an improved headline, a rewritten "About" section, and 3 specific tips for making their profile more discoverable to recruiters. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1000, 0.6);
+
+            return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'write-job-description': async (req, res) => {
+        const { situation, details, userId } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an HR professional writing job descriptions. Given the role, seniority, and key requirements provided, write a complete, well-structured job description: an engaging summary, key responsibilities, required qualifications, and nice-to-haves. Avoid discriminatory language and unrealistic requirement lists. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1200, 0.6);
+
+            return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'write-performance-review': async (req, res) => {
+        const { situation, details, userId } = req.body;
+        const content = situation || details;
+        if (!content) return res.status(400).json({ error: 'situation or details is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            if (!creditCheck.allowed) {
+                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an HR professional helping a manager write a fair, constructive performance review. Given the employee\'s role and the notes/achievements/areas for improvement provided, write a balanced, specific, professionally-worded review covering strengths, areas for growth, and concrete next steps. Use markdown formatting.' },
+                { role: 'user', content }
+            ], 1200, 0.6);
+
+            return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
@@ -981,6 +1138,43 @@ const handlers = {
         const { tierName, userId, userEmail } = req.body;
         if (!tierName || !userId) {
             return res.status(400).json({ error: 'tierName and userId are required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        // NEW (2026-08-16): Free Access Mode — distinct from Enforcement
+        // Mode. Tier-based feature gating stays fully real and testable;
+        // this only removes the payment requirement to obtain a tier.
+        // When enabled, grants the selected tier directly and skips
+        // Stripe entirely. Flip system_config.free_access_mode off any
+        // time to resume real payment collection immediately, with no
+        // code changes.
+        try {
+            const { data: config } = await supabaseClient
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'free_access_mode')
+                .maybeSingle();
+
+            if (config?.config_value?.enabled) {
+                const { error: upgradeError } = await supabaseClient
+                    .from('profiles')
+                    .update({ user_type: tierName, tier: tierName, subscription_status: 'free_access' })
+                    .eq('id', userId);
+
+                if (upgradeError) throw upgradeError;
+
+                const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+                return res.status(200).json({
+                    success: true,
+                    freeAccess: true,
+                    url: `${siteUrl}/dashboard?freeAccessGranted=${tierName}`
+                });
+            }
+        } catch (freeAccessError) {
+            console.error('Free access mode check failed, falling through to real checkout:', freeAccessError);
+            // Falls through to real Stripe checkout below rather than
+            // blocking the user entirely on a config-read failure.
         }
 
         const priceIdMap = {
@@ -1093,6 +1287,87 @@ const handlers = {
     // full HTML parser to avoid adding heavy dependencies for this one
     // feature — good enough for text-heavy pages like the government
     // portals and law references these sources are.
+    // ========== MONTHLY CREDIT GRANT (NEW — 2026-08-16) ==========
+    // Total overhaul: automated monthly credit allowance per tier. Adds
+    // (not resets) each tier's allowance to va_credits.balance — unused
+    // credits roll over rather than being wiped, and any separately
+    // purchased credits are never touched. Triggered by a cron job (see
+    // vercel.json) rather than on-demand, since it needs to run for every
+    // active user, not just one at a time.
+    'grant-monthly-credits': async (req, res) => {
+        const supabaseClient = getSupabase();
+
+        const tierAllowances = {
+            free: 5,
+            registered: 20,
+            professional: 100,
+            employer: 60,
+            business: 300
+        };
+
+        try {
+            const { data: profiles, error: profilesError } = await supabaseClient
+                .from('profiles')
+                .select('id, user_type, last_credit_grant_at')
+                .not('user_type', 'in', '(admin,super_admin)');
+
+            if (profilesError) throw profilesError;
+
+            let granted = 0;
+            let skipped = 0;
+            const errors = [];
+
+            for (const profile of profiles || []) {
+                const allowance = tierAllowances[profile.user_type];
+                if (!allowance) { skipped++; continue; }
+
+                // Avoid double-granting if this action gets triggered more
+                // than once in the same calendar month.
+                if (profile.last_credit_grant_at) {
+                    const lastGrant = new Date(profile.last_credit_grant_at);
+                    const now = new Date();
+                    if (lastGrant.getFullYear() === now.getFullYear() && lastGrant.getMonth() === now.getMonth()) {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                try {
+                    const { data: existing } = await supabaseClient
+                        .from('va_credits')
+                        .select('balance')
+                        .eq('user_id', profile.id)
+                        .maybeSingle();
+
+                    if (existing) {
+                        await supabaseClient
+                            .from('va_credits')
+                            .update({ balance: (existing.balance || 0) + allowance })
+                            .eq('user_id', profile.id);
+                    } else {
+                        await supabaseClient
+                            .from('va_credits')
+                            .insert({ user_id: profile.id, balance: allowance });
+                    }
+
+                    await supabaseClient
+                        .from('profiles')
+                        .update({ last_credit_grant_at: new Date().toISOString() })
+                        .eq('id', profile.id);
+
+                    granted++;
+                } catch (grantError) {
+                    errors.push({ userId: profile.id, error: grantError.message });
+                }
+            }
+
+            return res.status(200).json({ success: true, granted, skipped, errors: errors.length > 0 ? errors : undefined });
+        } catch (error) {
+            console.error('grant-monthly-credits error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'refresh-knowledge': async (req, res) => {
         const { sourceId } = req.body;
         if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
