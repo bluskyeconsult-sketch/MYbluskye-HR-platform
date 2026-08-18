@@ -20,7 +20,8 @@ import { GateGuard } from '../components/GateGuard';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
     CheckCircle, Loader2, Sparkles, TrendingUp,
-    MessageSquare, FileSearch, Briefcase, Users
+    MessageSquare, FileSearch, Briefcase, Users,
+    Mail, Linkedin, ClipboardList
 } from 'lucide-react';
 import api from '../lib/api';
 
@@ -29,7 +30,7 @@ export default function HRToolsPage() {
     const [input, setInput] = useState('');
     const [output, setOutput] = useState('');
     const [loading, setLoading] = useState(false);
-    const { canSync, userTier, capabilities } = useCapability();
+    const { canSync, userTier, capabilities, user } = useCapability();
 
     const tools = [
         { id: 'cv_analyzer', name: 'CV Analyzer', icon: FileText, description: 'Get AI-powered CV feedback and optimization tips', color: 'blue', apiMethod: 'analyzeCV' },
@@ -37,7 +38,14 @@ export default function HRToolsPage() {
         { id: 'grievance_generator', name: 'Grievance Letter', icon: AlertTriangle, description: 'Generate professional grievance letters', color: 'amber', apiMethod: 'generateGrievance' },
         { id: 'contract_analyzer', name: 'Contract Analyzer', icon: FileSearch, description: 'Review employment contracts for potential issues', color: 'emerald', apiMethod: 'analyzeContract' },
         { id: 'rights_checker', name: 'Workplace Rights', icon: Shield, description: 'Check your employment rights by situation', color: 'sky', apiMethod: 'checkRights' },
-        { id: 'salary_calculator', name: 'Salary Calculator', icon: TrendingUp, description: 'Market rate analysis and salary benchmarking', color: 'pink', apiMethod: 'calculateSalary' }
+        { id: 'salary_calculator', name: 'Salary Calculator', icon: TrendingUp, description: 'Market rate analysis and salary benchmarking', color: 'pink', apiMethod: 'calculateSalary' },
+        // NEW (2026-08-16): 4 new tools — 2 more for job seekers, 2 for
+        // employers, filling a real gap (all 6 original tools were
+        // job-seeker-only despite HR Tools being platform-wide).
+        { id: 'cover_letter', name: 'Cover Letter Writer', icon: Mail, description: 'Generate a tailored, professional cover letter', color: 'indigo', apiMethod: 'generateCoverLetter' },
+        { id: 'linkedin_optimizer', name: 'LinkedIn Optimizer', icon: Linkedin, description: 'Improve your headline, About section, and discoverability', color: 'cyan', apiMethod: 'optimizeLinkedIn' },
+        { id: 'job_description_writer', name: 'Job Description Writer', icon: Briefcase, description: 'For employers: write a complete, well-structured job posting', color: 'orange', apiMethod: 'writeJobDescription' },
+        { id: 'performance_review_writer', name: 'Performance Review Writer', icon: ClipboardList, description: 'For managers: draft a fair, constructive performance review', color: 'teal', apiMethod: 'writePerformanceReview' }
     ];
 
     async function executeTool() {
@@ -52,27 +60,27 @@ export default function HRToolsPage() {
             
             switch (activeTool) {
                 case 'cv_analyzer':
-                    data = await api.analyzeCV(input);
+                    data = await api.analyzeCV(input, user?.id);
                     setOutput(data.analysis || data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 case 'interview_simulator':
-                    data = await api.simulateInterview(input, []);
+                    data = await api.simulateInterview(input, [], user?.id);
                     setOutput(data.feedback || data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 case 'grievance_generator':
-                    data = await api.generateGrievance({ situation: input, details: input });
+                    data = await api.generateGrievance({ situation: input, details: input, userId: user?.id });
                     setOutput(data.grievance || data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 case 'contract_analyzer':
-                    data = await api.analyzeContract(input);
+                    data = await api.analyzeContract(input, user?.id);
                     setOutput(data.analysis || data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 case 'rights_checker':
-                    data = await api.checkRights(input, 'GB');
+                    data = await api.checkRights(input, 'GB', user?.id);
                     setOutput(data.advice || data.result || formatFallbackResponse(activeTool));
                     break;
                     
@@ -80,8 +88,32 @@ export default function HRToolsPage() {
                     // FIXED (2026-08-08): was calling api.analyzeCV() as an
                     // explicit placeholder — now uses the real
                     // calculateSalary action built alongside this fix.
-                    const salaryData = await api.calculateSalary({ situation: input, details: input });
+                    const salaryData = await api.calculateSalary({ situation: input, details: input, userId: user?.id });
                     setOutput(salaryData.result || formatFallbackResponse(activeTool));
+                    break;
+
+                // NEW (2026-08-16): 4 new tools. All 10 HR Tools now pass
+                // userId — total overhaul brought them under the same
+                // unified credit system as chat and VA tasks (1 credit per
+                // generation), which they previously had none of at all.
+                case 'cover_letter':
+                    data = await api.generateCoverLetter({ situation: input, details: input, userId: user?.id });
+                    setOutput(data.result || formatFallbackResponse(activeTool));
+                    break;
+
+                case 'linkedin_optimizer':
+                    data = await api.optimizeLinkedIn({ situation: input, details: input, userId: user?.id });
+                    setOutput(data.result || formatFallbackResponse(activeTool));
+                    break;
+
+                case 'job_description_writer':
+                    data = await api.writeJobDescription({ situation: input, details: input, userId: user?.id });
+                    setOutput(data.result || formatFallbackResponse(activeTool));
+                    break;
+
+                case 'performance_review_writer':
+                    data = await api.writePerformanceReview({ situation: input, details: input, userId: user?.id });
+                    setOutput(data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 default:
@@ -89,7 +121,13 @@ export default function HRToolsPage() {
             }
         } catch (error) {
             console.error('Tool execution error:', error);
-            setOutput(`Unable to process your request. Please try again.\n\nError: ${error.message}`);
+            // Credit-exhaustion errors (403) get a clearer message than the
+            // generic fallback.
+            if (error.message?.includes('Insufficient credits')) {
+                setOutput(`You're out of credits for this month. Upgrade your plan or purchase more credits to continue using HR Tools.`);
+            } else {
+                setOutput(`Unable to process your request. Please try again.\n\nError: ${error.message}`);
+            }
         } finally {
             setLoading(false);
         }
