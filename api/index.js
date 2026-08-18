@@ -216,6 +216,55 @@ async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
 }
 
 // ============================================
+// callOpenAICached (NEW — 2026-08-16) — OpenAI cost reduction via caching.
+// Deliberately scoped to genuinely generic, non-personal requests only
+// (assessment generation, salary estimates, rights info). NOT used for CV
+// analysis, cover letters, grievances, contract review, chat, or VA tasks
+// — those take unique personal content as input, where caching would
+// rarely hit and risks serving one person's context to another. cacheKey
+// should be built from normalized, non-personal inputs only (e.g. job
+// title + location + experience level, not raw pasted text).
+// ============================================
+
+async function callOpenAICached(cacheKey, messages, maxTokens = 800, temperature = 0.7, ttlHours = 168) {
+    const supabaseClient = getSupabase();
+
+    try {
+        const { data: cached } = await supabaseClient
+            .from('ai_response_cache')
+            .select('response, expires_at')
+            .eq('cache_key', cacheKey)
+            .maybeSingle();
+
+        if (cached && new Date(cached.expires_at) > new Date()) {
+            return { ...cached.response, cached: true };
+        }
+    } catch (cacheReadError) {
+        console.warn('Cache read failed, proceeding to call OpenAI:', cacheReadError);
+    }
+
+    const data = await callOpenAI(messages, maxTokens, temperature);
+
+    try {
+        const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
+        await supabaseClient
+            .from('ai_response_cache')
+            .upsert({ cache_key: cacheKey, response: data, expires_at: expiresAt }, { onConflict: 'cache_key' });
+    } catch (cacheWriteError) {
+        console.warn('Cache write failed, response still returned normally:', cacheWriteError);
+    }
+
+    return { ...data, cached: false };
+}
+
+// Normalizes free-text into a stable cache key component — lowercase,
+// trimmed, collapsed whitespace, so trivial differences (extra spaces,
+// capitalization) don't cause unnecessary cache misses.
+function normalizeForCacheKey(text) {
+    return (text || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// ============================================
 // callOpenAIImage / callOpenAIAudio (NEW — 2026-08-07)
 // Real DALL-E and TTS helpers, backing the generateCourseImage/
 // generateLessonImage/generateLessonAudio handlers below. CourseEditor.jsx
@@ -1021,10 +1070,16 @@ const handlers = {
                 return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
-            const data = await callOpenAI([
+            // NEW (2026-08-16): cached — job title + location + experience
+            // level is genuinely generic, non-personal, and likely to
+            // repeat across many different users. Credits still deduct
+            // normally either way; caching only saves the OpenAI cost on
+            // this side, it doesn't give users free extra uses.
+            const cacheKey = `salary:${normalizeForCacheKey(content)}`;
+            const data = await callOpenAICached(cacheKey, [
                 { role: 'system', content: 'You are a compensation analyst. Given a job title, location, experience level, and industry, provide a realistic market salary range estimate with reasoning (factors that push it higher or lower), and 2-3 practical negotiation tips. Be clear this is an estimate based on general market knowledge, not a guaranteed figure. Use markdown formatting.' },
                 { role: 'user', content }
-            ], 1000, 0.5);
+            ], 1000, 0.5, 168); // 1 week TTL — market rates don't move fast enough to need shorter
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
