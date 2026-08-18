@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Check, X, HelpCircle, CreditCard, Briefcase, Brain, FileText, Bell, Bookmark, MessageCircle, Users, Zap, Loader2 } from 'lucide-react';
 
@@ -19,11 +19,13 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: false,
       contact_professionals: false,
-      va_tasks_included: 0,
+      // FIXED (2026-08-16), total overhaul: va_tasks_included,
+      // ai_chat_messages, cv_analysis, and skill_gap_analysis used to be 4
+      // separate numbers per tier — misleading now that they all draw
+      // from one shared credit pool (chat, VA tasks, all 10 HR Tools,
+      // assessment insights). Consolidated into one accurate field.
+      ai_credits_monthly: 5,
       assessments_included: 0,
-      ai_chat_messages: 5,
-      cv_analysis: 1,
-      skill_gap_analysis: 1,
       saved_jobs: 0,
       job_alerts: 0,
       newsletter: true,
@@ -50,11 +52,8 @@ const tiers = [
       skill_submission: { value: '3 total', limit: 3 },
       trust_score_visibility: true,
       contact_professionals: false,
-      va_tasks_included: 1,
+      ai_credits_monthly: 20,
       assessments_included: 1,
-      ai_chat_messages: 20,
-      cv_analysis: 3,
-      skill_gap_analysis: 5,
       saved_jobs: { value: '10 jobs', limit: 10 },
       job_alerts: { value: '3 alerts', limit: 3 },
       newsletter: true,
@@ -81,11 +80,8 @@ const tiers = [
       skill_submission: { value: 'Unlimited', limit: null },
       trust_score_visibility: true,
       contact_professionals: true,
-      va_tasks_included: 10,
+      ai_credits_monthly: 100,
       assessments_included: 5,
-      ai_chat_messages: 100,
-      cv_analysis: 20,
-      skill_gap_analysis: 20,
       saved_jobs: { value: 'Unlimited', limit: null },
       job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
@@ -112,11 +108,8 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: true,
       contact_professionals: true,
-      va_tasks_included: 5,
+      ai_credits_monthly: 60,
       assessments_included: 3,
-      ai_chat_messages: 50,
-      cv_analysis: 10,
-      skill_gap_analysis: 10,
       saved_jobs: false,
       job_alerts: { value: '10 alerts', limit: 10 },
       newsletter: true,
@@ -143,11 +136,12 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: true,
       contact_professionals: true,
-      va_tasks_included: 20,
+      // FIXED: was "Unlimited" — even the top tier stays capped (though
+      // high) under the overhauled framework, to protect against runaway
+      // OpenAI cost from a single account. 300/month is generous for
+      // normal use without being truly open-ended.
+      ai_credits_monthly: 300,
       assessments_included: 10,
-      ai_chat_messages: 'Unlimited',
-      cv_analysis: 'Unlimited',
-      skill_gap_analysis: 'Unlimited',
       saved_jobs: false,
       job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
@@ -168,11 +162,8 @@ const benefitCategories = [
   { key: 'skill_submission', label: 'Skill Submission', icon: Brain, tooltip: 'Submit skills for verification' },
   { key: 'trust_score_visibility', label: 'Trust Score', icon: Zap, tooltip: 'See your verified trust score' },
   { key: 'contact_professionals', label: 'Contact Professionals', icon: MessageCircle, tooltip: 'Message other users' },
-  { key: 'va_tasks_included', label: 'VA Tasks (Monthly)', icon: Zap, tooltip: 'Virtual Assistant tasks included' },
+  { key: 'ai_credits_monthly', label: 'AI Credits (Monthly)', icon: Zap, tooltip: 'One shared credit pool for AI Chat, HR Tools, Virtual Assistant tasks, and assessment insights — 1 credit per use' },
   { key: 'assessments_included', label: 'Assessments (Monthly)', icon: Brain, tooltip: 'Psychometric assessments included' },
-  { key: 'ai_chat_messages', label: 'AI Chat Messages', icon: MessageCircle, tooltip: 'Messages with ODUSBABA AI' },
-  { key: 'cv_analysis', label: 'CV Analyses', icon: FileText, tooltip: 'AI-powered CV analysis' },
-  { key: 'skill_gap_analysis', label: 'Skill Gap Analyses', icon: Brain, tooltip: 'Identify skill gaps' },
   { key: 'saved_jobs', label: 'Saved Jobs', icon: Bookmark, tooltip: 'Save jobs for later' },
   { key: 'job_alerts', label: 'Job Alerts', icon: Bell, tooltip: 'Email notifications for new jobs' },
   { key: 'newsletter', label: 'Newsletter', icon: Bell, tooltip: 'Weekly platform updates' },
@@ -185,6 +176,21 @@ const benefitCategories = [
 
 export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState('monthly');
+  // NEW (2026-08-16): Free Access Mode notice — checks the same
+  // system_config flag the backend uses to bypass payment, so users
+  // actually know upgrades are free right now and payment is coming later.
+  const [freeAccessMode, setFreeAccessMode] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from('system_config')
+      .select('config_value')
+      .eq('config_key', 'free_access_mode')
+      .maybeSingle()
+      .then(({ data }) => setFreeAccessMode(data?.config_value?.enabled === true))
+      .catch(() => {});
+  }, []);
+
   // FIXED (2026-08-09): the Subscribe button for every paid tier previously
   // linked to /pricing/checkout, a route that doesn't exist anywhere in
   // App.jsx — every paid subscription attempt has always dead-ended,
@@ -278,7 +284,7 @@ export default function PricingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-slate-950">
       <div className="max-w-7xl mx-auto px-4 py-12">
         {/* Header */}
         <div className="text-center mb-8">
@@ -287,6 +293,19 @@ export default function PricingPage() {
             Choose the plan that fits your needs. All plans include core features with no hidden fees.
           </p>
         </div>
+
+        {/* NEW (2026-08-16): Free Access Mode notice — only shows when the
+            admin toggle is actually on, so users know upgrades are free
+            right now and understand payment is coming later. */}
+        {freeAccessMode && (
+          <div className="max-w-2xl mx-auto mb-8 bg-sky-500/10 border border-sky-500/30 rounded-xl p-4 text-center">
+            <p className="text-sky-400 font-semibold text-sm mb-1">🎉 Free Access During Testing</p>
+            <p className="text-slate-300 text-sm">
+              We're in a testing period — every tier below is free to activate right now, no payment required.
+              This will change to paid access in the future; we'll let you know before that happens.
+            </p>
+          </div>
+        )}
 
         {/* Billing Toggle */}
         <div className="flex justify-center mb-10">
@@ -343,7 +362,7 @@ export default function PricingPage() {
                 {checkoutLoading === tier.name ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting...</>
                 ) : (
-                  tier.price === 0 ? 'Get Started' : 'Subscribe Now'
+                  tier.price === 0 ? 'Get Started' : (freeAccessMode ? 'Activate Free' : 'Subscribe Now')
                 )}
               </button>
             </div>
