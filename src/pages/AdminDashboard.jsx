@@ -30,7 +30,7 @@ import { useGovernance } from '../contexts/GovernanceContext';
 import { 
     Users, Briefcase, BookOpen, ClipboardList, Bot, Mail, 
     Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
-    Clock, CheckCircle, XCircle, AlertCircle, Eye, ShieldAlert
+    Clock, CheckCircle, XCircle, AlertCircle, Eye, ShieldAlert, DollarSign
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -57,6 +57,52 @@ export default function AdminDashboard() {
             alert(err.message || 'Failed to change enforcement mode');
         } finally {
             setChangingMode(false);
+        }
+    }
+
+    // NEW (2026-08-16): Free Access Mode — distinct from Enforcement Mode
+    // above. Tier-based feature gating and limits stay fully real and
+    // testable; this only removes the payment requirement to obtain a
+    // paid tier. Users pick a tier and get it immediately, no Stripe
+    // checkout, while every tier's actual rules stay genuine. Flip off
+    // any time to resume real payment collection instantly.
+    const [freeAccessMode, setFreeAccessMode] = useState(false);
+    const [changingFreeAccess, setChangingFreeAccess] = useState(false);
+
+    useEffect(() => {
+        loadFreeAccessMode();
+    }, []);
+
+    async function loadFreeAccessMode() {
+        try {
+            const { data } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'free_access_mode')
+                .maybeSingle();
+            setFreeAccessMode(data?.config_value?.enabled === true);
+        } catch (err) {
+            console.error('Failed to load free access mode:', err);
+        }
+    }
+
+    async function handleToggleFreeAccess() {
+        const newValue = !freeAccessMode;
+        const confirmMsg = newValue
+            ? 'Enable Free Access Mode? Users will be able to select any paid tier and get it immediately, with no payment — tier rules and limits stay fully real for testing. Remember to disable this before you want real payments to start.'
+            : 'Disable Free Access Mode? Real Stripe checkout will resume immediately for all tier upgrades.';
+        if (!confirm(confirmMsg)) return;
+
+        setChangingFreeAccess(true);
+        try {
+            await supabase
+                .from('system_config')
+                .upsert({ config_key: 'free_access_mode', config_value: { enabled: newValue } }, { onConflict: 'config_key' });
+            setFreeAccessMode(newValue);
+        } catch (err) {
+            alert('Failed to change free access mode: ' + err.message);
+        } finally {
+            setChangingFreeAccess(false);
         }
     }
 
@@ -184,6 +230,42 @@ export default function AdminDashboard() {
                     </button>
                 </div>
 
+                {/* Free Access Mode — distinct from Enforcement Mode above.
+                    Tier rules stay real; this only removes the payment
+                    requirement to obtain a tier. */}
+                <div className={`mb-8 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    freeAccessMode
+                        ? 'bg-sky-500/10 border-sky-500/30'
+                        : 'bg-slate-900/50 border-slate-800'
+                }`}>
+                    <div className="flex items-center gap-3">
+                        <DollarSign className={`w-6 h-6 flex-shrink-0 ${freeAccessMode ? 'text-sky-400' : 'text-slate-500'}`} />
+                        <div>
+                            <p className="text-white font-semibold">
+                                Free Access Mode: <span className={freeAccessMode ? 'text-sky-400' : 'text-slate-400'}>
+                                    {freeAccessMode ? 'ON — Payments Bypassed' : 'OFF — Real Payments Active'}
+                                </span>
+                            </p>
+                            <p className="text-slate-400 text-sm">
+                                {freeAccessMode
+                                    ? 'Users get any tier immediately, free — tier rules and limits stay real for testing.'
+                                    : 'Tier upgrades go through real Stripe checkout.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleToggleFreeAccess}
+                        disabled={changingFreeAccess}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                            freeAccessMode
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-sky-600 text-white hover:bg-sky-700'
+                        }`}
+                    >
+                        {changingFreeAccess ? 'Changing...' : freeAccessMode ? 'Activate Real Payments' : 'Enable Free Access'}
+                    </button>
+                </div>
+
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
@@ -263,6 +345,14 @@ export default function AdminDashboard() {
                         <Link to="/admin/usage-meter" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
                             <TrendingUp className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
                             <span className="text-white text-sm">Usage Meter</span>
+                        </Link>
+                        <Link to="/admin/audit" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Shield className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Audit Logs</span>
+                        </Link>
+                        <Link to="/admin/employer-verification" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Briefcase className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Employer Verify</span>
                         </Link>
                     </div>
                 </div>
