@@ -14,6 +14,10 @@
 // 2. In your Stripe Dashboard, create a webhook endpoint pointing to
 //    https://yourdomain.com/api/stripe-webhook, listening for:
 //    checkout.session.completed, customer.subscription.updated,
+//    customer.subscription.deleted, invoice.payment_succeeded (this last
+//    one added 2026-08-16 for recurring affiliate commissions — if it's
+//    not in your webhook's subscribed events list in the Stripe
+//    Dashboard, recurring commissions won't fire)
 //    customer.subscription.deleted
 // 3. Set these environment variables in Vercel:
 //    - STRIPE_SECRET_KEY (from Stripe Dashboard > Developers > API keys)
@@ -117,6 +121,57 @@ export default async function handler(req, res) {
                 if (error) {
                     console.error('Failed to upgrade user tier after successful payment:', userId, error);
                 }
+
+                // NEW (2026-08-16): Affiliate Plan — 20% commission on a
+                // referred user's first payment. This is the actual
+                // moment a real payment is confirmed, so it's the correct
+                // place to credit the referring affiliate — never happens
+                // on a free-access-mode grant, since that skips Stripe
+                // entirely and never reaches this webhook at all.
+                try {
+                    const { data: referredProfile } = await supabase
+                        .from('profiles')
+                        .select('referred_by_affiliate_code')
+                        .eq('id', userId)
+                        .single();
+
+                    if (referredProfile?.referred_by_affiliate_code) {
+                        const { data: affiliate } = await supabase
+                            .from('affiliates')
+                            .select('id, available_balance, total_earnings')
+                            .eq('affiliate_code', referredProfile.referred_by_affiliate_code)
+                            .eq('status', 'active')
+                            .single();
+
+                        if (affiliate && session.amount_total) {
+                            const paidAmount = session.amount_total / 100; // Stripe amounts are in cents
+                            const commissionRate = 0.20; // 20% on first payment — see the Affiliate Plan
+                            const commissionAmount = Math.round(paidAmount * commissionRate * 100) / 100;
+
+                            await supabase.from('affiliate_commissions').insert({
+                                affiliate_id: affiliate.id,
+                                referred_user_id: userId,
+                                amount: commissionAmount,
+                                commission_type: 'first_payment',
+                                tier_name: tierName,
+                                stripe_session_id: session.id
+                            });
+
+                            await supabase
+                                .from('affiliates')
+                                .update({
+                                    available_balance: (affiliate.available_balance || 0) + commissionAmount,
+                                    total_earnings: (affiliate.total_earnings || 0) + commissionAmount
+                                })
+                                .eq('id', affiliate.id);
+                        }
+                    }
+                } catch (commissionError) {
+                    // Never let a commission calculation failure block the
+                    // actual tier upgrade above — log and move on.
+                    console.error('Affiliate commission calculation failed:', commissionError);
+                }
+
                 break;
             }
 
@@ -127,6 +182,63 @@ export default async function handler(req, res) {
                     .from('profiles')
                     .update({ subscription_status: subscription.status })
                     .eq('stripe_subscription_id', subscription.id);
+                break;
+            }
+
+            // NEW (2026-08-16): Affiliate Plan — 10% recurring commission
+            // for months 2-12 of a referred user's subscription. Fires on
+            // every successful renewal invoice, not just the first
+            // payment (that's checkout.session.completed above, at 20%).
+            // Must be added to your Stripe webhook's subscribed events —
+            // it doesn't fire unless the webhook endpoint is configured
+            // to listen for it.
+            case 'invoice.payment_succeeded': {
+                const invoice = event.data.object;
+                // Skip the very first invoice — that's already handled at
+                // the higher 20% rate via checkout.session.completed.
+                if (invoice.billing_reason === 'subscription_create') break;
+
+                try {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('id, referred_by_affiliate_code, tier')
+                        .eq('stripe_customer_id', invoice.customer)
+                        .single();
+
+                    if (profile?.referred_by_affiliate_code) {
+                        const { data: affiliate } = await supabase
+                            .from('affiliates')
+                            .select('id, available_balance, total_earnings')
+                            .eq('affiliate_code', profile.referred_by_affiliate_code)
+                            .eq('status', 'active')
+                            .single();
+
+                        if (affiliate && invoice.amount_paid) {
+                            const paidAmount = invoice.amount_paid / 100;
+                            const commissionRate = 0.10; // 10% recurring — see the Affiliate Plan
+                            const commissionAmount = Math.round(paidAmount * commissionRate * 100) / 100;
+
+                            await supabase.from('affiliate_commissions').insert({
+                                affiliate_id: affiliate.id,
+                                referred_user_id: profile.id,
+                                amount: commissionAmount,
+                                commission_type: 'recurring',
+                                tier_name: profile.tier,
+                                stripe_session_id: invoice.id
+                            });
+
+                            await supabase
+                                .from('affiliates')
+                                .update({
+                                    available_balance: (affiliate.available_balance || 0) + commissionAmount,
+                                    total_earnings: (affiliate.total_earnings || 0) + commissionAmount
+                                })
+                                .eq('id', affiliate.id);
+                        }
+                    }
+                } catch (commissionError) {
+                    console.error('Recurring commission calculation failed:', commissionError);
+                }
                 break;
             }
 
