@@ -74,6 +74,20 @@ export default function CoursesPage() {
         filterAndSortCourses();
     }, [courses, searchTerm, selectedCategory, sortBy]);
 
+    // NEW (2026-08-16): logs meaningful searches as activity signals,
+    // debounced separately from the filter effect above.
+    useEffect(() => {
+        if (!searchTerm || searchTerm.trim().length < 3) return;
+        const timer = setTimeout(() => {
+            fetch('/api/index?action=log-activity-signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signalType: 'search', queryText: searchTerm, sourcePage: 'courses' })
+            }).catch(() => {});
+        }, 1500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
     async function loadUserAndCourses() {
         setLoading(true);
         setError(null);
@@ -228,7 +242,14 @@ export default function CoursesPage() {
                     systemPrompt,
                     history: [],
                     temperature: 0.5,
-                    maxTokens: 600
+                    maxTokens: 600,
+                    // FIXED (2026-08-16): wasn't passing userId — for
+                    // logged-in users, this meant the chat handler treated
+                    // every call as an unmetered guest request, bypassing
+                    // their tier's credit system entirely for this one
+                    // feature. Guests correctly remain unmetered (falls
+                    // under IP-based rate limiting instead, by design).
+                    userId: user?.id
                 })
             });
             
