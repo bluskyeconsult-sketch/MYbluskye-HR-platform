@@ -9,6 +9,26 @@
 // now the actual public catalog. VA ids are now real database UUIDs rather
 // than the old readable slugs (cv-expert, etc.) — nothing else in this file
 // depends on the specific id format, so this is a transparent change.
+//
+// FIXED (2026-08-16):
+// 1. The whole page returned a full-screen "Sign in to use Virtual
+//    Assistants" wall for any guest, even though the catalog loads
+//    independently of login status — visitors could never browse at all.
+//    This contradicts the platform's own "see everything, gate on use"
+//    principle. Removed the page-level gate; browsing/searching/filtering
+//    is now open to everyone. Sign-in is now only required at the actual
+//    moment of executing a task (handleExecute), with a clear prompt.
+// 2. handleExecute checked eligibility.remaining < selectedVA.price — a
+//    per-VA variable price — but the real va-execute backend handler
+//    always deducts a flat 1 credit regardless of price, ignoring
+//    selectedVA.price entirely. Frontend validation didn't match actual
+//    backend behavior. Fixed to check against a flat 1 credit, matching
+//    the unified credit system used everywhere else on the platform.
+// 3. CATEGORIES included 'interview', 'skill', 'legal' — but the real
+//    virtual_assistants table's category CHECK constraint only allows
+//    'career', 'resume', 'writing', 'productivity' (confirmed earlier
+//    this session). Those 3 tabs could never match any real VA, always
+//    showing empty results. Removed to match what's actually possible.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
@@ -34,10 +54,9 @@ const API_BASE = '/api/index';
 const CATEGORIES = [
     { id: 'all', name: 'All Assistants', icon: Bot },
     { id: 'resume', name: 'Resume & CV', icon: FileText },
-    { id: 'interview', name: 'Interview Prep', icon: Users },
     { id: 'career', name: 'Career Advice', icon: Briefcase },
-    { id: 'skill', name: 'Skill Development', icon: TrendingUp },
-    { id: 'legal', name: 'Legal & Rights', icon: Shield }
+    { id: 'writing', name: 'Writing', icon: TrendingUp },
+    { id: 'productivity', name: 'Productivity', icon: Shield }
 ];
 
 // ============================================
@@ -236,10 +255,22 @@ export default function HireVirtualAssistant() {
     async function handleExecute(e) {
         e.preventDefault();
         if (!input.trim() || !selectedVA) return;
+
+        // NEW (2026-08-16): sign-in is now required only at this point —
+        // the moment of actually using a VA — not to browse the catalog.
+        if (!user) {
+            if (confirm('Sign in to use Virtual Assistants. Go to sign in now?')) {
+                window.location.href = '/sign-in';
+            }
+            return;
+        }
         
-        // Check if user has enough credits
-        if (!eligibility?.isUnlimited && eligibility?.remaining < selectedVA.price) {
-            alert(`⚠️ Insufficient credits! You need ${selectedVA.price} credits but have ${eligibility.remaining}.`);
+        // FIXED (2026-08-16): was comparing against selectedVA.price (a
+        // per-VA variable price) — the real va-execute backend always
+        // deducts a flat 1 credit regardless of which VA is used, so this
+        // now checks against 1 to match actual backend behavior.
+        if (!eligibility?.isUnlimited && eligibility?.remaining < 1) {
+            alert(`⚠️ Insufficient credits! Upgrade your plan or purchase more credits to continue.`);
             return;
         }
         
@@ -326,29 +357,7 @@ export default function HireVirtualAssistant() {
     };
 
     // ============================================
-    // RENDER SIGN IN PAGE
-    // ============================================
-
-    if (!user) {
-        return (
-            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex items-center justify-center px-4">
-                <div className="text-center max-w-md mx-auto">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
-                        <Bot className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                    </div>
-                    <h1 className="text-2xl font-bold text-white mb-2">Sign in to use Virtual Assistants</h1>
-                    <p className="text-slate-400 text-sm sm:text-base mb-6">Access AI-powered career helpers for CV optimization, interview prep, and more.</p>
-                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        <a href="/sign-in" className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-center">Sign In</a>
-                        <a href="/sign-up" className="px-6 py-2.5 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-800 transition text-center">Create Account</a>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ============================================
-    // RENDER MAIN COMPONENT
+    // MAIN RENDER — no more page-level sign-in wall; everyone can browse.
     // ============================================
 
     return (
@@ -609,7 +618,7 @@ export default function HireVirtualAssistant() {
                                     <button
                                         type="submit"
                                         disabled={loading || (eligibility && !eligibility.isUnlimited && eligibility.remaining < selectedVA.price) || !isVAAccessible(selectedVA.tier)}
-                                        className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-xl hover:from-primary-700 hover:to-sky-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium transition-all duration-200 text-sm sm:text-base"
+                                        className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-xl hover:from-primary-700 to-sky-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium transition-all duration-200 text-sm sm:text-base"
                                     >
                                         {loading ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                                         {loading ? 'Processing...' : `Execute Task (${selectedVA.price} credits)`}
