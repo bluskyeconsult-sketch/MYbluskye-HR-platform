@@ -1418,6 +1418,158 @@ const handlers = {
         }
     },
 
+    // ========== REFUND FULFILLMENT (NEW — 2026-08-16) ==========
+    // Makes the "14-day money-back guarantee" (AboutPage.jsx) a real,
+    // working process. Not a self-service automatic refund button —
+    // requests go through admin review first, matching the same pattern
+    // as fraud reports and employer verification, to limit abuse.
+
+    'request-refund': async (req, res) => {
+        const { userId, reason } = req.body;
+        if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('subscribed_at, tier, stripe_customer_id, stripe_subscription_id')
+                .eq('id', userId)
+                .single();
+
+            if (!profile?.subscribed_at) {
+                return res.status(400).json({ success: false, error: 'No active paid subscription found on this account.' });
+            }
+
+            const daysSinceSubscribed = (Date.now() - new Date(profile.subscribed_at).getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSinceSubscribed > 14) {
+                return res.status(400).json({ success: false, error: 'This subscription is outside the 14-day refund window.' });
+            }
+
+            const { data: existing } = await supabaseClient
+                .from('refund_requests')
+                .select('id')
+                .eq('user_id', userId)
+                .in('status', ['pending', 'approved'])
+                .maybeSingle();
+
+            if (existing) {
+                return res.status(400).json({ success: false, error: 'You already have a refund request in progress.' });
+            }
+
+            const { error: insertError } = await supabaseClient
+                .from('refund_requests')
+                .insert({ user_id: userId, reason: reason || null, status: 'pending' });
+
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true, message: 'Refund request submitted. Our team will review it shortly.' });
+        } catch (error) {
+            console.error('request-refund error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-refund-requests': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const status = req.query?.status || req.body?.status || 'pending';
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('refund_requests')
+                .select('*, profiles!refund_requests_user_id_fkey(full_name, email, tier, subscribed_at, stripe_customer_id, stripe_subscription_id)')
+                .eq('status', status)
+                .order('requested_at', { ascending: true });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, requests: data || [] });
+        } catch (error) {
+            console.error('admin-refund-requests error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Approves and actually processes a real Stripe refund, or rejects
+    // with a reason. Looks up the actual charge to refund live from
+    // Stripe at processing time (via the subscription's latest invoice),
+    // rather than trusting a stored payment intent that might be stale
+    // or was never reliably populated for subscription-mode checkouts.
+    'admin-process-refund': async (req, res) => {
+        const { requestId, decision, adminNotes, adminUserId } = req.body;
+        if (!requestId || !decision) {
+            return res.status(400).json({ success: false, error: 'requestId and decision are required' });
+        }
+        if (!['approved', 'rejected'].includes(decision)) {
+            return res.status(400).json({ success: false, error: 'decision must be approved or rejected' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: request } = await supabaseClient
+                .from('refund_requests')
+                .select('*, profiles!refund_requests_user_id_fkey(id, stripe_customer_id, stripe_subscription_id)')
+                .eq('id', requestId)
+                .single();
+
+            if (!request) {
+                return res.status(404).json({ success: false, error: 'Refund request not found' });
+            }
+
+            if (decision === 'rejected') {
+                await supabaseClient
+                    .from('refund_requests')
+                    .update({ status: 'rejected', admin_notes: adminNotes || null, processed_at: new Date().toISOString(), processed_by: adminUserId || null })
+                    .eq('id', requestId);
+
+                return res.status(200).json({ success: true, message: 'Refund request rejected.' });
+            }
+
+            // decision === 'approved' — process the actual Stripe refund.
+            const subscriptionId = request.profiles?.stripe_subscription_id;
+            if (!subscriptionId) {
+                return res.status(400).json({ success: false, error: 'No Stripe subscription found on this account — cannot process refund automatically.' });
+            }
+
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+            const subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['latest_invoice.payment_intent'] });
+            const paymentIntentId = subscription.latest_invoice?.payment_intent?.id || subscription.latest_invoice?.payment_intent;
+
+            if (!paymentIntentId) {
+                return res.status(400).json({ success: false, error: 'No payment found on this subscription to refund.' });
+            }
+
+            const refund = await stripe.refunds.create({ payment_intent: paymentIntentId });
+
+            // Cancel the subscription and downgrade back to free — the
+            // customer got their money back, so their access reverts too.
+            await stripe.subscriptions.cancel(subscriptionId);
+
+            await supabaseClient
+                .from('profiles')
+                .update({ user_type: 'free', tier: 'free', subscription_status: 'refunded' })
+                .eq('id', request.user_id);
+
+            await supabaseClient
+                .from('refund_requests')
+                .update({
+                    status: 'processed',
+                    admin_notes: adminNotes || null,
+                    stripe_refund_id: refund.id,
+                    processed_at: new Date().toISOString(),
+                    processed_by: adminUserId || null
+                })
+                .eq('id', requestId);
+
+            return res.status(200).json({ success: true, message: 'Refund processed successfully.', refundId: refund.id });
+        } catch (error) {
+            console.error('admin-process-refund error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // Purchasable credit bundles for VA tasks/assessments (one-time
     // payment, distinct from subscriptions) — matches PricingPage.jsx's
     // credit pricing section, which was display-only until now.
@@ -3098,4 +3250,636 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             
             let { data: credits } = await supabaseClient
                 .from('va_credits')
-               
+                .select('balance')
+                .eq('user_id', userId)
+                .single();
+            
+            if (!credits) {
+                const defaultCredits = { free: 5, registered: 10, professional: 25, employer: 20, tester: 10 }[profile?.tier] || 5;
+                await supabaseClient.from('va_credits').insert({ user_id: userId, balance: defaultCredits });
+                credits = { balance: defaultCredits };
+            }
+            
+            return res.status(200).json({ success: true, credits: credits.balance, isUnlimited: false });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== VA TASKS ==========
+    'va-tasks': async (req, res) => {
+        const { userId } = req.query;
+        const authHeader = req.headers.authorization;
+        const supabaseClient = getSupabase();
+        
+        try {
+            const token = authHeader?.split(' ')[1];
+            const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+            
+            if (userError || !user || user.id !== userId) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
+            
+            const { data, error } = await supabaseClient
+                .from('va_tasks')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(20);
+            
+            if (error) throw error;
+            return res.status(200).json({ success: true, tasks: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== VA STATS ==========
+    'va-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        
+        try {
+            const [totalTasks, completedTasks] = await Promise.all([
+                supabaseClient.from('va_tasks').select('*', { count: 'exact', head: true }),
+                supabaseClient.from('va_tasks').select('*', { count: 'exact', head: true }).eq('status', 'completed')
+            ]);
+            
+            res.status(200).json({
+                totalTasks: totalTasks.count || 0,
+                completedTasks: completedTasks.count || 0,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            res.status(200).json({
+                totalTasks: 156,
+                completedTasks: 89,
+                fallback: true,
+                timestamp: new Date().toISOString()
+            });
+        }
+    },
+
+    // ========== VIRTUAL ASSISTANTS ==========
+    // CHANGED (2026-08-07): now queries the real virtual_assistants table
+    // (managed via VirtualAssistantManager.jsx) instead of returning a
+    // hardcoded 6-item array. This was the architecture split flagged in
+    // Phase 9 — admin-created VAs are now the actual public catalog.
+    'virtual-assistants': async (req, res) => {
+        const supabaseClient = getSupabase();
+        
+        try {
+            const { data, error } = await supabaseClient
+                .from('virtual_assistants')
+                .select('*')
+                .eq('is_active', true)
+                .order('category', { ascending: true });
+            
+            if (error) throw error;
+            
+            const assistants = (data || []).map(va => ({
+                id: va.id,
+                name: va.name,
+                category: va.category,
+                icon: VA_CATEGORY_ICONS[va.category] || '🤖',
+                price: va.price,
+                description: va.description,
+                longDescription: va.long_description,
+                tier: 'free',
+                processingTime: `${va.processing_time_minutes || 5} min`,
+                rating: 4.8,
+                reviews: 0
+            }));
+            
+            return res.status(200).json({ success: true, assistants });
+        } catch (error) {
+            console.error('Error loading virtual assistants:', error);
+            return res.status(200).json({ success: true, assistants: [], fallback: true, error: error.message });
+        }
+    },
+
+    // ========== VA EXECUTE ==========
+    // CHANGED (2026-08-07): assistantId is now a real virtual_assistants
+    // table UUID (admin-managed via VirtualAssistantManager.jsx), not one of
+    // a fixed set of hardcoded ids. This looks up the actual VA record to
+    // build a specific system prompt from its name/category/description,
+    // and uses the admin-provided sample_output as the fallback if the
+    // OpenAI call fails — so any admin-created assistant works correctly
+    // without needing a matching hardcoded entry anywhere in this file.
+    'va-execute': async (req, res) => {
+        const { assistantId, input, userId } = req.body;
+        
+        if (!assistantId || !input) {
+            return res.status(400).json({ error: 'Assistant ID and input required' });
+        }
+        
+        const supabaseClient = getSupabase();
+        
+        let va = null;
+        try {
+            const { data } = await supabaseClient
+                .from('virtual_assistants')
+                .select('*')
+                .eq('id', assistantId)
+                .single();
+            va = data;
+        } catch (err) {
+            console.warn('VA lookup failed:', err.message);
+        }
+        
+        const systemPrompt = va
+            ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''} Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`
+            : 'You are a professional career assistant. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.';
+        
+        let output;
+        let usedFallback = false;
+        
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: input }
+            ], 1500, 0.7);
+            output = data.choices[0].message.content;
+        } catch (err) {
+            console.warn(`VA OpenAI call failed for ${assistantId}, using fallback:`, err.message);
+            usedFallback = true;
+            output = va?.sample_output || `Thank you for using ${va?.name || 'this assistant'}. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+        }
+        
+        try {
+            const { data: credits } = await supabaseClient
+                .from('va_credits')
+                .select('balance')
+                .eq('user_id', userId)
+                .single();
+            
+            if (credits && credits.balance > 0) {
+                await supabaseClient
+                    .from('va_credits')
+                    .update({ balance: credits.balance - 1 })
+                    .eq('user_id', userId);
+                
+                await supabaseClient
+                    .from('va_tasks')
+                    .insert({
+                        user_id: userId,
+                        va_id: assistantId,
+                        input: input,
+                        output: output,
+                        status: 'completed',
+                        created_at: new Date().toISOString(),
+                        completed_at: new Date().toISOString()
+                    });
+            }
+        } catch (err) {
+            console.warn('Credit deduction failed:', err.message);
+        }
+        
+        return res.status(200).json({ success: true, output, usedFallback });
+    },
+
+    // ========== VA FEEDBACK ==========
+    'va-feedback': async (req, res) => {
+        const { taskId, rating } = req.body;
+        const supabaseClient = getSupabase();
+        
+        try {
+            await supabaseClient
+                .from('va_tasks')
+                .update({ user_rating: rating })
+                .eq('id', taskId);
+            
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== TRACK EVENT ==========
+    'track-event': async (req, res) => {
+        const { event_type, event_data, user_id } = req.body;
+        
+        console.log(`📊 Event Tracked: ${event_type}`);
+        
+        const supabaseClient = getSupabase();
+        try {
+            await supabaseClient.from('analytics_events').insert({
+                event_type,
+                event_data,
+                user_id: user_id || null,
+                created_at: new Date().toISOString()
+            });
+        } catch (e) {
+            console.log('Analytics storage skipped:', e.message);
+        }
+        
+        return res.status(200).json({ success: true, message: 'Event tracked' });
+    },
+
+    // ========== COURSE ENROLLMENT ==========
+    'enroll-course': async (req, res) => {
+        const { userId, courseId } = req.body;
+        const supabaseClient = getSupabase();
+        
+        if (!userId || !courseId) return res.status(400).json({ error: 'User ID and Course ID required' });
+        
+        try {
+            const { data: existing } = await supabaseClient
+                .from('course_enrollments')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('course_id', courseId)
+                .maybeSingle();
+            
+            if (existing) {
+                return res.status(200).json({ success: true, message: 'Already enrolled', enrolled: true });
+            }
+            
+            await supabaseClient.from('course_enrollments').insert({
+                user_id: userId,
+                course_id: courseId,
+                enrolled_at: new Date().toISOString(),
+                progress: 0,
+                status: 'active'
+            });
+            
+            return res.status(200).json({ success: true, message: 'Enrolled successfully' });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== UPDATE COURSE PROGRESS ==========
+    // CHANGED (2026-08-07): now sets status/completed_at once progress
+    // reaches 100 — previously neither field was ever set, so nothing that
+    // checked course completion (e.g. CoursesPage.jsx) could ever see a
+    // course as finished even at 100% progress.
+    'update-course-progress': async (req, res) => {
+        const { userId, courseId, progress, lessonId } = req.body;
+        const supabaseClient = getSupabase();
+        
+        try {
+            const updates = {
+                progress: progress,
+                last_accessed: new Date().toISOString(),
+                last_lesson_id: lessonId
+            };
+            
+            let certificateId = null;
+            
+            if (progress >= 100) {
+                updates.status = 'completed';
+                updates.completed_at = new Date().toISOString();
+            }
+            
+            await supabaseClient
+                .from('course_enrollments')
+                .update(updates)
+                .eq('user_id', userId)
+                .eq('course_id', courseId);
+            
+            // NEW (2026-08-07): auto-issue a certificate on first completion,
+            // confirmed as a core feature in the platform's product
+            // documentation. unique(user_id, course_id) on course_certificates
+            // means this is safe to attempt on every completion call — a
+            // duplicate insert just fails silently and is ignored, so a user
+            // re-triggering 100% progress doesn't create multiple certificates.
+            if (progress >= 100) {
+                const certificateNumber = `ODB-${courseId.toString().substring(0, 8).toUpperCase()}-${userId.toString().substring(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+                
+                const { data: newCert, error: certError } = await supabaseClient
+                    .from('course_certificates')
+                    .insert({
+                        user_id: userId,
+                        course_id: courseId,
+                        certificate_number: certificateNumber
+                    })
+                    .select('id')
+                    .single();
+                
+                if (!certError && newCert) {
+                    certificateId = newCert.id;
+                } else if (certError) {
+                    // Likely already has a certificate (unique constraint) —
+                    // look it up instead of treating this as a failure.
+                    const { data: existingCert } = await supabaseClient
+                        .from('course_certificates')
+                        .select('id')
+                        .eq('user_id', userId)
+                        .eq('course_id', courseId)
+                        .maybeSingle();
+                    if (existingCert) certificateId = existingCert.id;
+                }
+            }
+            
+            return res.status(200).json({ success: true, progress, certificateId });
+        } catch (error) {
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== GET CERTIFICATE (NEW — 2026-08-07) ==========
+    // Backs the public certificate view/share page — joins course title and
+    // recipient name so the certificate page doesn't need multiple queries
+    // or expose more than necessary via direct client-side joins.
+    'get-certificate': async (req, res) => {
+        const { certificateId } = req.query;
+        if (!certificateId) return res.status(400).json({ error: 'certificateId is required' });
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: cert, error } = await supabaseClient
+                .from('course_certificates')
+                .select('*, courses(title, category, duration_hours), profiles(full_name)')
+                .eq('id', certificateId)
+                .single();
+
+            if (error || !cert) {
+                return res.status(404).json({ success: false, error: 'Certificate not found' });
+            }
+
+            return res.status(200).json({ success: true, certificate: cert });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== FORCE CLEAR AUTH ==========
+    'force-clear-auth': async (req, res) => {
+        return res.status(200).json({ 
+            success: true, 
+            message: 'Clear auth on client side',
+            instructions: 'Use supabase.auth.signOut() and clear localStorage'
+        });
+    },
+
+    // ========== DATABASE CHECK ==========
+    db: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const dbStart = Date.now();
+        try {
+            const { error } = await supabaseClient.from('profiles').select('id', { count: 'exact', head: true });
+            return res.status(200).json({
+                status: !error ? 'healthy' : 'unhealthy',
+                responseTime: Date.now() - dbStart,
+                error: error?.message || null,
+                timestamp: new Date().toISOString()
+            });
+        } catch (err) {
+            return res.status(500).json({
+                status: 'error',
+                responseTime: Date.now() - dbStart,
+                error: err.message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    },
+
+    // ========== TRACK PAGE VIEW (NEW — 2026-08-07) ==========
+    // Powers AnalyticsDashboard.jsx, which was previously reading from
+    // analytics_sessions/analytics_page_views tables that nothing ever
+    // wrote to. This single endpoint does everything needed per page view:
+    // finds or creates the session, extracts geolocation from Vercel's edge
+    // headers (same real mechanism the 'ip' handler already uses), detects
+    // device/browser server-side from the User-Agent header, and logs the
+    // page view. Called from a small tracking hook in App.jsx on every
+    // route change. Designed to fail silently from the caller's
+    // perspective — tracking should never be able to break the site.
+    'track-page-view': async (req, res) => {
+        const { sessionId, pageUrl, userId } = req.body;
+
+        if (!sessionId || !pageUrl) {
+            return res.status(400).json({ error: 'sessionId and pageUrl required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        const country = req.headers['x-vercel-ip-country'] || null;
+        const city = req.headers['x-vercel-ip-city'] || null;
+        const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
+
+        const ua = req.headers['user-agent'] || '';
+        let deviceType = 'desktop';
+        if (/tablet|ipad/i.test(ua)) deviceType = 'tablet';
+        else if (/mobile|android|iphone/i.test(ua)) deviceType = 'mobile';
+
+        let browser = 'unknown';
+        if (/edg/i.test(ua)) browser = 'Edge';
+        else if (/chrome/i.test(ua)) browser = 'Chrome';
+        else if (/safari/i.test(ua)) browser = 'Safari';
+        else if (/firefox/i.test(ua)) browser = 'Firefox';
+
+        try {
+            const { data: existingSession } = await supabaseClient
+                .from('analytics_sessions')
+                .select('id, page_count, start_time')
+                .eq('session_id', sessionId)
+                .maybeSingle();
+
+            if (existingSession) {
+                const durationSeconds = Math.floor((Date.now() - new Date(existingSession.start_time).getTime()) / 1000);
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .update({
+                        page_count: (existingSession.page_count || 0) + 1,
+                        duration_seconds: durationSeconds,
+                        end_time: new Date().toISOString()
+                    })
+                    .eq('id', existingSession.id);
+            } else {
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .insert({
+                        session_id: sessionId,
+                        ip_address: ip,
+                        country,
+                        city,
+                        device_type: deviceType,
+                        browser,
+                        start_time: new Date().toISOString(),
+                        page_count: 1,
+                        duration_seconds: 0,
+                        user_id: userId || null
+                    });
+            }
+
+            await supabaseClient
+                .from('analytics_page_views')
+                .insert({
+                    session_id: sessionId,
+                    page_url: pageUrl,
+                    ip_address: ip,
+                    country,
+                    city,
+                    device_type: deviceType,
+                    user_id: userId || null,
+                    created_at: new Date().toISOString()
+                });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.warn('Track page view error:', error.message);
+            // Fail silently — tracking must never break the site.
+            return res.status(200).json({ success: false });
+        }
+    },
+
+    // ========== HOMEPAGE STATS (Enhanced with fallback) ==========
+    'homepage-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        let errors = [];
+        let hasRealData = false;
+        
+        const stats = {
+            activeUsers: 125,
+            jobsPosted: 82,
+            courses: 15,
+            assessments: 8,
+            earlyMembers: 45,
+            testerSpots: 55,
+            // NEW (2026-08-07): backs HomeHero.jsx's "Impact" stat with a
+            // real count instead of a hardcoded number that never updated.
+            vaTasksCompleted: 0,
+            countriesSupported: 9
+        };
+
+        try {
+            // Try each query individually with error handling
+            try {
+                const { count } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
+                if (count > 0) {
+                    stats.activeUsers = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('profiles: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('jobs')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved');
+                if (count > 0) {
+                    stats.jobsPosted = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('jobs: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('courses')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_published', true);
+                if (count > 0) {
+                    stats.courses = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('courses: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('assessments')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_active', true);
+                if (count > 0) {
+                    stats.assessments = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('assessments: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('profiles')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_type', 'tester');
+                if (count > 0) {
+                    stats.earlyMembers = count;
+                    stats.testerSpots = Math.max(0, 100 - count);
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('tester profiles: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('va_tasks')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('status', 'completed');
+                if (count > 0) {
+                    stats.vaTasksCompleted = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('va_tasks: ' + e.message);
+            }
+
+            return res.status(200).json({
+                success: true,
+                stats: {
+                    ...stats,
+                    timestamp: new Date().toISOString(),
+                    fallback: !hasRealData,
+                    errors: errors.length > 0 ? errors : null,
+                    message: hasRealData ? 'Using real data' : 'Using fallback data - some tables may be empty'
+                }
+            });
+        } catch (error) {
+            console.error('Homepage stats error:', error);
+            return res.status(200).json({
+                success: true,
+                stats: {
+                    ...stats,
+                    timestamp: new Date().toISOString(),
+                    fallback: true,
+                    error: error.message
+                }
+            });
+        }
+    }
+};
+
+// ============================================
+// MAIN HANDLER
+// ============================================
+export default async function handler(req, res) {
+    setCors(res);
+    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    // NEW (2026-08-07): global IP block check, before any action runs.
+    const requestIP = getRequestIP(req);
+    if (await isIPBlocked(requestIP)) {
+        await logSecurityEvent('blocked_ip_attempt', requestIP, 'warning', { action: req.query.action || null });
+        return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const { action } = req.query;
+    
+    if (!action || !handlers[action]) {
+        return res.status(200).json({
+            name: 'ODUSBABA API',
+            version: '7.1.0',
+            description: 'Professional Consolidated API - Full site functionality',
+            available_actions: Object.keys(handlers),
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    try {
+        await handlers[action](req, res);
+    } catch (error) {
+        console.error(`Error in ${action}:`, error);
+        return res.status(500).json({ error: error.message });
+    }
+}
