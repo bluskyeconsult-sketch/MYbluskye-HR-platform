@@ -1293,6 +1293,144 @@ const handlers = {
     // Purchasable credit bundles for VA tasks/assessments (one-time
     // payment, distinct from subscriptions) — matches PricingPage.jsx's
     // credit pricing section, which was display-only until now.
+    // ========== AFFILIATE DASHBOARD (NEW — 2026-08-16) ==========
+    // AffiliateDashboard.jsx called ?action=affiliate-stats and
+    // ?action=affiliate-withdraw — neither existed anywhere, which is
+    // exactly why "the affiliate link can't be found anywhere": the page
+    // has never successfully loaded for any user. Auto-creates an
+    // affiliate record (with a generated code and referral link) on first
+    // visit, matching the Affiliate Plan defined earlier this session
+    // (starts 'pending', admin approves before earning — see
+    // AffiliateManagement.jsx).
+    'affiliate-stats': async (req, res) => {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+
+        const supabaseClient = getSupabase();
+        const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+
+        try {
+            let { data: affiliate } = await supabaseClient
+                .from('affiliates')
+                .select('*')
+                .eq('user_id', userId)
+                .maybeSingle();
+
+            if (!affiliate) {
+                // Generate a short, reasonably unique code — 8 random
+                // alphanumeric characters, checked for collision.
+                let code;
+                let attempts = 0;
+                while (attempts < 5) {
+                    code = Math.random().toString(36).substring(2, 10).toUpperCase();
+                    const { data: existing } = await supabaseClient
+                        .from('affiliates')
+                        .select('id')
+                        .eq('affiliate_code', code)
+                        .maybeSingle();
+                    if (!existing) break;
+                    attempts++;
+                }
+
+                const { data: newAffiliate, error: createError } = await supabaseClient
+                    .from('affiliates')
+                    .insert({
+                        user_id: userId,
+                        affiliate_code: code,
+                        referral_link: `${siteUrl}/sign-up?ref=${code}`,
+                        status: 'pending',
+                        total_clicks: 0,
+                        total_signups: 0,
+                        total_earnings: 0,
+                        available_balance: 0,
+                        withdrawn_amount: 0
+                    })
+                    .select()
+                    .single();
+
+                if (createError) throw createError;
+                affiliate = newAffiliate;
+            }
+
+            const { data: signups } = await supabaseClient
+                .from('profiles')
+                .select('full_name, created_at')
+                .eq('referred_by_affiliate_code', affiliate.affiliate_code)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            const { data: withdrawals } = await supabaseClient
+                .from('affiliate_withdrawals')
+                .select('*')
+                .eq('affiliate_id', affiliate.id)
+                .order('created_at', { ascending: false });
+
+            return res.status(200).json({
+                success: true,
+                data: {
+                    affiliate,
+                    stats: {
+                        clicks: affiliate.total_clicks || 0,
+                        signups: affiliate.total_signups || 0,
+                        earnings: affiliate.total_earnings || 0,
+                        available: affiliate.available_balance || 0
+                    },
+                    signups: signups || [],
+                    withdrawals: withdrawals || []
+                }
+            });
+        } catch (error) {
+            console.error('affiliate-stats error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'affiliate-withdraw': async (req, res) => {
+        const { affiliateId, amount, paymentMethod, paymentEmail } = req.body;
+        if (!affiliateId || !amount || !paymentMethod || !paymentEmail) {
+            return res.status(400).json({ success: false, error: 'affiliateId, amount, paymentMethod, and paymentEmail are required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        try {
+            // Re-validate server-side rather than trust the client-sent
+            // amount against the client's own stats snapshot.
+            const { data: affiliate } = await supabaseClient
+                .from('affiliates')
+                .select('available_balance')
+                .eq('id', affiliateId)
+                .single();
+
+            if (!affiliate) {
+                return res.status(404).json({ success: false, error: 'Affiliate record not found' });
+            }
+            if (amount < 50) {
+                return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $50' });
+            }
+            if (amount > (affiliate.available_balance || 0)) {
+                return res.status(400).json({ success: false, error: 'Insufficient balance' });
+            }
+
+            const { error: insertError } = await supabaseClient
+                .from('affiliate_withdrawals')
+                .insert({
+                    affiliate_id: affiliateId,
+                    amount,
+                    payment_method: paymentMethod,
+                    payment_email: paymentEmail,
+                    status: 'pending'
+                });
+
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('affiliate-withdraw error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'create-credit-checkout-session': async (req, res) => {
         const { credits, userId, userEmail } = req.body;
         if (!credits || !userId) {
