@@ -31,7 +31,7 @@
 // leaving paid-tier signups permanently on 'registered'.
 
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
     UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
@@ -114,6 +114,11 @@ const getPasswordStrengthColor = (strength) => {
 
 export default function SignUpPage() {
     const navigate = useNavigate();
+    // NEW (2026-08-16): referral capture — closes the affiliate program
+    // loop. Nothing previously read the ?ref= param at all, so referred
+    // signups were never attributed to the affiliate who sent them.
+    const [searchParams] = useSearchParams();
+    const referralCode = searchParams.get('ref');
     
     const [formData, setFormData] = useState({
         email: '',
@@ -368,6 +373,11 @@ export default function SignUpPage() {
                     user_type: userType,
                     tier: tier,
                     country_code: 'GB',
+                    // NEW (2026-08-16): referral attribution — only set
+                    // when a real ?ref= code was present, so this never
+                    // overwrites anything for direct (non-referred)
+                    // signups.
+                    ...(referralCode ? { referred_by_affiliate_code: referralCode, referred_at: new Date().toISOString() } : {}),
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 });
