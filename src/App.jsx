@@ -293,9 +293,9 @@ function Navbar() {
     return (
         <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center py-2">
+                <div className="flex justify-between items-center py-1">
                     <a href="/" className="flex items-center gap-3 text-white font-bold text-xl hover:text-primary-400 transition">
-                        <Logo size="xl" showText={false} />
+                        <Logo size="2xl" showText={false} />
                         ODUSBABA
                     </a>
 
@@ -452,6 +452,12 @@ function Footer() {
                             <li><a href="/blog" className="text-slate-400 text-sm hover:text-white transition">Career Blog</a></li>
                             <li><a href="/faq" className="text-slate-400 text-sm hover:text-white transition">FAQ</a></li>
                             <li><a href="/pricing" className="text-slate-400 text-sm hover:text-white transition">Pricing Plans</a></li>
+                            {/* NEW (2026-08-16): the real, live footer had
+                                no affiliate link anywhere at all — the
+                                separate, unused Footer.jsx component had
+                                one, but App.jsx uses its own inline Footer
+                                instead, which never had it. */}
+                            <li><a href="/affiliate" className="text-slate-400 text-sm hover:text-white transition">Affiliate Program</a></li>
                             <li><a href="/about" className="text-slate-400 text-sm hover:text-white transition">About Us</a></li>
                             <li><a href="/contact" className="text-slate-400 text-sm hover:text-white transition">Contact Support</a></li>
                         </ul>
