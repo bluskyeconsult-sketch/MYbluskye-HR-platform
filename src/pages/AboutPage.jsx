@@ -1,5 +1,24 @@
 // src/pages/AboutPage.jsx
 // COMPLETE CORRECTED VERSION - No Database references, pure frontend, robust content
+//
+// FIXED (2026-08-16): this page had the heaviest concentration of
+// fictitious/unverifiable specific numbers found anywhere this session —
+// same "no fictitious data" principle applied to PromoBanner.jsx,
+// FraudPreventionPage.jsx, ProductsPage.jsx, and ContactPage.jsx earlier.
+// "7 countries" (appeared 3 times, and the named list was itself
+// incomplete — missing France, which IS in the real confirmed 8-country
+// list from JobsPage.jsx), "1,000+ verified jobs", "98% User
+// Satisfaction", "10k+ Documents Generated", "7 psychometric tests", "24
+// Virtual Assistants" — all softened or corrected rather than guess-
+// replaced with different unverified numbers.
+//
+// ONE ITEM DELIBERATELY NOT SILENTLY CHANGED: "14-day money-back
+// guarantee" — this is a specific, actionable business promise, not a
+// soft marketing claim, and there is no refund logic anywhere in the
+// Stripe integration built this session. Left in place with a clear flag
+// rather than removed, since honoring it manually might be exactly what
+// you intend — this is your call, not a technical fix I should make
+// unilaterally.
 
 import { Link } from 'react-router-dom';
 import { 
@@ -97,7 +116,7 @@ export default function AboutPage() {
                                 <li className="flex items-start gap-2">• Employer verification and fraud protection</li>
                                 <li className="flex items-start gap-2">• Intelligent matching powered by AI</li>
                                 <li className="flex items-start gap-2">• Transparent geo-pricing for fair access</li>
-                                <li className="flex items-start gap-2">• Connect with professionals across 7 countries</li>
+                                <li className="flex items-start gap-2">• Connect with professionals across 8 countries</li>
                             </ul>
                         </div>
                     </div>
@@ -116,8 +135,8 @@ export default function AboutPage() {
                     {[
                         { icon: Brain, title: 'AI-Powered Intelligence', desc: 'ODUSBABA learns from every interaction to provide smarter recommendations and personalized career guidance.', color: 'from-purple-500/20 to-purple-600/20' },
                         { icon: Shield, title: 'Governed Trust', desc: 'Every skill is verified through AI and human oversight. Trust Scores reflect authentic capabilities.', color: 'from-blue-500/20 to-blue-600/20' },
-                        { icon: Users, title: 'Global Workforce', desc: 'Connect with professionals and employers from 7 countries, with more coming soon.', color: 'from-emerald-500/20 to-emerald-600/20' },
-                        { icon: Globe, title: '7 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia - with intelligent geo-pricing for fair access.', color: 'from-cyan-500/20 to-cyan-600/20' },
+                        { icon: Users, title: 'Global Workforce', desc: 'Connect with professionals and employers from 8 countries, with more coming soon.', color: 'from-emerald-500/20 to-emerald-600/20' },
+                        { icon: Globe, title: '8 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia, France - with intelligent geo-pricing for fair access.', color: 'from-cyan-500/20 to-cyan-600/20' },
                         { icon: Zap, title: 'Real-Time Matching', desc: 'Instant job and skill matching powered by advanced AI algorithms that learn your preferences.', color: 'from-amber-500/20 to-amber-600/20' },
                         { icon: Hand, title: 'Value Partnership', desc: 'Creating Value for Partnership in every interaction - we succeed when you succeed.', color: 'from-emerald-500/20 to-emerald-600/20' }
                     ].map((pillar, idx) => (
@@ -143,11 +162,11 @@ export default function AboutPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {[
-                            { icon: Briefcase, title: 'Job Board', desc: 'Browse 1,000+ verified jobs' },
+                            { icon: Briefcase, title: 'Job Board', desc: 'Browse verified jobs from trusted sources' },
                             { icon: Users, title: 'Workforce Market', desc: 'Find verified professionals' },
-                            { icon: BookOpen, title: 'AI Courses', desc: 'Learn with audio narration' },
-                            { icon: FileText, title: 'Assessments', desc: '7 psychometric tests' },
-                            { icon: Zap, title: '24 Virtual Assistants', desc: 'AI-powered task helpers' },
+                            { icon: BookOpen, title: 'AI Courses', desc: 'Practical, self-paced learning' },
+                            { icon: FileText, title: 'Assessments', desc: 'Psychometric and skill tests' },
+                            { icon: Zap, title: 'Virtual Assistants', desc: 'AI-powered task helpers' },
                             { icon: MessageCircle, title: 'AI Career Chat', desc: '24/7 career advice' },
                             { icon: Shield, title: 'Fraud Protection', desc: 'Employer verification' },
                             { icon: Award, title: 'Certificates', desc: 'Verified credentials' }
@@ -174,19 +193,19 @@ export default function AboutPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                     <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-6 text-center hover:border-primary-500/30 transition">
-                        <div className="text-5xl font-bold text-primary-400 mb-2">98%</div>
-                        <p className="text-white font-medium">User Satisfaction</p>
-                        <p className="text-slate-500 text-sm">Based on tester feedback</p>
-                    </div>
-                    <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-6 text-center hover:border-primary-500/30 transition">
                         <div className="text-5xl font-bold text-primary-400 mb-2">24/7</div>
                         <p className="text-white font-medium">AI Availability</p>
                         <p className="text-slate-500 text-sm">Always-on support</p>
                     </div>
                     <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-6 text-center hover:border-primary-500/30 transition">
-                        <div className="text-5xl font-bold text-primary-400 mb-2">10k+</div>
-                        <p className="text-white font-medium">Documents Generated</p>
-                        <p className="text-slate-500 text-sm">CVs, letters, and more</p>
+                        <div className="text-5xl font-bold text-primary-400 mb-2">8</div>
+                        <p className="text-white font-medium">Countries Covered</p>
+                        <p className="text-slate-500 text-sm">Including official government portals</p>
+                    </div>
+                    <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-6 text-center hover:border-primary-500/30 transition">
+                        <div className="text-5xl font-bold text-primary-400 mb-2"><Shield className="w-10 h-10 mx-auto" /></div>
+                        <p className="text-white font-medium">Employer Verification</p>
+                        <p className="text-slate-500 text-sm">Business details reviewed before trusted status</p>
                     </div>
                 </div>
             </div>
@@ -227,6 +246,15 @@ export default function AboutPage() {
                         </Link>
                     </div>
                     <p className="text-xs text-slate-500 mt-4">
+                        {/* FLAGGED (2026-08-16), NOT SILENTLY CHANGED: this
+                            "14-day money-back guarantee" is a specific,
+                            actionable promise — there is no refund logic
+                            anywhere in the Stripe integration built this
+                            session. Left in place since honoring it
+                            manually might be exactly what's intended, but
+                            this needs your explicit confirmation before
+                            going live with real payments — a customer
+                            could reasonably hold you to this exact wording. */}
                         Free tier available • No credit card required • 14-day money-back guarantee
                     </p>
                 </div>
