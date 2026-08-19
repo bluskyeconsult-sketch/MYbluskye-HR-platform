@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
     Users, MousePointer, DollarSign, CreditCard, Copy, CheckCircle, 
     ExternalLink, TrendingUp, Calendar, Clock, Wallet, Gift,
@@ -11,9 +11,15 @@ import {
     Mail, AlertCircle, Loader2, X, ChevronRight, Star
 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-08-16):
+// 1. Disconnected Supabase client (same pattern found and fixed
+//    repeatedly this session) — now uses the shared singleton.
+// 2. This page called ?action=affiliate-stats and ?action=affiliate-
+//    withdraw, neither of which existed anywhere in the backend — this is
+//    the actual reason the affiliate link "couldn't be found anywhere":
+//    the page has never once loaded successfully. Both actions built
+//    alongside this fix, including auto-creating an affiliate record with
+//    a real referral link on first visit.
 
 export default function AffiliateDashboard() {
     const navigate = useNavigate();
