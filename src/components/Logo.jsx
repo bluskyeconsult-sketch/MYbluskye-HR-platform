@@ -47,6 +47,14 @@ const SIZE_CONFIG = {
         text: 'text-xl sm:text-2xl',
         subtext: 'text-xs sm:text-sm',
         gap: 'gap-4'
+    },
+    // NEW (2026-08-16): 2x the size of xl (64px → 128px), specifically for
+    // the navbar per an explicit "still not visible enough" request.
+    '2xl': {
+        icon: 'w-32 h-32',
+        text: 'text-2xl sm:text-3xl',
+        subtext: 'text-sm sm:text-base',
+        gap: 'gap-4'
     }
 };
 
