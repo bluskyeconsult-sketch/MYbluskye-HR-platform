@@ -3,8 +3,38 @@
 // Features: Government feeds + Commercial feeds + Jobicy API + Remotive
 // Features: Sponsorship detection, job type detection, duplicate handling, search, suggestions, stats
 // Optimized: Rate limiting, caching, batch processing, reduced API calls, unified API endpoint
+//
+// FIXED (2026-08-16) — CRITICAL: this file runs server-side, inside a
+// Vercel serverless function (api/cron/sync-external-jobs.js), but was
+// written using browser-only APIs:
+// 1. parseRSSFeed() used `new DOMParser()` — DOMParser doesn't exist in
+//    Node.js at all. Every single RSS fetch has been throwing
+//    "ReferenceError: DOMParser is not defined" since this was deployed,
+//    silently caught by the per-source try/catch and logged as a failed
+//    source. This means the external job pipeline has very likely never
+//    actually populated a single job from any source, despite the cron
+//    running "successfully" every night — the top-level function never
+//    errored, because each source's failure was caught individually.
+//    Fixed by using fast-xml-parser (a real Node-compatible XML parser)
+//    instead, producing the identical job object shape so nothing else in
+//    this file needs to change.
+// 2. CORS_PROXY routed every fetch through a third-party proxy
+//    (allorigins.win) — CORS is a browser security mechanism that simply
+//    doesn't apply to server-to-server requests, so this was unnecessary
+//    even before the DOMParser issue: added latency and an unnecessary
+//    dependency on a third-party service staying up, for a problem that
+//    doesn't exist in this context. Removed; fetches now go directly to
+//    each source.
+//
+// NEW (2026-08-16): added a dedicated Nigeria source
+// (scrapeNigeriaFCSC()) — the 3 official URLs provided have no RSS/XML
+// feed at all (confirmed via direct fetch), unlike every other source
+// here. This is a best-effort HTML scraper against a specific site
+// structure, genuinely more fragile than the RSS-based sources — if the
+// Nigerian government redesigns that portal, this will need updating.
 
 import { supabase } from '../lib/supabase';
+import { XMLParser } from 'fast-xml-parser';
 
 // ============================================
 // CONSTANTS & CONFIGURATION
@@ -14,7 +44,6 @@ import { supabase } from '../lib/supabase';
 const API_BASE = '/api/index';
 const FETCH_JOBS_ENDPOINT = `${API_BASE}?action=fetch-jobs`;
 
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 const REQUEST_TIMEOUT = 10000;
 const MAX_JOBS_PER_SOURCE = 30;
 const BATCH_SIZE = 10;
@@ -351,12 +380,11 @@ function delay(ms) {
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
     try {
-        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(feedUrl)}`;
-        
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
         
-        const response = await fetch(proxyUrl, {
+        // FIXED: fetch directly — no CORS proxy needed server-side.
+        const response = await fetch(feedUrl, {
             headers: { 'User-Agent': 'ODUSBABA/1.0 (RSS Job Fetcher)' },
             signal: controller.signal
         });
@@ -369,33 +397,47 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         }
         
         const text = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, 'text/xml');
-        
-        if (xmlDoc.querySelector('parsererror')) {
-            console.warn(`RSS parsing error for ${feedUrl}`);
+
+        // FIXED: fast-xml-parser instead of DOMParser (doesn't exist in
+        // Node.js). Produces a plain JS object tree instead of a DOM.
+        const xmlParser = new XMLParser({ ignoreAttributes: false, trimValues: true });
+        let parsed;
+        try {
+            parsed = xmlParser.parse(text);
+        } catch (parseError) {
+            console.warn(`RSS parsing error for ${feedUrl}:`, parseError.message);
             return [];
         }
-        
-        const items = xmlDoc.querySelectorAll('item');
+
+        // RSS items normally live at rss.channel.item — fast-xml-parser
+        // returns a single object (not an array) when there's only one
+        // item, so normalize to an array either way.
+        const rawItems = parsed?.rss?.channel?.item;
+        const items = Array.isArray(rawItems) ? rawItems : (rawItems ? [rawItems] : []);
+
+        if (items.length === 0) {
+            console.warn(`No items found in RSS feed: ${feedUrl}`);
+            return [];
+        }
+
         const jobs = [];
-        
+
         for (const item of items) {
-            const title = item.querySelector('title')?.textContent?.trim() || '';
-            const description = item.querySelector('description')?.textContent?.trim() || '';
-            const link = item.querySelector('link')?.textContent?.trim() || '';
-            const pubDate = item.querySelector('pubDate')?.textContent;
-            
+            const title = (typeof item.title === 'string' ? item.title : item.title?.['#text'] || '').trim();
+            const description = (typeof item.description === 'string' ? item.description : item.description?.['#text'] || '').trim();
+            const link = (typeof item.link === 'string' ? item.link : item.link?.['#text'] || '').trim();
+            const pubDate = item.pubDate;
+
             if (!title || !link) continue;
-            
+
             const salary = extractSalary(description);
-            
+
             let location = '';
             const locationMatch = description.match(/(?:Location|based in|located in):?\s*([A-Za-z\s,]+)/i);
             if (locationMatch) location = locationMatch[1].trim();
-            
+
             const jobType = detectJobType(title, description);
-            
+
             jobs.push({
                 title: title.substring(0, 200),
                 description: description.substring(0, 1000),
@@ -409,13 +451,93 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
                 source_country: sourceCountry,
                 job_type: jobType
             });
-            
+
             if (jobs.length >= MAX_JOBS_PER_SOURCE) break;
         }
-        
+
         return jobs;
     } catch (error) {
         console.error(`Error parsing RSS feed ${feedUrl}:`, error);
+        return [];
+    }
+}
+
+// ============================================
+// NIGERIA — dedicated scraper (NEW — 2026-08-16)
+// No RSS/XML feed exists at any of the 3 official Federal Civil Service
+// URLs (confirmed via direct fetch + search) — unlike every RSS-based
+// source above, this depends on this specific site's HTML structure and
+// is genuinely more fragile. Best-effort: on any failure, logs and
+// returns an empty list rather than throwing, so it never breaks the
+// rest of the daily fetch.
+// ============================================
+
+async function scrapeNigeriaFCSC() {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+        const response = await fetch('https://recruitment.fedcivilservice.gov.ng/vacancies', {
+            headers: { 'User-Agent': 'ODUSBABA/1.0 (Job Fetcher)' },
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            console.warn(`Nigeria FCSC fetch failed: ${response.status}`);
+            return [];
+        }
+
+        const html = await response.text();
+
+        // This portal renders listings via JavaScript, so a plain HTML
+        // fetch may return little to no job data server-side — this
+        // extracts what it can from any static links present, and
+        // returns an empty list gracefully if the page is fully
+        // client-rendered rather than guessing at content that isn't
+        // actually there.
+        const jobs = [];
+        const linkPattern = /href="(\/vacancies\/[a-z0-9]+-([a-z0-9-]+))"/gi;
+        let match;
+        const seen = new Set();
+
+        while ((match = linkPattern.exec(html)) !== null && jobs.length < MAX_JOBS_PER_SOURCE) {
+            const path = match[1];
+            if (seen.has(path)) continue;
+            seen.add(path);
+
+            const slug = match[2] || '';
+            const title = slug
+                .split('-')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ')
+                .trim();
+
+            if (!title) continue;
+
+            jobs.push({
+                title: title.substring(0, 200),
+                description: `Vacancy listed on the Federal Civil Service Commission of Nigeria recruitment portal. View full details and apply on the official portal.`,
+                external_url: `https://recruitment.fedcivilservice.gov.ng${path}`,
+                salary_range: null,
+                salary_min: null,
+                salary_max: null,
+                location: 'Nigeria',
+                posted_date: null,
+                source_name: 'Federal Civil Service Commission Nigeria',
+                source_country: 'NG',
+                job_type: 'full_time'
+            });
+        }
+
+        if (jobs.length === 0) {
+            console.warn('Nigeria FCSC: no vacancy links found — the portal may be fully client-rendered, meaning this scraper cannot extract listings without a headless browser. Jobs can still be found manually at https://recruitment.fedcivilservice.gov.ng/vacancies.');
+        }
+
+        return jobs;
+    } catch (error) {
+        console.error('Error scraping Nigeria FCSC:', error);
         return [];
     }
 }
@@ -600,6 +722,41 @@ export async function fetchExternalJobs(forceRefresh = false) {
         }
     }
     
+    // NEW (2026-08-16): Nigeria — dedicated scraper, no RSS feed available.
+    // Isolated in its own try/catch, same as every RSS source above, so a
+    // failure here never affects the other 7 sources.
+    console.log('  📡 Fetching from Federal Civil Service Commission Nigeria...');
+    try {
+        const nigeriaJobs = await scrapeNigeriaFCSC();
+        let added = 0;
+
+        for (const job of nigeriaJobs) {
+            const sponsorship = detectSponsorshipEligibility(job.title, job.description);
+            const saveResult = await saveJobToDatabase(job, sponsorship);
+
+            if (saveResult.status === 'added') {
+                allJobs.push(job);
+                added++;
+            }
+
+            await delay(100);
+        }
+
+        results.push({
+            source: 'Federal Civil Service Commission Nigeria',
+            found: nigeriaJobs.length,
+            added: added,
+            status: 'success'
+        });
+    } catch (error) {
+        console.error('  ❌ Error with Nigeria FCSC:', error.message);
+        results.push({
+            source: 'Federal Civil Service Commission Nigeria',
+            error: error.message,
+            status: 'failed'
+        });
+    }
+
     // Fetch from API sources (if enabled)
     for (const [key, source] of Object.entries(API_SOURCES)) {
         if (!source.is_active) continue;
