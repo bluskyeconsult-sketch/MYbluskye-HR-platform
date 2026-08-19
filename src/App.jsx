@@ -609,6 +609,8 @@ const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
 const EmployerVerification = lazy(() => import('./pages/EmployerVerification'));
 const AdminEmployerVerification = lazy(() => import('./pages/admin/AdminEmployerVerification'));
 const AdminOpportunityGaps = lazy(() => import('./pages/admin/AdminOpportunityGaps'));
+const AdminRefundRequests = lazy(() => import('./pages/admin/AdminRefundRequests'));
+const RequestRefundPage = lazy(() => import('./pages/RequestRefundPage'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
@@ -822,6 +824,8 @@ function AppContent() {
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminEmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminOpportunityGaps /></ProtectedRoute>} />
+                            <Route path="/admin/refund-requests" element={<ProtectedRoute requireAdmin><AdminRefundRequests /></ProtectedRoute>} />
+                            <Route path="/request-refund" element={<ProtectedRoute><RequestRefundPage /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
