@@ -147,8 +147,66 @@ function isValidEmail(email) {
 // unlimited status still bypasses this entirely, unchanged.
 // ============================================
 
-async function checkAndDeductCredit(supabaseClient, userId) {
-    if (!userId) return { allowed: true, unlimited: true, remaining: null };
+// NEW (2026-08-16): extracts the real client IP in a Vercel serverless
+// context — used only for guest rate limiting below.
+function getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) return forwarded.split(',')[0].trim();
+    return req.socket?.remoteAddress || 'unknown';
+}
+
+// NEW (2026-08-16): usage caps to discourage overuse/abuse.
+// 1. Guests (no userId) previously bypassed metering entirely — the
+//    frontend's guest limit was enforced only client-side (a JS counter),
+//    trivially bypassed by calling the API directly. Now rate-limited by
+//    IP address server-side: 10 requests per rolling hour.
+// 2. Free-tier accounts get an additional burst-rate cap on top of their
+//    monthly credit allowance — 15 requests per rolling hour — so a
+//    script can't drain a whole month's 5-credit allowance in seconds
+//    (a low number, but the same principle protects every tier from
+//    request-flooding, not just credit exhaustion).
+async function checkRateLimit(supabaseClient, ip, maxPerHour) {
+    const windowStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    const { data: existing } = await supabaseClient
+        .from('guest_rate_limits')
+        .select('id, request_count, window_start')
+        .eq('ip_address', ip)
+        .maybeSingle();
+
+    if (!existing || new Date(existing.window_start) < new Date(windowStart)) {
+        // No record, or the window has expired — start a fresh one.
+        await supabaseClient
+            .from('guest_rate_limits')
+            .upsert({ ip_address: ip, request_count: 1, window_start: new Date().toISOString() }, { onConflict: 'ip_address' });
+        return { allowed: true };
+    }
+
+    if (existing.request_count >= maxPerHour) {
+        return { allowed: false };
+    }
+
+    await supabaseClient
+        .from('guest_rate_limits')
+        .update({ request_count: existing.request_count + 1 })
+        .eq('id', existing.id);
+
+    return { allowed: true };
+}
+
+async function checkAndDeductCredit(supabaseClient, userId, req = null) {
+    if (!userId) {
+        // FIXED: guests no longer bypass metering entirely — rate limited
+        // by IP instead, since there's no account to meter credits against.
+        if (req) {
+            const ip = getClientIp(req);
+            const rateCheck = await checkRateLimit(supabaseClient, ip, 10);
+            if (!rateCheck.allowed) {
+                return { allowed: false, unlimited: false, remaining: 0, rateLimited: true };
+            }
+        }
+        return { allowed: true, unlimited: true, remaining: null };
+    }
 
     const { data: profile } = await supabaseClient
         .from('profiles')
@@ -158,6 +216,17 @@ async function checkAndDeductCredit(supabaseClient, userId) {
 
     const isUnlimited = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
     if (isUnlimited) return { allowed: true, unlimited: true, remaining: null };
+
+    // Burst-rate cap for free tier specifically, on top of the monthly
+    // credit allowance — protects against rapid request-flooding even
+    // within an otherwise-valid credit balance.
+    if ((profile?.user_type === 'free' || profile?.tier === 'free') && req) {
+        const ip = getClientIp(req);
+        const rateCheck = await checkRateLimit(supabaseClient, `user:${userId}:${ip}`, 15);
+        if (!rateCheck.allowed) {
+            return { allowed: false, unlimited: false, remaining: 0, rateLimited: true };
+        }
+    }
 
     const { data: credits } = await supabaseClient
         .from('va_credits')
@@ -866,6 +935,47 @@ const handlers = {
     },
 
     // ========== AI CHAT ==========
+    // Detects whether a chat message is asking about jobs, and if so,
+    // searches the real jobs table (which already contains both
+    // admin-posted internal listings AND approved external jobs sourced
+    // from the official government portals — they're unified into one
+    // table by the existing approval flow, so one query naturally covers
+    // both "internal job board and verified country official sources" as
+    // asked for). Returns a compact list for the AI to reference, or null
+    // if the message doesn't look job-related.
+    async function findRelevantJobs(supabaseClient, userMessage) {
+        const jobKeywords = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
+        if (!jobKeywords.test(userMessage)) return null;
+
+        try {
+            // Naive keyword extraction: strip common stopwords/job-generic
+            // terms, keep whatever's left as the search term (likely a job
+            // title, skill, or location the user mentioned).
+            const searchTerm = userMessage
+                .replace(jobKeywords, '')
+                .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around)\b/gi, '')
+                .trim()
+                .substring(0, 100);
+
+            let query = supabaseClient
+                .from('jobs')
+                .select('title, company, location, job_type, salary_range, external_apply_url, source_country')
+                .eq('is_active', true)
+                .order('created_at', { ascending: false })
+                .limit(5);
+
+            if (searchTerm.length >= 3) {
+                query = query.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,location.ilike.%${searchTerm}%`);
+            }
+
+            const { data: jobs } = await query;
+            return jobs && jobs.length > 0 ? jobs : null;
+        } catch (error) {
+            console.warn('Job search within chat failed, continuing without job context:', error);
+            return null;
+        }
+    }
+
     chat: async (req, res) => {
         const { message, history, systemPrompt, temperature = 0.7, maxTokens = 800, userId } = req.body;
 
@@ -880,10 +990,10 @@ const handlers = {
             // VA tasks and HR Tools. One credit currency across every
             // AI-costing feature now, not three separate ones.
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
 
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.', remaining: 0 });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.', remaining: 0 });
             }
 
             let messages = history || [];
@@ -893,12 +1003,30 @@ const handlers = {
                 messages = [{ role: 'system', content: systemPrompt }, ...messages];
             }
 
+            // NEW (2026-08-16): job-search awareness — if the message
+            // looks job-related, real current listings are injected as
+            // additional context so the AI can act as a genuine guide,
+            // recommending real jobs rather than generic advice or
+            // fabricated listings.
+            const relevantJobs = await findRelevantJobs(supabaseClient, message);
+            if (relevantJobs) {
+                const jobContext = relevantJobs.map(j =>
+                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${j.source_country && j.source_country !== 'internal' ? ` [via official ${j.source_country} government portal]` : ''}`
+                ).join('\n');
+
+                messages = [{
+                    role: 'system',
+                    content: `The user's message may be about job searching. Here are real, current listings from our job board that might be relevant (this includes both internally-posted jobs and jobs sourced from verified official government portals):\n\n${jobContext}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply on our Jobs page. Never invent or describe job listings that aren't in this list — if none of these are a good match, say so honestly and suggest they browse the full job board instead.`
+                }, ...messages];
+            }
+
             const data = await callOpenAI(messages, maxTokens, temperature);
             return res.status(200).json({
                 success: true,
                 response: data.choices[0].message.content,
                 usage: data.usage,
-                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining,
+                jobsReferenced: relevantJobs ? relevantJobs.length : 0
             });
         } catch (error) {
             return res.status(500).json({ error: error.message });
@@ -949,9 +1077,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -971,9 +1099,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const priorQuestions = Array.isArray(questions) && questions.length > 0
@@ -997,9 +1125,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1020,9 +1148,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1042,9 +1170,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1065,9 +1193,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             // NEW (2026-08-16): cached — job title + location + experience
@@ -1094,9 +1222,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1117,9 +1245,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1140,9 +1268,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1163,9 +1291,9 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
-            const creditCheck = await checkAndDeductCredit(supabaseClient, userId);
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
-                return res.status(403).json({ success: false, error: 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
             const data = await callOpenAI([
@@ -1557,6 +1685,409 @@ const handlers = {
             return res.status(200).json({ success: true, granted, skipped, errors: errors.length > 0 ? errors : undefined });
         } catch (error) {
             console.error('grant-monthly-credits error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== CHAT SKILL EXTRACTION & JOB MATCHING (NEW — 2026-08-16) ==========
+    // Users can paste their CV/skills into chat; this extracts structured
+    // skills via AI and stores them for job matching. Metered by the same
+    // unified credit system as everything else — this is a real
+    // AI-costing action, not free.
+    //
+    // IMPORTANT CAVEAT: stores to profiles.chat_extracted_skills, a new,
+    // deliberately separate column — NOT integrated with whatever real
+    // skills system UserSkills.jsx already uses (referenced earlier this
+    // session but never reviewed). Building on an assumed schema here
+    // risked creating a second, conflicting skills store — exactly the
+    // kind of duplication this whole session has been cleaning up. If
+    // UserSkills.jsx already has a proper skills table, this should be
+    // migrated to use that instead once that file is available.
+    // ========== USER SKILLS (NEW — 2026-08-16) ==========
+    // Backs UserSkills.jsx — user-skills, user-skill-add,
+    // user-skill-update, user-skill-delete all called actions that didn't
+    // exist anywhere in the backend, confirmed via direct check. This
+    // page has very likely never worked for any user.
+
+    'user-skills': async (req, res) => {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const { data, error } = await supabaseClient
+                .from('user_skills')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, data: data || [] });
+        } catch (error) {
+            console.error('user-skills error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'user-skill-add': async (req, res) => {
+        const { userId, skill } = req.body;
+        if (!userId || !skill?.skill_name || !skill?.category) {
+            return res.status(400).json({ success: false, error: 'userId and skill (with skill_name, category) are required' });
+        }
+
+        try {
+            const supabaseClient = getSupabase();
+            const { data, error } = await supabaseClient
+                .from('user_skills')
+                .insert({
+                    user_id: userId,
+                    skill_name: skill.skill_name,
+                    category: skill.category,
+                    years_experience: skill.years_experience || 0,
+                    proficiency_level: skill.proficiency_level || null,
+                    verification_status: 'pending',
+                    source: 'manual'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, skill: data });
+        } catch (error) {
+            console.error('user-skill-add error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'user-skill-update': async (req, res) => {
+        const { skillId, userId, updates } = req.body;
+        if (!skillId || !userId) return res.status(400).json({ success: false, error: 'skillId and userId are required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const { error } = await supabaseClient
+                .from('user_skills')
+                .update({
+                    skill_name: updates?.skill_name,
+                    category: updates?.category,
+                    years_experience: updates?.years_experience,
+                    proficiency_level: updates?.proficiency_level,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', skillId)
+                .eq('user_id', userId); // ownership check — never trust the client alone
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('user-skill-update error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'user-skill-delete': async (req, res) => {
+        const { skillId, userId } = req.body;
+        if (!skillId || !userId) return res.status(400).json({ success: false, error: 'skillId and userId are required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const { error } = await supabaseClient
+                .from('user_skills')
+                .delete()
+                .eq('id', skillId)
+                .eq('user_id', userId);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('user-skill-delete error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // FIXED (2026-08-16): migrated to write into the real user_skills
+    // table (backing UserSkills.jsx) instead of a separate
+    // profiles.chat_extracted_skills column — avoids creating a second,
+    // disconnected skills store now that the real system is confirmed.
+    'extract-skills-from-chat': async (req, res) => {
+        const { cvOrSkillsText, userId } = req.body;
+        if (!cvOrSkillsText) return res.status(400).json({ error: 'cvOrSkillsText is required' });
+        if (!userId) return res.status(400).json({ error: 'userId is required — skill extraction requires a registered account' });
+
+        const validCategories = ['technical', 'soft', 'leadership', 'creative', 'analytical', 'communication', 'management', 'ai', 'data'];
+
+        try {
+            const supabaseClient = getSupabase();
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+            if (!creditCheck.allowed) {
+                return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            }
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `Extract a structured list of professional skills from the CV or skills description provided. Return ONLY a valid JSON array of objects, each with "skill_name" (a specific, searchable skill like "Project Management" or "Python") and "category" (must be exactly one of: ${validCategories.join(', ')}). No explanation, no markdown — just the JSON array.`
+                },
+                { role: 'user', content: cvOrSkillsText }
+            ], 600, 0.3);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            const extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+
+            const savedSkills = [];
+            for (const item of extracted) {
+                if (!item.skill_name) continue;
+                const category = validCategories.includes(item.category) ? item.category : 'technical';
+
+                // Avoid duplicate entries if the same skill is shared again
+                const { data: existing } = await supabaseClient
+                    .from('user_skills')
+                    .select('id')
+                    .eq('user_id', userId)
+                    .ilike('skill_name', item.skill_name)
+                    .maybeSingle();
+
+                if (existing) continue;
+
+                const { data: inserted } = await supabaseClient
+                    .from('user_skills')
+                    .insert({
+                        user_id: userId,
+                        skill_name: item.skill_name,
+                        category,
+                        verification_status: 'pending',
+                        source: 'chat_extracted'
+                    })
+                    .select()
+                    .single();
+
+                if (inserted) savedSkills.push(inserted);
+            }
+
+            return res.status(200).json({
+                success: true,
+                skills: savedSkills.map(s => s.skill_name),
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+            });
+        } catch (error) {
+            console.error('extract-skills-from-chat error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Matches a user's real, stored skills (from user_skills — either
+    // manually added via UserSkills.jsx or chat-extracted) against real
+    // job listings — not metered, since this is a database query, not an
+    // OpenAI call.
+    'match-jobs-to-skills': async (req, res) => {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        try {
+            const supabaseClient = getSupabase();
+            const { data: skillRows } = await supabaseClient
+                .from('user_skills')
+                .select('skill_name')
+                .eq('user_id', userId);
+
+            const skills = (skillRows || []).map(s => s.skill_name);
+            if (skills.length === 0) {
+                return res.status(200).json({ success: true, jobs: [], message: 'No skills on file yet — add skills on your Skills page or share your CV in chat first.' });
+            }
+
+            // Build an OR filter matching any stored skill against job
+            // title/description — genuinely simple keyword matching, not
+            // an AI call, so no credit cost.
+            const orFilter = skills
+                .slice(0, 10) // cap to keep the query reasonable
+                .map(skill => `title.ilike.%${skill}%,description.ilike.%${skill}%`)
+                .join(',');
+
+            const { data: jobs } = await supabaseClient
+                .from('jobs')
+                .select('id, title, company, location, job_type, salary_range, external_apply_url')
+                .eq('is_active', true)
+                .or(orFilter)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            return res.status(200).json({ success: true, jobs: jobs || [], matchedSkills: skills });
+        } catch (error) {
+            console.error('match-jobs-to-skills error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ACTIVITY SIGNALS / TRENDING / GAP ANALYSIS (NEW — 2026-08-16) ==========
+    // Shared foundation for 3 related requests: the "latest trend corner",
+    // opportunity-gap analysis with auto-build-assist, and informing
+    // newsletter content.
+
+    // Lightweight, unmetered logging — not an AI call, just a database
+    // write. Called from search bars and chat.
+    'log-activity-signal': async (req, res) => {
+        const { signalType, queryText, sourcePage, userId } = req.body;
+        if (!signalType || !queryText) return res.status(400).json({ success: false, error: 'signalType and queryText are required' });
+        if (queryText.trim().length < 2) return res.status(200).json({ success: true }); // skip trivial/empty queries silently
+
+        try {
+            const supabaseClient = getSupabase();
+            await supabaseClient.from('activity_signals').insert({
+                signal_type: signalType,
+                query_text: queryText.trim().substring(0, 300),
+                source_page: sourcePage || null,
+                user_id: userId || null
+            });
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            // Logging failures should never break the user's actual action
+            console.warn('log-activity-signal error:', error);
+            return res.status(200).json({ success: true });
+        }
+    },
+
+    // Public — powers the "Latest Trend Corner" widget. Not an AI call,
+    // just aggregation, so it's fast and free to call often.
+    'trending-topics': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const days = parseInt(req.query?.days || req.body?.days || '7', 10);
+
+        try {
+            const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+            const { data: signals } = await supabaseClient
+                .from('activity_signals')
+                .select('query_text')
+                .gte('created_at', since)
+                .limit(2000);
+
+            const counts = {};
+            for (const s of signals || []) {
+                const normalized = s.query_text.toLowerCase().trim();
+                counts[normalized] = (counts[normalized] || 0) + 1;
+            }
+
+            const trending = Object.entries(counts)
+                .filter(([, count]) => count >= 2) // skip one-off queries
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10)
+                .map(([topic, count]) => ({ topic, count }));
+
+            return res.status(200).json({ success: true, trending });
+        } catch (error) {
+            console.error('trending-topics error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Admin-only. AI reviews recent search/chat activity to surface real
+    // gaps and opportunities — and "auto build assist": for each gap, it
+    // drafts a concrete starting point (a suggested tool name and, where
+    // applicable, an actual system prompt that could power it), not just
+    // a description of the problem.
+    'analyze-opportunity-gaps': async (req, res) => {
+        const { userId } = req.body;
+
+        const supabaseClient = getSupabase();
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+        if (!creditCheck.allowed) {
+            return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+        }
+
+        try {
+            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: signals } = await supabaseClient
+                .from('activity_signals')
+                .select('query_text, signal_type')
+                .gte('created_at', since)
+                .limit(500);
+
+            if (!signals || signals.length < 10) {
+                return res.status(200).json({ success: true, gaps: [], message: 'Not enough recent activity yet for a meaningful analysis — check back after more usage builds up.' });
+            }
+
+            const sampleText = signals.map(s => `[${s.signal_type}] ${s.query_text}`).join('\n').substring(0, 8000);
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are a product strategist reviewing real user search queries and chat topics from an HR/career platform (job search, HR Tools, courses, assessments, workforce marketplace, virtual assistants). Identify 3-5 genuine gaps or opportunities — things users are clearly asking for that the platform doesn't currently offer well. For each gap, return: "gap" (what users need), "evidence" (a brief note on what patterns suggest this), "suggested_build" (a specific, concrete thing to build — a new HR Tool, article topic, course, or feature), and "starter_prompt" (if it's an AI-tool idea, a real, usable system prompt to power it; otherwise null). Return ONLY a valid JSON array of these objects, no other text.`
+                },
+                { role: 'user', content: sampleText }
+            ], 1500, 0.5);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            const gaps = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+
+            return res.status(200).json({ success: true, gaps, signalsAnalyzed: signals.length, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            console.error('analyze-opportunity-gaps error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Admin-only. Pulls recent real platform activity (new jobs, new
+    // courses, new articles, trending topics) into a ready-to-edit
+    // newsletter draft — closes the "newsletter pool" request without
+    // requiring manual curation from scratch every time.
+    'generate-newsletter-digest': async (req, res) => {
+        const supabaseClient = getSupabase();
+
+        try {
+            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+            const [{ data: newJobs }, { data: newCourses }, { data: newArticles }, trendingResponse] = await Promise.all([
+                supabaseClient.from('jobs').select('title, company, location').eq('is_active', true).gte('created_at', since).limit(10),
+                supabaseClient.from('courses').select('title, description').eq('is_published', true).gte('created_at', since).limit(5),
+                supabaseClient.from('articles').select('title, excerpt, slug').eq('is_published', true).gte('created_at', since).limit(5),
+                (async () => {
+                    const { data } = await supabaseClient.from('activity_signals').select('query_text').gte('created_at', since).limit(500);
+                    return data;
+                })()
+            ]);
+
+            const counts = {};
+            for (const s of trendingResponse || []) {
+                const normalized = s.query_text.toLowerCase().trim();
+                counts[normalized] = (counts[normalized] || 0) + 1;
+            }
+            const topTrending = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([topic]) => topic);
+
+            const jobsSection = (newJobs || []).length > 0
+                ? (newJobs || []).map(j => `- ${j.title} at ${j.company || 'N/A'} (${j.location || 'various locations'})`).join('\n')
+                : 'No new jobs posted this week.';
+
+            const coursesSection = (newCourses || []).length > 0
+                ? (newCourses || []).map(c => `- ${c.title}`).join('\n')
+                : 'No new courses this week.';
+
+            const articlesSection = (newArticles || []).length > 0
+                ? (newArticles || []).map(a => `- [${a.title}](/articles/${a.slug})`).join('\n')
+                : 'No new articles this week.';
+
+            const draftContent = `## This Week on ODUSBABA
+
+### New Job Opportunities
+${jobsSection}
+
+### New Courses
+${coursesSection}
+
+### Latest Articles
+${articlesSection}
+
+${topTrending.length > 0 ? `### What People Are Searching For\n${topTrending.map(t => `- ${t}`).join('\n')}` : ''}`;
+
+            return res.status(200).json({
+                success: true,
+                draft: {
+                    subject: `Your Weekly ODUSBABA Digest — ${new Date().toLocaleDateString()}`,
+                    content: draftContent
+                }
+            });
+        } catch (error) {
+            console.error('generate-newsletter-digest error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
