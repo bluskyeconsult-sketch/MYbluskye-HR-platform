@@ -246,16 +246,12 @@ export default function AboutPage() {
                         </Link>
                     </div>
                     <p className="text-xs text-slate-500 mt-4">
-                        {/* FLAGGED (2026-08-16), NOT SILENTLY CHANGED: this
-                            "14-day money-back guarantee" is a specific,
-                            actionable promise — there is no refund logic
-                            anywhere in the Stripe integration built this
-                            session. Left in place since honoring it
-                            manually might be exactly what's intended, but
-                            this needs your explicit confirmation before
-                            going live with real payments — a customer
-                            could reasonably hold you to this exact wording. */}
-                        Free tier available • No credit card required • 14-day money-back guarantee
+                        {/* RESOLVED (2026-08-16): the money-back guarantee
+                            promise is now backed by a real fulfillment flow
+                            — RequestRefundPage.jsx + admin review +
+                            actual Stripe refund processing. Linked below. */}
+                        Free tier available • No credit card required •{' '}
+                        <Link to="/request-refund" className="text-primary-400 hover:underline">14-day money-back guarantee</Link>
                     </p>
                 </div>
             </div>
