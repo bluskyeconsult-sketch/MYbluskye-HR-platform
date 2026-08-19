@@ -71,6 +71,38 @@ export default function NewsletterAdmin() {
         loadStats();
     }, []);
 
+    // NEW (2026-08-16): pulls recent jobs/courses/articles/trending
+    // topics into a ready-to-edit draft, closing the "newsletter pool
+    // auto-feed" request — no manual curation from scratch every time.
+    const [generatingDigest, setGeneratingDigest] = useState(false);
+
+    async function handleGenerateDigest() {
+        setGeneratingDigest(true);
+        try {
+            const response = await fetch('/api/index?action=generate-newsletter-digest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+
+            if (!data.success) throw new Error(data.error);
+
+            setFormData({
+                title: data.draft.subject,
+                subject: data.draft.subject,
+                content: data.draft.content,
+                scheduled_for: '',
+                send_now: false
+            });
+            setShowCreateModal(true);
+        } catch (error) {
+            console.error('Digest generation failed:', error);
+            alert('Failed to generate digest: ' + error.message);
+        } finally {
+            setGeneratingDigest(false);
+        }
+    }
+
     async function loadData() {
         setLoading(true);
         
@@ -318,28 +350,41 @@ export default function NewsletterAdmin() {
         alert('Newsletter deleted successfully.');
     }
 
+    // FIXED (2026-08-16): called ?action=newsletter-export, which doesn't
+    // exist — unlike loadData()/loadSubscribers() above, this had no
+    // fallback at all, so clicking Export did nothing visible: no CSV, no
+    // error, no download, just silent failure. Builds the CSV directly
+    // from already-loaded subscriber data instead of a backend call.
     async function handleExportSubscribers() {
         try {
-            const response = await fetch('/api/index?action=newsletter-export', {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                // Create CSV
-                const csv = data.subscribers.map(s => `${s.email},${s.name || ''},${s.subscribed_at}`).join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `subscribers_${new Date().toISOString().split('T')[0]}.csv`;
-                a.click();
-                URL.revokeObjectURL(url);
+            let exportSubscribers = subscribers;
+            if (!exportSubscribers || exportSubscribers.length === 0) {
+                const { data, error } = await supabase
+                    .from('newsletter_subscribers')
+                    .select('*')
+                    .eq('status', 'active');
+                if (error) throw error;
+                exportSubscribers = data || [];
             }
+
+            if (exportSubscribers.length === 0) {
+                alert('No active subscribers to export.');
+                return;
+            }
+
+            const csv = 'Email,Name,Subscribed At\n' + exportSubscribers
+                .map(s => `${s.email},${s.name || ''},${s.subscribed_at || s.created_at || ''}`)
+                .join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `subscribers_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Export failed:', error);
-            alert('Failed to export subscribers.');
+            alert('Failed to export subscribers: ' + error.message);
         }
     }
 
@@ -430,6 +475,14 @@ export default function NewsletterAdmin() {
                     >
                         <Plus className="w-4 h-4" />
                         Create Newsletter
+                    </button>
+                    <button
+                        onClick={handleGenerateDigest}
+                        disabled={generatingDigest}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${generatingDigest ? 'animate-spin' : ''}`} />
+                        {generatingDigest ? 'Generating...' : 'Generate Weekly Digest'}
                     </button>
                     <button
                         onClick={handleExportSubscribers}
