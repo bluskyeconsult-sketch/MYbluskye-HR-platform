@@ -42,7 +42,8 @@ import { XMLParser } from 'fast-xml-parser';
 
 // ✅ FIXED: Unified API endpoint
 const API_BASE = '/api/index';
-const FETCH_JOBS_ENDPOINT = `${API_BASE}?action=fetch-jobs`;
+// FETCH_JOBS_ENDPOINT removed (2026-08-16) — was only used by
+// triggerJobFetchViaAPI(), now fixed to call fetchExternalJobs() directly.
 
 const REQUEST_TIMEOUT = 10000;
 const MAX_JOBS_PER_SOURCE = 30;
@@ -985,26 +986,19 @@ export async function loadJobsFromSQL() {
 
 /**
  * Trigger job fetch via unified API endpoint
- * This replaces direct fetch to /api/fetch-jobs
+ * FIXED (2026-08-16): called the now-removed ?action=fetch-jobs — that
+ * action was deliberately removed earlier this session in favor of the
+ * real cron file (api/cron/sync-external-jobs.js), which calls
+ * fetchExternalJobs() in this same file directly. This function was never
+ * actually imported/called anywhere, so it was harmless dead code rather
+ * than an active bug — but fixing it now rather than leaving a landmine
+ * for whenever someone eventually wires up a manual "refresh jobs" button
+ * using it. Now calls the same function directly instead of a dead HTTP
+ * endpoint.
  */
 export async function triggerJobFetchViaAPI() {
     try {
-        const response = await fetch(FETCH_JOBS_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`API returned ${response.status}`);
-        }
-        
-        const data = await response.json();
-        return {
-            success: true,
-            message: data.message || 'Job fetch initiated',
-            added: data.added || 0,
-            details: data.details
-        };
+        return await fetchExternalJobs(true);
     } catch (error) {
         console.error('Trigger fetch error:', error);
         return {
