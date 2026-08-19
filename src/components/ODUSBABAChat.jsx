@@ -60,30 +60,16 @@ const LEGAL_SOURCES = {
 // ============================================
 // INTENT DETECTION HELPERS
 // ============================================
-
-function detectIntent(message) {
-    const lowerMsg = message.toLowerCase();
-    
-    const intents = [
-        { keywords: ['visa sponsorship', 'sponsorship job', 'work visa', 'tier 2 visa', 'skilled worker visa'], intent: 'job_search', subIntent: 'visa_sponsorship' },
-        { keywords: ['job', 'position', 'role', 'career', 'opportunity', 'find job', 'search job', 'looking for work'], intent: 'job_search', subIntent: 'general' },
-        { keywords: ['dismiss', 'fired', 'termination', 'unfair dismissal', 'redundancy', 'layoff'], intent: 'hr_advice', subIntent: 'dismissal' },
-        { keywords: ['grievance', 'complaint', 'harassment', 'discrimination', 'bullying'], intent: 'hr_advice', subIntent: 'grievance' },
-        { keywords: ['legal', 'rights', 'law', 'employment law', 'workplace rights', 'labor law', 'minimum wage'], intent: 'legal_info', subIntent: 'general' },
-        { keywords: ['cv', 'resume', 'curriculum vitae', 'cover letter', 'application letter'], intent: 'cv_optimization', subIntent: 'general' },
-        { keywords: ['skill', 'portfolio', 'showcase', 'list my skill', 'verify skill'], intent: 'workforce_listing', subIntent: 'general' },
-        { keywords: ['hire', 'recruit', 'employ', 'find worker', 'staff', 'talent'], intent: 'hire_workers', subIntent: 'general' },
-        { keywords: ['va', 'virtual assistant', 'hire va', 'execute task'], intent: 'virtual_assistant', subIntent: 'general' }
-    ];
-    
-    for (const intent of intents) {
-        if (intent.keywords.some(keyword => lowerMsg.includes(keyword))) {
-            return { intent: intent.intent, subIntent: intent.subIntent };
-        }
-    }
-    
-    return { intent: 'general', subIntent: null };
-}
+//
+// REMOVED (2026-08-16): detectIntent() and its job_search branch (along
+// with handleJobSearch()/searchLiveJobs() further below) — these called
+// ?action=jobs, which doesn't exist anywhere in the backend, and
+// completely bypassed the metered chat path. See the note at the removed
+// call site for the full explanation. The other intent types this
+// function detected (hr_advice, cv_optimization, workforce_listing,
+// hire_workers, virtual_assistant) were never actually checked or used
+// anywhere else in this file — confirmed via a full search before
+// removal — so nothing else depended on this function.
 
 function detectCountry(message) {
     const lowerMsg = message.toLowerCase();
@@ -230,74 +216,68 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // JOB SEARCH HANDLER (RESTORED)
+    // JOB SEARCH — REMOVED (2026-08-16)
+    // searchLiveJobs()/handleJobSearch() called ?action=jobs, which
+    // doesn't exist in the backend, and bypassed credit metering entirely.
+    // Job-related messages now flow through the normal chat path, where
+    // the backend's findRelevantJobs() detects intent, injects real
+    // listings into the AI's context, and applies proper metering.
     // ============================================
-
-    async function searchLiveJobs(query) {
-        try {
-            const response = await fetch(`${API_BASE}?action=jobs`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await response.json();
-            if (data.success && data.jobs) {
-                const searchLower = query.toLowerCase();
-                return data.jobs.filter(job => 
-                    job.title?.toLowerCase().includes(searchLower) ||
-                    job.description?.toLowerCase().includes(searchLower) ||
-                    job.company?.toLowerCase().includes(searchLower)
-                ).slice(0, 5);
-            }
-            return [];
-        } catch (error) {
-            console.error('Job search error:', error);
-            return [];
-        }
-    }
-
-    async function handleJobSearch(query) {
-        setIsTyping(true);
-        try {
-            const jobs = await searchLiveJobs(query);
-            let reply;
-            if (jobs && jobs.length > 0) {
-                const jobList = jobs.map(job => 
-                    `• **${job.title}** at ${job.company || job.source_name || 'Unknown Company'}\n  📍 ${job.location || 'Remote'}\n  💰 ${job.salary_range || 'Salary not specified'}`
-                ).join('\n\n');
-                reply = `🔍 **Found ${jobs.length} jobs matching "${query}"**\n\n${jobList}\n\n💡 Want me to help you tailor your CV for any of these roles? Just let me know which one interests you!`;
-            } else {
-                reply = `🔍 I couldn't find any jobs matching "${query}" right now. Try:\n• Using different keywords\n• Checking our [Job Board](/jobs)\n• Setting up a [Job Alert](/job-alerts)`;
-            }
-            const botMessage = {
-                id: `msg_${Date.now()}`,
-                sender: 'odusbaba',
-                message: reply,
-                created_at: new Date().toISOString()
-            };
-            setMessages(prev => [...prev, botMessage]);
-            if (conversationId && user) {
-                await supabase.from('chat_messages').insert({
-                    conversation_id: conversationId,
-                    sender: 'odusbaba',
-                    message: reply
-                });
-            }
-        } catch (error) {
-            console.error('Job search error:', error);
-            setMessages(prev => [...prev, {
-                id: `msg_error_${Date.now()}`,
-                sender: 'odusbaba',
-                message: "I'm having trouble searching for jobs right now. Please try again in a moment, or browse our [Job Board](/jobs) directly.",
-                created_at: new Date().toISOString()
-            }]);
-        } finally {
-            setIsTyping(false);
-        }
-    }
 
     // ============================================
     // LEGAL INFORMATION FETCHING (Client-side)
     // ============================================
+
+    // NEW (2026-08-16): calls extract-skills-from-chat, then offers to
+    // show matching jobs immediately — same credit-metered path as any
+    // other AI chat action.
+    const [extractingSkillsFor, setExtractingSkillsFor] = useState(null);
+    const [skillsSavedFor, setSkillsSavedFor] = useState(new Set());
+
+    async function handleSaveSkills(messageId, text) {
+        if (!user) return;
+        setExtractingSkillsFor(messageId);
+        try {
+            const response = await fetch(`${API_BASE}?action=extract-skills-from-chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cvOrSkillsText: text, userId: user.id })
+            });
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to extract skills');
+            }
+
+            setSkillsSavedFor(prev => new Set(prev).add(messageId));
+
+            const skillsList = data.skills && data.skills.length > 0
+                ? data.skills.join(', ')
+                : 'your skills';
+
+            const confirmMessage = {
+                id: `msg_skills_${Date.now()}`,
+                sender: 'odusbaba',
+                message: `✅ Saved to your profile: **${skillsList}**\n\nWant me to find jobs matching these skills? Just ask, e.g. "find jobs matching my skills".`,
+                created_at: new Date().toISOString()
+            };
+            setMessages(prev => [...prev, confirmMessage]);
+
+            if (typeof data.remaining === 'number') {
+                setRemainingCredits(data.remaining);
+            }
+        } catch (error) {
+            console.error('Skill extraction error:', error);
+            setMessages(prev => [...prev, {
+                id: `msg_skills_error_${Date.now()}`,
+                sender: 'odusbaba',
+                message: "I couldn't save those skills right now. Please try again in a moment.",
+                created_at: new Date().toISOString()
+            }]);
+        } finally {
+            setExtractingSkillsFor(null);
+        }
+    }
 
     async function fetchLegalInfo(countryCode, topic) {
         const source = LEGAL_SOURCES[countryCode] || LEGAL_SOURCES['UK'];
@@ -316,6 +296,18 @@ export default function ODUSBABAChat() {
         return legalKeywords.some(keyword => message.toLowerCase().includes(keyword));
     }
 
+    // NEW (2026-08-16): CV/skills content detection — flags messages that
+    // look like a pasted CV or skills list, so a "save these skills"
+    // affordance can be shown for them specifically, rather than
+    // triggering extraction automatically on every message (which would
+    // spend credits unnecessarily on ordinary conversation).
+    function looksLikeCVOrSkills(text) {
+        if (!text || text.length < 150) return false;
+        const cvKeywords = /\b(experience|skills|education|qualifications|work history|employment history|proficient in|responsibilities|achievements|certifications)\b/i;
+        const matches = (text.match(cvKeywords) || []).length;
+        return matches >= 2;
+    }
+
     // ============================================
     // SEND MESSAGE (Unified API)
     // ============================================
@@ -327,7 +319,8 @@ export default function ODUSBABAChat() {
             id: `msg_${Date.now()}`,
             sender: 'user',
             message: input.trim(),
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            looksLikeCV: user ? looksLikeCVOrSkills(input.trim()) : false
         };
         
         setMessages(prev => [...prev, userMessage]);
@@ -376,15 +369,68 @@ export default function ODUSBABAChat() {
                 return;
             }
 
-            // Check for job search intent
-            const intent = detectIntent(currentInput);
-            if (intent.intent === 'job_search') {
+            // FIXED (2026-08-16): the old job_search intent branch here
+            // called searchLiveJobs()/handleJobSearch(), which fetched
+            // ?action=jobs — an action that doesn't exist anywhere in the
+            // backend — meaning this always silently returned "couldn't
+            // find any jobs", regardless of what's actually on the board.
+            // It also completely bypassed CHAT_ENDPOINT, meaning job
+            // searches via chat were entirely unmetered, unlike every
+            // other chat interaction. Removed — job-related messages now
+            // flow through the normal chat path below, where the backend
+            // detects job-search intent itself, injects real current
+            // listings into the AI's context, and applies the same
+            // credit metering as any other chat message.
+
+            // NEW (2026-08-16): "find jobs matching my skills" shortcut —
+            // calls match-jobs-to-skills directly rather than going
+            // through the AI. This is a plain database query (no OpenAI
+            // call), so it's correctly free, unlike everything else here.
+            if (user && /match.*(my )?skills|skills.*match|jobs.*for (my )?skills/i.test(currentInput)) {
                 clearTimeout(typingTimer);
                 setIsTyping(false);
-                await handleJobSearch(currentInput);
+                try {
+                    const matchResponse = await fetch(`${API_BASE}?action=match-jobs-to-skills`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: user.id })
+                    });
+                    const matchData = await matchResponse.json();
+
+                    let reply;
+                    if (matchData.jobs && matchData.jobs.length > 0) {
+                        const jobList = matchData.jobs.slice(0, 5).map(job =>
+                            `• **${job.title}** at ${job.company || 'N/A'}\n  📍 ${job.location || 'Remote'}${job.salary_range ? `\n  💰 ${job.salary_range}` : ''}`
+                        ).join('\n\n');
+                        reply = `Based on your saved skills, here are matching jobs:\n\n${jobList}\n\nSee the full [Job Board](/jobs) for more.`;
+                    } else if (matchData.message) {
+                        reply = matchData.message;
+                    } else {
+                        reply = "I couldn't find jobs matching your skills right now. Try browsing our [Job Board](/jobs) directly.";
+                    }
+
+                    setMessages(prev => [...prev, {
+                        id: `msg_match_${Date.now()}`,
+                        sender: 'odusbaba',
+                        message: reply,
+                        created_at: new Date().toISOString()
+                    }]);
+                } catch (matchError) {
+                    console.error('Job matching error:', matchError);
+                }
                 setLoading(false);
                 return;
             }
+
+            // NEW (2026-08-16): logs this chat message as an activity
+            // signal — feeds the "Latest Trend Corner", opportunity-gap
+            // analysis, and newsletter content pool. Fire-and-forget:
+            // never blocks or fails the actual chat response.
+            fetch(`${API_BASE}?action=log-activity-signal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signalType: 'chat_topic', queryText: currentInput, sourcePage: 'chat', userId: user?.id })
+            }).catch(() => {});
 
             // Prepare conversation history for API
             // FIXED (2026-08-08): the real chat handler in api/index.js
@@ -621,6 +667,25 @@ export default function ODUSBABAChat() {
                                             <p className="text-[10px] opacity-40 mt-1 text-right">
                                                 {formatTimestamp(msg.created_at)}
                                             </p>
+                                            {/* NEW (2026-08-16): shown only for user messages flagged as
+                                                looking like a CV/skills paste. Extracts and saves skills
+                                                to the profile for job matching — metered like any other
+                                                AI action. */}
+                                            {msg.sender === 'user' && msg.looksLikeCV && (
+                                                skillsSavedFor.has(msg.id) ? (
+                                                    <p className="text-[11px] mt-1.5 text-emerald-300 flex items-center gap-1">
+                                                        <Check className="w-3 h-3" /> Skills saved to your profile
+                                                    </p>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleSaveSkills(msg.id, msg.message)}
+                                                        disabled={extractingSkillsFor === msg.id}
+                                                        className="text-[11px] mt-1.5 px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition disabled:opacity-50 flex items-center gap-1"
+                                                    >
+                                                        {extractingSkillsFor === msg.id ? 'Saving...' : '💾 Save these skills for job matching'}
+                                                    </button>
+                                                )
+                                            )}
                                             {msg.sender === 'odusbaba' && msg.message !== "I'm having trouble connecting..." && (
                                                 <button
                                                     onClick={() => copyToClipboard(msg.message, msg.id)}
