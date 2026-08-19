@@ -1,23 +1,70 @@
 // src/pages/ArticleDetail.jsx
 // COMPLETE PROFESSIONAL ARTICLE DETAIL PAGE - With API integration, AI assist, sharing, and related articles
+//
+// FIXED (2026-08-16):
+// 1. Disconnected Supabase client (same pattern found and fixed
+//    repeatedly this session) — now uses the shared singleton.
+// 2. checkUser() and loadArticle() ran in parallel (called back-to-back
+//    with no sequencing), so checkUser()'s saved-article check used
+//    article?.id before article had ever been set — always querying
+//    'article_id = undefined', meaning isSaved could never correctly
+//    reflect reality. Sequenced: article loads first, then the saved
+//    check runs with a real id in hand.
+// 3. Filtered/ordered related articles on 'status' and 'published_at' —
+//    neither exists on the real articles table (confirmed via this
+//    session's actual schema: is_published boolean, created_at
+//    timestamp). Related articles could never have worked. Fixed in all
+//    3 places these were used (the query, the header date display, and
+//    the related-article card dates).
+// 4. handleSendNewsletter() called ?action=newsletter-send, which
+//    doesn't exist — confirmed the same broken action already found and
+//    properly fixed in NewsletterAdmin.jsx earlier this session. Rewired
+//    to the same real, working pattern (send individually via the real
+//    ?action=email to each active subscriber).
+// 5. handleAICommand() called ?action=ai-assist, which doesn't exist
+//    anywhere in the backend. Rewired to use the real 'chat' action with
+//    a specific systemPrompt per command, matching the pattern already
+//    used successfully elsewhere (CoursesPage.jsx, HR Tools).
+// 6. The AI/newsletter action buttons were commented "(Admin only)" but
+//    the actual condition was just {user && ...} — any logged-in user,
+//    not just admins, could see and use them. Fixed to a real admin
+//    check.
+// 7. "Push to Announcement" had no onClick handler at all — a dead
+//    button. Removed rather than build a whole new announcements system
+//    that doesn't exist anywhere else in this project.
+// 8. Removed the initial ?action=article fetch attempt — that action
+//    doesn't exist either, so every article view wasted a network
+//    round-trip before falling through to the Supabase query that
+//    actually works. Goes straight to the working query now.
+//
+// NEW (2026-08-16): Article structured data (JSON-LD) + Open Graph/
+// Twitter Card meta tags — the actual reason this file was needed. Same
+// pattern as the JobPosting structured data added to JobDetailPage.jsx.
+// Without this, sharing an article link showed no preview at all.
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { useCapability } from '../hooks/useCapability';
 import { 
-    Calendar, User, Eye, ArrowLeft, Share2, Send, Megaphone, 
-    Sparkles, Loader2, AlertCircle, ThumbsUp, MessageCircle, 
-    Bookmark, Twitter, Linkedin, Facebook, Copy, Check,
-    Clock, Tag, TrendingUp, Shield, Award
+    Calendar, User, Eye, ArrowLeft, Share2, Send, Sparkles, Loader2,
+    AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check,
+    Clock, TrendingUp, XCircle
 } from 'lucide-react';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const SEO_URL_BASE = 'https://www.bluskyeconsult.com';
 
 export default function ArticleDetail() {
     const { slug } = useParams();
     const navigate = useNavigate();
+    // IMPORTANT: useCapability()'s isAdmin is unreliable to destructure
+    // directly — its return object defines isAdmin twice (once as a
+    // boolean, later overwritten by a backward-compat function), and JS
+    // keeps the later one. Using capabilities.isAdmin instead, which is
+    // unambiguous (confirmed and fixed the same way for BrainstormPartner
+    // gating in App.jsx earlier this session).
+    const { capabilities } = useCapability();
+    const isAdmin = capabilities?.isAdmin;
     const [article, setArticle] = useState(null);
     const [relatedArticles, setRelatedArticles] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -30,21 +77,19 @@ export default function ArticleDetail() {
     const [aiGenerating, setAiGenerating] = useState(false);
 
     useEffect(() => {
-        checkUser();
         loadArticle();
     }, [slug]);
 
-    async function checkUser() {
-        const { data: { user } } = await supabase.auth.getUser();
-        setUser(user);
-        
-        if (user) {
-            // Check if article is saved
+    async function checkUserSavedStatus(currentArticleId) {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        setUser(currentUser);
+
+        if (currentUser && currentArticleId) {
             const { data } = await supabase
                 .from('saved_articles')
                 .select('id')
-                .eq('user_id', user.id)
-                .eq('article_id', article?.id)
+                .eq('user_id', currentUser.id)
+                .eq('article_id', currentArticleId)
                 .maybeSingle();
             setIsSaved(!!data);
         }
@@ -53,27 +98,7 @@ export default function ArticleDetail() {
     async function loadArticle() {
         setLoading(true);
         setError(null);
-        
-        try {
-            // Try API first
-            const response = await fetch(`/api/index?action=article&slug=${slug}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.article) {
-                    setArticle(data.article);
-                    await loadRelatedArticles(data.article);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn('API fetch failed, falling back to Supabase:', err);
-        }
-        
-        // Fallback to Supabase
+
         const { data, error: supabaseError } = await supabase
             .from('articles')
             .select('*')
@@ -87,6 +112,7 @@ export default function ArticleDetail() {
         }
 
         setArticle(data);
+        await checkUserSavedStatus(data.id);
         await loadRelatedArticles(data);
         
         // Increment view count (non-blocking)
@@ -103,8 +129,8 @@ export default function ArticleDetail() {
         
         const { data } = await supabase
             .from('articles')
-            .select('id, title, slug, excerpt, published_at, view_count')
-            .eq('status', 'published')
+            .select('id, title, slug, excerpt, created_at, view_count')
+            .eq('is_published', true)
             .neq('id', currentArticle.id)
             .limit(3);
         
@@ -134,23 +160,32 @@ export default function ArticleDetail() {
 
     async function handleAICommand(command) {
         setAiGenerating(true);
-        
+
+        const prompts = {
+            headlines: 'Suggest 3 alternative headlines for this article that are compelling and SEO-friendly. Return as a simple numbered list.',
+            social: 'Write 2 short social media posts (one for LinkedIn, one for Twitter/X) promoting this article.',
+            improve: 'Give 3 specific, actionable suggestions to improve this article\'s readability and flow.',
+            keypoints: 'Extract the 3-5 most important key takeaways from this article as a bullet list.'
+        };
+
         try {
-            const response = await fetch('/api/index?action=ai-assist', {
+            const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    command, 
-                    title: article?.title,
-                    content: article?.content 
+                body: JSON.stringify({
+                    message: `Article title: "${article?.title}"\n\nContent: ${(article?.content || '').substring(0, 3000)}`,
+                    systemPrompt: `You are an editorial assistant. ${prompts[command] || prompts.improve}`,
+                    temperature: 0.6,
+                    maxTokens: 500,
+                    userId: user?.id
                 })
             });
             
             const data = await response.json();
-            if (data.success && data.result) {
-                alert(data.result);
+            if (data.success && data.response) {
+                alert(data.response);
             } else {
-                throw new Error('AI command failed');
+                throw new Error(data.error || 'AI command failed');
             }
         } catch (error) {
             console.error('AI command error:', error);
@@ -165,20 +200,45 @@ export default function ArticleDetail() {
             navigate('/sign-in');
             return;
         }
-        
-        const response = await fetch('/api/index?action=newsletter-send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                articleId: article.id,
-                action: 'send_article'
-            })
-        });
-        
-        if (response.ok) {
-            alert('Newsletter sent to subscribers!');
-        } else {
-            alert('Failed to send newsletter. Please try again.');
+
+        if (!confirm('Send this article to all active newsletter subscribers?')) return;
+
+        try {
+            const { data: subscribers, error: subError } = await supabase
+                .from('newsletter_subscribers')
+                .select('email')
+                .eq('status', 'active');
+
+            if (subError) throw subError;
+            if (!subscribers || subscribers.length === 0) {
+                alert('No active subscribers to send to.');
+                return;
+            }
+
+            let successCount = 0;
+            for (const sub of subscribers) {
+                try {
+                    const res = await fetch('/api/index?action=email', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            to: sub.email,
+                            subject: article.title,
+                            type: 'newsletter',
+                            templateData: { content: `${article.excerpt || ''}\n\n${article.content}` }
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success) successCount++;
+                } catch (sendErr) {
+                    console.warn('Failed to send to', sub.email, sendErr);
+                }
+            }
+
+            alert(`Article sent to ${successCount} of ${subscribers.length} subscribers.`);
+        } catch (error) {
+            console.error('Newsletter send error:', error);
+            alert('Failed to send newsletter: ' + error.message);
         }
     }
 
@@ -198,6 +258,57 @@ export default function ArticleDetail() {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
+
+    // NEW (2026-08-16): Article structured data (JSON-LD) + Open Graph/
+    // Twitter Card meta tags — same pattern as JobDetailPage.jsx. This is
+    // what actually controls search engine rich results and how the page
+    // looks when shared on social media.
+    useEffect(() => {
+        if (!article) return;
+
+        const jsonLdScript = document.createElement('script');
+        jsonLdScript.type = 'application/ld+json';
+        jsonLdScript.id = 'article-jsonld';
+        jsonLdScript.textContent = JSON.stringify({
+            '@context': 'https://schema.org/',
+            '@type': 'Article',
+            headline: article.title,
+            description: article.excerpt || '',
+            datePublished: article.created_at,
+            author: { '@type': 'Organization', name: article.author || 'ODUSBABA Team' },
+            publisher: { '@type': 'Organization', name: 'BluSkye Integrated Consult' },
+            url: `${SEO_URL_BASE}/articles/${article.slug}`
+        });
+        document.head.appendChild(jsonLdScript);
+
+        document.title = article.seo_title || `${article.title} | ODUSBABA`;
+
+        const metaTags = [
+            { property: 'og:title', content: article.seo_title || article.title },
+            { property: 'og:description', content: article.seo_description || article.excerpt || '' },
+            { property: 'og:type', content: 'article' },
+            { property: 'og:url', content: `${SEO_URL_BASE}/articles/${article.slug}` },
+            { name: 'twitter:card', content: 'summary' },
+            { name: 'twitter:title', content: article.seo_title || article.title },
+            { name: 'twitter:description', content: article.seo_description || article.excerpt || '' }
+        ];
+
+        const addedTags = metaTags.map(tag => {
+            const el = document.createElement('meta');
+            if (tag.property) el.setAttribute('property', tag.property);
+            if (tag.name) el.setAttribute('name', tag.name);
+            el.setAttribute('content', tag.content);
+            el.setAttribute('data-dynamic-seo', 'true');
+            document.head.appendChild(el);
+            return el;
+        });
+
+        return () => {
+            const existing = document.getElementById('article-jsonld');
+            if (existing) existing.remove();
+            addedTags.forEach(el => el.remove());
+        };
+    }, [article]);
 
     if (loading) {
         return (
@@ -240,7 +351,7 @@ export default function ArticleDetail() {
                     <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 mb-4">
                         <span className="flex items-center gap-1">
                             <Calendar className="w-4 h-4" />
-                            {new Date(article.published_at).toLocaleDateString('en-US', { 
+                            {new Date(article.created_at).toLocaleDateString('en-US', { 
                                 year: 'numeric', 
                                 month: 'long', 
                                 day: 'numeric' 
@@ -272,7 +383,7 @@ export default function ArticleDetail() {
                 </div>
 
                 {/* Action Buttons (Admin only) */}
-                {user && (
+                {isAdmin && (
                     <div className="flex flex-wrap gap-3 mb-8 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
                         <button
                             onClick={() => setShowAIAssist(true)}
@@ -285,11 +396,6 @@ export default function ArticleDetail() {
                             className="flex items-center gap-2 px-4 py-2 bg-emerald-600/20 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm hover:bg-emerald-600/30 transition-colors"
                         >
                             <Send className="w-4 h-4" /> Send as Newsletter
-                        </button>
-                        <button
-                            className="flex items-center gap-2 px-4 py-2 bg-amber-600/20 border border-amber-500/30 rounded-lg text-amber-400 text-sm hover:bg-amber-600/30 transition-colors"
-                        >
-                            <Megaphone className="w-4 h-4" /> Push to Announcement
                         </button>
                     </div>
                 )}
@@ -417,7 +523,7 @@ export default function ArticleDetail() {
                                     <div className="flex items-center gap-3 mt-3 text-xs text-slate-500">
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-3 h-3" />
-                                            {new Date(related.published_at).toLocaleDateString()}
+                                            {new Date(related.created_at).toLocaleDateString()}
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <Eye className="w-3 h-3" />
@@ -502,6 +608,3 @@ export default function ArticleDetail() {
         </div>
     );
 }
-
-// Import missing icon
-import { XCircle } from 'lucide-react';
