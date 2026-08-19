@@ -33,20 +33,17 @@ import {
 import toast from 'react-hot-toast';
 
 // Sample job for fallback
-const SAMPLE_JOB = {
-  id: 'sample',
-  title: 'Senior Software Engineer',
-  company: 'Tech Innovations',
-  location: 'London, UK',
-  country_code: 'GB',
-  description: 'We are looking for an experienced software engineer to join our growing team. You will be responsible for building scalable web applications using React, Node.js, and cloud technologies.',
-  requirements: '5+ years of experience with React, Node.js, and cloud platforms. Strong problem-solving skills and team collaboration.',
-  salary_range: '£80,000 - £100,000',
-  job_type: 'full-time',
-  is_remote: false,
-  created_at: new Date().toISOString(),
-  status: 'approved'
-};
+// FIXED (2026-08-16): this used to be SAMPLE_JOB, a completely fabricated
+// job posting ("Tech Innovations", invented salary and requirements)
+// shown to real users whenever a job ID didn't resolve — a deleted job, a
+// stale bookmark, a bad link. The user had no way to tell it wasn't real,
+// and could have tried to "apply" to a company that doesn't exist. The
+// proper "Job Not Found" state already existed further down in this file
+// and was fully built — it just never triggered because fake data was set
+// instead. Removed entirely; both fallback sites now set null directly,
+// correctly triggering the real not-found state.
+
+const SEO_URL_BASE = 'https://www.bluskyeconsult.com';
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -58,6 +55,78 @@ export default function JobDetailPage() {
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    // NEW (2026-08-16): JobPosting structured data (JSON-LD) — unlocks
+    // Google's dedicated job-search rich results. Only injected for real,
+    // successfully-loaded jobs; removed on unmount/navigation so it never
+    // lingers and describes the wrong job on a different page.
+    if (!job || job.id === 'sample') return;
+
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.id = 'job-posting-jsonld';
+    script.textContent = JSON.stringify({
+      '@context': 'https://schema.org/',
+      '@type': 'JobPosting',
+      title: job.title,
+      description: job.description || '',
+      datePosted: job.posted_at || job.created_at,
+      employmentType: (job.job_type || 'FULL_TIME').toUpperCase().replace('-', '_'),
+      hiringOrganization: {
+        '@type': 'Organization',
+        name: job.company || 'Employer',
+      },
+      jobLocation: {
+        '@type': 'Place',
+        address: { '@type': 'PostalAddress', addressLocality: job.location || '', addressCountry: job.source_country || '' }
+      },
+      ...(job.salary_min && job.salary_max ? {
+        baseSalary: {
+          '@type': 'MonetaryAmount',
+          currency: 'GBP',
+          value: { '@type': 'QuantitativeValue', minValue: job.salary_min, maxValue: job.salary_max, unitText: 'YEAR' }
+        }
+      } : {}),
+      directApply: !!job.external_apply_url,
+      url: `${SEO_URL_BASE}/jobs/${job.id}`
+    });
+    document.head.appendChild(script);
+
+    document.title = `${job.title} at ${job.company || 'Employer'} | ODUSBABA Jobs`;
+
+    // NEW (2026-08-16): Open Graph + Twitter Card meta tags — this is
+    // what actually controls how the page looks when shared on
+    // LinkedIn, Facebook, Twitter/X, or WhatsApp. Without these, a shared
+    // job link shows no preview at all (or a generic, unhelpful one) —
+    // real, lost marketing reach every time someone shares a listing.
+    const metaTags = [
+      { property: 'og:title', content: `${job.title} at ${job.company || 'Employer'}` },
+      { property: 'og:description', content: (job.description || '').substring(0, 200) },
+      { property: 'og:type', content: 'website' },
+      { property: 'og:url', content: `${SEO_URL_BASE}/jobs/${job.id}` },
+      { name: 'twitter:card', content: 'summary' },
+      { name: 'twitter:title', content: `${job.title} at ${job.company || 'Employer'}` },
+      { name: 'twitter:description', content: (job.description || '').substring(0, 200) }
+    ];
+
+    const addedTags = [];
+    metaTags.forEach(tag => {
+      const el = document.createElement('meta');
+      if (tag.property) el.setAttribute('property', tag.property);
+      if (tag.name) el.setAttribute('name', tag.name);
+      el.setAttribute('content', tag.content);
+      el.setAttribute('data-dynamic-seo', 'true');
+      document.head.appendChild(el);
+      addedTags.push(el);
+    });
+
+    return () => {
+      const existing = document.getElementById('job-posting-jsonld');
+      if (existing) existing.remove();
+      addedTags.forEach(el => el.remove());
+    };
+  }, [job]);
 
   useEffect(() => {
     // FIXED: sequenced instead of two independent async calls racing each
@@ -76,7 +145,7 @@ export default function JobDetailPage() {
     try {
       const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
       if (error || !data) {
-        setJob(SAMPLE_JOB);
+        setJob(null);
       } else {
         setJob(data);
       }
@@ -92,7 +161,7 @@ export default function JobDetailPage() {
       }
     } catch (err) {
       console.error('Error loading job:', err);
-      setJob(SAMPLE_JOB);
+      setJob(null);
     } finally {
       setLoading(false);
     }
