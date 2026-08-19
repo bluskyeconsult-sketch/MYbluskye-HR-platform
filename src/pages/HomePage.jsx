@@ -28,6 +28,7 @@ import {
     AlertCircle, RefreshCw
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
+import TrendingCorner from '../components/TrendingCorner';
 import CTASection from '../components/CTASection';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
@@ -469,6 +470,13 @@ export default function HomePage() {
                         </Link>
                     ))}
                 </div>
+            </div>
+
+            {/* NEW (2026-08-16): Latest Trend Corner — real search/chat
+                activity, not curated content. Also feeds the admin
+                opportunity-gaps analysis and newsletter digest. */}
+            <div className="w-full max-w-7xl mx-auto px-4 pt-12">
+                <TrendingCorner />
             </div>
 
             {/* Latest Insights Section */}
