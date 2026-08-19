@@ -1,5 +1,26 @@
 // src/pages/ContactPage.jsx
 // COMPLETE PROFESSIONAL CONTACT PAGE - With unified API, form validation, and ODUSBABA Chat integration
+//
+// FIXED (2026-08-16):
+// 1. Imported apiCall, isAuthenticated, getCurrentUser from
+//    '../lib/supabase' — none of these exist there (every other file this
+//    session imports only the singleton { supabase }). This would have
+//    broken the page immediately: isAuthenticated() runs inside a
+//    useEffect on mount, so calling an undefined function would likely
+//    crash the whole component before a visitor ever saw the form.
+// 2. Form submission called apiCall('contact-submit', ...) — that action
+//    doesn't exist anywhere in the backend either. Fixed to a direct
+//    Supabase insert into a real contact_messages table, matching the
+//    established pattern for simple forms elsewhere in this project.
+// 3. The chat-widget-opening button used the same fragile CSS-class
+//    guessing hack found in ProductsPage.jsx. Replaced with the same
+//    real, stable custom event ('odusbaba:open-chat').
+// 4. Response-time claims were genuinely contradictory across the page —
+//    "24 hours" appeared twice, "4 hours" appeared twice, in different
+//    places. Made consistent. Also removed an unverifiable "4.9/5 Support
+//    Rating" (same class of fictitious-sounding specific number found and
+//    removed elsewhere this session) and corrected "7 countries" to the
+//    real confirmed 8 (matching JobsPage.jsx's COUNTRIES list).
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -8,7 +29,7 @@ import {
     Shield, AlertCircle, Loader2, Sparkles, Building2, 
     Globe, Headphones, Star, ChevronRight
 } from 'lucide-react';
-import { apiCall, isAuthenticated, getCurrentUser } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 export default function ContactPage() {
     const [formData, setFormData] = useState({
@@ -30,9 +51,8 @@ export default function ContactPage() {
     }, []);
 
     async function loadUserData() {
-        const isLoggedIn = await isAuthenticated();
-        if (isLoggedIn) {
-            const currentUser = await getCurrentUser();
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser) {
             setUser(currentUser);
             setFormData(prev => ({
                 ...prev,
@@ -95,17 +115,18 @@ export default function ContactPage() {
         setError(null);
 
         try {
-            // ✅ Using unified API endpoint
-            const result = await apiCall('contact-submit', {
-                name: formData.name,
-                email: formData.email,
-                subject: formData.subject,
-                message: formData.message,
-                priority: formData.priority,
-                userId: user?.id || null
-            });
-            
-            if (!result.success) throw new Error(result.error);
+            const { error: insertError } = await supabase
+                .from('contact_messages')
+                .insert({
+                    name: formData.name,
+                    email: formData.email,
+                    subject: formData.subject,
+                    message: formData.message,
+                    priority: formData.priority,
+                    user_id: user?.id || null
+                });
+
+            if (insertError) throw insertError;
             
             setSubmitted(true);
             setFormData({ name: '', email: '', subject: '', message: '', priority: 'normal' });
@@ -122,15 +143,10 @@ export default function ContactPage() {
     };
 
     const openChatWidget = () => {
-        // Find and open the ODUSBABA chat widget
-        const chatButton = document.querySelector('button[aria-label*="chat"]') || 
-                          document.querySelector('.fixed.bottom-6.right-6');
-        if (chatButton) {
-            chatButton.click();
-        } else {
-            // Fallback: scroll to chat section or show notification
-            alert('Click the chat icon in the bottom right corner to start chatting with ODUSBABA AI.');
-        }
+        // FIXED (2026-08-16): was guessing at the chat widget's button via
+        // CSS selectors — same fragile pattern found in ProductsPage.jsx.
+        // Uses the same real, stable custom event now.
+        window.dispatchEvent(new CustomEvent('odusbaba:open-chat'));
     };
 
     if (submitted) {
@@ -142,12 +158,12 @@ export default function ContactPage() {
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-3">Message Sent Successfully!</h1>
                     <p className="text-slate-400 mb-4">
-                        Thank you for reaching out to ODUSBABA. Our support team will respond within 24 hours.
+                        Thank you for reaching out to ODUSBABA. Our support team will respond as soon as possible.
                     </p>
                     <div className="bg-slate-800/50 rounded-xl p-4 mb-6">
                         <p className="text-slate-300 text-sm">
                             <Clock className="w-4 h-4 inline mr-1 text-primary-400" />
-                            We typically respond within 4 hours during business days.
+                            We aim to respond within 24 hours during business days.
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-3 justify-center">
@@ -261,7 +277,7 @@ export default function ContactPage() {
                             </p>
                             <div className="mt-3 flex items-center justify-center gap-2">
                                 <Globe className="w-4 h-4 text-primary-400" />
-                                <span className="text-sm text-slate-500">Global operations across 7 countries</span>
+                                <span className="text-sm text-slate-500">Global operations across 8 countries</span>
                             </div>
                         </div>
 
@@ -277,9 +293,6 @@ export default function ContactPage() {
                             <div className="flex items-center justify-center gap-4 mt-3">
                                 <span className="text-[10px] text-slate-500 flex items-center gap-1">
                                     <CheckCircle className="w-3 h-3" /> GDPR Compliant
-                                </span>
-                                <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                                    <Star className="w-3 h-3" /> 4.9/5 Support Rating
                                 </span>
                             </div>
                         </div>
@@ -438,7 +451,7 @@ export default function ContactPage() {
                 <div className="mt-10 text-center">
                     <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800/50 rounded-full">
                         <Headphones className="w-4 h-4 text-primary-400" />
-                        <span className="text-slate-400 text-sm">Average response time: &lt; 4 hours</span>
+                        <span className="text-slate-400 text-sm">We respond within 24 hours</span>
                         <div className="w-px h-4 bg-slate-700 mx-2"></div>
                         <Clock className="w-4 h-4 text-primary-400" />
                         <span className="text-slate-400 text-sm">24/7 AI Chat available</span>
