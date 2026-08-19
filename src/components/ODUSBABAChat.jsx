@@ -93,6 +93,19 @@ export default function ODUSBABAChat() {
     // State Management
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
+
+    // NEW (2026-08-16): listens for a real, stable custom event to open
+    // chat from other pages — replaces the fragile CSS-class-guessing
+    // trigger that used to live in ProductsPage.jsx.
+    useEffect(() => {
+        function handleOpenChatEvent() {
+            setIsOpen(true);
+            setIsMinimized(false);
+        }
+        window.addEventListener('odusbaba:open-chat', handleOpenChatEvent);
+        return () => window.removeEventListener('odusbaba:open-chat', handleOpenChatEvent);
+    }, []);
+
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
