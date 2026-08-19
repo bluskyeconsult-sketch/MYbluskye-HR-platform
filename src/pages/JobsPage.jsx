@@ -133,9 +133,10 @@ export default function JobsPage() {
 
     // ============================================
     // LOAD JOBS — READ ONLY (no client-side writes to `jobs`)
-    // New jobs enter the `jobs` table only via the daily cron
-    // (/api/index?action=fetch-jobs) + admin approval pipeline
-    // in rssJobService.js. This page never inserts jobs itself.
+    // New jobs enter the `jobs` table via the daily cron
+    // (api/cron/sync-external-jobs.js) + admin approval pipeline
+    // in rssJobService.js/ExternalJobsManager.jsx. This page never
+    // inserts jobs itself.
     // ============================================
 
     const loadJobs = useCallback(async () => {
@@ -155,9 +156,16 @@ export default function JobsPage() {
                 query = query.ilike('title', `%${searchQuery}%`);
             }
             
-            // Apply country filter
+            // FIXED (2026-08-16): filtered on 'country_code', which
+            // doesn't exist on the real jobs table — confirmed via
+            // multiple other places this session that use the real column
+            // (fraud detection trigger, chat job-search injection, the
+            // original job-insert logic all use source_country). Filtering
+            // on a nonexistent column returns a PostgREST error, not just
+            // empty results — meaning selecting any specific country
+            // likely broke the whole page with a visible error.
             if (selectedCountry && selectedCountry !== 'all') {
-                query = query.eq('country_code', selectedCountry);
+                query = query.eq('source_country', selectedCountry);
             }
             
             // Apply job type filter
@@ -199,6 +207,23 @@ export default function JobsPage() {
         }
     }, [searchQuery, selectedCountry, selectedJobType]);
 
+    // NEW (2026-08-16): logs meaningful searches as activity signals,
+    // feeding the "Latest Trend Corner", opportunity-gap analysis, and
+    // newsletter content. Debounced separately from the search trigger
+    // above — logging on every keystroke would spam the table with
+    // partial queries.
+    useEffect(() => {
+        if (!searchQuery || searchQuery.trim().length < 3) return;
+        const timer = setTimeout(() => {
+            fetch('/api/index?action=log-activity-signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signalType: 'search', queryText: searchQuery, sourcePage: 'jobs' })
+            }).catch(() => {});
+        }, 1500);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
     // ============================================
     // HELPER FUNCTIONS
     // ============================================
@@ -230,7 +255,7 @@ export default function JobsPage() {
         // Country filter (additional client-side)
         if (selectedCountry !== 'all') {
             filtered = filtered.filter(job => 
-                job.country_code === selectedCountry ||
+                job.source_country === selectedCountry ||
                 job.location?.includes(selectedCountry)
             );
         }
@@ -609,7 +634,7 @@ export default function JobsPage() {
                                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 sm:gap-4">
                                     <div className="flex-1">
                                         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
-                                            <span className="text-xl sm:text-2xl">{getCountryFlag(job.country_code)}</span>
+                                            <span className="text-xl sm:text-2xl">{getCountryFlag(job.source_country)}</span>
                                             <h3 className="text-base sm:text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
                                             {job.sponsorship_eligible && (
@@ -635,7 +660,7 @@ export default function JobsPage() {
                                         </p>
                                         
                                         <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-slate-400 mb-2 sm:mb-3">
-                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || getCountryName(job.country_code)}</span>
+                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || getCountryName(job.source_country)}</span>
                                             <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {formatSalary(job)}</span>
                                             <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(job.posted_at).toLocaleDateString()}</span>
                                         </div>
