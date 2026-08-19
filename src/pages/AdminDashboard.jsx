@@ -358,6 +358,10 @@ export default function AdminDashboard() {
                             <Sparkles className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
                             <span className="text-white text-sm">Opportunity Gaps</span>
                         </Link>
+                        <Link to="/admin/refund-requests" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <DollarSign className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Refund Requests</span>
+                        </Link>
                     </div>
                 </div>
 
