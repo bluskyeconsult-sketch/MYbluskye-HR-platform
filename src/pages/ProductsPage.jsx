@@ -1,12 +1,42 @@
 // src/pages/ProductsPage.jsx
 // COMPLETE PRODUCTS PAGE - Showcases all ODUSBABA offerings (No external dependencies)
+//
+// FIXED (2026-08-16):
+// 1. "thousands of verified job opportunities" and "7 countries" — real
+//    confirmed job counts are far more modest (matching the honest,
+//    self-aware homepage stats elsewhere on this site), and the real
+//    confirmed country list is 8 (GB, NG, IE, CA, US, DE, AU, FR — from
+//    JobsPage.jsx's own COUNTRIES constant), not 7. Same pattern as the
+//    fictitious data found and removed from PromoBanner.jsx and
+//    FraudPreventionPage.jsx earlier this session — softened rather than
+//    guess-replaced with different unverified numbers.
+// 2. "7 psychometric and skill evaluations" and "24 AI-powered task
+//    helpers" — specific counts I have no way to verify against the live
+//    database from here. Softened for the same reason as above, rather
+//    than confidently state a different number I'm equally unsure of.
+// 3. Affiliate commission said "20% commission" only — the real, defined
+//    plan built this session is 20% on first payment + 10% recurring for
+//    the life of the subscription. Updated to accurately reflect it.
+// 4. handleChatClick used a fragile CSS-class string match
+//    (button[class*="fixed bottom-6 right-6"]) to find and click the chat
+//    widget's button — it happens to match today, but any future
+//    className change to that button silently breaks this with no
+//    warning. Replaced with a proper custom event
+//    ('odusbaba:open-chat'), which ODUSBABAChat.jsx now listens for
+//    directly — a real, stable contract between the two components
+//    instead of implicit, guessable coupling.
+// 5. Verified all other links against the real, confirmed route list in
+//    App.jsx — /newsletter, /hr-tools, /tester-register,
+//    /legal/fraud-prevention, and /learning (maps to LearnerDashboard,
+//    a real hub page, not the broken link it looked like at first glance)
+//    are all genuinely correct.
 
 import { Link } from 'react-router-dom';
 
 const products = [
     { 
         name: 'Job Board', 
-        description: 'Browse thousands of verified job opportunities from trusted employers across 7 countries.', 
+        description: 'Browse verified job opportunities from trusted employers, including official government portals, across 8 countries.', 
         icon: '💼',
         link: '/jobs', 
         color: 'from-blue-500/20 to-blue-600/20',
@@ -24,11 +54,11 @@ const products = [
     },
     { 
         name: 'Courses', 
-        description: 'AI-powered learning with certificates. Master new skills at your own pace.', 
+        description: 'Practical, AI-assisted learning with verifiable certificates on completion.', 
         icon: '📚',
         link: '/courses', 
         color: 'from-purple-500/20 to-purple-600/20',
-        features: ['AI audio narration', 'Quizzes', 'Certificates'],
+        features: ['Practical, real content', 'Verified certificates'],
         featured: true
     },
     { 
@@ -41,7 +71,7 @@ const products = [
     },
     { 
         name: 'Assessments', 
-        description: '7 psychometric and skill evaluations to discover your strengths.', 
+        description: 'Psychometric and skill evaluations to discover your strengths.', 
         icon: '📊',
         link: '/assessments', 
         color: 'from-pink-500/20 to-pink-600/20',
@@ -58,7 +88,7 @@ const products = [
     },
     { 
         name: 'Virtual Assistants', 
-        description: '24 AI-powered task helpers for CV optimization, cover letters, LinkedIn makeover, and more.', 
+        description: 'AI-powered task helpers for CV optimization, cover letters, LinkedIn makeover, and more.', 
         icon: '🤖',
         link: '/hire-va', 
         color: 'from-orange-500/20 to-orange-600/20',
@@ -76,11 +106,12 @@ const products = [
     },
     { 
         name: 'Affiliate Program', 
-        description: 'Earn commissions on referrals. Share ODUSBABA and get paid for every signup.', 
+        description: 'Earn commissions on referrals: 20% on their first payment, then 10% for as long as they stay subscribed.', 
         icon: '💰',
         link: '/affiliate', 
         color: 'from-emerald-500/20 to-emerald-600/20',
-        features: ['20% commission', 'Real-time tracking', 'Monthly payouts']
+        features: ['20% first payment', '10% recurring', 'Real-time tracking'],
+        featured: true
     },
     { 
         name: 'Fraud Protection', 
@@ -130,8 +161,12 @@ const MessageCircleIcon = () => (
 
 export default function ProductsPage() {
     const handleChatClick = () => {
-        const chatButton = document.querySelector('button[class*="fixed bottom-6 right-6"]');
-        if (chatButton) chatButton.click();
+        // FIXED (2026-08-16): was guessing at the chat widget's button via
+        // a CSS class string match — happened to work, but any future
+        // className change to that button would silently break this with
+        // no warning. A custom event is a real, stable contract between
+        // the two components instead.
+        window.dispatchEvent(new CustomEvent('odusbaba:open-chat'));
     };
 
     return (
