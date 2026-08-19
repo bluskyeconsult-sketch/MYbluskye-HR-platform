@@ -354,6 +354,10 @@ export default function AdminDashboard() {
                             <Briefcase className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
                             <span className="text-white text-sm">Employer Verify</span>
                         </Link>
+                        <Link to="/admin/opportunity-gaps" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Sparkles className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Opportunity Gaps</span>
+                        </Link>
                     </div>
                 </div>
 
