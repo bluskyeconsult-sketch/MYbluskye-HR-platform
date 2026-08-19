@@ -114,7 +114,18 @@ export default async function handler(req, res) {
                         tier: tierName,
                         stripe_customer_id: session.customer,
                         stripe_subscription_id: session.subscription,
-                        subscription_status: 'active'
+                        subscription_status: 'active',
+                        // NEW (2026-08-16): needed for the refund
+                        // fulfillment flow — anchors the 14-day
+                        // eligibility window. The actual charge to refund
+                        // is looked up live from Stripe when a refund is
+                        // processed, rather than stored here — for
+                        // mode: 'subscription' checkouts (what this app
+                        // uses), session.payment_intent isn't reliably
+                        // populated the same way it is for one-time
+                        // payments; the real payment intent lives on the
+                        // subscription's first invoice instead.
+                        subscribed_at: new Date().toISOString()
                     })
                     .eq('id', userId);
 
