@@ -52,7 +52,7 @@ import {
     Clock, TrendingUp, XCircle
 } from 'lucide-react';
 
-const SEO_URL_BASE = 'https://www.bluskyeconsult.com';
+const SEO_URL_BASE = 'https://bluskyeconsult.com';
 
 export default function ArticleDetail() {
     const { slug } = useParams();
