@@ -2998,6 +2998,17 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== NEWSLETTER STATS ==========
+    // FIXED (2026-08-20): this previously returned a hardcoded
+    // openRate: 68 and weeklyIssues: 156 regardless of reality — fabricated
+    // data sitting directly in the backend, the same class of issue found
+    // and removed from several frontend pages earlier this session. Worse,
+    // the error fallback invented a fake subscriber count of 5284 if the
+    // real query failed for any reason. There's no real email-open-
+    // tracking system built anywhere in this project (no pixel tracking,
+    // no click tracking table), so openRate genuinely can't be computed
+    // yet — returns null with a clear "not tracked yet" signal instead of
+    // inventing a number, and the error fallback now honestly returns 0
+    // rather than a fabricated count.
     'newsletter-stats': async (req, res) => {
         const supabaseClient = getSupabase();
         
@@ -3011,14 +3022,15 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 success: true,
                 stats: {
                     subscribers: subscribers || 0,
-                    openRate: 68,
-                    weeklyIssues: 156
+                    openRate: null, // not yet tracked — no real open-tracking system exists
+                    weeklyIssues: null // not yet tracked
                 }
             });
         } catch (error) {
+            console.error('newsletter-stats error:', error);
             return res.status(200).json({
                 success: true,
-                stats: { subscribers: 5284, openRate: 68, weeklyIssues: 156 }
+                stats: { subscribers: 0, openRate: null, weeklyIssues: null }
             });
         }
     },
