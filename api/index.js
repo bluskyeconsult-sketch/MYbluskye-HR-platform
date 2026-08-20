@@ -165,7 +165,7 @@ function getClientIp(req) {
 //    script can't drain a whole month's 5-credit allowance in seconds
 //    (a low number, but the same principle protects every tier from
 //    request-flooding, not just credit exhaustion).
-async function checkRateLimit(supabaseClient, ip, maxPerHour) {
+async function checkIpRateLimit(supabaseClient, ip, maxPerHour) {
     const windowStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
     const { data: existing } = await supabaseClient
@@ -200,7 +200,7 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
         // by IP instead, since there's no account to meter credits against.
         if (req) {
             const ip = getClientIp(req);
-            const rateCheck = await checkRateLimit(supabaseClient, ip, 10);
+            const rateCheck = await checkIpRateLimit(supabaseClient, ip, 10);
             if (!rateCheck.allowed) {
                 return { allowed: false, unlimited: false, remaining: 0, rateLimited: true };
             }
@@ -222,7 +222,7 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
     // within an otherwise-valid credit balance.
     if ((profile?.user_type === 'free' || profile?.tier === 'free') && req) {
         const ip = getClientIp(req);
-        const rateCheck = await checkRateLimit(supabaseClient, `user:${userId}:${ip}`, 15);
+        const rateCheck = await checkIpRateLimit(supabaseClient, `user:${userId}:${ip}`, 15);
         if (!rateCheck.allowed) {
             return { allowed: false, unlimited: false, remaining: 0, rateLimited: true };
         }
@@ -824,6 +824,56 @@ async function fetchAllJobs() {
 // COMPLETE ACTION HANDLERS (ALL 40+ ACTIONS)
 // ============================================
 
+// FIXED (2026-08-20): findRelevantJobs() was previously declared as a
+// bare `function` statement sitting directly inside the handlers object
+// literal — invalid JavaScript (object literals only allow key: value
+// pairs, never a standalone function statement). This has been a hard
+// SyntaxError since the job-search chat feature was added, breaking the
+// entire file — every single action in this file 500'd as a result,
+// since the whole module failed to parse at cold start. Moved to a
+// proper top-level function, same as every other shared helper here.
+//
+// Detects whether a chat message is asking about jobs, and if so,
+// searches the real jobs table (which already contains both
+// admin-posted internal listings AND approved external jobs sourced
+// from the official government portals — they're unified into one
+// table by the existing approval flow, so one query naturally covers
+// both "internal job board and verified country official sources" as
+// asked for). Returns a compact list for the AI to reference, or null
+// if the message doesn't look job-related.
+async function findRelevantJobs(supabaseClient, userMessage) {
+    const jobKeywords = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
+    if (!jobKeywords.test(userMessage)) return null;
+
+    try {
+        // Naive keyword extraction: strip common stopwords/job-generic
+        // terms, keep whatever's left as the search term (likely a job
+        // title, skill, or location the user mentioned).
+        const searchTerm = userMessage
+            .replace(jobKeywords, '')
+            .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around)\b/gi, '')
+            .trim()
+            .substring(0, 100);
+
+        let query = supabaseClient
+            .from('jobs')
+            .select('title, company, location, job_type, salary_range, external_apply_url, source_country')
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        if (searchTerm.length >= 3) {
+            query = query.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,location.ilike.%${searchTerm}%`);
+        }
+
+        const { data: jobs } = await query;
+        return jobs && jobs.length > 0 ? jobs : null;
+    } catch (error) {
+        console.warn('Job search within chat failed, continuing without job context:', error);
+        return null;
+    }
+}
+
 const handlers = {
     // ========== HEALTH & SYSTEM ==========
     health: async (req, res) => {
@@ -935,46 +985,8 @@ const handlers = {
     },
 
     // ========== AI CHAT ==========
-    // Detects whether a chat message is asking about jobs, and if so,
-    // searches the real jobs table (which already contains both
-    // admin-posted internal listings AND approved external jobs sourced
-    // from the official government portals — they're unified into one
-    // table by the existing approval flow, so one query naturally covers
-    // both "internal job board and verified country official sources" as
-    // asked for). Returns a compact list for the AI to reference, or null
-    // if the message doesn't look job-related.
-    async function findRelevantJobs(supabaseClient, userMessage) {
-        const jobKeywords = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
-        if (!jobKeywords.test(userMessage)) return null;
-
-        try {
-            // Naive keyword extraction: strip common stopwords/job-generic
-            // terms, keep whatever's left as the search term (likely a job
-            // title, skill, or location the user mentioned).
-            const searchTerm = userMessage
-                .replace(jobKeywords, '')
-                .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around)\b/gi, '')
-                .trim()
-                .substring(0, 100);
-
-            let query = supabaseClient
-                .from('jobs')
-                .select('title, company, location, job_type, salary_range, external_apply_url, source_country')
-                .eq('is_active', true)
-                .order('created_at', { ascending: false })
-                .limit(5);
-
-            if (searchTerm.length >= 3) {
-                query = query.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,location.ilike.%${searchTerm}%`);
-            }
-
-            const { data: jobs } = await query;
-            return jobs && jobs.length > 0 ? jobs : null;
-        } catch (error) {
-            console.warn('Job search within chat failed, continuing without job context:', error);
-            return null;
-        }
-    }
+    // findRelevantJobs() moved to a top-level function above handlers —
+    // see it there. This comment marks where the chat handler begins.
 
     chat: async (req, res) => {
         const { message, history, systemPrompt, temperature = 0.7, maxTokens = 800, userId } = req.body;
