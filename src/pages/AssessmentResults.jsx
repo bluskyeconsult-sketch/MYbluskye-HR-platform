@@ -8,7 +8,7 @@
 //
 // FIXED (2026-08-07): handleDownloadReport() called ?action=assessment-generate-report
 // (a real, confirmed backend handler), but that handler itself generates a
-// reportUrl (https://www.bluskyeconsult.com/reports/{id}) that doesn't
+// reportUrl (https://bluskyeconsult.com/reports/{id}) that doesn't
 // correspond to any real route — the button opened a dead link. The report
 // HTML was actually being generated correctly by assessmentService.js's
 // generateAssessmentReport(), it just never reached the user. Now calls that
