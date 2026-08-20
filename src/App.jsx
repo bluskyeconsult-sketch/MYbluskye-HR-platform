@@ -580,6 +580,7 @@ const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'
 const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
 const HRToolsPage = lazy(() => import('./pages/HRToolsPage'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
+import AdminLayout from './components/admin/AdminLayout';
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminJobs = lazy(() => import('./pages/admin/AdminJobs'));
@@ -791,44 +792,44 @@ function AppContent() {
                             <Route path="/admin-login" element={<AdminLogin />} />
                             
                             {/* Admin Routes - Protected */}
-                            <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
-                            <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
-                            <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
-                            <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminCourses /></ProtectedRoute>} />
-                            <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                            <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><CourseEditor /></ProtectedRoute>} />
-                            <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminFraudReports /></ProtectedRoute>} />
-                            <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminArticles /></ProtectedRoute>} />
-                            <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                            <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><ArticleEditor /></ProtectedRoute>} />
-                            <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><TestingModeSettings /></ProtectedRoute>} />
-                            <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><TesterVisibilitySettings /></ProtectedRoute>} />
-                            <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><EmailTest /></ProtectedRoute>} />
-                            <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><ExternalJobs /></ProtectedRoute>} />
-                            <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><ExternalJobsManager /></ProtectedRoute>} />
-                            <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><KnowledgeSourceManager /></ProtectedRoute>} />
-                            <Route path="/admin/books" element={<ProtectedRoute requireAdmin><ManageBooks /></ProtectedRoute>} />
-                            <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><NewsletterAdmin /></ProtectedRoute>} />
-                            <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AssessmentManager /></ProtectedRoute>} />
-                            <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AssessmentEditor /></ProtectedRoute>} />
-                            <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><VirtualAssistantManager /></ProtectedRoute>} />
-                            <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AICourseBuilder /></ProtectedRoute>} />
-                            <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminSkills /></ProtectedRoute>} />
-                            <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminTesterFeedback /></ProtectedRoute>} />
-                            <Route path="/admin/tester-invites" element={<ProtectedRoute requireAdmin><AdminTesterInvites /></ProtectedRoute>} />
-                            <Route path="/admin/diagnostics" element={<ProtectedRoute requireAdmin><AdminDiagnostics /></ProtectedRoute>} />
-                            <Route path="/admin/workforce" element={<ProtectedRoute requireAdmin><AdminWorkforce /></ProtectedRoute>} />
-                            <Route path="/admin/affiliate-management" element={<ProtectedRoute requireAdmin><AffiliateManagement /></ProtectedRoute>} />
-                            <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><UsageMeter /></ProtectedRoute>} />
-                            <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminAudit /></ProtectedRoute>} />
+                            <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminLayout><AdminUsers /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/jobs" element={<ProtectedRoute requireAdmin><AdminLayout><AdminJobs /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/courses" element={<ProtectedRoute requireAdmin><AdminLayout><AdminCourses /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/courses/new" element={<ProtectedRoute requireAdmin><AdminLayout><CourseEditor /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/courses/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><CourseEditor /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/fraud-reports" element={<ProtectedRoute requireAdmin><AdminLayout><AdminFraudReports /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/articles" element={<ProtectedRoute requireAdmin><AdminLayout><AdminArticles /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/articles/new" element={<ProtectedRoute requireAdmin><AdminLayout><ArticleEditor /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/articles/:id" element={<ProtectedRoute requireAdmin><AdminLayout><ArticleEditor /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><AdminLayout><TestingModeSettings /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><AdminLayout><TesterVisibilitySettings /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><AdminLayout><EmailTest /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobs /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobsManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><AdminLayout><KnowledgeSourceManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/books" element={<ProtectedRoute requireAdmin><AdminLayout><ManageBooks /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><AdminLayout><NewsletterAdmin /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentEditor /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><AdminLayout><VirtualAssistantManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSkills /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminLayout><AdminTesterFeedback /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/tester-invites" element={<ProtectedRoute requireAdmin><AdminLayout><AdminTesterInvites /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/diagnostics" element={<ProtectedRoute requireAdmin><AdminLayout><AdminDiagnostics /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/workforce" element={<ProtectedRoute requireAdmin><AdminLayout><AdminWorkforce /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/affiliate-management" element={<ProtectedRoute requireAdmin><AdminLayout><AffiliateManagement /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><AdminLayout><UsageMeter /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAudit /></AdminLayout></ProtectedRoute>} />
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
-                            <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminEmployerVerification /></ProtectedRoute>} />
-                            <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminOpportunityGaps /></ProtectedRoute>} />
-                            <Route path="/admin/refund-requests" element={<ProtectedRoute requireAdmin><AdminRefundRequests /></ProtectedRoute>} />
+                            <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminLayout><AdminEmployerVerification /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminLayout><AdminOpportunityGaps /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/refund-requests" element={<ProtectedRoute requireAdmin><AdminLayout><AdminRefundRequests /></AdminLayout></ProtectedRoute>} />
                             <Route path="/request-refund" element={<ProtectedRoute><RequestRefundPage /></ProtectedRoute>} />
-                            <Route path="/admin/health" element={<ProtectedRoute requireAdmin><SystemHealthDashboard /></ProtectedRoute>} />
-                            <Route path="/admin/security" element={<ProtectedRoute requireAdmin><SecurityDashboard /></ProtectedRoute>} />
-                            <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AnalyticsDashboard /></ProtectedRoute>} />
+                            <Route path="/admin/health" element={<ProtectedRoute requireAdmin><AdminLayout><SystemHealthDashboard /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/security" element={<ProtectedRoute requireAdmin><AdminLayout><SecurityDashboard /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AdminLayout><AnalyticsDashboard /></AdminLayout></ProtectedRoute>} />
                             
                             {/* User Routes - Protected */}
                             <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
