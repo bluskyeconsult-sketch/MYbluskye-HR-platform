@@ -676,7 +676,7 @@ export async function generateAssessmentReport(userAssessmentId, userId) {
             .eq('id', userId)
             .single();
         
-        const reportUrl = `https://www.bluskyeconsult.com/reports/${userAssessmentId}`;
+        const reportUrl = `https://bluskyeconsult.com/reports/${userAssessmentId}`;
         
         await supabase
             .from('user_assessments')
