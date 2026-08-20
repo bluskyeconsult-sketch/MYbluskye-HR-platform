@@ -450,7 +450,11 @@ export default function NewsletterAdmin() {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Open Rate</p>
-                            <p className="text-2xl font-bold text-white">{stats.openRate}%</p>
+                            <p className="text-2xl font-bold text-white">
+                                {stats.openRate === null || stats.openRate === undefined ? (
+                                    <span className="text-sm font-normal text-slate-500">Not tracked yet</span>
+                                ) : `${stats.openRate}%`}
+                            </p>
                         </div>
                         <Eye className="w-8 h-8 text-amber-400 opacity-50 group-hover:scale-110 transition" />
                     </div>
