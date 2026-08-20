@@ -534,7 +534,7 @@ const emailTemplates = {
             ${data.content || ''}
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
-            <p style="color:#475569;font-size:12px;">You received this because you subscribed. <a href="https://www.bluskyeconsult.com/newsletter/unsubscribe" style="color:#10b981;">Unsubscribe</a></p>
+            <p style="color:#475569;font-size:12px;">You received this because you subscribed. <a href="https://bluskyeconsult.com/newsletter/unsubscribe" style="color:#10b981;">Unsubscribe</a></p>
         </div>
     </div>
 </body>
@@ -552,7 +552,7 @@ const emailTemplates = {
             <p style="color:#94a3b8;">Hello ${data.name || 'there'},</p>
             <p style="color:#94a3b8;">Thank you for subscribing! You'll receive weekly insights on job opportunities, career tips, and industry trends.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://www.bluskyeconsult.com" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Visit ODUSBABA →</a>
+                <a href="https://bluskyeconsult.com" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Visit ODUSBABA →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -575,7 +575,7 @@ const emailTemplates = {
             <p style="color:#94a3b8;">Thank you for joining ODUSBABA! You're now part of the governed workforce platform.</p>
             <p style="color:#94a3b8;">Get started by completing your profile and exploring job opportunities.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://www.bluskyeconsult.com/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard</a>
+                <a href="https://bluskyeconsult.com/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -618,9 +618,9 @@ const emailTemplates = {
         <div style="padding:24px;">
             <p style="color:#94a3b8;">We found ${data.jobs?.length || 0} new job${data.jobs?.length !== 1 ? 's' : ''} that match your alert.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://www.bluskyeconsult.com/jobs" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View All Jobs</a>
+                <a href="https://bluskyeconsult.com/jobs" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View All Jobs</a>
             </div>
-            <p style="color:#64748b;font-size:12px;">You received this because you have job alerts enabled. <a href="https://www.bluskyeconsult.com/job-alerts" style="color:#10b981;">Manage alerts</a></p>
+            <p style="color:#64748b;font-size:12px;">You received this because you have job alerts enabled. <a href="https://bluskyeconsult.com/job-alerts" style="color:#10b981;">Manage alerts</a></p>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
@@ -650,7 +650,7 @@ const emailTemplates = {
                 </ul>
             </div>
             <div style="text-align:center;">
-                <a href="https://www.bluskyeconsult.com/tester/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a>
+                <a href="https://bluskyeconsult.com/tester/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -677,7 +677,7 @@ const emailTemplates = {
                 <div style="color:#94a3b8;">Performance: <strong>${data.performanceLevel}</strong></div>
             </div>
             <div style="text-align:center;">
-                <a href="https://www.bluskyeconsult.com/assessment-results" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View Full Report →</a>
+                <a href="https://bluskyeconsult.com/assessment-results" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View Full Report →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -1359,7 +1359,7 @@ const handlers = {
 
                 if (upgradeError) throw upgradeError;
 
-                const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+                const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
                 return res.status(200).json({
                     success: true,
                     freeAccess: true,
@@ -1386,7 +1386,7 @@ const handlers = {
         try {
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
             const session = await stripe.checkout.sessions.create({
                 mode: 'subscription',
@@ -1416,7 +1416,7 @@ const handlers = {
         try {
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
             const session = await stripe.billingPortal.sessions.create({
                 customer: customerId,
@@ -1599,7 +1599,7 @@ const handlers = {
         if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
 
         const supabaseClient = getSupabase();
-        const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+        const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
         try {
             let { data: affiliate } = await supabaseClient
@@ -1738,7 +1738,7 @@ const handlers = {
         try {
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-            const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
             const session = await stripe.checkout.sessions.create({
                 mode: 'payment',
@@ -2327,7 +2327,7 @@ ${topTrending.length > 0 ? `### What People Are Searching For\n${topTrending.map
     // the Hobby plan's function-count limit hit earlier this session).
     sitemap: async (req, res) => {
         const supabaseClient = getSupabase();
-        const siteUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
+        const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
         try {
             const staticPages = ['', '/jobs', '/courses', '/assessments', '/workforce', '/hire-va', '/hr-tools', '/books', '/blog', '/pricing', '/about', '/contact', '/affiliate'];
@@ -2750,7 +2750,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             
             if (error) throw error;
             
-            const reportUrl = `https://www.bluskyeconsult.com/reports/${userAssessmentId}`;
+            const reportUrl = `https://bluskyeconsult.com/reports/${userAssessmentId}`;
             
             await supabaseClient
                 .from('user_assessments')
@@ -2768,7 +2768,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const { userAssessmentId, recipientEmail, senderName, shareUrl } = req.body;
         
         try {
-            fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+            fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2978,7 +2978,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             
             if (error && error.code !== '23505') throw error;
             
-            fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+            fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -3111,7 +3111,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             
             if (error) throw error;
             
-            await fetch(`${process.env.VERCEL_URL || 'https://www.bluskyeconsult.com'}/api/index?action=email`, {
+            await fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
