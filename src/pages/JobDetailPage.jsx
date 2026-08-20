@@ -43,7 +43,7 @@ import toast from 'react-hot-toast';
 // instead. Removed entirely; both fallback sites now set null directly,
 // correctly triggering the real not-found state.
 
-const SEO_URL_BASE = 'https://www.bluskyeconsult.com';
+const SEO_URL_BASE = 'https://bluskyeconsult.com';
 
 export default function JobDetailPage() {
   const { id } = useParams();
