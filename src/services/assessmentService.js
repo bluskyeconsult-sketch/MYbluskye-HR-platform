@@ -20,7 +20,13 @@
 import { supabase } from '../lib/supabase';
 
 const API_BASE = '/api/index';
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+// FIXED (2026-08-20): removed OPENAI_API_KEY (import.meta.env.VITE_OPENAI_API_KEY)
+// — no longer used anywhere in this file now that the direct-OpenAI
+// bypass path is gone. This constant existed only to support that
+// removed code path, and having it defined at all was itself a standing
+// exposure risk (any VITE_-prefixed env var ships in the client bundle,
+// readable by anyone who inspects the built JS) — better removed
+// entirely than left sitting unused.
 
 const TIER_LIMITS = {
     free: { assessments_per_month: 3, can_download_report: false, can_retake: false, ai_insights: false },
@@ -43,7 +49,21 @@ const isUnlimitedTier = (tier, userType) => {
     return tier === 'super_admin' || tier === 'admin' || tier === 'business' || userType === 'super_admin';
 };
 
-const getTierLimits = (tier, userType) => {
+// FIXED (2026-08-21): TIER_LIMITS.tester was keyed on a literal
+// tier === 'tester' value that no account has held since the
+// SignUpPage.jsx tester rebuild — testers now keep their REAL selected
+// tier's user_type (job_seeker/employer/business_owner) so they can
+// actually test that tier's real experience, rather than being forced
+// onto a generic 'tester' tier value. Without this fix, a tester
+// testing at the 'professional' tier would silently get 50
+// assessments/month (that tier's real limit) instead of the intended
+// tighter tester restriction — completely bypassing the separate,
+// deliberate tester cap. Now checks the real is_tester boolean flag
+// instead, applied on top of whatever real tier the account has.
+const getTierLimits = (tier, userType, isTester = false) => {
+    if (isTester) {
+        return { ...TIER_LIMITS.tester, isUnlimited: false };
+    }
     if (isUnlimitedTier(tier, userType)) {
         return { ...TIER_LIMITS.super_admin, isUnlimited: true };
     }
@@ -51,7 +71,12 @@ const getTierLimits = (tier, userType) => {
 };
 
 const callUnifiedAPI = async (action, payload, options = {}) => {
-    const { method = 'POST', timeout = 30000 } = options;
+    // NEW (2026-08-21): headers option added so callers (like
+    // generateAIAssessment) can attach an Authorization token for actions
+    // that now require it server-side. Previously this always hardcoded
+    // just Content-Type, silently dropping any headers a caller tried to
+    // pass — merging them in properly now.
+    const { method = 'POST', timeout = 30000, headers = {} } = options;
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -59,7 +84,7 @@ const callUnifiedAPI = async (action, payload, options = {}) => {
     try {
         const response = await fetch(`${API_BASE}?action=${action}`, {
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...headers },
             body: JSON.stringify(payload),
             signal: controller.signal
         });
@@ -87,51 +112,28 @@ const callUnifiedAPI = async (action, payload, options = {}) => {
     }
 };
 
-const callOpenAIDirect = async (messages, options = {}) => {
-    if (!OPENAI_API_KEY) {
-        throw new Error('OpenAI API key not configured');
-    }
-    
-    const { temperature = 0.3, max_tokens = 100 } = options;
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages,
-            temperature,
-            max_tokens
-        })
-    });
-    
-    if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return data.choices[0].message.content;
-};
-
+// FIXED (2026-08-20): removed callOpenAIDirect() and the direct-OpenAI
+// fallback branch entirely. This previously caught ANY failure from the
+// real, metered backend call — including the expected "insufficient
+// credits" rejection — and silently routed around it via a direct,
+// client-side call using the exposed VITE_OPENAI_API_KEY. That meant
+// running out of credits didn't actually stop AI usage on this file's
+// functions at all; it just quietly bypassed the entire gating system
+// built this session. Both real call sites already define a sensible
+// static fallback value (a default score, generic insight text) — any
+// backend failure now goes straight to that, preserving genuine
+// resilience without ever spending the exposed key for free, unmetered
+// usage.
+// Note: `directMessages` is accepted for backward compatibility with
+// existing call sites' argument lists but is intentionally unused now —
+// see the comment above for why the direct-call path was removed.
 const callAIWithFallback = async (action, payload, directMessages, fallbackValue) => {
     try {
         const response = await callUnifiedAPI(action, payload);
         return response.result || response.response;
     } catch (apiError) {
-        console.warn(`Unified API failed for ${action}, trying direct OpenAI:`, apiError);
-        
-        try {
-            if (OPENAI_API_KEY && directMessages) {
-                return await callOpenAIDirect(directMessages);
-            }
-            throw new Error('Direct OpenAI not available');
-        } catch (openaiError) {
-            console.warn(`Direct OpenAI failed for ${action}, using fallback:`, openaiError);
-            return fallbackValue;
-        }
+        console.warn(`AI call failed for ${action}, using static fallback:`, apiError);
+        return fallbackValue;
     }
 };
 
@@ -174,7 +176,7 @@ export async function checkAssessmentEligibility(userId) {
     try {
         let { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('tier, user_type, email')
+            .select('tier, user_type, email, is_tester')
             .eq('id', userId)
             .single();
         
@@ -207,7 +209,7 @@ export async function checkAssessmentEligibility(userId) {
         }
         
         const tier = profile?.tier || profile?.user_type || 'free';
-        const limits = getTierLimits(tier, profile?.user_type);
+        const limits = getTierLimits(tier, profile?.user_type, profile?.is_tester || false);
         
         if (limits.isUnlimited) {
             return {
@@ -413,10 +415,12 @@ async function generateAIInsights(assessmentTitle, percentage, dimensionScores) 
         recommendations: ['Take relevant courses', 'Join study groups', 'Practice with real-world scenarios']
     };
     
-    if (!OPENAI_API_KEY) {
-        return fallbackInsights;
-    }
-    
+    // FIXED (2026-08-20): this used to gate on whether the client-side
+    // OPENAI_API_KEY was present — meaningless now that this function
+    // only ever calls the metered backend, which has its own key entirely
+    // server-side. Removed; the real backend call's own error handling
+    // (now falling straight to fallbackInsights on any failure) covers
+    // this correctly.
     const systemPrompt = 'You are a career coach. Provide personalized assessment insights as JSON. Return ONLY valid JSON.';
     const userMessage = `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings)`;
     
@@ -817,13 +821,21 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+// FIXED (2026-08-21): generate-assessment now requires real admin auth
+// server-side (it had none at all before — reachable by anyone, unmetered
+// OpenAI cost). This call never sent an Authorization header, so it will
+// fail with 401 the moment that backend fix is deployed. Now attaches the
+// caller's real session token — this function is admin-only anyway
+// (adminId is passed to save the result), so this doesn't change who's
+// meant to call it, just makes the existing intent actually enforced.
 export async function generateAIAssessment(topic, difficulty, numberOfQuestions, adminId = null) {
     try {
+        const { data: { session } } = await supabase.auth.getSession();
         const response = await callUnifiedAPI('generate-assessment', {
             topic,
             difficulty,
             numberOfQuestions
-        });
+        }, { headers: { 'Authorization': `Bearer ${session?.access_token}` } });
         
         let result;
         if (response.success && response.result) {
