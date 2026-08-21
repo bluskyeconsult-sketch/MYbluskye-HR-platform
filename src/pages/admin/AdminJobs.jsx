@@ -94,8 +94,17 @@ export default function AdminJobs() {
         const active = jobList.filter(j => j.is_active).length;
         const inactive = jobList.filter(j => !j.is_active).length;
         const featured = jobList.filter(j => j.is_featured).length;
-        const remote = jobList.filter(j => j.job_type === 'remote').length;
-        const hybrid = jobList.filter(j => j.job_type === 'hybrid').length;
+        // FIXED (2026-08-21): was only checking job_type === 'remote'/'hybrid',
+        // which stayed at 0 even when jobs clearly showing "Remote" in their
+        // location field existed (confirmed via live screenshots — RSS-fetched
+        // and some employer-posted jobs carry this in `location`, not
+        // `job_type`). Now checks both fields, case-insensitively.
+        const remote = jobList.filter(j =>
+            j.job_type === 'remote' || j.location?.toLowerCase().includes('remote')
+        ).length;
+        const hybrid = jobList.filter(j =>
+            j.job_type === 'hybrid' || j.location?.toLowerCase().includes('hybrid')
+        ).length;
         
         setStats({ total, active, inactive, featured, remote, hybrid });
     }
