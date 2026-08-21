@@ -5,6 +5,13 @@
 // anywhere in this project — the real email endpoint is
 // /api/index?action=email, already confirmed working. This test page has
 // never actually been able to send a real email until now.
+//
+// FIXED (2026-08-21): the SMTP Status info panel's "User" row checked
+// import.meta.env.VITE_SMTP_USER — a variable name that doesn't exist
+// anywhere in the backend. The real transporter (api/index.js
+// getTransporter()) reads VITE_EMAIL_USER (falling back to SMTP_USER).
+// Now checks the real name, so this panel actually reflects whether the
+// credential the transporter uses is configured.
 
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle, HelpCircle, Shield } from 'lucide-react';
@@ -69,7 +76,7 @@ export default function EmailTest() {
                         </div>
                         <div style="background-color: #0a0f1c; padding: 20px; text-align: center; font-size: 12px; color: #475569;">
                             <p>BluSkye Integrated Consult - Creating Value for Partnership</p>
-                            <p><a href="https://bluskyeconsult.com" style="color: #0ea5e9;">Visit ODUSBABA</a></p>
+                            <p><a href="https://www.bluskyeconsult.com" style="color: #0ea5e9;">Visit ODUSBABA</a></p>
                         </div>
                     </div>
                 </body>
@@ -100,7 +107,7 @@ export default function EmailTest() {
                             </ul>
                         </div>
                         <div style="text-align: center;">
-                            <a href="https://bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Go to Dashboard →</a>
+                            <a href="https://www.bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Go to Dashboard →</a>
                         </div>
                         <hr style="border-color: #1e293b; margin: 20px 0;">
                         <p style="color: #475569; font-size: 12px; text-align: center;">BluSkye Integrated Consult</p>
@@ -287,7 +294,14 @@ export default function EmailTest() {
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-slate-400">User:</span>
-                                <span className="text-white">{import.meta.env.VITE_SMTP_USER ? '✓ Configured' : 'Not set'}</span>
+                                {/* FIXED (2026-08-21): was checking VITE_SMTP_USER, a variable
+                                    name that doesn't exist anywhere in the backend. The real
+                                    transporter (api/index.js getTransporter()) reads
+                                    VITE_EMAIL_USER (falling back to SMTP_USER) — so this panel
+                                    could show "Not set" even when correctly configured, or
+                                    "Configured" when it wasn't, either way giving a false read
+                                    on the exact gap this page exists to diagnose. */}
+                                <span className="text-white">{import.meta.env.VITE_EMAIL_USER ? '✓ Configured' : 'Not set'}</span>
                             </div>
                         </div>
                     </div>
