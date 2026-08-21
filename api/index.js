@@ -194,6 +194,50 @@ async function checkIpRateLimit(supabaseClient, ip, maxPerHour) {
     return { allowed: true };
 }
 
+// FIXED (2026-08-21): this shared credit-check function had no awareness of
+// profiles.is_tester at all — a tester (who now keeps their real tier's
+// user_type per the SignUpPage.jsx rebuild, rather than being forced onto a
+// generic 'tester' value) would flow straight through the normal va_credits
+// balance check below, completely bypassing the separate, hard,
+// tier-independent tester_allocations cap. Every one of the 12+ handlers
+// that already call this function inherits the fix from this one place,
+// rather than needing the same tester-branch duplicated in each of them.
+// FIXED (2026-08-21): two independent, silently-drifted default-credit maps
+// existed for the same tiers — grant-monthly-credits used
+// {registered:20, professional:100, employer:60, business:300}, while
+// user-eligibility's fallback used {registered:10, professional:25,
+// employer:20} — with NO shared source of truth, exactly the kind of
+// parallel-competing-implementation drift this project has repeatedly
+// found elsewhere. Consolidated into one constant, used by both. Picked
+// the smaller, more conservative numbers as canonical (lower cost
+// exposure by default) — this is a judgment call, not a confirmed
+// business decision; revisit if the larger numbers were actually intended.
+//
+// FLAGGED, NOT RESOLVED: 'business' tier is treated as fully UNLIMITED in
+// user-eligibility (isUnlimited check on profile.tier === 'business'), but
+// checkAndDeductCredit — the function that actually gates VA/HR-tools AI
+// calls — does NOT include business in its unlimited check at all, so a
+// business-tier account is metered against a real balance there. Given
+// business tier is unlimited in one place and metered in another, its
+// exact number here (20) is a placeholder matching what SignUpPage.jsx
+// already grants — but if business is meant to be unlimited everywhere,
+// this number is moot and the real fix is adding business to
+// checkAndDeductCredit's unlimited check instead. Needs a decision on
+// actual intent, not a guess.
+// DECIDED (2026-08-21): business tier gets a high but finite cap for
+// AI-backed VA/HR-tool usage — 200/month — not truly unlimited. Applied
+// consistently below and in both user-eligibility branches (assessments
+// and credits), which previously treated business as fully unlimited,
+// creating the exact inconsistency this decision was meant to resolve.
+const TIER_MONTHLY_ALLOWANCE = {
+    free: 5,
+    registered: 10,
+    professional: 25,
+    employer: 20,
+    business: 200,
+    tester: 10
+};
+
 async function checkAndDeductCredit(supabaseClient, userId, req = null) {
     if (!userId) {
         // FIXED: guests no longer bypass metering entirely — rate limited
@@ -210,12 +254,32 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
 
     const { data: profile } = await supabaseClient
         .from('profiles')
-        .select('user_type, tier')
+        .select('user_type, tier, is_tester')
         .eq('id', userId)
         .single();
 
     const isUnlimited = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
     if (isUnlimited) return { allowed: true, unlimited: true, remaining: null };
+
+    // NEW (2026-08-21): tester accounts are capped via tester_allocations,
+    // independent of whatever their real tier's va_credits balance would
+    // normally allow — same atomic check-and-decrement used by va-execute,
+    // so two rapid requests near a tester's last remaining use can't both
+    // slip through.
+    if (profile?.is_tester) {
+        const { data: consumeResult, error: consumeError } = await supabaseClient
+            .rpc('consume_tester_allocation', { p_user_id: userId });
+
+        if (consumeError) {
+            console.error('Tester allocation check failed:', consumeError.message);
+            return { allowed: false, unlimited: false, remaining: 0 };
+        }
+
+        const allowed = consumeResult?.[0]?.success;
+        return allowed
+            ? { allowed: true, unlimited: false, remaining: null, isTester: true }
+            : { allowed: false, unlimited: false, remaining: 0, isTester: true, capReached: true };
+    }
 
     // Burst-rate cap for free tier specifically, on top of the monthly
     // credit allowance — protects against rapid request-flooding even
@@ -251,6 +315,42 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
     }
 
     return { allowed: true, unlimited: false, remaining: newBalance };
+}
+
+// NEW (2026-08-21): shared admin-only gate for backend actions that must
+// never be reachable by an unauthenticated or non-admin caller — currently
+// generateCourseImage, generateLessonImage, generateLessonAudio,
+// generate-course, and generate-assessment, all confirmed to have had ZERO
+// backend authorization before this fix (no userId, no credit check, no
+// admin check — reachable by literally anyone who found the URL, with real
+// per-call OpenAI/DALL-E/TTS cost and no rate limit). Frontend-only "only
+// show this button to admins" is not a security boundary; this is the real
+// one. Mirrors the existing Bearer-token verification pattern already used
+// by assessment-results and others in this file.
+async function requireAdmin(req, supabaseClient) {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!token) {
+        return { authorized: false, status: 401, error: 'Authentication required' };
+    }
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !user) {
+        return { authorized: false, status: 401, error: 'Invalid or expired session' };
+    }
+
+    const { data: profile } = await supabaseClient
+        .from('profiles')
+        .select('user_type')
+        .eq('id', user.id)
+        .single();
+
+    if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        return { authorized: false, status: 403, error: 'Admin access required' };
+    }
+
+    return { authorized: true, userId: user.id };
 }
 
 async function safeFetch(url, timeout = 10000) {
@@ -1047,6 +1147,10 @@ const handlers = {
 
     // ========== GENERATE ASSESSMENT ==========
     'generate-assessment': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { topic, difficulty = 'intermediate', numberOfQuestions = 5 } = req.body;
 
         if (!topic) {
@@ -1782,18 +1886,22 @@ const handlers = {
     'grant-monthly-credits': async (req, res) => {
         const supabaseClient = getSupabase();
 
-        const tierAllowances = {
-            free: 5,
-            registered: 20,
-            professional: 100,
-            employer: 60,
-            business: 300
-        };
-
+        // FIXED (2026-08-21): was `.select('id, user_type, ...')` and keyed
+        // the allowance lookup by profile.user_type — but user_type's real
+        // values are job_seeker/employer/business_owner/admin/super_admin,
+        // NOT free/registered/professional/business. Since only 'employer'
+        // happens to be a valid value on both sides, this meant the lookup
+        // matched (by coincidence) only for employer-tier accounts —
+        // free/registered/professional/business tier users were silently
+        // skipped every single month, with no error, since
+        // `tierAllowances[profile.user_type]` was always undefined for
+        // them. Now selects and keys by the real tier column instead, and
+        // uses the shared TIER_MONTHLY_ALLOWANCE constant instead of its
+        // own separate, drifted set of numbers.
         try {
             const { data: profiles, error: profilesError } = await supabaseClient
                 .from('profiles')
-                .select('id, user_type, last_credit_grant_at')
+                .select('id, tier, user_type, last_credit_grant_at')
                 .not('user_type', 'in', '(admin,super_admin)');
 
             if (profilesError) throw profilesError;
@@ -1803,7 +1911,7 @@ const handlers = {
             const errors = [];
 
             for (const profile of profiles || []) {
-                const allowance = tierAllowances[profile.user_type];
+                const allowance = TIER_MONTHLY_ALLOWANCE[profile.tier];
                 if (!allowance) { skipped++; continue; }
 
                 // Avoid double-granting if this action gets triggered more
@@ -2441,6 +2549,10 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     // ========== GENERATE COURSE ==========
     'generate-course': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { topic, level = 'beginner' } = req.body;
 
         if (!topic) {
@@ -2489,6 +2601,10 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // Supabase dashboard (Storage → New bucket → name it exactly
     // 'course-audio' → make it Public) before using this feature.
     generateCourseImage: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
@@ -2502,6 +2618,10 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     generateLessonImage: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
@@ -2515,10 +2635,12 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     generateLessonAudio: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { text, lessonId } = req.body;
         if (!text) return res.status(400).json({ error: 'Text is required' });
-
-        const supabaseClient = getSupabase();
 
         try {
             const audioBuffer = await callOpenAIAudio(text, 'alloy');
@@ -2867,15 +2989,25 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 .eq('id', userId)
                 .single();
             
-            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin' || profile?.tier === 'business';
+            // FIXED (2026-08-21): business tier was previously treated as
+            // fully unlimited here (999999), inconsistent with the decision
+            // to cap it at a real finite number instead. Removed from the
+            // isUnlimited check.
+            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin';
             
             if (type === 'assessments') {
+                // NOTE: 100 for business is my own proportional estimate
+                // (roughly 3x employer's 30), not an explicitly confirmed
+                // number — assessments are a lower-volume resource than
+                // VA/HR-tool AI calls, so this isn't simply copied from the
+                // 200/month VA/HR-tools cap. Adjust if a different number
+                // was actually intended.
                 const limits = {
                     free: 3,
                     registered: 10,
                     professional: 50,
                     employer: 30,
-                    business: 999999,
+                    business: 100,
                     admin: 999999,
                     super_admin: 999999,
                     tester: 5
@@ -3139,6 +3271,55 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
     },
 
+    // ========== VALIDATE INVITE CODE (NEW — 2026-08-21) ==========
+    // First real end-to-end implementation of invite-code gating —
+    // confirmed via full-backend search that tester_invite_codes and
+    // tester_invites were both previously referenced nowhere at all, and
+    // tester_allocations is write-only (tester-create inserts, nothing
+    // ever reads remaining_uses back). None of the three prior
+    // tester-tracking tables were actually wired to signup.
+    //
+    // Uses tester_invite_codes specifically (not tester_invites) — its
+    // schema (max_uses/times_used/is_active/expires_at) is internally
+    // consistent for a multi-use code; tester_invites' schema
+    // (max_uses alongside a singular used_by/used_at) is self-
+    // contradictory and looks like an earlier abandoned draft.
+    //
+    // The actual check-and-increment happens atomically inside the
+    // consume_invite_code() Postgres function (see
+    // add-invite-code-validation-function.sql) — never as a
+    // separate SELECT-then-UPDATE here, which would race under
+    // concurrent redemptions of a code's last remaining use.
+    'validate-invite-code': async (req, res) => {
+        const { code } = req.body;
+        const supabaseClient = getSupabase();
+
+        if (!code || typeof code !== 'string' || !code.trim()) {
+            return res.status(400).json({ success: false, valid: false, error: 'Invite code is required' });
+        }
+
+        try {
+            const { data, error } = await supabaseClient
+                .rpc('consume_invite_code', { p_code: code.trim() });
+
+            if (error) throw error;
+
+            const result = data?.[0];
+            if (!result) {
+                return res.status(500).json({ success: false, valid: false, error: 'Validation returned no result' });
+            }
+
+            if (!result.success) {
+                return res.status(200).json({ success: true, valid: false, reason: result.reason });
+            }
+
+            return res.status(200).json({ success: true, valid: true });
+        } catch (error) {
+            console.error('Invite code validation error:', error);
+            return res.status(500).json({ success: false, valid: false, error: error.message });
+        }
+    },
+
     // ========== USER STATS ==========
     'user-stats': async (req, res) => {
         const authHeader = req.headers.authorization;
@@ -3266,7 +3447,11 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 .eq('id', userId)
                 .single();
             
-            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin' || profile?.tier === 'business';
+            // FIXED (2026-08-21): business tier previously short-circuited
+            // here with a hardcoded 999999, bypassing va_credits entirely.
+            // Now falls through to the real balance check below, using the
+            // corrected TIER_MONTHLY_ALLOWANCE.business (200).
+            const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin';
             
             if (isUnlimited) {
                 return res.status(200).json({ success: true, credits: 999999, isUnlimited: true });
@@ -3279,7 +3464,11 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 .single();
             
             if (!credits) {
-                const defaultCredits = { free: 5, registered: 10, professional: 25, employer: 20, tester: 10 }[profile?.tier] || 5;
+                // FIXED (2026-08-21): now uses the shared
+                // TIER_MONTHLY_ALLOWANCE constant instead of its own
+                // separate inline copy of these numbers, closing the
+                // silent-drift gap between this and grant-monthly-credits.
+                const defaultCredits = TIER_MONTHLY_ALLOWANCE[profile?.tier] || 5;
                 await supabaseClient.from('va_credits').insert({ user_id: userId, balance: defaultCredits });
                 credits = { balance: defaultCredits };
             }
@@ -3397,6 +3586,36 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
         
         const supabaseClient = getSupabase();
+
+        // FIXED (2026-08-21): this handler previously called OpenAI FIRST,
+        // unconditionally, and only checked/deducted credits AFTERWARD —
+        // meaning an account with zero balance still got a full, real,
+        // billed OpenAI completion every time; the credit system only
+        // recorded usage, it never actually prevented it. Moved the check
+        // to before the OpenAI call.
+        //
+        // REFACTORED (2026-08-21): now uses the same shared
+        // checkAndDeductCredit() every other AI-costing handler in this
+        // file already uses, rather than its own separate copy of the
+        // tester-cap logic — that function is now tester-aware (checks
+        // profiles.is_tester, routes to the tester_allocations cap
+        // instead of va_credits), so fixing it once there covers this
+        // handler too instead of maintaining two versions of the same
+        // check that could drift out of sync with each other.
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+        if (!creditCheck.allowed) {
+            if (creditCheck.capReached) {
+                return res.status(403).json({
+                    error: 'Tester usage cap reached',
+                    message: 'This tester account has used its allotted number of AI-backed requests. Contact the site admin if you need more.'
+                });
+            }
+            return res.status(creditCheck.rateLimited ? 429 : 403).json({
+                error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits',
+                message: creditCheck.rateLimited ? undefined : 'You have no VA credits remaining. Upgrade your plan or purchase more credits to continue.'
+            });
+        }
+        const isTester = creditCheck.isTester === true;
         
         let va = null;
         try {
@@ -3429,33 +3648,25 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             output = va?.sample_output || `Thank you for using ${va?.name || 'this assistant'}. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
         }
         
+        // FIXED (2026-08-21): credit/cap deduction already happened
+        // atomically inside checkAndDeductCredit() above, BEFORE the
+        // OpenAI call — this used to re-check and deduct AGAIN here,
+        // which after that fix would have double-charged every request.
+        // Just logs the completed task now.
         try {
-            const { data: credits } = await supabaseClient
-                .from('va_credits')
-                .select('balance')
-                .eq('user_id', userId)
-                .single();
-            
-            if (credits && credits.balance > 0) {
-                await supabaseClient
-                    .from('va_credits')
-                    .update({ balance: credits.balance - 1 })
-                    .eq('user_id', userId);
-                
-                await supabaseClient
-                    .from('va_tasks')
-                    .insert({
-                        user_id: userId,
-                        va_id: assistantId,
-                        input: input,
-                        output: output,
-                        status: 'completed',
-                        created_at: new Date().toISOString(),
-                        completed_at: new Date().toISOString()
-                    });
-            }
+            await supabaseClient
+                .from('va_tasks')
+                .insert({
+                    user_id: userId,
+                    va_id: assistantId,
+                    input: input,
+                    output: output,
+                    status: 'completed',
+                    created_at: new Date().toISOString(),
+                    completed_at: new Date().toISOString()
+                });
         } catch (err) {
-            console.warn('Credit deduction failed:', err.message);
+            console.warn('Task logging failed:', err.message);
         }
         
         return res.status(200).json({ success: true, output, usedFallback });
