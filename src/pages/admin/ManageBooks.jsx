@@ -1,324 +1,508 @@
-// src/pages/admin/EmailTest.jsx
-// COMPLETE EMAIL TEST PAGE - Test SMTP configuration with error handling
-//
-// FIXED (2026-08-07): posted to /api/send-email, which doesn't exist
-// anywhere in this project — the real email endpoint is
-// /api/index?action=email, already confirmed working. This test page has
-// never actually been able to send a real email until now.
+// src/pages/admin/ManageBooks.jsx
+// ADMIN BOOKS MANAGEMENT - Complete CRUD operations for books
 
-import { useState } from 'react';
-import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle, HelpCircle, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { 
+    BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
+    CheckCircle, XCircle, Search, Upload, FileText,
+    DollarSign, Calendar, Image, AlertCircle, RefreshCw
+} from 'lucide-react';
 
-export default function EmailTest() {
-    const [email, setEmail] = useState('');
-    const [sending, setSending] = useState(false);
-    const [result, setResult] = useState(null);
-    const [selectedTemplate, setSelectedTemplate] = useState('basic');
+export default function ManageBooks() {
+    const [books, setBooks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showModal, setShowModal] = useState(false);
+    const [editingBook, setEditingBook] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(null);
+    const [bookForm, setBookForm] = useState({
+        title: '',
+        author: '',
+        description: '',
+        price: 29.99,
+        category: 'HR',
+        cover_url: '',
+        file_url: '',
+        is_published: true
+    });
 
-    const emailTemplates = {
-        basic: {
-            name: 'Basic Test',
-            subject: 'ODUSBABA Email Test',
-            html: `
-                <!DOCTYPE html>
-                <html>
-                <head><meta charset="UTF-8"></head>
-                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
-                        <div style="text-align: center;">
-                            <div style="font-size: 48px;">📧</div>
-                            <h1 style="color: #10b981;">Email Test Successful!</h1>
-                        </div>
-                        <p style="color: #94a3b8;">Your ODUSBABA email system is working correctly.</p>
-                        <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                            <p style="margin: 0;"><strong>Test Details:</strong></p>
-                            <p style="margin: 8px 0 0; font-size: 12px;">Sent at: ${new Date().toLocaleString()}</p>
-                            <p style="margin: 4px 0 0; font-size: 12px;">Server: Vercel Serverless</p>
-                        </div>
-                        <hr style="border-color: #1e293b; margin: 20px 0;">
-                        <p style="color: #475569; font-size: 12px; text-align: center;">BluSkye Integrated Consult - Creating Value for Partnership</p>
-                    </div>
-                </body>
-                </html>
-            `
-        },
-        newsletter: {
-            name: 'Newsletter Style',
-            subject: 'ODUSBABA Newsletter Test',
-            html: `
-                <!DOCTYPE html>
-                <html>
-                <head><meta charset="UTF-8"></head>
-                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; overflow: hidden;">
-                        <div style="background: linear-gradient(135deg, #0ea5e9, #3b82f6); padding: 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0;">ODUSBABA Newsletter</h1>
-                            <p style="color: #cbd5e1; margin-top: 8px;">Test Edition</p>
-                        </div>
-                        <div style="padding: 30px; color: #94a3b8;">
-                            <h2 style="color: white;">Welcome to the Test!</h2>
-                            <p>This is a test newsletter to verify your email configuration.</p>
-                            <ul>
-                                <li>✅ SMTP configured correctly</li>
-                                <li>✅ Templates working</li>
-                                <li>✅ Email delivery confirmed</li>
-                            </ul>
-                            <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin-top: 20px;">
-                                <p style="margin: 0;">💡 <strong>Next Steps:</strong> Your email system is ready for production!</p>
-                            </div>
-                        </div>
-                        <div style="background-color: #0a0f1c; padding: 20px; text-align: center; font-size: 12px; color: #475569;">
-                            <p>BluSkye Integrated Consult - Creating Value for Partnership</p>
-                            <p><a href="https://www.bluskyeconsult.com" style="color: #0ea5e9;">Visit ODUSBABA</a></p>
-                        </div>
-                    </div>
-                </body>
-                </html>
-            `
-        },
-        welcome: {
-            name: 'Welcome Email',
-            subject: 'Welcome to ODUSBABA!',
-            html: `
-                <!DOCTYPE html>
-                <html>
-                <head><meta charset="UTF-8"></head>
-                <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
-                        <div style="text-align: center;">
-                            <div style="font-size: 48px;">🎉</div>
-                            <h1 style="color: #0ea5e9;">Welcome to ODUSBABA!</h1>
-                        </div>
-                        <p style="color: #94a3b8;">Hello,</p>
-                        <p style="color: #94a3b8;">Thank you for testing our email system. Your account is ready to go!</p>
-                        <div style="background-color: #1e293b; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                            <p style="margin: 0;"><strong>Get started with:</strong></p>
-                            <ul style="margin-top: 8px;">
-                                <li>🤖 AI Career Assistant</li>
-                                <li>📄 CV Optimization</li>
-                                <li>💼 Job Matching</li>
-                            </ul>
-                        </div>
-                        <div style="text-align: center;">
-                            <a href="https://www.bluskyeconsult.com/dashboard" style="display: inline-block; background-color: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Go to Dashboard →</a>
-                        </div>
-                        <hr style="border-color: #1e293b; margin: 20px 0;">
-                        <p style="color: #475569; font-size: 12px; text-align: center;">BluSkye Integrated Consult</p>
-                    </div>
-                </body>
-                </html>
-            `
-        }
-    };
+    // Load books on mount
+    useEffect(() => {
+        loadBooks();
+    }, []);
 
-    const handleTemplateChange = (templateKey) => {
-        setSelectedTemplate(templateKey);
-        setResult(null);
-    };
-
-    async function handleTest(e) {
-        e.preventDefault();
-        
-        if (!email) {
-            setResult({ success: false, message: 'Please enter an email address' });
-            return;
-        }
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
-        if (!emailRegex.test(email)) {
-            setResult({ success: false, message: 'Please enter a valid email address' });
-            return;
-        }
-
-        setSending(true);
-        setResult(null);
-        
-        const template = emailTemplates[selectedTemplate];
+    async function loadBooks() {
+        setLoading(true);
+        setError(null);
         
         try {
-            const response = await fetch('/api/index?action=email', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    to: email, 
-                    subject: `${template.subject} - ${new Date().toLocaleString()}`, 
-                    html: template.html
-                })
-            });
+            const { data, error } = await supabase
+                .from('books')
+                .select('*')
+                .order('created_at', { ascending: false });
             
-            // Check if response is JSON
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                const text = await response.text();
-                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}`);
-            }
-            
-            const data = await response.json();
-            
-            if (response.ok && data.success) {
-                setResult({ 
-                    success: true, 
-                    message: `✅ Test email sent successfully! Check your inbox (${email}).`,
-                    details: { messageId: data.messageId }
-                });
-                setEmail('');
-            } else {
-                setResult({ 
-                    success: false, 
-                    message: data.error || `HTTP ${response.status}: Failed to send` 
-                });
-            }
-        } catch (error) {
-            console.error('Email test error:', error);
-            setResult({ 
-                success: false, 
-                message: error.message || 'Network error. Please try again.' 
-            });
+            if (error) throw error;
+            setBooks(data || []);
+        } catch (err) {
+            console.error('Error loading books:', err);
+            setError('Failed to load books. Please refresh.');
         } finally {
-            setSending(false);
+            setLoading(false);
         }
     }
 
+    function openCreateModal() {
+        setEditingBook(null);
+        setBookForm({
+            title: '',
+            author: '',
+            description: '',
+            price: 29.99,
+            category: 'HR',
+            cover_url: '',
+            file_url: '',
+            is_published: true
+        });
+        setError(null);
+        setShowModal(true);
+    }
+
+    function openEditModal(book) {
+        setEditingBook(book);
+        setBookForm({
+            title: book.title || '',
+            author: book.author || '',
+            description: book.description || '',
+            price: book.price || 29.99,
+            category: book.category || 'HR',
+            cover_url: book.cover_url || '',
+            file_url: book.file_url || '',
+            is_published: book.is_published !== undefined ? book.is_published : true
+        });
+        setError(null);
+        setShowModal(true);
+    }
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        setSaving(true);
+        setError(null);
+        setSuccess(null);
+
+        try {
+            // Validate
+            if (!bookForm.title.trim()) {
+                throw new Error('Title is required');
+            }
+            if (!bookForm.author.trim()) {
+                throw new Error('Author is required');
+            }
+            if (bookForm.price < 0) {
+                throw new Error('Price must be 0 or greater');
+            }
+
+            const bookData = {
+                title: bookForm.title.trim(),
+                author: bookForm.author.trim(),
+                description: bookForm.description.trim(),
+                price: bookForm.price,
+                category: bookForm.category,
+                cover_url: bookForm.cover_url.trim(),
+                file_url: bookForm.file_url.trim(),
+                is_published: bookForm.is_published,
+                updated_at: new Date().toISOString()
+            };
+
+            let result;
+            if (editingBook) {
+                // Update existing book
+                result = await supabase
+                    .from('books')
+                    .update(bookData)
+                    .eq('id', editingBook.id);
+            } else {
+                // Create new book
+                result = await supabase
+                    .from('books')
+                    .insert({
+                        ...bookData,
+                        created_at: new Date().toISOString()
+                    });
+            }
+
+            if (result.error) throw result.error;
+
+            setSuccess(editingBook ? 'Book updated successfully!' : 'Book created successfully!');
+            setShowModal(false);
+            loadBooks();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function deleteBook(id) {
+        if (!confirm('Delete this book? This action cannot be undone.')) return;
+
+        try {
+            const { error } = await supabase
+                .from('books')
+                .delete()
+                .eq('id', id);
+            
+            if (error) throw error;
+            setSuccess('Book deleted successfully!');
+            loadBooks();
+        } catch (err) {
+            setError(err.message);
+        }
+    }
+
+    async function togglePublish(id, currentStatus) {
+        try {
+            const { error } = await supabase
+                .from('books')
+                .update({ 
+                    is_published: !currentStatus,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', id);
+            
+            if (error) throw error;
+            loadBooks();
+        } catch (err) {
+            setError(err.message);
+        }
+    }
+
+    const filteredBooks = books.filter(book => 
+        book.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        book.author?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        book.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Category options
+    const categories = [
+        'HR', 'Leadership', 'Career Development', 'Recruitment', 
+        'AI & Technology', 'Business', 'Psychology', 'Other'
+    ];
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+                <span className="ml-2 text-slate-400">Loading books...</span>
+            </div>
+        );
+    }
+
     return (
-        <div className="p-6 max-w-3xl mx-auto">
-            <div className="mb-8">
-                <h1 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                    <Mail className="w-6 h-6 text-primary-400" />
-                    Email Configuration Test
-                </h1>
-                <p className="text-slate-400">Verify your SMTP settings are working correctly</p>
+        <div className="p-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                        <BookOpen className="w-6 h-6 text-primary-400" />
+                        Manage Books
+                    </h1>
+                    <p className="text-slate-400">Manage your book catalog and sales</p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={loadBooks}
+                        className="px-3 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 flex items-center gap-1"
+                    >
+                        <RefreshCw className="w-4 h-4" />
+                        Refresh
+                    </button>
+                    <button
+                        onClick={openCreateModal}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add Book
+                    </button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Main Form */}
-                <div className="lg:col-span-2">
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                        <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                            <Send className="w-5 h-5 text-primary-400" />
-                            Send Test Email
-                        </h2>
-                        
-                        <form onSubmit={handleTest} className="space-y-4">
+            {/* Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="text-2xl font-bold text-white">{books.length}</div>
+                    <div className="text-slate-400 text-sm">Total Books</div>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="text-2xl font-bold text-emerald-400">
+                        {books.filter(b => b.is_published).length}
+                    </div>
+                    <div className="text-slate-400 text-sm">Published</div>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="text-2xl font-bold text-amber-400">
+                        {books.filter(b => !b.is_published).length}
+                    </div>
+                    <div className="text-slate-400 text-sm">Drafts</div>
+                </div>
+            </div>
+
+            {/* Search */}
+            <div className="relative mb-6">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search books by title, author, or category..."
+                    className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                />
+            </div>
+
+            {/* Error/Success Messages */}
+            {error && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-red-400" />
+                    <p className="text-red-400">{error}</p>
+                    <button onClick={() => setError(null)} className="ml-auto text-red-400">✕</button>
+                </div>
+            )}
+            {success && (
+                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-emerald-400" />
+                    <p className="text-emerald-400">{success}</p>
+                    <button onClick={() => setSuccess(null)} className="ml-auto text-emerald-400">✕</button>
+                </div>
+            )}
+
+            {/* Books Grid */}
+            {filteredBooks.length === 0 ? (
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
+                    <BookOpen className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-white mb-2">No Books Found</h3>
+                    <p className="text-slate-400">
+                        {searchTerm ? 'No books match your search' : 'Add your first book to get started'}
+                    </p>
+                    {!searchTerm && (
+                        <button
+                            onClick={openCreateModal}
+                            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                            Add Your First Book
+                        </button>
+                    )}
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredBooks.map((book) => (
+                        <div key={book.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-slate-700 transition">
+                            <div className="p-4">
+                                <div className="flex justify-between items-start mb-2">
+                                    <div className="flex-1">
+                                        <h3 className="text-white font-semibold truncate">{book.title}</h3>
+                                        <p className="text-slate-400 text-sm">by {book.author}</p>
+                                    </div>
+                                    {book.is_published ? (
+                                        <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">Published</span>
+                                    ) : (
+                                        <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-full">Draft</span>
+                                    )}
+                                </div>
+
+                                <p className="text-slate-400 text-sm line-clamp-2 mb-3">
+                                    {book.description || 'No description available'}
+                                </p>
+
+                                <div className="flex items-center gap-4 text-sm text-slate-500 mb-4">
+                                    <span className="flex items-center gap-1">
+                                        <DollarSign className="w-3 h-3" />
+                                        ${book.price?.toFixed(2) || '0.00'}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <FileText className="w-3 h-3" />
+                                        {book.category || 'Uncategorized'}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <Calendar className="w-3 h-3" />
+                                        {new Date(book.created_at).toLocaleDateString()}
+                                    </span>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => openEditModal(book)}
+                                        className="flex-1 px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center justify-center gap-1 text-sm"
+                                    >
+                                        <Edit2 className="w-3 h-3" /> Edit
+                                    </button>
+                                    <button
+                                        onClick={() => togglePublish(book.id, book.is_published)}
+                                        className={`px-3 py-1.5 rounded-lg flex items-center gap-1 text-sm ${
+                                            book.is_published 
+                                                ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' 
+                                                : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                                        }`}
+                                    >
+                                        {book.is_published ? 'Unpublish' : 'Publish'}
+                                    </button>
+                                    <button
+                                        onClick={() => deleteBook(book.id)}
+                                        className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 flex items-center gap-1 text-sm"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Modal */}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-white">
+                                {editingBook ? 'Edit Book' : 'Add New Book'}
+                            </h2>
+                            <button
+                                onClick={() => setShowModal(false)}
+                                className="text-slate-400 hover:text-white transition"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            {/* Title */}
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">
-                                    Email Address
-                                </label>
+                                <label className="block text-sm text-slate-400 mb-1">Title *</label>
                                 <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="admin@bluskyeconsult.com"
-                                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    type="text"
+                                    value={bookForm.title}
+                                    onChange={(e) => setBookForm({ ...bookForm, title: e.target.value })}
+                                    placeholder="Book title"
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     required
-                                    disabled={sending}
+                                />
+                            </div>
+
+                            {/* Author */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Author *</label>
+                                <input
+                                    type="text"
+                                    value={bookForm.author}
+                                    onChange={(e) => setBookForm({ ...bookForm, author: e.target.value })}
+                                    placeholder="Author name"
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    required
+                                />
+                            </div>
+
+                            {/* Description */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Description</label>
+                                <textarea
+                                    value={bookForm.description}
+                                    onChange={(e) => setBookForm({ ...bookForm, description: e.target.value })}
+                                    placeholder="Book description"
+                                    rows="4"
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                />
+                            </div>
+
+                            {/* Price and Category */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Price (USD)</label>
+                                    <input
+                                        type="number"
+                                        value={bookForm.price}
+                                        onChange={(e) => setBookForm({ ...bookForm, price: parseFloat(e.target.value) || 0 })}
+                                        min="0"
+                                        step="0.01"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Category</label>
+                                    <select
+                                        value={bookForm.category}
+                                        onChange={(e) => setBookForm({ ...bookForm, category: e.target.value })}
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    >
+                                        {categories.map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* URLs */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Cover Image URL</label>
+                                <input
+                                    type="url"
+                                    value={bookForm.cover_url}
+                                    onChange={(e) => setBookForm({ ...bookForm, cover_url: e.target.value })}
+                                    placeholder="https://example.com/cover.jpg"
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm text-slate-400 mb-2">
-                                    Email Template
-                                </label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {Object.entries(emailTemplates).map(([key, template]) => (
-                                        <button
-                                            key={key}
-                                            type="button"
-                                            onClick={() => handleTemplateChange(key)}
-                                            className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-                                                selectedTemplate === key
-                                                    ? 'bg-primary-600 text-white'
-                                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                            }`}
-                                        >
-                                            {template.name}
-                                        </button>
-                                    ))}
-                                </div>
+                                <label className="block text-sm text-slate-400 mb-1">PDF File URL</label>
+                                <input
+                                    type="url"
+                                    value={bookForm.file_url}
+                                    onChange={(e) => setBookForm({ ...bookForm, file_url: e.target.value })}
+                                    placeholder="https://example.com/book.pdf"
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                />
+                                <p className="text-xs text-slate-500 mt-1">Upload PDF to a storage service and paste the URL here</p>
                             </div>
 
-                            <button
-                                type="submit"
-                                disabled={sending}
-                                className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-lg hover:from-primary-700 hover:to-sky-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-medium shadow-lg shadow-primary-500/20"
-                            >
-                                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                                {sending ? 'Sending...' : 'Send Test Email'}
-                            </button>
+                            {/* Publish Status */}
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={bookForm.is_published}
+                                    onChange={(e) => setBookForm({ ...bookForm, is_published: e.target.checked })}
+                                    className="w-4 h-4 rounded border-slate-600"
+                                />
+                                <span className="text-white text-sm">Publish immediately</span>
+                            </label>
+
+                            {error && (
+                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                    <p className="text-red-400 text-sm">{error}</p>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                                >
+                                    {saving ? 'Saving...' : (editingBook ? 'Update Book' : 'Create Book')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowModal(false)}
+                                    className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
                         </form>
-
-                        {result && (
-                            <div className={`mt-4 p-3 rounded-lg flex items-start gap-2 ${
-                                result.success 
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                            }`}>
-                                {result.success ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
-                                <div>
-                                    <span className="text-sm">{result.message}</span>
-                                    {result.details?.messageId && (
-                                        <p className="text-xs text-slate-500 mt-1">
-                                            Message ID: {result.details.messageId}
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
-
-                {/* Info Panel */}
-                <div className="space-y-4">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Shield className="w-5 h-5 text-emerald-400" />
-                            <h3 className="text-white font-semibold">SMTP Status</h3>
-                        </div>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Host:</span>
-                                <span className="text-white font-mono text-xs">
-                                    {import.meta.env.VITE_SMTP_HOST || 'Not set'}
-                                </span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Port:</span>
-                                <span className="text-white">{import.meta.env.VITE_SMTP_PORT || '587'}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">User:</span>
-                                <span className="text-white">{import.meta.env.VITE_SMTP_USER ? '✓ Configured' : 'Not set'}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                            <AlertCircle className="w-5 h-5 text-amber-400" />
-                            <h3 className="text-white font-semibold">Important Notes</h3>
-                        </div>
-                        <ul className="text-xs text-slate-400 space-y-2 list-disc list-inside">
-                            <li>Email may take a few minutes to arrive</li>
-                            <li>Check your spam/junk folder if not received</li>
-                            <li>Some email providers may delay first-time emails</li>
-                            <li>Rate limit: 1 email per minute per address</li>
-                        </ul>
-                    </div>
-
-                    <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                            <HelpCircle className="w-5 h-5 text-sky-400" />
-                            <h3 className="text-white font-semibold">Troubleshooting</h3>
-                        </div>
-                        <ul className="text-xs text-slate-400 space-y-1">
-                            <li>• Ensure SMTP credentials are correct</li>
-                            <li>• Check if SMTP port is open (587 or 465)</li>
-                            <li>• Verify sender email is authorized</li>
-                            <li>• Check Vercel environment variables</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
+            )}
         </div>
     );
 }
