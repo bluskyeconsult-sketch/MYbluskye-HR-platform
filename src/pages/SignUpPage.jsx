@@ -29,6 +29,36 @@
 // TODO (Stage 3 / Stripe integration): once payment exists, upgrade profiles.tier
 // to the originally-requested tier after payment confirmation, rather than
 // leaving paid-tier signups permanently on 'registered'.
+//
+// REBUILT (2026-08-21): the tester system, per ODUSBABA's explicit design —
+//
+//   testing_mode OFF -> unchanged, exactly the behavior above.
+//   testing_mode ON  -> signup requires a valid invite code (new — previously
+//     testing_mode alone let ANYONE register as a tester, no code needed at
+//     all). The person still picks a real tier and gets THAT tier's real
+//     capabilities (previously this branch forced everyone to
+//     userType='tester', tier='free', discarding whichever tier they'd
+//     selected — so a tester could never actually test the employer or
+//     business experience). Paid tiers are granted immediately during
+//     testing mode, same as promo_mode already does, since a tester isn't
+//     expected to pay. A separate is_tester flag marks the account so a
+//     hard, tier-independent OpenAI usage cap applies (enforced in
+//     va-execute via tester_allocations — see tester-system-setup.sql) —
+//     someone testing at 'business' tier doesn't get business-tier request
+//     volume just because they're testing.
+//
+// FIXED (2026-08-21): tester_allocations was being written by two different,
+// disconnected paths with incompatible key columns — the admin's
+// tester-create action keys by email, this signup flow keys by user_id.
+// Under the new shared-code model there's no "specific person" to
+// pre-approve by email anymore, so tester-create is effectively superseded;
+// this file's user_id-keyed upsert is the one real writer going forward.
+//
+// FIXED (2026-08-21): testingConfig.default_tester_uses / default_tester_days
+// were never actually fetched from anywhere — decorative state permanently
+// stuck on its hardcoded initial defaults (10 uses / 30 days) no matter what
+// an admin configured. Now fetched for real from system_config
+// (tester_ai_call_cap / tester_access_days) alongside the testing_mode check.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
@@ -36,7 +66,7 @@ import { supabase } from '../lib/supabase';
 import { 
     UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
     CheckCircle, Briefcase, Building2, Sparkles, Star, 
-    Eye, EyeOff, ArrowLeft
+    Eye, EyeOff, ArrowLeft, KeyRound
 } from 'lucide-react';
 
 // ============================================
@@ -53,14 +83,15 @@ const TIER_TO_USER_TYPE_MAP = {
 };
 
 // Default VA credit balances by tier — matches api/index.js's va-credits handler
-// so a new user's balance is correct from the moment they sign up.
+// so a new user's balance is correct from the moment they sign up. Used for
+// every account, tester or not — a tester's OpenAI usage cap is enforced
+// separately via tester_allocations, not by this number.
 const TIER_DEFAULT_CREDITS = {
     free: 5,
     registered: 10,
     professional: 25,
     employer: 20,
-    business: 20,
-    tester: 10
+    business: 20
 };
 
 // Email validation regex
@@ -133,16 +164,28 @@ export default function SignUpPage() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
     const [testingMode, setTestingMode] = useState(null);
+    // REBUILT (2026-08-21): these now come from real system_config reads
+    // (see checkTestingMode below) instead of sitting permanently on their
+    // hardcoded initial values.
     const [testingConfig, setTestingConfig] = useState({
-        enabled: false,
-        default_tester_days: 30,
-        default_tester_uses: 10
+        aiCallCap: 15,
+        accessDays: 30
     });
     const [passwordStrength, setPasswordStrength] = useState(0);
     const [touchedFields, setTouchedFields] = useState({});
     // NEW: tracks whether the account was created at a lower tier than requested
     // because payment isn't wired up yet, so the success screen can say so accurately.
     const [tierDowngraded, setTierDowngraded] = useState(false);
+
+    // NEW (2026-08-21): invite code state — required input during testing_mode.
+    const [inviteCode, setInviteCode] = useState('');
+    const [codeError, setCodeError] = useState('');
+    // NEW (2026-08-21): reads TesterVisibilitySettings.jsx's real
+    // require_invite_code config key (that admin page already writes this
+    // to system_config, but per its own header comment, nothing anywhere
+    // previously read it back — toggling it had no visible effect on the
+    // site at all). Defaults true, matching that page's own default state.
+    const [requireInviteCode, setRequireInviteCode] = useState(true);
 
     // Tiers configuration
     const tiers = [
@@ -226,6 +269,25 @@ export default function SignUpPage() {
             if (!data && localStorage.getItem('testing_mode') === 'enabled') {
                 setTestingMode(true);
             }
+
+            // NEW (2026-08-21): fetch the real, admin-configurable tester
+            // cap values — these were previously never read at all.
+            if (isTestingMode) {
+                const [{ data: capData }, { data: daysData }, { data: codeReqData }] = await Promise.all([
+                    supabase.from('system_config').select('config_value').eq('config_key', 'tester_ai_call_cap').maybeSingle(),
+                    supabase.from('system_config').select('config_value').eq('config_key', 'tester_access_days').maybeSingle(),
+                    supabase.from('system_config').select('config_value').eq('config_key', 'require_invite_code').maybeSingle()
+                ]);
+
+                setTestingConfig({
+                    aiCallCap: capData?.config_value ? parseInt(capData.config_value, 10) : 15,
+                    accessDays: daysData?.config_value ? parseInt(daysData.config_value, 10) : 30
+                });
+
+                // Default true (matching TesterVisibilitySettings.jsx's own
+                // default) if the key hasn't been explicitly set yet.
+                setRequireInviteCode(codeReqData?.config_value !== 'false');
+            }
         } catch (err) {
             console.error('Error checking testing mode:', err);
             // Fallback to localStorage
@@ -266,8 +328,8 @@ export default function SignUpPage() {
                     templateData: { 
                         name: fullName, 
                         userType,
-                        uses: testingConfig.default_tester_uses,
-                        days: testingConfig.default_tester_days
+                        uses: testingConfig.aiCallCap,
+                        days: testingConfig.accessDays
                     }
                 })
             });
@@ -280,6 +342,7 @@ export default function SignUpPage() {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setCodeError('');
 
         // Validation
         if (!validateEmail(formData.email)) {
@@ -311,32 +374,62 @@ export default function SignUpPage() {
                 .maybeSingle();
             
             const isTestingMode = modeData?.config_value === 'enabled';
+
+            // NEW (2026-08-21): invite code is required to proceed at all
+            // only when testing mode AND the admin-configurable
+            // require_invite_code toggle (TesterVisibilitySettings.jsx)
+            // are both true. Validated against the real backend action
+            // (checks the code atomically against tester_invite_codes and
+            // consumes one use in the same operation — see
+            // add-invite-code-validation-function.sql) BEFORE any account
+            // is created, so an invalid code never results in a
+            // half-created account.
+            if (isTestingMode && requireInviteCode) {
+                if (!inviteCode.trim()) {
+                    setCodeError('An invite code is required while tester registration is open');
+                    setLoading(false);
+                    return;
+                }
+
+                const codeResponse = await fetch(`${API_BASE}?action=validate-invite-code`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: inviteCode.trim() })
+                });
+                const codeResult = await codeResponse.json();
+
+                if (!codeResponse.ok || !codeResult.valid) {
+                    setCodeError(codeResult.reason || 'Invalid invite code');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const isPromoActive = isTestingMode ? false : await checkPromoMode();
             
-            // Determine user type based on testing mode
-            let userType;
+            // REBUILT (2026-08-21): testers now keep their real selected
+            // tier's user_type and capabilities — previously this branch
+            // forced userType='tester', tier='free' unconditionally,
+            // discarding whatever tier the person had actually picked.
+            const userType = TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker';
             let tier;
             let downgraded = false;
-            
-            if (isTestingMode) {
-                userType = 'tester';
-                tier = 'free';
+
+            const selectedTierInfo = tiers.find(t => t.id === formData.selectedTier);
+            const needsPayment = selectedTierInfo?.requiresPayment === true;
+
+            if (needsPayment && !isPromoActive && !isTestingMode) {
+                // Paid tier requested, no promo active, not a tester, and
+                // payment isn't wired up yet — grant a safe free tier now
+                // instead of full paid access. User still gets redirected
+                // to /pricing below.
+                tier = 'registered';
+                downgraded = true;
             } else {
-                userType = TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker';
-                
-                const selectedTierInfo = tiers.find(t => t.id === formData.selectedTier);
-                const needsPayment = selectedTierInfo?.requiresPayment === true;
-                
-                if (needsPayment && !isPromoActive) {
-                    // Paid tier requested, no promo active, and payment isn't wired
-                    // up yet — grant a safe free tier now instead of full paid
-                    // access. User still gets redirected to /pricing below.
-                    tier = 'registered';
-                    downgraded = true;
-                } else {
-                    // Free tier, or a paid tier during an active promo — grant as requested.
-                    tier = formData.selectedTier;
-                }
+                // Free tier, a paid tier during an active promo, or ANY
+                // tier during testing mode (testers aren't expected to
+                // pay) — grant as requested.
+                tier = formData.selectedTier;
             }
             setTierDowngraded(downgraded);
 
@@ -350,7 +443,7 @@ export default function SignUpPage() {
                         user_type: userType,
                         tier: tier,
                         requested_tier: formData.selectedTier,
-                        company_name: isTestingMode ? null : formData.company_name,
+                        company_name: formData.company_name,
                         is_tester: isTestingMode || false,
                         registered_at: new Date().toISOString()
                     }
@@ -364,6 +457,11 @@ export default function SignUpPage() {
             // FIXED: removed ai_credits_remaining / va_credits_balance — the real
             // credit system reads from a separate va_credits table, not these
             // profiles columns. See the va_credits upsert below instead.
+            // NEW (2026-08-21): is_tester now actually persisted to the
+            // profiles row itself (previously only ever set in auth
+            // metadata, never copied into the actual table — va-execute's
+            // tester-cap check reads profiles.is_tester directly, so this
+            // was a real gap, not just an oversight).
             const { error: profileError } = await supabase
                 .from('profiles')
                 .upsert({
@@ -372,6 +470,7 @@ export default function SignUpPage() {
                     full_name: formData.full_name,
                     user_type: userType,
                     tier: tier,
+                    is_tester: isTestingMode || false,
                     country_code: 'GB',
                     // NEW (2026-08-16): referral attribution — only set
                     // when a real ?ref= code was present, so this never
@@ -390,10 +489,12 @@ export default function SignUpPage() {
             // the app actually reads from), instead of writing it to profiles.
             // Uses the tier actually granted, not the tier requested, so a
             // downgraded paid-tier signup gets 'registered' credits, not
-            // 'professional' credits it hasn't paid for.
-            const initialCredits = isTestingMode
-                ? testingConfig.default_tester_uses
-                : (TIER_DEFAULT_CREDITS[tier] ?? 5);
+            // 'professional' credits it hasn't paid for. Granted uniformly
+            // now, tester or not — a tester's real usage limit is the
+            // separate, tier-independent cap in tester_allocations, enforced
+            // in va-execute; this va_credits balance is for consistency with
+            // any other credit-gated feature that isn't tester-cap-aware.
+            const initialCredits = TIER_DEFAULT_CREDITS[tier] ?? 5;
 
             const { error: creditsError } = await supabase
                 .from('va_credits')
@@ -406,11 +507,10 @@ export default function SignUpPage() {
                 console.warn('Credit initialization warning:', creditsError);
             }
 
-            // Create company profile for employers (non-testing mode)
-            // NOTE: still created even if the tier was downgraded, since the
-            // company profile itself isn't a paid feature — only the elevated
-            // job-posting capabilities are gated by profiles.tier.
-            if (!isTestingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business')) {
+            // Create company profile for employers (both testers and real
+            // signups — a tester testing the employer tier needs a company
+            // profile to actually exercise that tier's features).
+            if (formData.selectedTier === 'employer' || formData.selectedTier === 'business') {
                 await supabase.from('company_profiles').upsert({
                     user_id: authData.user.id,
                     company_name: formData.company_name || 'My Company',
@@ -420,18 +520,24 @@ export default function SignUpPage() {
                 });
             }
 
-            // If tester mode, create tester allocation
+            // REBUILT (2026-08-21): tester usage tracking, keyed by
+            // user_id (fixing the previous email/user_id key mismatch
+            // against the admin's now-superseded tester-create action).
+            // remaining_uses is the real, admin-configurable
+            // tester_ai_call_cap — separate from and independent of
+            // whatever va_credits balance this tier normally gets, since
+            // the point is a hard ceiling regardless of tier.
             if (isTestingMode) {
                 const testerExpiry = new Date();
-                testerExpiry.setDate(testerExpiry.getDate() + testingConfig.default_tester_days);
+                testerExpiry.setDate(testerExpiry.getDate() + testingConfig.accessDays);
                 
                 await supabase
                     .from('tester_allocations')
                     .upsert({
                         user_id: authData.user.id,
-                        allocated_uses: testingConfig.default_tester_uses,
+                        allocated_uses: testingConfig.aiCallCap,
                         used_uses: 0,
-                        remaining_uses: testingConfig.default_tester_uses,
+                        remaining_uses: testingConfig.aiCallCap,
                         expires_at: testerExpiry.toISOString(),
                         status: 'active'
                     });
@@ -491,7 +597,7 @@ export default function SignUpPage() {
                     <h1 className="text-2xl font-bold text-white mb-2">Registration Successful!</h1>
                     <p className="text-slate-400 mb-4">
                         {isTester 
-                            ? `Your tester account has been created. You now have ${testingConfig.default_tester_uses} free uses for ${testingConfig.default_tester_days} days.`
+                            ? `Your tester account is active on the ${selected?.name} plan. You have ${testingConfig.aiCallCap} AI-assisted requests available for ${testingConfig.accessDays} days.`
                             : tierDowngraded
                                 ? `Your account is active on the Free plan. Complete payment for the ${selected?.name} plan (${selected?.price}/month) to unlock its full features.`
                                 : selected?.requiresPayment
@@ -530,7 +636,7 @@ export default function SignUpPage() {
                     <h1 className="text-2xl font-bold text-white">Create Account</h1>
                     <p className="text-slate-400 mt-2">
                         {testingMode 
-                            ? '🎁 Tester registration is open! Get 10 free uses.'
+                            ? 'Tester registration is open — an invite code is required.'
                             : 'Join ODUSBABA to start your career journey'}
                     </p>
                 </div>
@@ -540,7 +646,7 @@ export default function SignUpPage() {
                     <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
                         <p className="text-purple-400 text-sm text-center flex items-center justify-center gap-2">
                             <Sparkles className="w-4 h-4" />
-                            <strong>Tester Mode Active</strong> - You will get {testingConfig.default_tester_uses} free uses for {testingConfig.default_tester_days} days
+                            <strong>Tester Mode Active</strong> — pick any plan below to test it fully, no payment needed. Capped at {testingConfig.aiCallCap} AI-assisted requests for {testingConfig.accessDays} days.
                         </p>
                     </div>
                 )}
@@ -548,6 +654,36 @@ export default function SignUpPage() {
                 {/* Sign Up Form */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
                     <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* NEW (2026-08-21): Invite Code — shown and required only
+                            during testing mode. Gates entry into the whole form;
+                            checked again server-side in handleSubmit regardless of
+                            what's shown here, since client-side gating alone is
+                            never a real security boundary. */}
+                        {testingMode && (
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                    Invite Code <span className="text-red-400">*</span>
+                                </label>
+                                <div className="relative">
+                                    <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                    <input
+                                        type="text"
+                                        value={inviteCode}
+                                        onChange={(e) => { setInviteCode(e.target.value); setCodeError(''); }}
+                                        className={`w-full pl-10 pr-4 py-2.5 bg-slate-800 border rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 transition ${
+                                            codeError ? 'border-red-500' : 'border-slate-700'
+                                        }`}
+                                        placeholder="Enter your tester invite code"
+                                        required
+                                        disabled={loading}
+                                    />
+                                </div>
+                                {codeError && (
+                                    <p className="text-xs text-red-400 mt-1">{codeError}</p>
+                                )}
+                            </div>
+                        )}
+
                         {/* Full Name */}
                         <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
@@ -674,8 +810,10 @@ export default function SignUpPage() {
                             )}
                         </div>
 
-                        {/* Company Name (Employer/Business only) */}
-                        {!testingMode && (formData.selectedTier === 'employer' || formData.selectedTier === 'business') && (
+                        {/* Company Name (Employer/Business — shown regardless of
+                            testing mode now, since a tester testing the employer
+                            tier needs to exercise this field too) */}
+                        {(formData.selectedTier === 'employer' || formData.selectedTier === 'business') && (
                             <div>
                                 <label className="block text-sm font-medium text-slate-400 mb-1">
                                     Company Name <span className="text-red-400">*</span>
@@ -695,66 +833,71 @@ export default function SignUpPage() {
                             </div>
                         )}
 
-                        {/* Tier Selection (non-testing mode only) */}
-                        {!testingMode && (
-                            <div>
-                                <label className="block text-sm font-medium text-slate-400 mb-3">Select your plan</label>
-                                <div className="space-y-3">
-                                    {tiers.map(tier => {
-                                        const Icon = tier.icon;
-                                        const isSelected = formData.selectedTier === tier.id;
-                                        return (
-                                            <label 
-                                                key={tier.id} 
-                                                className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${
-                                                    isSelected 
-                                                        ? `border-${tier.color}-500 bg-${tier.color}-500/10` 
-                                                        : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
-                                                }`}
-                                            >
-                                                <div className="flex items-center gap-4">
-                                                    <input
-                                                        type="radio"
-                                                        name="tier"
-                                                        value={tier.id}
-                                                        checked={isSelected}
-                                                        onChange={() => setFormData({...formData, selectedTier: tier.id})}
-                                                        className="w-4 h-4 text-primary-500"
-                                                    />
-                                                    <div className={`w-8 h-8 rounded-lg bg-${tier.color}-500/10 flex items-center justify-center`}>
-                                                        <Icon className={`w-4 h-4 text-${tier.color}-400`} />
-                                                    </div>
-                                                    <div>
-                                                        <div className="font-semibold text-white">{tier.name}</div>
-                                                        <div className="text-sm text-slate-400">{tier.description}</div>
-                                                    </div>
+                        {/* Tier Selection — now shown during testing mode too
+                            (previously hidden entirely, forcing every tester onto
+                            a generic 'tester' account with no tier choice at all). */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-3">
+                                {testingMode ? 'Select the plan you want to test' : 'Select your plan'}
+                            </label>
+                            <div className="space-y-3">
+                                {tiers.map(tier => {
+                                    const Icon = tier.icon;
+                                    const isSelected = formData.selectedTier === tier.id;
+                                    return (
+                                        <label 
+                                            key={tier.id} 
+                                            className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${
+                                                isSelected 
+                                                    ? `border-${tier.color}-500 bg-${tier.color}-500/10` 
+                                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <input
+                                                    type="radio"
+                                                    name="tier"
+                                                    value={tier.id}
+                                                    checked={isSelected}
+                                                    onChange={() => setFormData({...formData, selectedTier: tier.id})}
+                                                    className="w-4 h-4 text-primary-500"
+                                                />
+                                                <div className={`w-8 h-8 rounded-lg bg-${tier.color}-500/10 flex items-center justify-center`}>
+                                                    <Icon className={`w-4 h-4 text-${tier.color}-400`} />
                                                 </div>
-                                                <div className="text-right">
-                                                    <div className="font-bold text-primary-400">{tier.price}</div>
-                                                    {tier.id === 'business' && <div className="text-xs text-slate-500">/month</div>}
+                                                <div>
+                                                    <div className="font-semibold text-white">{tier.name}</div>
+                                                    <div className="text-sm text-slate-400">{tier.description}</div>
                                                 </div>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                                {tiers.find(t => t.id === formData.selectedTier)?.requiresPayment && (
-                                    <p className="text-xs text-slate-500 mt-2">
-                                        This plan requires payment. Your account will start on the Free plan until payment is complete.
-                                    </p>
-                                )}
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-bold text-primary-400">
+                                                    {testingMode && tier.requiresPayment ? 'Free (testing)' : tier.price}
+                                                </div>
+                                                {tier.id === 'business' && !testingMode && <div className="text-xs text-slate-500">/month</div>}
+                                            </div>
+                                        </label>
+                                    );
+                                })}
                             </div>
-                        )}
+                            {/* Payment note — suppressed during testing mode, since
+                                no tier requires payment for a tester. */}
+                            {!testingMode && tiers.find(t => t.id === formData.selectedTier)?.requiresPayment && (
+                                <p className="text-xs text-slate-500 mt-2">
+                                    This plan requires payment. Your account will start on the Free plan until payment is complete.
+                                </p>
+                            )}
+                        </div>
 
                         {/* Info Box showing user_type mapping */}
-                        {!testingMode && (
-                            <div className="p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
-                                <p className="text-xs text-slate-400 text-center">
-                                    Account type will be: <span className="text-primary-400 font-medium">
-                                        {TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker'}
-                                    </span>
-                                </p>
-                            </div>
-                        )}
+                        <div className="p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
+                            <p className="text-xs text-slate-400 text-center">
+                                Account type will be: <span className="text-primary-400 font-medium">
+                                    {TIER_TO_USER_TYPE_MAP[formData.selectedTier] || 'job_seeker'}
+                                </span>
+                                {testingMode && <span className="text-purple-400"> (tester)</span>}
+                            </p>
+                        </div>
 
                         {/* Error Message */}
                         {error && (
