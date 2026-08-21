@@ -83,9 +83,16 @@ export default function CourseEditor() {
         
         setGeneratingImage(true);
         try {
+            // FIXED (2026-08-21): this action now requires admin auth
+            // server-side (previously had none at all — reachable by
+            // anyone who found the URL, with real DALL-E cost per call).
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=generateCourseImage', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({
                     prompt: `Professional course cover image for: ${course.title}. Style: ${course.illustration_style}, professional, educational, clean design`
                 })
@@ -114,9 +121,14 @@ export default function CourseEditor() {
         
         setGeneratingAudio(true);
         try {
+            // FIXED (2026-08-21): admin auth now required server-side.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=generateLessonAudio', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({
                     text: content,
                     voice: 'professional',
@@ -154,9 +166,14 @@ export default function CourseEditor() {
     async function generateLessonIllustration(lessonId, title) {
         setGeneratingImage(true);
         try {
+            // FIXED (2026-08-21): admin auth now required server-side.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=generateLessonImage', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({
                     prompt: `Educational illustration for lesson: ${title}. Professional, clean, engaging, modern design`
                 })
