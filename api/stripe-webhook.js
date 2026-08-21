@@ -11,20 +11,31 @@
 //
 // SETUP REQUIRED before this works:
 // 1. Run add-stripe-columns.sql in Supabase
-// 2. In your Stripe Dashboard, create a webhook endpoint pointing to
+// 2. Run add-processed-stripe-events-table.sql (new — see fix below)
+// 3. In your Stripe Dashboard, create a webhook endpoint pointing to
 //    https://yourdomain.com/api/stripe-webhook, listening for:
 //    checkout.session.completed, customer.subscription.updated,
 //    customer.subscription.deleted, invoice.payment_succeeded (this last
 //    one added 2026-08-16 for recurring affiliate commissions — if it's
 //    not in your webhook's subscribed events list in the Stripe
 //    Dashboard, recurring commissions won't fire)
-//    customer.subscription.deleted
-// 3. Set these environment variables in Vercel:
+// 4. Set these environment variables in Vercel:
 //    - STRIPE_SECRET_KEY (from Stripe Dashboard > Developers > API keys)
 //    - STRIPE_WEBHOOK_SECRET (from the webhook endpoint you create above)
 //    - SUPABASE_SERVICE_ROLE_KEY (if not already set — needed to bypass
 //      RLS when updating a user's tier from a webhook, since there's no
 //      logged-in user session in this context)
+//
+// FIXED (2026-08-21): Stripe webhooks are delivered with AT-LEAST-ONCE
+// guarantees — the same event can legitimately arrive twice (retries on
+// timeout, network blips, or this endpoint returning non-200 for any
+// reason). Nothing here previously checked whether an event had already
+// been processed, so a retried checkout.session.completed could double-
+// grant purchased credits, or double-record an affiliate commission.
+// Added a processed_stripe_events table: every event.id is checked and
+// recorded before processing, and duplicates are skipped with a 200
+// (telling Stripe "got it, stop retrying" rather than letting a
+// duplicate re-run the whole handler).
 
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
@@ -64,6 +75,33 @@ export default async function handler(req, res) {
     } catch (err) {
         console.error('Stripe webhook signature verification failed:', err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // NEW (2026-08-21): idempotency check. Try to INSERT this event's id
+    // first — if it already exists, this is a duplicate delivery of an
+    // event we've already handled. Acknowledge it and stop, rather than
+    // re-running the handler (which would re-grant credits, re-record
+    // commissions, etc.). Using insert-and-check-conflict here rather
+    // than select-then-insert avoids a race between two near-simultaneous
+    // deliveries of the same event.
+    try {
+        const { error: dupeError } = await supabase
+            .from('processed_stripe_events')
+            .insert({ event_id: event.id, event_type: event.type });
+
+        if (dupeError) {
+            // Unique violation on event_id means we've already processed
+            // this exact event — safe to acknowledge and skip.
+            if (dupeError.code === '23505') {
+                console.log(`Skipping duplicate Stripe event: ${event.id} (${event.type})`);
+                return res.status(200).json({ received: true, duplicate: true });
+            }
+            // Any other error recording the event is unexpected — log it,
+            // but don't block processing on a logging failure alone.
+            console.error('Failed to record processed_stripe_events row:', dupeError.message);
+        }
+    } catch (idempotencyError) {
+        console.error('Idempotency check failed, proceeding anyway:', idempotencyError.message);
     }
 
     try {
