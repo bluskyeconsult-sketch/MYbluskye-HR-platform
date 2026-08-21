@@ -4,17 +4,14 @@
 // FIXED (2026-08-07): removed a hardcoded admin-email backdoor (5th
 // instance found across the codebase) — now checks profiles.user_type.
 //
-// CONFIRMED, FLAGGED (architecture decision needed — see project brief):
-// this page — and the aiVirtualAssistantService.js it imports — is real,
-// actively-used code, not orphaned (resolving the Phase 6 open question).
-// But it writes to a `virtual_assistants` DATABASE TABLE, while the actual
-// live /hire-va page (HireVirtualAssistant.jsx) reads from a hardcoded
-// 6-item array baked into api/index.js's 'virtual-assistants' handler.
-// Anything an admin creates or edits here is completely invisible to real
-// users — the same architecture split found in the Workforce Marketplace
-// (Phase 7). Not fixed unilaterally — this is a product decision: should
-// the public VA catalog become database-driven, replacing the hardcoded
-// array? Flagging clearly rather than guessing.
+// RESOLVED (2026-08-07, VA Architecture Unification): the architecture
+// split described below is fixed. `api/index.js`'s 'virtual-assistants'
+// handler now queries the real `virtual_assistants` table (is_active =
+// true) instead of a hardcoded 6-item array, and HireVirtualAssistant.jsx
+// fetches that catalog on load. VAs created/edited here NOW are live on
+// the public /hire-va page — confirmed 2026-08-20 (46 VAs showing live).
+// The stale in-page warning banner reflecting the old, pre-fix state has
+// been removed (2026-08-21).
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -249,11 +246,6 @@ export default function VirtualAssistantManager() {
 
     return (
         <div className="p-6">
-            {/* Architecture-split warning banner */}
-            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-400">
-                ⚠️ Virtual Assistants created here are stored in a database table that the live <code>/hire-va</code> page doesn't read from — it currently uses a fixed, hardcoded list of 6 assistants. Anything you create or edit here won't be visible to users until that's resolved.
-            </div>
-
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Virtual Assistant Manager</h1>
