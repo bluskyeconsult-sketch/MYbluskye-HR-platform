@@ -17,6 +17,23 @@
 //    cards (including the two that had already loaded correctly) stuck at
 //    0. Fixed by resolving tester profile ids into a real array first, then
 //    using a count-based query instead of fetching full rows.
+//
+// FIXED (2026-08-21): loadTesterStats() filtered profiles by
+// user_type = 'tester' — but per the SignUpPage.jsx rebuild, testers now
+// keep their REAL selected tier's user_type (job_seeker/employer/
+// business_owner), never the literal string 'tester', so a tester can
+// actually test the employer/business experience rather than being forced
+// onto a generic account. Without this fix, every stat card on this page
+// would have silently dropped to zero the moment that rebuild shipped,
+// since no profile row will ever match user_type = 'tester' again. Now
+// filters by the real is_tester boolean flag instead.
+//
+// FIXED (2026-08-21): every "10 free uses for 30 days" / "5 AI credits"
+// figure on this page was a hardcoded string, not connected to the real,
+// admin-configurable system_config values (tester_ai_call_cap,
+// tester_access_days) introduced alongside the rebuild above — meaning an
+// admin who changed the real cap would see this page keep claiming the old
+// numbers regardless. Now fetches and displays the real configured values.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -39,6 +56,10 @@ export default function TestingModeSettings() {
         avgUses: 0
     });
     const [isAdmin, setIsAdmin] = useState(false);
+    // NEW (2026-08-21): the real, configurable tester limits — previously
+    // this page just hardcoded "10 uses / 30 days" in several places with
+    // no connection to the actual values enforced server-side.
+    const [testerConfig, setTesterConfig] = useState({ aiCallCap: 15, accessDays: 30 });
 
     useEffect(() => {
         checkAdminAndLoadSettings();
@@ -72,7 +93,8 @@ export default function TestingModeSettings() {
             setUser(user);
             await Promise.all([
                 loadSettings(),
-                loadTesterStats()
+                loadTesterStats(),
+                loadTesterConfig()
             ]);
         } catch (error) {
             console.error('Admin check error:', error);
@@ -113,12 +135,35 @@ export default function TestingModeSettings() {
         }
     }
 
+    // NEW (2026-08-21): loads the real configured tester cap/expiry —
+    // same keys SignUpPage.jsx reads when creating a tester account, so
+    // this page always describes what will actually happen, not a
+    // hardcoded guess.
+    async function loadTesterConfig() {
+        try {
+            const [{ data: capData }, { data: daysData }] = await Promise.all([
+                supabase.from('system_config').select('config_value').eq('config_key', 'tester_ai_call_cap').maybeSingle(),
+                supabase.from('system_config').select('config_value').eq('config_key', 'tester_access_days').maybeSingle()
+            ]);
+
+            setTesterConfig({
+                aiCallCap: capData?.config_value ? parseInt(capData.config_value, 10) : 15,
+                accessDays: daysData?.config_value ? parseInt(daysData.config_value, 10) : 30
+            });
+        } catch (error) {
+            console.warn('Error loading tester config (using defaults):', error);
+        }
+    }
+
     async function loadTesterStats() {
         try {
+            // FIXED (2026-08-21): was .eq('user_type', 'tester') — testers
+            // now keep their real tier's user_type, so this must filter on
+            // the is_tester flag instead, or it will always return zero.
             const { count: total } = await supabase
                 .from('profiles')
                 .select('id', { count: 'exact', head: true })
-                .eq('user_type', 'tester');
+                .eq('is_tester', true);
             
             const thirtyDaysFromNow = new Date();
             thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
@@ -132,7 +177,7 @@ export default function TestingModeSettings() {
             const { count: converted } = await supabase
                 .from('profiles')
                 .select('id', { count: 'exact', head: true })
-                .eq('user_type', 'tester')
+                .eq('is_tester', true)
                 .eq('converted_to_paid', true);
             
             // FIXED: .in() requires a resolved array, not a query builder.
@@ -141,7 +186,7 @@ export default function TestingModeSettings() {
             const { data: testerProfiles } = await supabase
                 .from('profiles')
                 .select('id')
-                .eq('user_type', 'tester');
+                .eq('is_tester', true);
             
             const testerIds = (testerProfiles || []).map(p => p.id);
             
@@ -191,7 +236,9 @@ export default function TestingModeSettings() {
             setTestingMode(newValue);
             localStorage.setItem('testing_mode', stringValue);
             
-            alert(`✅ Testing mode ${newValue ? 'enabled' : 'disabled'}.\n\nNew registrations will ${newValue ? 'become testers (10 free uses / 30 days)' : 'be regular users (free tier with 5 AI credits)'}.`);
+            // FIXED (2026-08-21): was a hardcoded "10 free uses / 30 days" —
+            // now reflects the real configured cap.
+            alert(`✅ Testing mode ${newValue ? 'enabled' : 'disabled'}.\n\nNew registrations will ${newValue ? `be able to test any plan, capped at ${testerConfig.aiCallCap} AI-assisted requests for ${testerConfig.accessDays} days` : 'be regular users (free tier with 5 AI credits)'}.`);
             
         } catch (dbError) {
             console.error('Failed to save to database:', dbError);
@@ -209,6 +256,7 @@ export default function TestingModeSettings() {
         setSaving(true);
         await loadSettings();
         await loadTesterStats();
+        await loadTesterConfig();
         setSaving(false);
         
         if (syncStatus === 'success') {
@@ -329,7 +377,7 @@ export default function TestingModeSettings() {
                         </div>
                         <div>
                             <h2 className="text-xl font-semibold text-white">Testing Mode</h2>
-                            <p className="text-slate-400 text-sm">When enabled, all new registrations become testers automatically</p>
+                            <p className="text-slate-400 text-sm">When enabled, new registrations require an invite code (configurable in Tester Visibility Settings) and can test any plan at no cost</p>
                         </div>
                     </div>
                     <button
@@ -366,7 +414,7 @@ export default function TestingModeSettings() {
                             </p>
                             <p className="text-slate-400 text-sm mt-1">
                                 {testingMode 
-                                    ? '✨ New users will automatically become testers with 10 free VA uses for 30 days.'
+                                    ? `✨ New testers pick any plan and get its real capabilities, capped at ${testerConfig.aiCallCap} AI-assisted requests for ${testerConfig.accessDays} days regardless of tier.`
                                     : '👤 New users will register as regular users (free tier with 5 AI credits).'}
                             </p>
                             <p className="text-xs text-slate-500 mt-2">
@@ -385,7 +433,9 @@ export default function TestingModeSettings() {
                             <ul className="space-y-1 list-disc list-inside">
                                 <li>Existing tester accounts are not affected by this setting</li>
                                 <li>This only applies to new registrations</li>
-                                <li>Testers get 10 free VA uses for 30 days</li>
+                                <li>Testers keep their selected tier's real capabilities — the AI-request cap applies regardless of which tier they picked</li>
+                                <li>Cap is currently {testerConfig.aiCallCap} requests / {testerConfig.accessDays} days — adjustable via system_config (tester_ai_call_cap, tester_access_days)</li>
+                                <li>Whether an invite code is required is a separate toggle — see Tester Visibility Settings</li>
                                 <li>Setting is automatically synced between database and localStorage</li>
                                 <li>Admin access required to change this setting</li>
                             </ul>
