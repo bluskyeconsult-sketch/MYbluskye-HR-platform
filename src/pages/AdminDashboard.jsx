@@ -12,10 +12,12 @@
 //    of the platform.
 // 2. totalCourses, totalAssessments, and totalVAs were hardcoded (1, 7, 24)
 //    and never actually queried, despite courses/assessments counts being
-//    trivially available. Fixed to real queries where a real table exists;
-//    VAs have no database table (confirmed — a hardcoded array in
-//    api/index.js), so that count now reflects the real array length (6)
-//    instead of an arbitrary number.
+//    trivially available. Fixed to real queries.
+//
+// FIXED (2026-08-21): totalVAs had been left hardcoded to 6 (a stopgap
+// from before the VA Architecture Unification made virtual_assistants a
+// real table) even after that fix shipped. Now queries the real table —
+// confirmed 46 VAs live as of 2026-08-20, no longer a fixed number.
 //
 // FLAGGED, NOT FIXED: three Quick Links point to routes that don't exist
 // anywhere in App.jsx — /admin/tester-feedback, /admin/tester-invites,
@@ -112,7 +114,7 @@ export default function AdminDashboard() {
         totalJobs: 0,
         totalCourses: 0,
         totalAssessments: 0,
-        totalVAs: 6,
+        totalVAs: 0,
         pendingJobs: 0,
         pendingApprovals: 0
     });
@@ -146,12 +148,19 @@ export default function AdminDashboard() {
 
             // FIXED: real queries for courses/assessments, replacing
             // hardcoded fake numbers.
-            const [userCountRes, jobCountRes, pendingJobsRes, courseCountRes, assessmentCountRes] = await Promise.all([
+            // FIXED (2026-08-21): totalVAs was still hardcoded to 6 here,
+            // left over from before the VA Architecture Unification
+            // (2026-08-07) made virtual_assistants a real, database-backed
+            // catalog. Confirmed 46 VAs live on /hire-va as of 2026-08-20 —
+            // this file just never got the follow-up query. Added one,
+            // matching the pattern already used for courses/assessments.
+            const [userCountRes, jobCountRes, pendingJobsRes, courseCountRes, assessmentCountRes, vaCountRes] = await Promise.all([
                 supabase.from('profiles').select('*', { count: 'exact', head: true }),
                 supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
                 supabase.from('external_jobs').select('*', { count: 'exact', head: true }).eq('status', 'pending_approval'),
                 supabase.from('courses').select('*', { count: 'exact', head: true }).eq('is_published', true),
-                supabase.from('assessments').select('*', { count: 'exact', head: true }).eq('is_active', true)
+                supabase.from('assessments').select('*', { count: 'exact', head: true }).eq('is_active', true),
+                supabase.from('virtual_assistants').select('*', { count: 'exact', head: true }).eq('is_active', true)
             ]);
 
             setStats({
@@ -159,10 +168,7 @@ export default function AdminDashboard() {
                 totalJobs: jobCountRes.count || 0,
                 totalCourses: courseCountRes.count || 0,
                 totalAssessments: assessmentCountRes.count || 0,
-                // No VA database table exists — this reflects the real
-                // hardcoded catalog length in api/index.js's
-                // 'virtual-assistants' handler, not a query.
-                totalVAs: 6,
+                totalVAs: vaCountRes.count || 0,
                 pendingJobs: pendingJobsRes.count || 0,
                 pendingApprovals: 0
             });
