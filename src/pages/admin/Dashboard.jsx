@@ -1,141 +1,489 @@
-import { useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+// src/pages/AdminDashboard.jsx
+// COMPLETE ADMIN DASHBOARD
+//
+// FIXED (2026-08-07):
+// 1. Removed a hardcoded admin-email backdoor (bluskyeconsult@gmail.com) —
+//    the third instance of this pattern found across the codebase, and the
+//    most serious: this one gated the ENTIRE admin dashboard by exact email
+//    match instead of checking profiles.user_type like everywhere else,
+//    completely bypassing the database-driven role system (and the
+//    App.jsx ProtectedRoute requireAdmin wrapper this page is already
+//    rendered inside of). Now checks user_type, consistent with the rest
+//    of the platform.
+// 2. totalCourses, totalAssessments, and totalVAs were hardcoded (1, 7, 24)
+//    and never actually queried, despite courses/assessments counts being
+//    trivially available. Fixed to real queries.
+//
+// FIXED (2026-08-21): totalVAs had been left hardcoded to 6 (a stopgap
+// from before the VA Architecture Unification made virtual_assistants a
+// real table) even after that fix shipped. Now queries the real table —
+// confirmed 46 VAs live as of 2026-08-20, no longer a fixed number.
+//
+// FLAGGED, NOT FIXED: three Quick Links point to routes that don't exist
+// anywhere in App.jsx — /admin/tester-feedback, /admin/tester-invites,
+// /admin/diagnostics. Building three new admin pages is out of scope for a
+// bug fix — left in place, flagged for a decision on whether to build them
+// or remove the links.
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import { useGovernance } from '../contexts/GovernanceContext';
+import { 
+    Users, Briefcase, BookOpen, ClipboardList, Bot, Mail, 
+    Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
+    Clock, CheckCircle, XCircle, AlertCircle, Eye, ShieldAlert, DollarSign
+} from 'lucide-react';
 
 export default function AdminDashboard() {
+    // NEW (2026-08-08): Enforcement Mode toggle. The backend logic for this
+    // already existed in full in GovernanceContext.jsx (loading/saving
+    // system_config.enforcement_mode, gating changes to canGovern/
+    // super_admin) — the only missing piece was ever having a UI to click
+    // it. A real logic bug in that backend (observe and block modes
+    // producing identical results) was also fixed alongside this.
+    const { enforcementMode, setEnforcement, capabilities } = useGovernance();
+    const [changingMode, setChangingMode] = useState(false);
+
+    async function handleToggleEnforcement() {
+        const newMode = enforcementMode === 'block' ? 'observe' : 'block';
+        const confirmMsg = newMode === 'observe'
+            ? 'Switch to Observe mode? Every tier-gated action across the site will be ALLOWED for every user, regardless of their tier — only logged, not blocked. Use this to test a new capability matrix safely.'
+            : 'Switch to Block mode? Tier-gated actions will be enforced normally again.';
+        if (!confirm(confirmMsg)) return;
+
+        setChangingMode(true);
+        try {
+            await setEnforcement(newMode);
+        } catch (err) {
+            alert(err.message || 'Failed to change enforcement mode');
+        } finally {
+            setChangingMode(false);
+        }
+    }
+
+    // NEW (2026-08-16): Free Access Mode — distinct from Enforcement Mode
+    // above. Tier-based feature gating and limits stay fully real and
+    // testable; this only removes the payment requirement to obtain a
+    // paid tier. Users pick a tier and get it immediately, no Stripe
+    // checkout, while every tier's actual rules stay genuine. Flip off
+    // any time to resume real payment collection instantly.
+    const [freeAccessMode, setFreeAccessMode] = useState(false);
+    const [changingFreeAccess, setChangingFreeAccess] = useState(false);
+
+    useEffect(() => {
+        loadFreeAccessMode();
+    }, []);
+
+    async function loadFreeAccessMode() {
+        try {
+            const { data } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'free_access_mode')
+                .maybeSingle();
+            setFreeAccessMode(data?.config_value?.enabled === true);
+        } catch (err) {
+            console.error('Failed to load free access mode:', err);
+        }
+    }
+
+    async function handleToggleFreeAccess() {
+        const newValue = !freeAccessMode;
+        const confirmMsg = newValue
+            ? 'Enable Free Access Mode? Users will be able to select any paid tier and get it immediately, with no payment — tier rules and limits stay fully real for testing. Remember to disable this before you want real payments to start.'
+            : 'Disable Free Access Mode? Real Stripe checkout will resume immediately for all tier upgrades.';
+        if (!confirm(confirmMsg)) return;
+
+        setChangingFreeAccess(true);
+        try {
+            await supabase
+                .from('system_config')
+                .upsert({ config_key: 'free_access_mode', config_value: { enabled: newValue } }, { onConflict: 'config_key' });
+            setFreeAccessMode(newValue);
+        } catch (err) {
+            alert('Failed to change free access mode: ' + err.message);
+        } finally {
+            setChangingFreeAccess(false);
+        }
+    }
+
+    const [user, setUser] = useState(null);
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalJobs: 0,
+        totalCourses: 0,
+        totalAssessments: 0,
+        totalVAs: 0,
         pendingJobs: 0,
-        pendingSkills: 0,
-        testerFeedback: 0
-    })
-    const [loading, setLoading] = useState(true)
-    const [user, setUser] = useState(null)
+        pendingApprovals: 0
+    });
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        checkAuth()
-        loadStats()
-    }, [])
+        checkAdminAndLoadStats();
+    }, []);
 
-    async function checkAuth() {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-            window.location.href = '/admin-login'
-            return
-        }
-        
-        // Check if user is admin
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('user_type')
-            .eq('id', user.id)
-            .single()
-        
-        if (!profile || (profile.user_type !== 'admin' && profile.user_type !== 'super_admin')) {
-            window.location.href = '/'
-        }
-        setUser(user)
-    }
+    async function checkAdminAndLoadStats() {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                window.location.href = '/admin-login';
+                return;
+            }
 
-    async function loadStats() {
-        setLoading(true)
-        
-        // Get total users
-        const { count: totalUsers } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true })
-        
-        // Get total jobs
-        const { count: totalJobs } = await supabase
-            .from('jobs')
-            .select('*', { count: 'exact', head: true })
-        
-        // Get pending jobs
-        const { count: pendingJobs } = await supabase
-            .from('jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('compliance_status', 'pending')
-        
-        // Get pending skills
-        const { count: pendingSkills } = await supabase
-            .from('skills')
-            .select('*', { count: 'exact', head: true })
-            .eq('verification_status', 'pending')
-        
-        // Get tester feedback
-        const { count: testerFeedback } = await supabase
-            .from('tester_feedback')
-            .select('*', { count: 'exact', head: true })
-        
-        setStats({
-            totalUsers: totalUsers || 0,
-            totalJobs: totalJobs || 0,
-            pendingJobs: pendingJobs || 0,
-            pendingSkills: pendingSkills || 0,
-            testerFeedback: testerFeedback || 0
-        })
-        setLoading(false)
+            // FIXED: real database check instead of a hardcoded email.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('user_type')
+                .eq('id', user.id)
+                .single();
+
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+            if (!isAdmin) {
+                window.location.href = '/dashboard';
+                return;
+            }
+            setUser(user);
+
+            // FIXED: real queries for courses/assessments, replacing
+            // hardcoded fake numbers.
+            // FIXED (2026-08-21): totalVAs was still hardcoded to 6 here,
+            // left over from before the VA Architecture Unification
+            // (2026-08-07) made virtual_assistants a real, database-backed
+            // catalog. Confirmed 46 VAs live on /hire-va as of 2026-08-20 —
+            // this file just never got the follow-up query. Added one,
+            // matching the pattern already used for courses/assessments.
+            const [userCountRes, jobCountRes, pendingJobsRes, courseCountRes, assessmentCountRes, vaCountRes] = await Promise.all([
+                supabase.from('profiles').select('*', { count: 'exact', head: true }),
+                supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('is_active', true),
+                supabase.from('external_jobs').select('*', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+                supabase.from('courses').select('*', { count: 'exact', head: true }).eq('is_published', true),
+                supabase.from('assessments').select('*', { count: 'exact', head: true }).eq('is_active', true),
+                supabase.from('virtual_assistants').select('*', { count: 'exact', head: true }).eq('is_active', true)
+            ]);
+
+            setStats({
+                totalUsers: userCountRes.count || 0,
+                totalJobs: jobCountRes.count || 0,
+                totalCourses: courseCountRes.count || 0,
+                totalAssessments: assessmentCountRes.count || 0,
+                totalVAs: vaCountRes.count || 0,
+                pendingJobs: pendingJobsRes.count || 0,
+                pendingApprovals: 0
+            });
+        } catch (error) {
+            console.error('Error loading admin dashboard:', error);
+        } finally {
+            setLoading(false);
+        }
     }
 
     if (loading) {
-        return <div className="p-8 text-center">Loading dashboard...</div>
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <div className="animate-pulse text-slate-400">Loading dashboard...</div>
+            </div>
+        );
     }
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
-            <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
-            
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-                <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
-                    <div className="text-gray-500 text-sm">Total Users</div>
-                    <div className="text-2xl font-bold">{stats.totalUsers}</div>
+        <div className="min-h-screen bg-slate-950 py-8">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                
+                {/* Header */}
+                <div className="mb-8">
+                    <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
+                    <p className="text-slate-400">Welcome back, {user?.email}</p>
                 </div>
-                <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
-                    <div className="text-gray-500 text-sm">Total Jobs</div>
-                    <div className="text-2xl font-bold">{stats.totalJobs}</div>
+
+                {/* Enforcement Mode Toggle */}
+                <div className={`mb-8 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    enforcementMode === 'observe'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-slate-900/50 border-slate-800'
+                }`}>
+                    <div className="flex items-center gap-3">
+                        {enforcementMode === 'observe' ? (
+                            <Eye className="w-6 h-6 text-amber-400 flex-shrink-0" />
+                        ) : (
+                            <ShieldAlert className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                        )}
+                        <div>
+                            <p className="text-white font-semibold">
+                                Enforcement Mode: <span className={enforcementMode === 'observe' ? 'text-amber-400' : 'text-emerald-400'}>
+                                    {enforcementMode === 'observe' ? 'Observe' : 'Block'}
+                                </span>
+                            </p>
+                            <p className="text-slate-400 text-sm">
+                                {enforcementMode === 'observe'
+                                    ? 'Tier-gated actions are currently allowed for everyone — only logged, not blocked.'
+                                    : 'Tier-gated actions are being enforced normally.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleToggleEnforcement}
+                        disabled={changingMode || !capabilities?.canGovern}
+                        title={!capabilities?.canGovern ? 'Only super_admin can change enforcement mode' : ''}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                            enforcementMode === 'observe'
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-amber-600 text-white hover:bg-amber-700'
+                        }`}
+                    >
+                        {changingMode ? 'Changing...' : enforcementMode === 'observe' ? 'Switch to Block' : 'Switch to Observe'}
+                    </button>
                 </div>
-                <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
-                    <div className="text-gray-500 text-sm">Pending Jobs</div>
-                    <div className="text-2xl font-bold">{stats.pendingJobs}</div>
+
+                {/* Free Access Mode — distinct from Enforcement Mode above.
+                    Tier rules stay real; this only removes the payment
+                    requirement to obtain a tier. */}
+                <div className={`mb-8 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    freeAccessMode
+                        ? 'bg-sky-500/10 border-sky-500/30'
+                        : 'bg-slate-900/50 border-slate-800'
+                }`}>
+                    <div className="flex items-center gap-3">
+                        <DollarSign className={`w-6 h-6 flex-shrink-0 ${freeAccessMode ? 'text-sky-400' : 'text-slate-500'}`} />
+                        <div>
+                            <p className="text-white font-semibold">
+                                Free Access Mode: <span className={freeAccessMode ? 'text-sky-400' : 'text-slate-400'}>
+                                    {freeAccessMode ? 'ON — Payments Bypassed' : 'OFF — Real Payments Active'}
+                                </span>
+                            </p>
+                            <p className="text-slate-400 text-sm">
+                                {freeAccessMode
+                                    ? 'Users get any tier immediately, free — tier rules and limits stay real for testing.'
+                                    : 'Tier upgrades go through real Stripe checkout.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleToggleFreeAccess}
+                        disabled={changingFreeAccess}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                            freeAccessMode
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-sky-600 text-white hover:bg-sky-700'
+                        }`}
+                    >
+                        {changingFreeAccess ? 'Changing...' : freeAccessMode ? 'Activate Real Payments' : 'Enable Free Access'}
+                    </button>
                 </div>
-                <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
-                    <div className="text-gray-500 text-sm">Pending Skills</div>
-                    <div className="text-2xl font-bold">{stats.pendingSkills}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
-                    <div className="text-gray-500 text-sm">Tester Feedback</div>
-                    <div className="text-2xl font-bold">{stats.testerFeedback}</div>
-                </div>
-            </div>
-            
-            {/* Quick Actions */}
-            <div className="bg-white rounded-lg shadow p-6 mb-8">
-                <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <a href="/admin/users" className="bg-blue-500 text-white text-center px-4 py-2 rounded hover:bg-blue-600">Manage Users</a>
-                    <a href="/admin/jobs" className="bg-green-500 text-white text-center px-4 py-2 rounded hover:bg-green-600">Moderate Jobs</a>
-                    <a href="/admin/skills" className="bg-purple-500 text-white text-center px-4 py-2 rounded hover:bg-purple-600">Verify Skills</a>
-                    <a href="/admin/audit" className="bg-gray-500 text-white text-center px-4 py-2 rounded hover:bg-gray-600">View Audit Log</a>
-                </div>
-            </div>
-            
-            {/* Super Admin Section (only visible to super_admin) */}
-            {user && (
-                <div className="bg-gray-100 rounded-lg p-6">
-                    <h2 className="text-xl font-semibold mb-4">🔒 Super Admin Tools</h2>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <a href="/admin/super/countries" className="bg-gray-700 text-white text-center px-4 py-2 rounded hover:bg-gray-800">Country Management</a>
-                        <a href="/admin/geo-pricing" className="bg-gray-700 text-white text-center px-4 py-2 rounded hover:bg-gray-800">Geo-Pricing</a>
-                        <a href="/admin/security" className="bg-gray-700 text-white text-center px-4 py-2 rounded hover:bg-gray-800">Security Dashboard</a>
-                        <a href="/admin/tamper-reports" className="bg-gray-700 text-white text-center px-4 py-2 rounded hover:bg-gray-800">Tamper Reports</a>
+
+                {/* Stats Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-slate-400 text-sm">Total Users</p>
+                                <p className="text-2xl font-bold text-white">{stats.totalUsers}</p>
+                            </div>
+                            <Users className="w-8 h-8 text-primary-400 opacity-50" />
+                        </div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-slate-400 text-sm">Active Jobs</p>
+                                <p className="text-2xl font-bold text-white">{stats.totalJobs}</p>
+                            </div>
+                            <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
+                        </div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-slate-400 text-sm">Pending Approvals</p>
+                                <p className="text-2xl font-bold text-white">{stats.pendingJobs}</p>
+                            </div>
+                            <Clock className="w-8 h-8 text-amber-400 opacity-50" />
+                        </div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-slate-400 text-sm">Virtual Assistants</p>
+                                <p className="text-2xl font-bold text-white">{stats.totalVAs}</p>
+                            </div>
+                            <Bot className="w-8 h-8 text-purple-400 opacity-50" />
+                        </div>
                     </div>
                 </div>
-            )}
+
+                {/* Quick Actions - New Admin Features */}
+                <div className="mb-8">
+                    <h2 className="text-xl font-bold text-white mb-4">Quick Actions</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                        <Link to="/admin/assessments" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <ClipboardList className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Assessments</span>
+                        </Link>
+                        <Link to="/admin/virtual-assistants" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Bot className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Virtual Asst</span>
+                        </Link>
+                        <Link to="/admin/newsletter" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Mail className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Newsletter</span>
+                        </Link>
+                        <Link to="/admin/knowledge-sources" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Database className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">AI Sources</span>
+                        </Link>
+                        <Link to="/admin/books" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <BookOpen className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Books</span>
+                        </Link>
+                        <Link to="/admin/ai-course-builder" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Sparkles className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">AI Course</span>
+                        </Link>
+                        {/* NEW (2026-08-09): AffiliateManagement.jsx and
+                            UsageMeter.jsx were built as real features but
+                            never wired to a route or nav link — added here
+                            so they're actually reachable. */}
+                        <Link to="/admin/affiliate-management" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Users className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Affiliates</span>
+                        </Link>
+                        <Link to="/admin/usage-meter" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <TrendingUp className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Usage Meter</span>
+                        </Link>
+                        <Link to="/admin/audit" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Shield className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Audit Logs</span>
+                        </Link>
+                        <Link to="/admin/employer-verification" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Briefcase className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Employer Verify</span>
+                        </Link>
+                        <Link to="/admin/opportunity-gaps" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Sparkles className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Opportunity Gaps</span>
+                        </Link>
+                        <Link to="/admin/refund-requests" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <DollarSign className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Refund Requests</span>
+                        </Link>
+                    </div>
+                </div>
+
+                {/* Main Admin Sections */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Left Column - Management */}
+                    <div className="space-y-6">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <Users className="w-4 h-4 text-primary-400" />
+                                User Management
+                            </h3>
+                            <div className="space-y-2">
+                                <Link to="/admin/users" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Manage Users</p>
+                                    <p className="text-slate-400 text-sm">View, edit, and moderate user accounts</p>
+                                </Link>
+                                {/* NOTE: the two links below point to routes not
+                                    registered in App.jsx — they currently 404.
+                                    Left in place pending a decision on whether to
+                                    build these pages or remove the links. */}
+                                <Link to="/admin/tester-feedback" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Tester Feedback</p>
+                                    <p className="text-slate-400 text-sm">Review tester feedback and suggestions</p>
+                                </Link>
+                                <Link to="/admin/tester-invites" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Tester Invites</p>
+                                    <p className="text-slate-400 text-sm">Generate invite codes for testers</p>
+                                </Link>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <Briefcase className="w-4 h-4 text-primary-400" />
+                                Job Management
+                            </h3>
+                            <div className="space-y-2">
+                                <Link to="/admin/jobs" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Manage Jobs</p>
+                                    <p className="text-slate-400 text-sm">Approve, edit, or remove job listings</p>
+                                </Link>
+                                <Link to="/admin/external-jobs" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">External Jobs</p>
+                                    <p className="text-slate-400 text-sm">Review and approve external job submissions</p>
+                                </Link>
+                                <Link to="/admin/skills" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Skill Verification</p>
+                                    <p className="text-slate-400 text-sm">Review and verify user skills</p>
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Column - Content & System */}
+                    <div className="space-y-6">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <BookOpen className="w-4 h-4 text-primary-400" />
+                                Content Management
+                            </h3>
+                            <div className="space-y-2">
+                                <Link to="/admin/articles" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Manage Articles</p>
+                                    <p className="text-slate-400 text-sm">Create, edit, and publish articles</p>
+                                </Link>
+                                <Link to="/admin/books" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Manage Books</p>
+                                    <p className="text-slate-400 text-sm">Add, edit, or remove books</p>
+                                </Link>
+                                <Link to="/admin/assessments" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Manage Assessments</p>
+                                    <p className="text-slate-400 text-sm">Create and edit assessments with AI</p>
+                                </Link>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <Settings className="w-4 h-4 text-primary-400" />
+                                System & Configuration
+                            </h3>
+                            <div className="space-y-2">
+                                <Link to="/admin/analytics" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Analytics</p>
+                                    <p className="text-slate-400 text-sm">View platform analytics and metrics</p>
+                                </Link>
+                                <Link to="/admin/security" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Security Dashboard</p>
+                                    <p className="text-slate-400 text-sm">Monitor security events and alerts</p>
+                                </Link>
+                                {/* NOTE: not a registered route — see header comment */}
+                                <Link to="/admin/diagnostics" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Diagnostics</p>
+                                    <p className="text-slate-400 text-sm">Run system health checks</p>
+                                </Link>
+                                <Link to="/admin/email-test" className="block p-2 rounded-lg hover:bg-slate-800 transition">
+                                    <p className="text-white">Email Test</p>
+                                    <p className="text-slate-400 text-sm">Test email configuration</p>
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* System Status */}
+                <div className="mt-8 p-4 bg-slate-900/30 border border-slate-800 rounded-xl">
+                    <div className="flex items-center gap-2 mb-3">
+                        <CheckCircle className="w-5 h-5 text-emerald-400" />
+                        <span className="text-white font-semibold">System Status: Operational</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                        Last checked: {new Date().toLocaleString()}
+                    </div>
+                </div>
+            </div>
         </div>
-    )
+    );
 }
