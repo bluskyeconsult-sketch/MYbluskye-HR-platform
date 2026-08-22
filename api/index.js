@@ -33,12 +33,32 @@ function getSupabase() {
     return supabase;
 }
 
-const CORS_HEADERS = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Requested-With',
-    'Access-Control-Max-Age': '86400'
-};
+// FIXED (2026-08-21): Access-Control-Allow-Origin was hardcoded to '*',
+// meaning ANY website on the internet could call every action in this
+// gateway directly from a visitor's browser using their existing logged-in
+// session cookie/token — a real cross-site request risk, and it's also
+// what made the earlier-confirmed zero-auth admin content-generation
+// endpoints (generateCourseImage etc.) reachable from literally anywhere,
+// not just this app. Now reflects the request's actual Origin header only
+// when it matches a known-real domain for this project, and omits the
+// header entirely otherwise (which browsers correctly treat as "not
+// allowed" for cross-origin requests) — same-origin requests (the app
+// calling its own API) are never affected by CORS at all, so this only
+// blocks OTHER sites from calling this API on a visitor's behalf.
+const ALLOWED_ORIGINS = [
+    'https://bluskyeconsult.com',
+    'https://www.bluskyeconsult.com'
+];
+
+function setCors(req, res) {
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
+}
 
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_REQUESTS = 5;
@@ -47,12 +67,6 @@ const rateLimitStore = new Map();
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-function setCors(res) {
-    Object.entries(CORS_HEADERS).forEach(([key, value]) => {
-        res.setHeader(key, value);
-    });
-}
 
 function checkRateLimit(key, limit = RATE_LIMIT_REQUESTS) {
     const now = Date.now();
@@ -327,7 +341,12 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
 // show this button to admins" is not a security boundary; this is the real
 // one. Mirrors the existing Bearer-token verification pattern already used
 // by assessment-results and others in this file.
-async function requireAdmin(req, supabaseClient) {
+// NEW (2026-08-21): factored out of requireAdmin below — the 2FA system
+// needs "is this a real, logged-in user" without requiring admin role,
+// since 2FA is a general feature any user can enable. Extracted rather
+// than duplicated, so token-verification logic exists in exactly one
+// place.
+async function getAuthenticatedUser(req, supabaseClient) {
     const authHeader = req.headers.authorization;
     const token = authHeader?.split(' ')[1];
 
@@ -340,17 +359,34 @@ async function requireAdmin(req, supabaseClient) {
         return { authorized: false, status: 401, error: 'Invalid or expired session' };
     }
 
+    return { authorized: true, userId: user.id };
+}
+
+// NEW (2026-08-21): shared admin-only gate for backend actions that must
+// never be reachable by an unauthenticated or non-admin caller — currently
+// generateCourseImage, generateLessonImage, generateLessonAudio,
+// generate-course, and generate-assessment, all confirmed to have had ZERO
+// backend authorization before this fix (no userId, no credit check, no
+// admin check — reachable by literally anyone who found the URL, with real
+// per-call OpenAI/DALL-E/TTS cost and no rate limit). Frontend-only "only
+// show this button to admins" is not a security boundary; this is the real
+// one. Mirrors the existing Bearer-token verification pattern already used
+// by assessment-results and others in this file.
+async function requireAdmin(req, supabaseClient) {
+    const authCheck = await getAuthenticatedUser(req, supabaseClient);
+    if (!authCheck.authorized) return authCheck;
+
     const { data: profile } = await supabaseClient
         .from('profiles')
         .select('user_type')
-        .eq('id', user.id)
+        .eq('id', authCheck.userId)
         .single();
 
     if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
         return { authorized: false, status: 403, error: 'Admin access required' };
     }
 
-    return { authorized: true, userId: user.id };
+    return { authorized: true, userId: authCheck.userId };
 }
 
 async function safeFetch(url, timeout = 10000) {
@@ -3231,6 +3267,291 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== TESTER CREATE ==========
+    // ========== TWO-FACTOR AUTHENTICATION (NEW — 2026-08-21) ==========
+    // First real implementation using profiles.two_factor_enabled/
+    // two_factor_secret/two_factor_backup_codes/two_factor_last_verified —
+    // columns confirmed to exist in the real schema, but with no code
+    // anywhere reading or writing them before this. General feature, any
+    // authenticated user can enable it (not admin-gated), per explicit
+    // decision — motivated by hardening the break-glass super_admin
+    // account, but built as a real, usable feature rather than a one-off.
+    //
+    // Requires adding two npm packages: `otpauth` (TOTP generation/
+    // verification, pure JS, no native bindings) and `qrcode` (renders the
+    // provisioning URI as a scannable PNG data URI server-side, so the
+    // frontend just needs an <img>, no client-side QR library needed).
+    //
+    // Design: setup-2fa generates and stores a secret but does NOT enable
+    // 2FA yet — confirm-2fa-setup only flips two_factor_enabled to true
+    // once the user proves they actually scanned it correctly, so an
+    // abandoned setup attempt never locks anyone out (two_factor_enabled
+    // stays false, sign-in never checks an unconfirmed secret). Backup
+    // codes are stored HASHED (sha256) never in plaintext — shown to the
+    // user exactly once, at confirm time, then never retrievable again.
+    // Each backup code is single-use: consuming one removes it from the
+    // stored array entirely. verify-2fa (used both at sign-in and to
+    // authorize disabling 2FA) is IP-rate-limited like every other
+    // security-sensitive action in this file, since a 6-digit TOTP code
+    // is a real, if narrow, brute-force target.
+
+    'setup-2fa': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('email, two_factor_enabled')
+                .eq('id', auth.userId)
+                .single();
+
+            if (profile?.two_factor_enabled) {
+                return res.status(400).json({ error: '2FA is already enabled on this account. Disable it first to set up again.' });
+            }
+
+            const { Secret, TOTP } = await import('otpauth');
+            const QRCode = (await import('qrcode')).default;
+
+            const secret = new Secret({ size: 20 });
+            const totp = new TOTP({
+                issuer: 'ODUSBABA HR Platform',
+                label: profile?.email || auth.userId,
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret
+            });
+
+            const provisioningUri = totp.toString();
+            const qrCodeDataUri = await QRCode.toDataURL(provisioningUri);
+
+            // Stored now, but two_factor_enabled stays false until
+            // confirm-2fa-setup verifies the user actually scanned it
+            // correctly. An abandoned/never-confirmed setup has zero
+            // effect on sign-in.
+            const { error: updateError } = await supabaseClient
+                .from('profiles')
+                .update({ two_factor_secret: secret.base32 })
+                .eq('id', auth.userId);
+
+            if (updateError) throw updateError;
+
+            return res.status(200).json({
+                success: true,
+                qrCode: qrCodeDataUri,
+                manualEntryKey: secret.base32
+            });
+        } catch (error) {
+            console.error('2FA setup error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'confirm-2fa-setup': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ error: 'Verification code is required' });
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('two_factor_secret')
+                .eq('id', auth.userId)
+                .single();
+
+            if (!profile?.two_factor_secret) {
+                return res.status(400).json({ error: 'No pending 2FA setup found — call setup-2fa first' });
+            }
+
+            const { TOTP, Secret } = await import('otpauth');
+            const totp = new TOTP({
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: Secret.fromBase32(profile.two_factor_secret)
+            });
+
+            // window: 1 allows the code from one 30s step before/after the
+            // current one, tolerating minor clock drift between the
+            // user's device and the server — standard TOTP practice.
+            const delta = totp.validate({ token: code, window: 1 });
+            if (delta === null) {
+                return res.status(400).json({ success: false, error: 'Invalid code. Please check your authenticator app and try again.' });
+            }
+
+            // Generate 8 single-use backup codes, shown in plaintext ONLY
+            // in this response — stored hashed, never retrievable again.
+            const crypto = await import('crypto');
+            const plaintextBackupCodes = Array.from({ length: 8 }, () =>
+                crypto.randomBytes(5).toString('hex').toUpperCase()
+            );
+            const hashedBackupCodes = plaintextBackupCodes.map(c =>
+                crypto.createHash('sha256').update(c).digest('hex')
+            );
+
+            const { error: updateError } = await supabaseClient
+                .from('profiles')
+                .update({
+                    two_factor_enabled: true,
+                    two_factor_backup_codes: hashedBackupCodes,
+                    two_factor_last_verified: new Date().toISOString()
+                })
+                .eq('id', auth.userId);
+
+            if (updateError) throw updateError;
+
+            return res.status(200).json({
+                success: true,
+                backupCodes: plaintextBackupCodes,
+                message: 'Save these backup codes somewhere safe — each can be used once if you lose access to your authenticator app. They will not be shown again.'
+            });
+        } catch (error) {
+            console.error('2FA confirm error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Used both mid-sign-in (after password auth succeeds, before a full
+    // session is granted) and to authorize disabling 2FA. Takes userId
+    // directly rather than requiring a full session, since during sign-in
+    // there isn't a complete authenticated session yet — but IP-rate-
+    // limited the same way guest/free-tier actions are elsewhere in this
+    // file, since this is a real brute-force target otherwise.
+    'verify-2fa': async (req, res) => {
+        const { userId, code } = req.body;
+        if (!userId || !code) return res.status(400).json({ error: 'userId and code are required' });
+
+        const supabaseClient = getSupabase();
+
+        const ip = getClientIp(req);
+        const rateCheck = await checkIpRateLimit(supabaseClient, `2fa-verify:${ip}`, 10);
+        if (!rateCheck.allowed) {
+            return res.status(429).json({ error: 'Too many attempts — please wait a few minutes and try again.' });
+        }
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('two_factor_secret, two_factor_backup_codes')
+                .eq('id', userId)
+                .single();
+
+            if (!profile?.two_factor_secret) {
+                return res.status(400).json({ valid: false, error: '2FA is not set up on this account' });
+            }
+
+            const { TOTP, Secret } = await import('otpauth');
+            const totp = new TOTP({
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: Secret.fromBase32(profile.two_factor_secret)
+            });
+
+            const delta = totp.validate({ token: code, window: 1 });
+            if (delta !== null) {
+                await supabaseClient
+                    .from('profiles')
+                    .update({ two_factor_last_verified: new Date().toISOString() })
+                    .eq('id', userId);
+                return res.status(200).json({ valid: true, method: 'totp' });
+            }
+
+            // Not a valid TOTP code — check backup codes.
+            const crypto = await import('crypto');
+            const submittedHash = crypto.createHash('sha256').update(code.toUpperCase().trim()).digest('hex');
+            const backupCodes = profile.two_factor_backup_codes || [];
+            const matchIndex = backupCodes.indexOf(submittedHash);
+
+            if (matchIndex === -1) {
+                return res.status(200).json({ valid: false });
+            }
+
+            // Single-use: remove the consumed code from the stored array.
+            const remainingCodes = backupCodes.filter((_, i) => i !== matchIndex);
+            await supabaseClient
+                .from('profiles')
+                .update({
+                    two_factor_backup_codes: remainingCodes,
+                    two_factor_last_verified: new Date().toISOString()
+                })
+                .eq('id', userId);
+
+            return res.status(200).json({
+                valid: true,
+                method: 'backup_code',
+                remainingBackupCodes: remainingCodes.length
+            });
+        } catch (error) {
+            console.error('2FA verify error:', error);
+            return res.status(500).json({ valid: false, error: error.message });
+        }
+    },
+
+    'disable-2fa': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ error: 'A current 2FA code is required to disable 2FA' });
+
+        try {
+            // Reuses the same verify logic — a valid session alone isn't
+            // enough to disable 2FA; possession of the actual second
+            // factor is required, otherwise a stolen session could
+            // silently strip 2FA protection.
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('two_factor_secret, two_factor_backup_codes')
+                .eq('id', auth.userId)
+                .single();
+
+            if (!profile?.two_factor_secret) {
+                return res.status(400).json({ error: '2FA is not currently enabled' });
+            }
+
+            const { TOTP, Secret } = await import('otpauth');
+            const totp = new TOTP({
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: Secret.fromBase32(profile.two_factor_secret)
+            });
+
+            const delta = totp.validate({ token: code, window: 1 });
+            let validated = delta !== null;
+
+            if (!validated) {
+                const crypto = await import('crypto');
+                const submittedHash = crypto.createHash('sha256').update(code.toUpperCase().trim()).digest('hex');
+                validated = (profile.two_factor_backup_codes || []).includes(submittedHash);
+            }
+
+            if (!validated) {
+                return res.status(400).json({ error: 'Invalid code — cannot disable 2FA without a valid current code' });
+            }
+
+            await supabaseClient
+                .from('profiles')
+                .update({
+                    two_factor_enabled: false,
+                    two_factor_secret: null,
+                    two_factor_backup_codes: null
+                })
+                .eq('id', auth.userId);
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('2FA disable error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'tester-create': async (req, res) => {
         const { email, name, uses = 10, days = 30 } = req.body;
         const supabaseClient = getSupabase();
@@ -4086,7 +4407,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 // MAIN HANDLER
 // ============================================
 export default async function handler(req, res) {
-    setCors(res);
+    setCors(req, res);
     
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
