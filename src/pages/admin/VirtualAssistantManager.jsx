@@ -8,7 +8,7 @@
 // split described below is fixed. `api/index.js`'s 'virtual-assistants'
 // handler now queries the real `virtual_assistants` table (is_active =
 // true) instead of a hardcoded 6-item array, and HireVirtualAssistant.jsx
-// fetches that catalog on load. VAs created/edited here NOW are live on
+// fetches that catalog on load. VAs created/edited here ARE now live on
 // the public /hire-va page — confirmed 2026-08-20 (46 VAs showing live).
 // The stale in-page warning banner reflecting the old, pre-fix state has
 // been removed (2026-08-21).
