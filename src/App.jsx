@@ -361,7 +361,7 @@ function Navbar() {
                                     <a href="/tester-login" className="text-slate-400 hover:text-white text-sm">Tester Login</a>
                                 )}
                                 {testerVisibility?.show_register_button && (
-                                    <a href="/tester-register" className="text-amber-400 hover:text-amber-300 text-sm font-medium">Become a Tester</a>
+                                    <a href="/sign-up" className="text-amber-400 hover:text-amber-300 text-sm font-medium">Become a Tester</a>
                                 )}
                                 <a href="/sign-in" className="text-slate-300 hover:text-white text-sm">Sign In</a>
                                 <a href="/sign-up" className="bg-primary-600 px-4 py-1.5 rounded-lg text-white hover:bg-primary-700 text-sm">Sign Up</a>
@@ -406,7 +406,7 @@ function Navbar() {
                                     <a href="/tester-login" className="block py-2 text-slate-400 hover:text-white">Tester Login</a>
                                 )}
                                 {testerVisibility?.show_register_button && (
-                                    <a href="/tester-register" className="block py-2 text-amber-400 hover:text-amber-300 font-medium">Become a Tester</a>
+                                    <a href="/sign-up" className="block py-2 text-amber-400 hover:text-amber-300 font-medium">Become a Tester</a>
                                 )}
                                 <a href="/sign-in" className="block py-2 text-slate-300 hover:text-white">Sign In</a>
                                 <a href="/sign-up" className="block py-2 text-primary-400 hover:text-primary-300">Sign Up</a>
