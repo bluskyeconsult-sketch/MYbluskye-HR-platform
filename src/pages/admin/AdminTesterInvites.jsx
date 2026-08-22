@@ -1,18 +1,32 @@
 // src/pages/admin/AdminTesterInvites.jsx
-// NEW FILE (2026-08-07) — fills the /admin/tester-invites link referenced
-// in both AdminDashboard.jsx and TesterVisibilitySettings.jsx's help text,
-// which pointed nowhere since no route or page existed.
 //
-// The tester_invites table's existence and RLS policies were confirmed via
-// a diagnostic RLS query — its write policy currently only allows
-// profiles.user_type = 'admin', NOT 'super_admin'. A SQL fix for that gap
-// is provided alongside this file; without it, a super_admin-only account
-// would be blocked from managing codes here even though the app layer
-// correctly treats super_admin as admin-or-higher everywhere else.
+// FIXED (2026-08-22): this page was built against `tester_invites`, but
+// the real, atomic invite-code validation system actually built this
+// session — consume_invite_code(), called by SignUpPage.jsx's
+// validate-invite-code action — only ever checks `tester_invite_codes`,
+// a genuinely different table with a different column shape
+// (times_used, not uses_count). Any code an admin generated through this
+// page would silently never validate at signup — the two systems never
+// actually connected. Rebuilt against the real table and its confirmed
+// real columns (code, is_active, max_uses, times_used, expires_at).
 //
-// Exact columns beyond what the public-read policy implies weren't
-// confirmed — built with reasonable, commonly-used fields (code, is_active,
-// max_uses, uses_count, expires_at) and flexible fallbacks.
+// Also required a companion RLS fix (see
+// add-tester-invite-codes-write-policies.sql) — the earlier RLS
+// hardening pass only ever granted a SELECT policy on
+// tester_invite_codes for admin/super_admin; there was no INSERT/UPDATE/
+// DELETE policy at all, so even pointed at the correct table, every
+// create/toggle/delete action here would have failed with a permission
+// error. Both fixes are required together — this file alone is not
+// enough without that SQL also being run.
+//
+// description/created_by fields from the original version were dropped
+// from the insert — those columns were never confirmed to exist on
+// tester_invite_codes specifically, and an insert referencing a
+// nonexistent column fails outright (there's no partial-insert
+// leniency), which would have broken code creation entirely rather than
+// just omitting metadata. A separate, optional migration is provided if
+// you want that audit-trail metadata — see
+// add-tester-invite-codes-metadata-columns.sql.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -35,6 +49,7 @@ export default function AdminTesterInvites() {
     const [isAuthorized, setIsAuthorized] = useState(false);
     const [newInvite, setNewInvite] = useState({ maxUses: 1, expiresInDays: 30, description: '' });
     const [showCreateForm, setShowCreateForm] = useState(false);
+    const [actionError, setActionError] = useState('');
 
     useEffect(() => {
         checkAdminAccess();
@@ -63,16 +78,22 @@ export default function AdminTesterInvites() {
 
     async function loadInvites() {
         setLoading(true);
+        setActionError('');
         try {
             const { data, error } = await supabase
-                .from('tester_invites')
+                .from('tester_invite_codes')
                 .select('*')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
             setInvites(data || []);
         } catch (err) {
-            console.error('Error loading tester invites:', err);
+            console.error('Error loading tester invite codes:', err);
+            setActionError(
+                err.message?.includes('policy') || err.code === '42501'
+                    ? 'Permission denied reading invite codes — the RLS write/read policies may not be applied yet. Run add-tester-invite-codes-write-policies.sql.'
+                    : err.message
+            );
         } finally {
             setLoading(false);
         }
@@ -80,17 +101,18 @@ export default function AdminTesterInvites() {
 
     async function handleCreate() {
         setCreating(true);
+        setActionError('');
         try {
             const { data: { user } } = await supabase.auth.getUser();
             const code = generateCode();
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + (newInvite.expiresInDays || 30));
 
-            const { error } = await supabase.from('tester_invites').insert({
+            const { error } = await supabase.from('tester_invite_codes').insert({
                 code,
                 is_active: true,
                 max_uses: newInvite.maxUses || 1,
-                uses_count: 0,
+                times_used: 0,
                 expires_at: expiresAt.toISOString(),
                 description: newInvite.description || null,
                 created_by: user?.id
@@ -102,29 +124,39 @@ export default function AdminTesterInvites() {
             setNewInvite({ maxUses: 1, expiresInDays: 30, description: '' });
             await loadInvites();
         } catch (err) {
-            console.error('Error creating invite:', err);
-            alert('Failed to create invite code: ' + err.message);
+            console.error('Error creating invite code:', err);
+            setActionError(
+                err.code === '42501'
+                    ? 'Permission denied — run add-tester-invite-codes-write-policies.sql to grant admin write access.'
+                    : 'Failed to create invite code: ' + err.message
+            );
         } finally {
             setCreating(false);
         }
     }
 
     async function toggleActive(id, currentActive) {
+        setActionError('');
         try {
-            await supabase.from('tester_invites').update({ is_active: !currentActive }).eq('id', id);
+            const { error } = await supabase.from('tester_invite_codes').update({ is_active: !currentActive }).eq('id', id);
+            if (error) throw error;
             await loadInvites();
         } catch (err) {
-            console.error('Error toggling invite:', err);
+            console.error('Error toggling invite code:', err);
+            setActionError(err.message);
         }
     }
 
     async function handleDelete(id) {
         if (!confirm('Delete this invite code?')) return;
+        setActionError('');
         try {
-            await supabase.from('tester_invites').delete().eq('id', id);
+            const { error } = await supabase.from('tester_invite_codes').delete().eq('id', id);
+            if (error) throw error;
             await loadInvites();
         } catch (err) {
-            console.error('Error deleting invite:', err);
+            console.error('Error deleting invite code:', err);
+            setActionError(err.message);
         }
     }
 
@@ -165,6 +197,12 @@ export default function AdminTesterInvites() {
                 </div>
             </div>
 
+            {actionError && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                    {actionError}
+                </div>
+            )}
+
             {invites.length === 0 ? (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
                     <Key className="w-16 h-16 text-slate-600 mx-auto mb-4" />
@@ -190,7 +228,7 @@ export default function AdminTesterInvites() {
                                     <p className="text-slate-400 text-sm mb-2">{invite.description}</p>
                                 )}
                                 <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
-                                    <span>{invite.uses_count ?? 0} / {invite.max_uses ?? '∞'} used</span>
+                                    <span>{invite.times_used ?? 0} / {invite.max_uses ?? '∞'} used</span>
                                     {invite.expires_at && (
                                         <span className={expired ? 'text-red-400' : ''}>
                                             {expired ? 'Expired' : `Expires ${new Date(invite.expires_at).toLocaleDateString()}`}
