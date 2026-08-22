@@ -3874,4 +3874,247 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // Powers AnalyticsDashboard.jsx, which was previously reading from
     // analytics_sessions/analytics_page_views tables that nothing ever
     // wrote to. This single endpoint does everything needed per page view:
-    // finds or creates
+    // finds or creates the session, extracts geolocation from Vercel's edge
+    // headers (same real mechanism the 'ip' handler already uses), detects
+    // device/browser server-side from the User-Agent header, and logs the
+    // page view. Called from a small tracking hook in App.jsx on every
+    // route change. Designed to fail silently from the caller's
+    // perspective — tracking should never be able to break the site.
+    'track-page-view': async (req, res) => {
+        const { sessionId, pageUrl, userId } = req.body;
+
+        if (!sessionId || !pageUrl) {
+            return res.status(400).json({ error: 'sessionId and pageUrl required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        const country = req.headers['x-vercel-ip-country'] || null;
+        const city = req.headers['x-vercel-ip-city'] || null;
+        const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
+
+        const ua = req.headers['user-agent'] || '';
+        let deviceType = 'desktop';
+        if (/tablet|ipad/i.test(ua)) deviceType = 'tablet';
+        else if (/mobile|android|iphone/i.test(ua)) deviceType = 'mobile';
+
+        let browser = 'unknown';
+        if (/edg/i.test(ua)) browser = 'Edge';
+        else if (/chrome/i.test(ua)) browser = 'Chrome';
+        else if (/safari/i.test(ua)) browser = 'Safari';
+        else if (/firefox/i.test(ua)) browser = 'Firefox';
+
+        try {
+            const { data: existingSession } = await supabaseClient
+                .from('analytics_sessions')
+                .select('id, page_count, start_time')
+                .eq('session_id', sessionId)
+                .maybeSingle();
+
+            if (existingSession) {
+                const durationSeconds = Math.floor((Date.now() - new Date(existingSession.start_time).getTime()) / 1000);
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .update({
+                        page_count: (existingSession.page_count || 0) + 1,
+                        duration_seconds: durationSeconds,
+                        end_time: new Date().toISOString()
+                    })
+                    .eq('id', existingSession.id);
+            } else {
+                await supabaseClient
+                    .from('analytics_sessions')
+                    .insert({
+                        session_id: sessionId,
+                        ip_address: ip,
+                        country,
+                        city,
+                        device_type: deviceType,
+                        browser,
+                        start_time: new Date().toISOString(),
+                        page_count: 1,
+                        duration_seconds: 0,
+                        user_id: userId || null
+                    });
+            }
+
+            await supabaseClient
+                .from('analytics_page_views')
+                .insert({
+                    session_id: sessionId,
+                    page_url: pageUrl,
+                    ip_address: ip,
+                    country,
+                    city,
+                    device_type: deviceType,
+                    user_id: userId || null,
+                    created_at: new Date().toISOString()
+                });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.warn('Track page view error:', error.message);
+            // Fail silently — tracking must never break the site.
+            return res.status(200).json({ success: false });
+        }
+    },
+
+    // ========== HOMEPAGE STATS (Enhanced with fallback) ==========
+    'homepage-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        let errors = [];
+        let hasRealData = false;
+        
+        const stats = {
+            activeUsers: 125,
+            jobsPosted: 82,
+            courses: 15,
+            assessments: 8,
+            earlyMembers: 45,
+            testerSpots: 55,
+            // NEW (2026-08-07): backs HomeHero.jsx's "Impact" stat with a
+            // real count instead of a hardcoded number that never updated.
+            vaTasksCompleted: 0,
+            countriesSupported: 9
+        };
+
+        try {
+            // Try each query individually with error handling
+            try {
+                const { count } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
+                if (count > 0) {
+                    stats.activeUsers = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('profiles: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('jobs')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved');
+                if (count > 0) {
+                    stats.jobsPosted = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('jobs: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('courses')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_published', true);
+                if (count > 0) {
+                    stats.courses = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('courses: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('assessments')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('is_active', true);
+                if (count > 0) {
+                    stats.assessments = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('assessments: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('profiles')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_type', 'tester');
+                if (count > 0) {
+                    stats.earlyMembers = count;
+                    stats.testerSpots = Math.max(0, 100 - count);
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('tester profiles: ' + e.message);
+            }
+
+            try {
+                const { count } = await supabaseClient
+                    .from('va_tasks')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('status', 'completed');
+                if (count > 0) {
+                    stats.vaTasksCompleted = count;
+                    hasRealData = true;
+                }
+            } catch (e) {
+                errors.push('va_tasks: ' + e.message);
+            }
+
+            return res.status(200).json({
+                success: true,
+                stats: {
+                    ...stats,
+                    timestamp: new Date().toISOString(),
+                    fallback: !hasRealData,
+                    errors: errors.length > 0 ? errors : null,
+                    message: hasRealData ? 'Using real data' : 'Using fallback data - some tables may be empty'
+                }
+            });
+        } catch (error) {
+            console.error('Homepage stats error:', error);
+            return res.status(200).json({
+                success: true,
+                stats: {
+                    ...stats,
+                    timestamp: new Date().toISOString(),
+                    fallback: true,
+                    error: error.message
+                }
+            });
+        }
+    }
+};
+
+// ============================================
+// MAIN HANDLER
+// ============================================
+export default async function handler(req, res) {
+    setCors(res);
+    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    // NEW (2026-08-07): global IP block check, before any action runs.
+    const requestIP = getRequestIP(req);
+    if (await isIPBlocked(requestIP)) {
+        await logSecurityEvent('blocked_ip_attempt', requestIP, 'warning', { action: req.query.action || null });
+        return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const { action } = req.query;
+    
+    if (!action || !handlers[action]) {
+        return res.status(200).json({
+            name: 'ODUSBABA API',
+            version: '7.1.0',
+            description: 'Professional Consolidated API - Full site functionality',
+            available_actions: Object.keys(handlers),
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    try {
+        await handlers[action](req, res);
+    } catch (error) {
+        console.error(`Error in ${action}:`, error);
+        return res.status(500).json({ error: error.message });
+    }
+}
