@@ -47,12 +47,21 @@
 //     someone testing at 'business' tier doesn't get business-tier request
 //     volume just because they're testing.
 //
-// FIXED (2026-08-21): tester_allocations was being written by two different,
-// disconnected paths with incompatible key columns — the admin's
-// tester-create action keys by email, this signup flow keys by user_id.
-// Under the new shared-code model there's no "specific person" to
-// pre-approve by email anymore, so tester-create is effectively superseded;
-// this file's user_id-keyed upsert is the one real writer going forward.
+// FIXED (2026-08-21): tester_allocations was being written by two
+// different paths with incompatible key columns — the admin's
+// tester-create action keys by email (pre-allocating before the person
+// has an account), this signup flow keys by user_id (once it exists).
+// Initially treated tester-create as effectively superseded under the
+// new shared-code model, since there's no single "specific person" to
+// pre-approve when anyone with a code can become a tester — but the
+// confirmed real schema shows tester_allocations genuinely has both
+// columns, meaning the two paths were meant to reconcile with each
+// other, not compete. Now does: on signup, check for a still-valid,
+// unclaimed pre-allocation matching this email first, and attach this
+// account to it (preserving whatever custom allowance the admin set)
+// rather than leaving it permanently orphaned. tester-create remains a
+// real, intentional feature — for giving a specific person a deliberate,
+// non-default allocation ahead of time — rather than dead code.
 //
 // FIXED (2026-08-21): testingConfig.default_tester_uses / default_tester_days
 // were never actually fetched from anywhere — decorative state permanently
@@ -520,27 +529,63 @@ export default function SignUpPage() {
                 });
             }
 
-            // REBUILT (2026-08-21): tester usage tracking, keyed by
-            // user_id (fixing the previous email/user_id key mismatch
-            // against the admin's now-superseded tester-create action).
-            // remaining_uses is the real, admin-configurable
-            // tester_ai_call_cap — separate from and independent of
-            // whatever va_credits balance this tier normally gets, since
-            // the point is a hard ceiling regardless of tier.
+            // FIXED (2026-08-21): tester_allocations genuinely has both an
+            // email column (written by the admin's tester-create action,
+            // pre-allocating a slot to a specific person before they've
+            // even signed up — user_id null at that point) and a user_id
+            // column (written here, once the account exists). Previously
+            // this just upserted a brand-new row keyed by user_id
+            // unconditionally, meaning an admin's pre-allocation was left
+            // permanently orphaned (user_id forever null) the moment that
+            // person actually signed up — the two never reconciled. Now
+            // checks for a still-valid, unclaimed pre-allocation matching
+            // this email FIRST, and if one exists, attaches this account
+            // to it by setting user_id — deliberately preserving the
+            // admin's original allocated_uses/expires_at rather than
+            // overwriting them with the generic testingConfig values,
+            // since the whole point of a manual pre-allocation is giving
+            // that specific person a deliberate, possibly custom
+            // allowance. Falls back to the normal fresh-allocation path
+            // (unchanged) when no valid pre-allocation exists.
             if (isTestingMode) {
-                const testerExpiry = new Date();
-                testerExpiry.setDate(testerExpiry.getDate() + testingConfig.accessDays);
-                
-                await supabase
+                const { data: pendingAllocation } = await supabase
                     .from('tester_allocations')
-                    .upsert({
-                        user_id: authData.user.id,
-                        allocated_uses: testingConfig.aiCallCap,
-                        used_uses: 0,
-                        remaining_uses: testingConfig.aiCallCap,
-                        expires_at: testerExpiry.toISOString(),
-                        status: 'active'
-                    });
+                    .select('id, expires_at')
+                    .is('user_id', null)
+                    .eq('status', 'active')
+                    .ilike('email', formData.email)
+                    .maybeSingle();
+
+                const hasValidPendingAllocation =
+                    pendingAllocation && new Date(pendingAllocation.expires_at) > new Date();
+
+                if (hasValidPendingAllocation) {
+                    // Reconcile: attach this new account to the admin's
+                    // existing pre-allocation instead of creating a
+                    // separate, disconnected row.
+                    await supabase
+                        .from('tester_allocations')
+                        .update({ user_id: authData.user.id, updated_at: new Date().toISOString() })
+                        .eq('id', pendingAllocation.id);
+                } else {
+                    // No valid pending pre-allocation (none exists, or the
+                    // one that did has already expired) — create a fresh
+                    // allocation via the standard code-gated flow, same as
+                    // before.
+                    const testerExpiry = new Date();
+                    testerExpiry.setDate(testerExpiry.getDate() + testingConfig.accessDays);
+
+                    await supabase
+                        .from('tester_allocations')
+                        .upsert({
+                            user_id: authData.user.id,
+                            allocated_uses: testingConfig.aiCallCap,
+                            used_uses: 0,
+                            remaining_uses: testingConfig.aiCallCap,
+                            expires_at: testerExpiry.toISOString(),
+                            status: 'active'
+                        });
+                }
             }
 
             // Send welcome email (non-blocking)
