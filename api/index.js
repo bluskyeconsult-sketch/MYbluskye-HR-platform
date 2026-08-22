@@ -1919,6 +1919,58 @@ const handlers = {
     // purchased credits are never touched. Triggered by a cron job (see
     // vercel.json) rather than on-demand, since it needs to run for every
     // active user, not just one at a time.
+    // NEW (2026-08-22): vercel.json rewrites /sitemap.xml to this exact
+    // action — but it never existed anywhere in this file, meaning
+    // visiting /sitemap.xml has been returning an error this whole time,
+    // and search engines have had no sitemap to crawl at all. Real static
+    // routes below match the confirmed route list in App.jsx; dynamic
+    // routes are generated from real, currently-active/published content.
+    'sitemap': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const baseUrl = 'https://www.bluskyeconsult.com';
+
+        const staticRoutes = [
+            '/', '/jobs', '/workforce', '/courses', '/books', '/newsletter',
+            '/hire-va', '/about', '/contact', '/pricing', '/sign-in', '/sign-up',
+            '/products', '/faq', '/blog', '/hr-tools', '/assessments', '/articles'
+        ];
+
+        try {
+            const [{ data: jobs }, { data: courses }, { data: articles }] = await Promise.all([
+                supabaseClient.from('jobs').select('id, updated_at').eq('is_active', true).limit(5000),
+                supabaseClient.from('courses').select('id, updated_at').eq('is_published', true).limit(2000),
+                supabaseClient.from('articles').select('slug, updated_at').eq('is_published', true).limit(2000)
+            ]);
+
+            const urls = [
+                ...staticRoutes.map(path => ({ loc: `${baseUrl}${path}`, lastmod: null })),
+                ...(jobs || []).map(j => ({ loc: `${baseUrl}/jobs/${j.id}`, lastmod: j.updated_at })),
+                ...(courses || []).map(c => ({ loc: `${baseUrl}/courses/${c.id}`, lastmod: c.updated_at })),
+                ...(articles || []).map(a => ({ loc: `${baseUrl}/articles/${a.slug}`, lastmod: a.updated_at }))
+            ];
+
+            const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${new Date(u.lastmod).toISOString().split('T')[0]}</lastmod>` : ''}
+  </url>`).join('\n')}
+</urlset>`;
+
+            res.setHeader('Content-Type', 'application/xml');
+            return res.status(200).send(xml);
+        } catch (error) {
+            console.error('Sitemap generation error:', error);
+            // Fail gracefully with just the static routes rather than a
+            // broken sitemap — better for crawlers than a 500 error.
+            const fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`).join('\n')}
+</urlset>`;
+            res.setHeader('Content-Type', 'application/xml');
+            return res.status(200).send(fallbackXml);
+        }
+    },
+
     'grant-monthly-credits': async (req, res) => {
         const supabaseClient = getSupabase();
 
