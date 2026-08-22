@@ -57,6 +57,32 @@ export default function JobDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    // NEW (2026-08-22): currency was hardcoded to GBP regardless of
+    // source_country, despite this platform sourcing jobs from the US,
+    // Nigeria, Canada, Australia, Germany, and Ireland (confirmed via
+    // JOB_SOURCES in the job-fetch pipeline). A US job listed with GBP
+    // salary figures in structured data is simply wrong information
+    // handed to Google, not just a cosmetic gap.
+    const CURRENCY_BY_COUNTRY = {
+      GB: 'GBP', US: 'USD', NG: 'NGN', CA: 'CAD',
+      AU: 'AUD', DE: 'EUR', IE: 'EUR'
+    };
+
+    // NEW (2026-08-22): Google requires validThrough on JobPosting
+    // structured data to keep a listing eligible for job rich
+    // results — without it, Google may treat the posting as stale
+    // indefinitely or decline to show it at all. No explicit expiry
+    // column is confirmed to exist on `jobs`, so this computes a
+    // reasonable 45-day window from datePosted rather than guessing
+    // at an unconfirmed column name. If a real expiry field does
+    // exist, prefer that instead once confirmed.
+    function computeValidThrough(postedAt) {
+      const posted = postedAt ? new Date(postedAt) : new Date();
+      const validThrough = new Date(posted);
+      validThrough.setDate(validThrough.getDate() + 45);
+      return validThrough.toISOString();
+    }
+
     // NEW (2026-08-16): JobPosting structured data (JSON-LD) — unlocks
     // Google's dedicated job-search rich results. Only injected for real,
     // successfully-loaded jobs; removed on unmount/navigation so it never
@@ -72,6 +98,7 @@ export default function JobDetailPage() {
       title: job.title,
       description: job.description || '',
       datePosted: job.posted_at || job.created_at,
+      validThrough: computeValidThrough(job.posted_at || job.created_at),
       employmentType: (job.job_type || 'FULL_TIME').toUpperCase().replace('-', '_'),
       hiringOrganization: {
         '@type': 'Organization',
@@ -84,7 +111,7 @@ export default function JobDetailPage() {
       ...(job.salary_min && job.salary_max ? {
         baseSalary: {
           '@type': 'MonetaryAmount',
-          currency: 'GBP',
+          currency: CURRENCY_BY_COUNTRY[job.source_country] || 'GBP',
           value: { '@type': 'QuantitativeValue', minValue: job.salary_min, maxValue: job.salary_max, unitText: 'YEAR' }
         }
       } : {}),
