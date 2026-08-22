@@ -281,11 +281,21 @@ export default function SignUpPage() {
 
             // NEW (2026-08-21): fetch the real, admin-configurable tester
             // cap values — these were previously never read at all.
+            //
+            // FIXED (2026-08-22): require_invite_code was being queried as
+            // its own top-level config_key — but TesterVisibilitySettings.jsx
+            // actually stores it NESTED inside a single row's JSON value
+            // (config_key: 'tester_visibility', config_value: { ...,
+            // require_invite_code, ... }). The flat-key query above always
+            // returned nothing, so this silently fell back to its default
+            // (true) regardless of what the admin actually configured —
+            // meaning the toggle this was specifically built to respect
+            // never actually worked. Now reads the correct nested shape.
             if (isTestingMode) {
-                const [{ data: capData }, { data: daysData }, { data: codeReqData }] = await Promise.all([
+                const [{ data: capData }, { data: daysData }, { data: visibilityData }] = await Promise.all([
                     supabase.from('system_config').select('config_value').eq('config_key', 'tester_ai_call_cap').maybeSingle(),
                     supabase.from('system_config').select('config_value').eq('config_key', 'tester_access_days').maybeSingle(),
-                    supabase.from('system_config').select('config_value').eq('config_key', 'require_invite_code').maybeSingle()
+                    supabase.from('system_config').select('config_value').eq('config_key', 'tester_visibility').maybeSingle()
                 ]);
 
                 setTestingConfig({
@@ -294,8 +304,9 @@ export default function SignUpPage() {
                 });
 
                 // Default true (matching TesterVisibilitySettings.jsx's own
-                // default) if the key hasn't been explicitly set yet.
-                setRequireInviteCode(codeReqData?.config_value !== 'false');
+                // default) if the row hasn't been saved yet at all.
+                const visibilitySettings = visibilityData?.config_value;
+                setRequireInviteCode(visibilitySettings?.require_invite_code !== false);
             }
         } catch (err) {
             console.error('Error checking testing mode:', err);
