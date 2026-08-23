@@ -274,11 +274,19 @@ export default function AssessmentManager() {
         setGenerating(true);
         
         try {
+            // FIXED (2026-08-22): generate-assessment now requires real
+            // admin auth server-side (it had none at all before — see
+            // index.js's requireAdmin fix). This call never sent one, so
+            // it would 401 the moment that fix deployed.
+            const { data: { session } } = await supabase.auth.getSession();
             // FIXED: payload key is numberOfQuestions, matching the real
             // handler — was previously sent as `count` and silently ignored.
             const response = await fetch('/api/index?action=generate-assessment', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
@@ -401,10 +409,16 @@ export default function AssessmentManager() {
         setGenerating(true);
         
         try {
+            // FIXED (2026-08-22): same auth requirement as
+            // generateAIQuestions above.
+            const { data: { session } } = await supabase.auth.getSession();
             // FIXED: numberOfQuestions, not count — see generateAIQuestions.
             const questionsResponse = await fetch('/api/index?action=generate-assessment', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
