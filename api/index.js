@@ -3311,12 +3311,19 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== TRENDING TOPICS ==========
-    'trending-topics': async (req, res) => {
-        return res.status(200).json({
-            success: true,
-            topics: ['HR Tech', 'Remote Work', 'AI Recruitment', 'Employee Wellness', 'Diversity & Inclusion', 'Talent Retention']
-        });
-    },
+    // FIXED (2026-08-22): a second, fake 'trending-topics' handler existed
+    // here — a hardcoded static list ('HR Tech', 'Remote Work', etc.) —
+    // and because both handlers shared the same key, this one silently
+    // WON in the final handlers object (JS object literals: last
+    // duplicate key wins), completely shadowing the real, activity-based
+    // implementation above. This means every caller of ?action=trending-
+    // topics — including a public-facing "Latest Trend Corner" widget per
+    // AdminOpportunityGaps.jsx's own comment — has been receiving
+    // fabricated data, not real trends. It also returned `topics`, not
+    // `trending`, so AdminOpportunityGaps.jsx's own "Trending This Week"
+    // panel (which reads `data.trending`) has been silently empty this
+    // whole time regardless of real activity. Removed entirely — the
+    // real handler above is now the only one.
 
     // ========== TESTER CREATE ==========
     // ========== TWO-FACTOR AUTHENTICATION (NEW — 2026-08-21) ==========
