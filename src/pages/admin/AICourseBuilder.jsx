@@ -401,6 +401,18 @@ export default function AICourseBuilder() {
                         <Sparkles className="w-4 h-4 text-primary-400" />
                         AI Automation Features
                     </h3>
+                    {/* FIXED (2026-08-22): a prior header comment claimed a
+                        "not yet functional" note existed near these toggles
+                        — it didn't. These are checked by default and look
+                        fully working with zero indication otherwise, while
+                        the real backend (generate-course) only returns a
+                        text outline — no images, audio, or quizzes are
+                        actually generated regardless of these settings. */}
+                    <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <p className="text-amber-400 text-xs">
+                            ⚠️ These toggles are not yet functional — the AI currently generates a course outline only (title, description, modules). Images, audio, and quizzes are not auto-generated regardless of these settings.
+                        </p>
+                    </div>
                     <div className="flex flex-wrap gap-6">
                         <label className="flex items-center gap-2 cursor-pointer group">
                             <input 
@@ -693,33 +705,41 @@ export default function AICourseBuilder() {
                         <Brain className="w-5 h-5" />
                         How AI Course Builder Works
                     </h3>
+                    {/* FIXED (2026-08-22): this list made the same
+                        overpromise as the preview modal — the real
+                        generate-course backend only returns a text outline
+                        (title, description, modules). No lesson content,
+                        quizzes, assignments, images, or audio are actually
+                        generated. Corrected to describe what actually
+                        happens, matching the disclosure added near the
+                        feature toggles above. */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-300">
                         <ul className="space-y-2">
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>AI generates complete course outline with modules and lessons</span>
+                                <span>AI generates a course outline: title, description, and module breakdown</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Each lesson includes detailed content, examples, and key takeaways</span>
+                                <span>The outline is saved as a draft course, ready for review</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>AI creates in-lesson quizzes to test understanding</span>
+                                <span>Open the draft in the course editor to add detailed lesson content</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Generates practical assignments and projects</span>
+                                <span>Quizzes and assignments are added manually in the editor — not yet auto-generated</span>
                             </li>
                         </ul>
                         <ul className="space-y-2">
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>DALL-E generates relevant images for visual learning (optional)</span>
+                                <span>Course images can be generated separately in the course editor (DALL-E)</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Text-to-speech creates audio narration for every lesson (optional)</span>
+                                <span>Lesson audio narration can also be generated per-lesson in the editor (TTS)</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
@@ -727,7 +747,7 @@ export default function AICourseBuilder() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>AI-powered recommendations for improving course quality</span>
+                                <span>The feature toggles above do not yet affect generation — outline only, for now</span>
                             </li>
                         </ul>
                     </div>
@@ -804,7 +824,7 @@ export default function AICourseBuilder() {
                                 <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/20 rounded-lg p-3">
                                     <p className="text-purple-400 text-sm flex items-center gap-2">
                                         <Sparkles className="w-4 h-4" />
-                                        AI will generate: detailed lessons, quizzes, assignments, images, and audio narration
+                                        This outline will be saved as a draft course — add detailed lessons, images, and quizzes afterward in the course editor.
                                     </p>
                                 </div>
                             </div>
