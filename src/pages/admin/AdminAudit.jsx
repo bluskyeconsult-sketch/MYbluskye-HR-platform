@@ -1,16 +1,23 @@
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { 
   FileText, Search, RefreshCw, Loader2, AlertCircle,
   Download, Calendar, User, Shield, Briefcase, Users,
   CheckCircle, XCircle, Edit, Trash2, Eye, Activity,
-  TrendingUp, Award, Clock, Filter
+  TrendingUp, Award, Clock, Filter, Brain
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-08-22):
+// 1. Disconnected Supabase client (createClient() directly) — same
+//    pattern found and fixed repeatedly this session. Now uses the
+//    shared singleton.
+// 2. `Brain` was used as an icon in the actionTypes array (evaluated at
+//    module load, before anything renders) but never imported — this
+//    threw `ReferenceError: Brain is not defined` immediately, crashing
+//    this entire page before any UI could appear, every single time it
+//    was visited. Same bug class as the Briefcase/Palette import
+//    fix already applied to AICourseBuilder.jsx. Added the import.
 
 export default function AdminAudit() {
   const [logs, setLogs] = useState([]);
