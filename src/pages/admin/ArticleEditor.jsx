@@ -253,10 +253,16 @@ export default function ArticleEditor() {
             const systemPrompt = 'You are a professional content writer for an HR and career platform. Write a complete, well-structured article in markdown with a top-level # title, clear section headers, and a conclusion. Return ONLY the article markdown, no preamble or commentary.';
             const userMessage = `Write a professional article about: "${aiTopic}". Aim for 500-800 words with an introduction, 2-4 main sections, and a conclusion.`;
             
+            // FIXED (2026-08-22): no userId was ever sent, so this call
+            // was silently treated as a guest request by checkAndDeductCredit
+            // (IP-rate-limited, not properly attributed to the admin's own
+            // account). Fetches the real session for correct attribution.
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.7, maxTokens: 1500 })
+                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.7, maxTokens: 1500, userId: currentUser?.id })
             });
             
             const data = await response.json();
@@ -308,10 +314,12 @@ export default function ArticleEditor() {
         try {
             const systemPrompt = 'You are a professional editor. Improve the grammar, clarity, and flow of the given article while preserving its markdown formatting, meaning, and structure. Return ONLY the improved article text, no commentary.';
             
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: article.content, systemPrompt, history: [], temperature: 0.4, maxTokens: 2000 })
+                body: JSON.stringify({ message: article.content, systemPrompt, history: [], temperature: 0.4, maxTokens: 2000, userId: currentUser?.id })
             });
             
             const data = await response.json();
@@ -345,10 +353,12 @@ export default function ArticleEditor() {
             const systemPrompt = 'You are an SEO specialist. Return ONLY a single SEO-optimized title, under 60 characters, no quotes, no explanation.';
             const userMessage = `Original article title: "${article.title}"`;
             
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.5, maxTokens: 40 })
+                body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.5, maxTokens: 40, userId: currentUser?.id })
             });
             
             const data = await response.json();
