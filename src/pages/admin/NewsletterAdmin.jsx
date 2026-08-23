@@ -16,14 +16,17 @@
 //    with the `newsletter` template already defined in api/index.js, once
 //    per subscriber.
 //
-// FLAGGED, NOT REVIEWED: imports AdminLayout from
-// ../../components/admin/AdminLayout — no other admin page in this project
-// uses this wrapper. Unconfirmed whether it exists; if this page fails to
-// build, that's the likely reason.
+// FIXED (2026-08-22): imported AdminLayout from
+// ../../components/admin/AdminLayout and wrapped this page's content in it
+// internally — but App.jsx's route for this page (/admin/newsletter)
+// already wraps it in the same AdminLayout externally, matching every
+// other admin page in this project (none of which import AdminLayout
+// themselves). This meant AdminLayout was nested inside itself,
+// duplicating the sidebar/navigation chrome. Removed the internal import
+// and both wrap points, matching the established pattern everywhere else.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import AdminLayout from '../../components/admin/AdminLayout';
 import { 
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
     Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2,
@@ -416,16 +419,14 @@ export default function NewsletterAdmin() {
 
     if (loading) {
         return (
-            <AdminLayout title="Newsletter Manager" description="Create, schedule, and manage email newsletters">
-                <div className="flex items-center justify-center h-64">
-                    <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
-                </div>
-            </AdminLayout>
+            <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+            </div>
         );
     }
 
     return (
-        <AdminLayout title="Newsletter Manager" description="Create, schedule, and manage email newsletters">
+        <div>
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
@@ -769,6 +770,6 @@ export default function NewsletterAdmin() {
                     </div>
                 </div>
             )}
-        </AdminLayout>
+        </div>
     );
 }
