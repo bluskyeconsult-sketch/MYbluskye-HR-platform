@@ -1,5 +1,40 @@
 // src/pages/BooksPage.jsx
 // PROFESSIONAL BOOK STORE PAGE - With API integration, search, filters, and Supabase fallback (No external dependencies)
+//
+// FIXED (2026-08-23):
+// 1. CRITICAL: this page was silently falling back to fully fabricated
+//    MOCK_BOOKS data (fake ratings, fake review counts, fake "Bestseller"
+//    badges, fake prices) whenever the real API/Supabase queries returned
+//    nothing — showing invented product data to real paying customers as
+//    if it were genuine. Removed entirely. If no real books are published,
+//    the page now shows the honest "No books available" empty state that
+//    already existed, rather than inventing content.
+// 2. rating/reviews/is_bestseller/original_price were never real columns
+//    on the books table at all (confirmed: title, author, description,
+//    price, ebook_price, category, cover_url, file_url, preview_file_url,
+//    external_purchase_url, is_published) — no review/rating system
+//    exists anywhere in this project. Removed all rating/review/
+//    bestseller UI, since it was decorative for real data regardless of
+//    the mock-data issue above.
+// 3. cover_url — a real, already-existing field admins can set in
+//    ManageBooks.jsx — was never referenced anywhere in this file. Every
+//    book showed the identical generic icon on the same gradient
+//    background regardless of whether a real cover image existed. Now
+//    renders the real cover image when set, falling back to the icon
+//    only when it isn't.
+// 4. "Fast Shipping — Free delivery worldwide" was hardcoded, static
+//    marketing copy that's factually wrong for this platform's real
+//    model — books are fulfilled either as an e-copy (instant download/
+//    read on this site) or a hardcopy via a third-party retailer
+//    (Amazon or similar), never shipped directly by this site at all.
+//    Replaced with accurate copy.
+// 5. The single generic "Purchase" button assumed one undefined
+//    purchase flow. The real model (confirmed by the business owner) has
+//    two distinct, separate paths — hardcopy via an external retailer
+//    link, e-copy via a real purchase+read flow on this site — so each
+//    card now links to the new /books/:id detail page, which presents
+//    both real options rather than guessing which one a single button
+//    should mean.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -76,10 +111,10 @@ export default function BooksPage() {
                 }
             }
             
-            // Use mock data if both API and Supabase return nothing
-            if (booksData.length === 0) {
-                booksData = MOCK_BOOKS;
-            }
+            // FIXED (2026-08-23): no longer falls back to fabricated mock
+            // data when both real sources return nothing — an empty
+            // result is a genuine, honest "no books published yet" state,
+            // not a reason to show fake products to real customers.
             
             setBooks(booksData);
             setFilteredBooks(booksData);
@@ -87,8 +122,8 @@ export default function BooksPage() {
         } catch (err) {
             console.error('Error loading books:', err);
             setError(err.message);
-            setBooks(MOCK_BOOKS);
-            setFilteredBooks(MOCK_BOOKS);
+            setBooks([]);
+            setFilteredBooks([]);
         } finally {
             setLoading(false);
         }
@@ -117,11 +152,9 @@ export default function BooksPage() {
             if (sortBy === 'title') {
                 return (a.title || '').localeCompare(b.title || '');
             } else if (sortBy === 'price_asc') {
-                return (a.price || 0) - (b.price || 0);
+                return (a.ebook_price ?? a.price ?? 0) - (b.ebook_price ?? b.price ?? 0);
             } else if (sortBy === 'price_desc') {
-                return (b.price || 0) - (a.price || 0);
-            } else if (sortBy === 'rating') {
-                return (b.rating || 0) - (a.rating || 0);
+                return (b.ebook_price ?? b.price ?? 0) - (a.ebook_price ?? a.price ?? 0);
             } else if (sortBy === 'newest') {
                 return new Date(b.created_at || 0) - new Date(a.created_at || 0);
             }
@@ -129,36 +162,6 @@ export default function BooksPage() {
         });
         
         setFilteredBooks(filtered);
-    }
-
-    function getStarRating(rating) {
-        const stars = [];
-        const fullStars = Math.floor(rating || 0);
-        const hasHalfStar = (rating || 0) % 1 >= 0.5;
-        
-        for (let i = 0; i < fullStars; i++) {
-            stars.push(
-                <svg key={i} className="w-4 h-4 fill-amber-400 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-            );
-        }
-        if (hasHalfStar) {
-            stars.push(
-                <svg key="half" className="w-4 h-4 fill-amber-400/50 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-            );
-        }
-        const remaining = 5 - stars.length;
-        for (let i = 0; i < remaining; i++) {
-            stars.push(
-                <svg key={`empty-${i}`} className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-            );
-        }
-        return stars;
     }
 
     if (loading) {
@@ -267,27 +270,25 @@ export default function BooksPage() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredBooks.map(book => (
-                            <div 
-                                key={book.id} 
+                            <Link
+                                to={`/books/${book.id}`}
+                                key={book.id}
                                 className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all hover:-translate-y-1"
                             >
-                                {/* Book Cover Placeholder */}
-                                <div className="relative h-48 bg-gradient-to-br from-primary-500/20 to-sky-500/20 flex items-center justify-center">
-                                    <svg className="w-16 h-16 text-primary-400/50 group-hover:scale-110 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                                    </svg>
-                                    {book.rating && (
-                                        <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 bg-slate-900/80 rounded-lg backdrop-blur-sm">
-                                            <svg className="w-3 h-3 fill-amber-400 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                            </svg>
-                                            <span className="text-xs text-white font-medium">{book.rating}</span>
-                                        </div>
-                                    )}
-                                    {book.is_bestseller && (
-                                        <div className="absolute top-3 left-3 px-2 py-1 bg-amber-500/90 rounded-lg">
-                                            <span className="text-xs text-white font-semibold">Bestseller</span>
-                                        </div>
+                                {/* FIXED (2026-08-23): renders the real cover_url image
+                                    when set — previously always showed the same generic
+                                    icon regardless of whether a real cover existed. */}
+                                <div className="relative h-48 bg-gradient-to-br from-primary-500/20 to-sky-500/20 flex items-center justify-center overflow-hidden">
+                                    {book.cover_url ? (
+                                        <img
+                                            src={book.cover_url}
+                                            alt={book.title}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                        />
+                                    ) : (
+                                        <svg className="w-16 h-16 text-primary-400/50 group-hover:scale-110 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                        </svg>
                                     )}
                                 </div>
                                 
@@ -295,39 +296,36 @@ export default function BooksPage() {
                                     <h3 className="text-xl font-bold text-white mb-1 line-clamp-1 group-hover:text-primary-400 transition">
                                         {book.title}
                                     </h3>
-                                    <p className="text-slate-400 text-sm mb-2">by {book.author}</p>
-                                    
-                                    <div className="flex items-center gap-1 mb-3">
-                                        {getStarRating(book.rating)}
-                                        <span className="text-xs text-slate-500 ml-1">({book.reviews || 0})</span>
-                                    </div>
+                                    <p className="text-slate-400 text-sm mb-3">by {book.author}</p>
                                     
                                     <p className="text-slate-400 text-sm line-clamp-2 mb-4">
                                         {book.description || 'Essential reading for HR professionals and career-driven individuals.'}
                                     </p>
                                     
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="text-2xl font-bold text-primary-400">
-                                                ${(book.price || 29.99).toFixed(2)}
-                                            </span>
-                                            {book.original_price && book.original_price > book.price && (
-                                                <span className="text-xs text-slate-500 line-through ml-2">
-                                                    ${book.original_price}
-                                                </span>
+                                    {/* FIXED (2026-08-23): shows both real, distinct
+                                        price points instead of one undefined "Purchase"
+                                        button — hardcopy (via Amazon/retailer) and e-copy
+                                        (purchased/read on this site) are genuinely
+                                        different products at different prices. */}
+                                    <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                                        <div className="text-sm">
+                                            {book.ebook_price && (
+                                                <p className="text-primary-400 font-bold">
+                                                    E-copy ${Number(book.ebook_price).toFixed(2)}
+                                                </p>
+                                            )}
+                                            {book.price && (
+                                                <p className="text-slate-500 text-xs">
+                                                    Hardcopy ${Number(book.price).toFixed(2)}
+                                                </p>
                                             )}
                                         </div>
-                                        <Link to={book.purchase_url || `/books/${book.id}`}>
-                                            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition flex items-center gap-2 group-hover:shadow-lg group-hover:shadow-primary-500/20">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.5 1.5M17 13l1.5 1.5M9 21h6M12 18v3" />
-                                                </svg>
-                                                Purchase
-                                            </button>
-                                        </Link>
+                                        <span className="px-4 py-2 bg-primary-600 text-white rounded-lg group-hover:bg-primary-500 transition text-sm font-medium">
+                                            View Book
+                                        </span>
                                     </div>
                                 </div>
-                            </div>
+                            </Link>
                         ))}
                     </div>
                 )}
@@ -343,10 +341,10 @@ export default function BooksPage() {
                     </div>
                     <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl text-center hover:border-primary-500/30 transition">
                         <svg className="w-8 h-8 text-primary-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
-                        <h4 className="text-white font-semibold">Fast Shipping</h4>
-                        <p className="text-slate-400 text-sm">Free delivery worldwide</p>
+                        <h4 className="text-white font-semibold">Instant E-Copy Access</h4>
+                        <p className="text-slate-400 text-sm">Read on this site right after purchase</p>
                     </div>
                     <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl text-center hover:border-primary-500/30 transition">
                         <svg className="w-8 h-8 text-primary-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -360,75 +358,3 @@ export default function BooksPage() {
         </div>
     );
 }
-
-// Mock data for fallback
-const MOCK_BOOKS = [
-    { 
-        id: 1, 
-        title: 'The HR Playbook', 
-        author: 'Sarah Johnson', 
-        price: 29.99, 
-        rating: 4.8,
-        reviews: 124,
-        category: 'hr-strategy',
-        description: 'A comprehensive guide to modern HR practices and strategic workforce planning.',
-        is_bestseller: true,
-        purchase_url: '/books/hr-playbook'
-    },
-    { 
-        id: 2, 
-        title: 'AI Ethics in Employment', 
-        author: 'David Chen', 
-        price: 34.99, 
-        rating: 4.9,
-        reviews: 89,
-        category: 'ai-ethics',
-        description: 'Navigate the complex intersection of artificial intelligence and workplace ethics.',
-        purchase_url: '/books/ai-ethics-employment'
-    },
-    { 
-        id: 3, 
-        title: 'Global Recruitment Strategies', 
-        author: 'Maria Garcia', 
-        price: 39.99, 
-        rating: 4.7,
-        reviews: 156,
-        category: 'recruitment',
-        description: 'Master the art of international talent acquisition and retention.',
-        purchase_url: '/books/global-recruitment'
-    },
-    { 
-        id: 4, 
-        title: 'The Future of Work', 
-        author: 'Dr. James Wilson', 
-        price: 32.99, 
-        rating: 4.8,
-        reviews: 203,
-        category: 'future-work',
-        description: 'Insights into remote work, hybrid models, and the evolving workplace.',
-        is_bestseller: true,
-        purchase_url: '/books/future-of-work'
-    },
-    { 
-        id: 5, 
-        title: 'Leadership in Crisis', 
-        author: 'Emma Thompson', 
-        price: 27.99, 
-        rating: 4.9,
-        reviews: 178,
-        category: 'leadership',
-        description: 'Proven strategies for leading teams through uncertainty and change.',
-        purchase_url: '/books/leadership-crisis'
-    },
-    { 
-        id: 6, 
-        title: 'HR Analytics Revolution', 
-        author: 'Michael Lee', 
-        price: 44.99, 
-        rating: 4.8,
-        reviews: 92,
-        category: 'hr-strategy',
-        description: 'Data-driven decision making for human resources professionals.',
-        purchase_url: '/books/hr-analytics'
-    }
-];
