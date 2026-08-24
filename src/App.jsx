@@ -544,6 +544,7 @@ const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
+const BookDetailPage = lazy(() => import('./pages/BookDetailPage'));
 const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
 const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
@@ -767,6 +768,7 @@ function AppContent() {
                             <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
                             <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
                             <Route path="/books" element={<AnimatedPage><BooksPage /></AnimatedPage>} />
+                            <Route path="/books/:id" element={<AnimatedPage><BookDetailPage /></AnimatedPage>} />
                             <Route path="/newsletter" element={<AnimatedPage><NewsletterPage /></AnimatedPage>} />
                             <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
                             <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
