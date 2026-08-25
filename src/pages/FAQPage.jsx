@@ -7,7 +7,7 @@ import {
     Search, ChevronDown, ChevronUp, HelpCircle, Mail, MessageCircle,
     ThumbsUp, ThumbsDown, BookOpen, Users, CreditCard, Shield, Bot, 
     FileText, Filter, Sparkles, TrendingUp, Award, Clock, Star,
-    Loader2, AlertCircle
+    Loader2, AlertCircle, ChevronRight
 } from 'lucide-react';
 import { apiCall, trackEvent } from '../lib/supabase';
 
@@ -43,7 +43,15 @@ export default function FAQPage() {
                 },
                 { 
                     q: "Is ODUSBABA free to use?", 
-                    a: "Yes! We offer a free tier with basic features. Professional and employer plans start at $39.99/month. New users also get 4 weeks of free tester access, which includes unlimited assessments, course previews, and basic job matching features.",
+                    // FIXED (2026-08-23): removed a false claim that new
+                    // users automatically get "4 weeks of free tester
+                    // access" — the real tester system requires a real
+                    // invite code (confirmed extensively: tester_invite_codes,
+                    // consume_invite_code()); nobody gets tester status
+                    // automatically just by signing up. This directly
+                    // contradicted the very next FAQ entry below, which
+                    // correctly describes the real invite-code requirement.
+                    a: "Yes! We offer a free tier with basic features. Professional and employer plans start at $39.99/month.",
                     keywords: ["free", "trial", "cost", "price"],
                     link: "/pricing",
                     popularity: 98
@@ -134,7 +142,11 @@ export default function FAQPage() {
             questions: [
                 { 
                     q: "How does ODUSBABA Chat work?", 
-                    a: "Click the chat bubble in the bottom right corner. Ask about jobs, CV tips, interview preparation, salary negotiation, or career advice. Free users get 5 messages, registered users get 20.",
+                    // FIXED (2026-08-23): was "registered users get 20" —
+                    // the real, confirmed backend allowance for registered
+                    // tier is 10 (same number already corrected on
+                    // PricingPage.jsx this session).
+                    a: "Click the chat bubble in the bottom right corner. Ask about jobs, CV tips, interview preparation, salary negotiation, or career advice. Free users get 5 messages, registered users get 10.",
                     keywords: ["chat", "ai", "assistant", "messages"],
                     link: "#",
                     isChat: true,
@@ -156,7 +168,12 @@ export default function FAQPage() {
                 },
                 { 
                     q: "How do I purchase AI credits?", 
-                    a: "When your credits are low, a notification will appear in chat. Click 'Purchase Credits' to buy more. Professional plan includes 100 messages/month.",
+                    // FIXED (2026-08-23): was "100 messages/month" — the
+                    // real, confirmed backend allowance for Professional
+                    // is 25 (same wrong "100" already found and corrected
+                    // on PricingPage.jsx this session — this was the same
+                    // error, propagated to a second file).
+                    a: "When your credits are low, a notification will appear in chat. Click 'Purchase Credits' to buy more. Professional plan includes 25 messages/month.",
                     keywords: ["credits", "purchase", "buy", "messages"],
                     link: "/pricing",
                     popularity: 92
@@ -184,7 +201,13 @@ export default function FAQPage() {
                 },
                 { 
                     q: "Do courses have audio?", 
-                    a: "Yes! Our AI generates audio narration for every lesson. You can listen while reading. Adjust playback speed in the audio player.",
+                    // FIXED (2026-08-23): "generates audio narration for
+                    // every lesson" was false — the real system (confirmed
+                    // via the same fix already made to AICourseBuilder.jsx
+                    // this session) only auto-generates a text outline;
+                    // audio and images are separate, manual, per-lesson
+                    // actions taken in the course editor, not automatic.
+                    a: "Audio narration can be generated for individual lessons in the course editor. Adjust playback speed in the audio player once available.",
                     keywords: ["audio", "narration", "listen", "playback"],
                     link: "/courses",
                     popularity: 89
@@ -230,14 +253,17 @@ export default function FAQPage() {
                     keywords: ["refund", "money back", "guarantee"],
                     link: "/contact",
                     popularity: 90
-                },
-                { 
-                    q: "How does geo-pricing work?", 
-                    a: "Prices are adjusted based on your country. Tier 1 (US, UK, CA, AU, DE) pay standard price. Tier 5 (Nigeria, India, Kenya) pay 65% less.",
-                    keywords: ["geo", "regional", "pricing", "country"],
-                    link: "/pricing",
-                    popularity: 85
                 }
+                // FIXED (2026-08-23): removed a FAQ entry claiming a
+                // geo-pricing/regional-discount system ("Tier 1 pay
+                // standard price, Tier 5 pay 65% less") — no such logic
+                // exists anywhere in the real Stripe checkout handlers or
+                // PricingPage.jsx checked this session, and it referenced
+                // countries (India, Kenya) not in the confirmed real
+                // job-source country list (GB, US, NG, CA, AU, DE, IE).
+                // Presenting an unconfirmed pricing claim to customers is
+                // a real risk — removed rather than guess whether it's a
+                // genuine unbuilt feature or entirely fictional.
             ]
         },
         security: {
@@ -639,6 +665,3 @@ export default function FAQPage() {
         </div>
     );
 }
-
-// Missing import
-import { ChevronRight } from 'lucide-react';
