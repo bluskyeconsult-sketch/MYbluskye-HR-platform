@@ -177,25 +177,21 @@ export default function UserDashboard() {
                 .eq('status', 'active');
             setStats(prev => ({ ...prev, activeEngagements: activeEngagements || 0 }));
             
-            // Load recommended jobs based on user's skills
-            if (profileData?.skills && profileData.skills.length > 0) {
-                const { data: jobs } = await supabase
-                    .from('jobs')
-                    .select('id, title, company, location, salary_min')
-                    .eq('is_active', true)
-                    .eq('compliance_status', 'approved')
-                    .limit(3);
-                setRecommendedJobs(jobs || []);
-            } else {
-                // Fallback: show recent jobs
-                const { data: jobs } = await supabase
-                    .from('jobs')
-                    .select('id, title, company, location, salary_min')
-                    .eq('is_active', true)
-                    .eq('compliance_status', 'approved')
-                    .limit(3);
-                setRecommendedJobs(jobs || []);
-            }
+            // FIXED (2026-08-23): both branches of this condition ran the
+            // exact identical query — skill-based personalization was
+            // either never implemented or got lost at some point. Rather
+            // than leave misleading dead branching implying smart
+            // matching that isn't happening, simplified to one honest
+            // query. Real skill-based matching would need to actually
+            // filter/rank by profileData.skills, a real feature to build
+            // later, not something to fake here.
+            const { data: jobs } = await supabase
+                .from('jobs')
+                .select('id, title, company, location, salary_min')
+                .eq('is_active', true)
+                .eq('compliance_status', 'approved')
+                .limit(3);
+            setRecommendedJobs(jobs || []);
 
         } catch (err) {
             console.error('Dashboard error:', err);
@@ -248,7 +244,14 @@ export default function UserDashboard() {
     // ============================================
 
     const displayName = profile?.full_name || user?.email?.split('@')[0];
-    const isTester = profile?.user_type === 'tester';
+    // FIXED (2026-08-23): was profile?.user_type === 'tester' — no
+    // account has this value anymore under the tester system rebuilt
+    // this session (testers keep their real tier's user_type, flagged
+    // separately via is_tester). This meant the tester upgrade banner
+    // below has never shown for any real tester created under the
+    // current system — same bug already found and fixed in
+    // AdminUsers.jsx's role/badge logic.
+    const isTester = profile?.is_tester === true;
     const isPremium = profile?.tier === 'professional' || profile?.tier === 'business';
 
     return (
