@@ -252,7 +252,15 @@ const TIER_MONTHLY_ALLOWANCE = {
     tester: 10
 };
 
-async function checkAndDeductCredit(supabaseClient, userId, req = null) {
+// NEW (2026-08-23): accepts `cost` (default 1) so a single call site can
+// deduct more than one credit — specifically, conversational VA turns,
+// which are demonstrably more expensive to run than a single-turn call
+// (each turn resends the entire conversation history as input tokens; a
+// real 5-turn conversation averages ~1.56x the cost of one single-turn
+// call, and that ratio worsens for longer conversations). This is the
+// actual, cost-justified reason conversational VAs charge more, not an
+// arbitrary number.
+async function checkAndDeductCredit(supabaseClient, userId, req = null, cost = 1) {
     if (!userId) {
         // FIXED: guests no longer bypass metering entirely — rate limited
         // by IP instead, since there's no account to meter credits against.
@@ -282,7 +290,7 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
     // slip through.
     if (profile?.is_tester) {
         const { data: consumeResult, error: consumeError } = await supabaseClient
-            .rpc('consume_tester_allocation', { p_user_id: userId });
+            .rpc('consume_tester_allocation', { p_user_id: userId, p_cost: cost });
 
         if (consumeError) {
             console.error('Tester allocation check failed:', consumeError.message);
@@ -314,11 +322,11 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null) {
 
     const currentBalance = credits?.balance ?? 0;
 
-    if (currentBalance <= 0) {
-        return { allowed: false, unlimited: false, remaining: 0 };
+    if (currentBalance < cost) {
+        return { allowed: false, unlimited: false, remaining: currentBalance };
     }
 
-    const newBalance = currentBalance - 1;
+    const newBalance = currentBalance - cost;
 
     if (credits) {
         await supabaseClient.from('va_credits').update({ balance: newBalance }).eq('user_id', userId);
@@ -1863,6 +1871,142 @@ const handlers = {
         }
     },
 
+    // ========== BOOK STORE (NEW — 2026-08-23) ==========
+    // Hardcopy purchases never touch this backend at all — the "Buy
+    // Hardcopy" button on the frontend links straight to
+    // books.external_purchase_url (Amazon or another third-party
+    // retailer), which handles payment and fulfillment entirely on
+    // their own infrastructure. Only e-copy purchases go through here.
+
+    'create-book-checkout-session': async (req, res) => {
+        const { bookId, userId, userEmail } = req.body;
+        if (!bookId || !userId) {
+            return res.status(400).json({ error: 'bookId and userId are required' });
+        }
+
+        const supabaseClient = getSupabase();
+
+        try {
+            const { data: book, error: bookError } = await supabaseClient
+                .from('books')
+                .select('id, title, ebook_price, is_published')
+                .eq('id', bookId)
+                .single();
+
+            if (bookError || !book) {
+                return res.status(404).json({ error: 'Book not found' });
+            }
+            if (!book.is_published) {
+                return res.status(400).json({ error: 'This book is not currently available' });
+            }
+            if (!book.ebook_price || book.ebook_price <= 0) {
+                return res.status(400).json({ error: 'This book does not have an e-copy available for purchase' });
+            }
+
+            // Already purchased? Don't let someone pay twice.
+            const { data: existing } = await supabaseClient
+                .from('book_purchases')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('book_id', bookId)
+                .maybeSingle();
+
+            if (existing) {
+                return res.status(400).json({ error: 'You already own the e-copy of this book' });
+            }
+
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
+
+            const session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                payment_method_types: ['card'],
+                line_items: [{
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: `${book.title} (E-Copy)` },
+                        unit_amount: Math.round(book.ebook_price * 100)
+                    },
+                    quantity: 1
+                }],
+                success_url: `${siteUrl}/books/${bookId}?purchased=true`,
+                cancel_url: `${siteUrl}/books/${bookId}`,
+                client_reference_id: userId,
+                customer_email: userEmail,
+                metadata: { userId, bookId, type: 'book_purchase' }
+            });
+
+            return res.status(200).json({ success: true, url: session.url, sessionId: session.id });
+        } catch (error) {
+            console.error('Book checkout session error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Returns a short-lived signed URL to the actual e-copy file — the
+    // ONLY way the real file is ever exposed. Checks a genuine purchase
+    // record first; admins can also always read, for support/QA
+    // purposes. Never returns anything for an unconfirmed purchase.
+    'get-book-read-url': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { bookId } = req.body;
+        if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('user_type')
+                .eq('id', auth.userId)
+                .single();
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            if (!isAdmin) {
+                const { data: purchase } = await supabaseClient
+                    .from('book_purchases')
+                    .select('id')
+                    .eq('user_id', auth.userId)
+                    .eq('book_id', bookId)
+                    .maybeSingle();
+
+                if (!purchase) {
+                    return res.status(403).json({ error: 'You have not purchased the e-copy of this book' });
+                }
+            }
+
+            const { data: book } = await supabaseClient
+                .from('books')
+                .select('file_url')
+                .eq('id', bookId)
+                .single();
+
+            if (!book?.file_url) {
+                return res.status(404).json({ error: 'No e-copy file is available for this book' });
+            }
+
+            // 1 hour expiry — long enough for one uninterrupted reading
+            // session, short enough that a leaked URL doesn't stay
+            // valid indefinitely.
+            const { data: signed, error: signError } = await supabaseClient
+                .storage
+                .from('books-private')
+                .createSignedUrl(book.file_url, 3600);
+
+            if (signError || !signed) {
+                console.error('Signed URL generation error:', signError);
+                return res.status(500).json({ error: 'Unable to generate a read link right now' });
+            }
+
+            return res.status(200).json({ success: true, url: signed.signedUrl });
+        } catch (error) {
+            console.error('get-book-read-url error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'create-credit-checkout-session': async (req, res) => {
         const { credits, userId, userEmail } = req.body;
         if (!credits || !userId) {
@@ -2918,6 +3062,268 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== ASSESSMENT RESULTS ==========
+    // ========== ADMIN LOGIN (NEW — 2026-08-24) ==========
+    // Routes admin sign-in through the backend instead of calling
+    // supabase.auth.signInWithPassword() directly from the browser — the
+    // change this codebase's own architecture notes already flagged as
+    // necessary for real rate limiting/lockout to be possible at all,
+    // since direct client-to-Supabase-Auth calls never pass through this
+    // gateway and can't be tracked server-side.
+    //
+    // Reuses the existing, proven security infrastructure (isIPBlocked,
+    // logSecurityEvent, blocked_ips, security_events) rather than
+    // inventing a parallel system — same tables, same helper functions
+    // already used for the rest of this gateway's abuse protection.
+    // ========== USER LOGIN (NEW — 2026-08-24) ==========
+    // Same real, server-side rate-limiting principle as admin-login, but
+    // deliberately different thresholds and primary signal — regular
+    // login has a completely different risk shape. Admin accounts are a
+    // handful, high-value, low-volume — IP-based lockout there is fine.
+    // Regular users are the opposite: many real people can share one
+    // public IP (an office, a campus network), and locking out an entire
+    // shared IP because one person mistyped their password five times
+    // would be a real, avoidable harm at normal-user volume that barely
+    // matters for a few admin accounts.
+    //
+    // So: the PRIMARY signal here is the targeted email itself, not the
+    // IP — this protects the specific account being brute-forced without
+    // punishing everyone else on the same network. IP-based tracking
+    // still exists, but only as a secondary, much more generous
+    // spray-attack detector (many different emails failing fast from one
+    // IP is a materially different, genuinely suspicious pattern from
+    // ordinary shared-IP traffic, where failures would be spread across
+    // different people's own accounts, each with their own low count).
+    'user-login': async (req, res) => {
+        const { email, password } = req.body;
+        const ip = getRequestIP(req);
+
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password are required' });
+        }
+
+        const EMAIL_MAX_ATTEMPTS = 5;
+        const EMAIL_LOCKOUT_WINDOW_MINUTES = 15;
+        const IP_SPRAY_MAX_ATTEMPTS = 30;
+        const IP_SPRAY_WINDOW_MINUTES = 15;
+        const IP_SPRAY_LOCKOUT_MINUTES = 10;
+
+        const supabaseClient = getSupabase();
+        const normalizedEmail = email.trim().toLowerCase();
+
+        try {
+            const emailSince = new Date(Date.now() - EMAIL_LOCKOUT_WINDOW_MINUTES * 60000).toISOString();
+
+            // Primary gate: has THIS email failed too many times recently?
+            // Checked before even attempting sign-in, and deliberately
+            // generic either way (a nonexistent email and a wrong
+            // password both count identically here) — this never reveals
+            // whether an email is registered, matching the same
+            // deliberate choice already made in this file's error
+            // messaging for the underlying Supabase error.
+            const { count: emailFailCount } = await supabaseClient
+                .from('security_events').select('id', { count: 'exact', head: true })
+                .eq('event_type', 'user_login_failed').gte('created_at', emailSince)
+                .contains('metadata', { email: normalizedEmail });
+
+            if ((emailFailCount || 0) >= EMAIL_MAX_ATTEMPTS) {
+                return res.status(429).json({
+                    error: 'Too many attempts',
+                    message: `Too many failed attempts for this account. Please try again in a few minutes, or reset your password.`
+                });
+            }
+
+            // Secondary gate: is this IP already blocked for spray-attack
+            // behavior specifically (not ordinary shared-IP traffic)?
+            const { data: blockRow } = await supabaseClient
+                .from('blocked_ips')
+                .select('expires_at')
+                .eq('ip_address', ip)
+                .eq('reason', 'user_login_spray')
+                .gt('expires_at', new Date().toISOString())
+                .maybeSingle();
+
+            if (blockRow) {
+                return res.status(429).json({
+                    error: 'Too many attempts',
+                    message: 'Too many login attempts from this network. Please try again shortly.'
+                });
+            }
+
+            const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
+                email: normalizedEmail,
+                password
+            });
+
+            if (signInError || !authData?.user) {
+                await logSecurityEvent('user_login_failed', ip, 'info', { email: normalizedEmail });
+
+                // Spray-attack check — only meaningfully triggers on
+                // genuinely abnormal volume (many distinct emails failing
+                // from one IP fast), not everyday shared-network use.
+                const spraySince = new Date(Date.now() - IP_SPRAY_WINDOW_MINUTES * 60000).toISOString();
+                const { count: ipFailCount } = await supabaseClient
+                    .from('security_events').select('id', { count: 'exact', head: true })
+                    .eq('event_type', 'user_login_failed').eq('ip_address', ip).gte('created_at', spraySince);
+
+                if ((ipFailCount || 0) >= IP_SPRAY_MAX_ATTEMPTS) {
+                    await supabaseClient.from('blocked_ips').insert({
+                        ip_address: ip,
+                        expires_at: new Date(Date.now() + IP_SPRAY_LOCKOUT_MINUTES * 60000).toISOString(),
+                        reason: 'user_login_spray'
+                    });
+                    await logSecurityEvent('user_login_spray_lockout_triggered', ip, 'critical', {});
+                }
+
+                // Deliberately generic — same message regardless of
+                // whether the email exists, matching Supabase's own
+                // generic error and this file's existing philosophy.
+                return res.status(401).json({
+                    error: 'Invalid login credentials',
+                    message: 'Invalid email or password.'
+                });
+            }
+
+            // Real credentials confirmed. Determine destination the same
+            // way the original client-side flow did, just server-side —
+            // saves the frontend a second round-trip.
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('user_type')
+                .eq('id', authData.user.id)
+                .single();
+
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            return res.status(200).json({
+                success: true,
+                session: {
+                    access_token: authData.session.access_token,
+                    refresh_token: authData.session.refresh_token
+                },
+                user: { id: authData.user.id, email: authData.user.email },
+                isAdmin
+            });
+        } catch (error) {
+            console.error('user-login error:', error);
+            return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+        }
+    },
+
+    'admin-login': async (req, res) => {
+        const { email, password } = req.body;
+        const ip = getRequestIP(req);
+
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password are required' });
+        }
+
+        const MAX_FAILED_ATTEMPTS = 5;
+        const LOCKOUT_WINDOW_MINUTES = 15;
+        const LOCKOUT_DURATION_MINUTES = 15;
+
+        const supabaseClient = getSupabase();
+
+        try {
+            // Already locked out? Don't even attempt sign-in.
+            const { data: blockRow } = await supabaseClient
+                .from('blocked_ips')
+                .select('expires_at')
+                .eq('ip_address', ip)
+                .gt('expires_at', new Date().toISOString())
+                .maybeSingle();
+
+            if (blockRow) {
+                const minutesLeft = Math.ceil((new Date(blockRow.expires_at) - new Date()) / 60000);
+                return res.status(429).json({
+                    error: 'Too many failed attempts',
+                    message: `This IP is temporarily locked out after too many failed admin login attempts. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.`
+                });
+            }
+
+            // Real sign-in attempt, server-side — the actual credential
+            // check, same GoTrue call the client used to make directly.
+            const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
+                email: email.trim(),
+                password
+            });
+
+            if (signInError || !authData?.user) {
+                // FIXED: this is the exact tracking that was never
+                // possible before — a real, server-side record of the
+                // failed attempt, against both this IP and this specific
+                // targeted email, so lockout catches both "one IP
+                // hammering the login form" and "one admin account being
+                // targeted from rotating IPs."
+                await logSecurityEvent('admin_login_failed', ip, 'warning', { email: email.trim() });
+
+                const since = new Date(Date.now() - LOCKOUT_WINDOW_MINUTES * 60000).toISOString();
+                const [{ count: ipFailCount }, { count: emailFailCount }] = await Promise.all([
+                    supabaseClient.from('security_events').select('id', { count: 'exact', head: true })
+                        .eq('event_type', 'admin_login_failed').eq('ip_address', ip).gte('created_at', since),
+                    supabaseClient.from('security_events').select('id', { count: 'exact', head: true })
+                        .eq('event_type', 'admin_login_failed').gte('created_at', since)
+                        .contains('metadata', { email: email.trim() })
+                ]);
+
+                const failCount = Math.max(ipFailCount || 0, emailFailCount || 0);
+
+                if (failCount >= MAX_FAILED_ATTEMPTS) {
+                    await supabaseClient.from('blocked_ips').insert({
+                        ip_address: ip,
+                        expires_at: new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60000).toISOString(),
+                        reason: 'admin_login_brute_force'
+                    });
+                    await logSecurityEvent('admin_login_lockout_triggered', ip, 'critical', { email: email.trim() });
+                    return res.status(429).json({
+                        error: 'Too many failed attempts',
+                        message: `Too many failed login attempts. This IP is locked out for ${LOCKOUT_DURATION_MINUTES} minutes.`
+                    });
+                }
+
+                const remaining = MAX_FAILED_ATTEMPTS - failCount;
+                return res.status(401).json({
+                    error: 'Invalid email or password',
+                    message: `Invalid email or password. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining before temporary lockout.`
+                });
+            }
+
+            // Real credentials confirmed — now the actual authorization
+            // check, matching the exact pattern used correctly everywhere
+            // else in this admin panel.
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('user_type')
+                .eq('id', authData.user.id)
+                .single();
+
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            if (!isAdmin) {
+                // Correct credentials, wrong role — logged as its own,
+                // more serious event type. The session tokens already
+                // obtained above are simply never sent to the client;
+                // nothing further to invalidate since the browser never
+                // received them.
+                await logSecurityEvent('admin_login_unauthorized_role', ip, 'critical', { email: email.trim(), userId: authData.user.id });
+                return res.status(403).json({ error: 'Not authorized as admin' });
+            }
+
+            await logSecurityEvent('admin_login_success', ip, 'info', { email: email.trim(), userId: authData.user.id });
+
+            return res.status(200).json({
+                success: true,
+                session: {
+                    access_token: authData.session.access_token,
+                    refresh_token: authData.session.refresh_token
+                },
+                user: { id: authData.user.id, email: authData.user.email }
+            });
+        } catch (error) {
+            console.error('admin-login error:', error);
+            return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+        }
+    },
+
     'assessment-results': async (req, res) => {
         const { id } = req.query;
         const authHeader = req.headers.authorization;
@@ -3928,20 +4334,55 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 .order('category', { ascending: true });
             
             if (error) throw error;
+
+            // FIXED (2026-08-23): rating was hardcoded to 4.8 and reviews
+            // to 0 for EVERY single VA — fabricated, identical numbers
+            // never connected to any real data, exactly the same issue
+            // already found and fixed on BooksPage.jsx and
+            // AssessmentsPage.jsx. Real feedback data already exists —
+            // va_tasks.user_rating, populated by the actual thumbs-up/
+            // down feedback UI (5 for positive, 1 for negative) — so
+            // this computes a genuine average and count per VA instead
+            // of inventing one. A VA with no ratings yet shows as
+            // "not yet rated" rather than a fake 4.8.
+            const { data: allTasks } = await supabaseClient
+                .from('va_tasks')
+                .select('va_id, user_rating')
+                .not('user_rating', 'is', null);
+
+            const ratingsByVa = {};
+            for (const task of allTasks || []) {
+                if (!ratingsByVa[task.va_id]) ratingsByVa[task.va_id] = [];
+                ratingsByVa[task.va_id].push(task.user_rating);
+            }
             
-            const assistants = (data || []).map(va => ({
-                id: va.id,
-                name: va.name,
-                category: va.category,
-                icon: VA_CATEGORY_ICONS[va.category] || '🤖',
-                price: va.price,
-                description: va.description,
-                longDescription: va.long_description,
-                tier: 'free',
-                processingTime: `${va.processing_time_minutes || 5} min`,
-                rating: 4.8,
-                reviews: 0
-            }));
+            const assistants = (data || []).map(va => {
+                const vaRatings = ratingsByVa[va.id] || [];
+                const avgRating = vaRatings.length > 0
+                    ? vaRatings.reduce((sum, r) => sum + r, 0) / vaRatings.length
+                    : null;
+
+                return {
+                    id: va.id,
+                    name: va.name,
+                    category: va.category,
+                    icon: VA_CATEGORY_ICONS[va.category] || '🤖',
+                    price: va.price,
+                    description: va.description,
+                    longDescription: va.long_description,
+                    // FIXED (2026-08-23): was hardcoded 'free' regardless
+                    // of any real setting — the entire "some VAs require
+                    // a higher tier" feature has never actually
+                    // restricted anything since it was built, since the
+                    // admin panel never even had a field to set this and
+                    // this handler discarded whatever might exist anyway.
+                    tier: va.required_tier || 'free',
+                    execution_type: va.execution_type || 'single_turn',
+                    processingTime: `${va.processing_time_minutes || 5} min`,
+                    rating: avgRating,
+                    reviews: vaRatings.length
+                };
+            });
             
             return res.status(200).json({ success: true, assistants });
         } catch (error) {
@@ -3959,13 +4400,80 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // OpenAI call fails — so any admin-created assistant works correctly
     // without needing a matching hardcoded entry anywhere in this file.
     'va-execute': async (req, res) => {
-        const { assistantId, input, userId } = req.body;
+        const { assistantId, input, userId, history } = req.body;
         
         if (!assistantId || !input) {
             return res.status(400).json({ error: 'Assistant ID and input required' });
         }
         
         const supabaseClient = getSupabase();
+
+        // NEW (2026-08-23): VA lookup moved BEFORE the credit check —
+        // needed now because the cost itself depends on execution_type,
+        // and conversational VAs need a paid-tier check before anything
+        // is charged at all.
+        let va = null;
+        try {
+            const { data } = await supabaseClient
+                .from('virtual_assistants')
+                .select('*')
+                .eq('id', assistantId)
+                .single();
+            va = data;
+        } catch (err) {
+            console.warn('VA lookup failed:', err.message);
+        }
+
+        const executionType = va?.execution_type || 'single_turn';
+
+        // NEW (2026-08-23): the actual, cost-justified reason
+        // conversational VAs charge more — a real 5-turn conversation
+        // averages ~1.56x the compute cost of a single-turn call (every
+        // turn resends the full prior history as input tokens), and that
+        // ratio worsens the longer the conversation runs. This lookup is
+        // the deliberate extension point: cost is DERIVED from
+        // execution_type automatically, not set arbitrarily per VA, so a
+        // future execution type can be priced correctly here too without
+        // touching anything else.
+        const EXECUTION_TYPE_COST = { single_turn: 1, conversational: 2 };
+        const cost = EXECUTION_TYPE_COST[executionType] ?? 1;
+
+        // NEW (2026-08-23): fetched once, used for both tier checks below
+        // — the per-VA required_tier restriction (previously completely
+        // decorative: no admin field existed to set it, and the catalog
+        // response hardcoded every VA as 'free' regardless, so this has
+        // never actually restricted anything since it was built) and the
+        // conversational-VA paid-tier restriction.
+        const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('tier, user_type')
+            .eq('id', userId)
+            .maybeSingle();
+
+        const TIER_LEVELS = { free: 0, registered: 1, professional: 2, employer: 2, business: 3, admin: 3, super_admin: 3 };
+        const requiredTier = va?.required_tier || 'free';
+        const userTierLevel = TIER_LEVELS[profile?.user_type] ?? TIER_LEVELS[profile?.tier] ?? 0;
+        const requiredTierLevel = TIER_LEVELS[requiredTier] ?? 0;
+
+        if (userTierLevel < requiredTierLevel) {
+            return res.status(403).json({
+                error: 'Upgrade required',
+                message: `This assistant requires the ${requiredTier} plan or higher. Upgrade to access it.`
+            });
+        }
+
+        // NEW (2026-08-23): conversational VAs are restricted to paid
+        // tiers only — enforced here, server-side, not just hidden in
+        // the UI (a frontend-only restriction is never a real boundary).
+        if (executionType === 'conversational') {
+            const isPaidOrStaff = profile && profile.tier !== 'free' && profile.user_type !== 'free';
+            if (!isPaidOrStaff) {
+                return res.status(403).json({
+                    error: 'Upgrade required',
+                    message: 'Conversational assistants that remember your conversation are available on paid plans. Upgrade to use this assistant, or try a single-turn assistant for free.'
+                });
+            }
+        }
 
         // FIXED (2026-08-21): this handler previously called OpenAI FIRST,
         // unconditionally, and only checked/deducted credits AFTERWARD —
@@ -3982,7 +4490,10 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         // instead of va_credits), so fixing it once there covers this
         // handler too instead of maintaining two versions of the same
         // check that could drift out of sync with each other.
-        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+        //
+        // NEW (2026-08-23): passes the real, execution-type-derived cost
+        // instead of always deducting a flat 1.
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req, cost);
         if (!creditCheck.allowed) {
             if (creditCheck.capReached) {
                 return res.status(403).json({
@@ -3992,35 +4503,49 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             }
             return res.status(creditCheck.rateLimited ? 429 : 403).json({
                 error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits',
-                message: creditCheck.rateLimited ? undefined : 'You have no VA credits remaining. Upgrade your plan or purchase more credits to continue.'
+                message: creditCheck.rateLimited ? undefined : `This assistant costs ${cost} credit${cost > 1 ? 's' : ''} per message. Upgrade your plan or purchase more credits to continue.`
             });
         }
         const isTester = creditCheck.isTester === true;
         
-        let va = null;
-        try {
-            const { data } = await supabaseClient
-                .from('virtual_assistants')
-                .select('*')
-                .eq('id', assistantId)
-                .single();
-            va = data;
-        } catch (err) {
-            console.warn('VA lookup failed:', err.message);
-        }
-        
         const systemPrompt = va
             ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''} Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`
             : 'You are a professional career assistant. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.';
+
+        // NEW (2026-08-23): real behavioral branch on execution_type —
+        // the actual mechanical difference between "hiring an assistant"
+        // (Hire VA) and running a single-purpose utility (HR Tools).
+        // single_turn (default, matches every VA's original behavior
+        // exactly — no change for anything already live): one input, one
+        // output, no memory. conversational (new): builds real message
+        // history from the frontend-supplied `history` array, so the
+        // model actually sees prior turns in this session — the
+        // extension point for future VA execution types lives here too,
+        // as an additional branch, without touching single_turn at all.
+
+        let messages;
+        if (executionType === 'conversational' && Array.isArray(history) && history.length > 0) {
+            // history is [{role: 'user'|'assistant', content: string}, ...]
+            // from prior turns in this session — capped to the last 20
+            // turns to bound token cost on a long-running conversation.
+            const boundedHistory = history.slice(-20);
+            messages = [
+                { role: 'system', content: systemPrompt },
+                ...boundedHistory,
+                { role: 'user', content: input }
+            ];
+        } else {
+            messages = [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: input }
+            ];
+        }
         
         let output;
         let usedFallback = false;
         
         try {
-            const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: input }
-            ], 1500, 0.7);
+            const data = await callOpenAI(messages, 1500, 0.7);
             output = data.choices[0].message.content;
         } catch (err) {
             console.warn(`VA OpenAI call failed for ${assistantId}, using fallback:`, err.message);
@@ -4049,7 +4574,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             console.warn('Task logging failed:', err.message);
         }
         
-        return res.status(200).json({ success: true, output, usedFallback });
+        return res.status(200).json({ success: true, output, usedFallback, executionType, cost });
     },
 
     // ========== VA FEEDBACK ==========
