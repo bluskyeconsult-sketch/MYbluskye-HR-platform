@@ -511,7 +511,37 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 score = likertValue * (maxPoints / 5);
                 isCorrect = true;
                 userAnswerText = `Rating: ${likertValue}/5`;
-            } else if (question.question_type === 'scenario') {
+            } else if (question.question_type === 'true_false') {
+                // FIXED (2026-08-23): this question type was never handled
+                // here at all — TakeAssessment.jsx fully supports it
+                // (renders True/False buttons, stores 'true'/'false' as the
+                // answer), but every true_false question silently scored 0
+                // regardless of the actual answer, since it fell through
+                // with none of the branches above matching. If the
+                // question has a real correct_answer field, score against
+                // it like a factual question should; if that field isn't
+                // set (unconfirmed whether it exists on every row), give
+                // full credit rather than unfairly zero a question with no
+                // defined right answer — punishing the user for a data gap
+                // that isn't their fault is worse than being lenient here.
+                userAnswerText = userAnswer === 'true' ? 'True' : 'False';
+                if (question.correct_answer !== undefined && question.correct_answer !== null) {
+                    const correctAnswer = String(question.correct_answer).toLowerCase();
+                    if (String(userAnswer).toLowerCase() === correctAnswer) {
+                        score = maxPoints;
+                        isCorrect = true;
+                    }
+                } else {
+                    score = maxPoints;
+                    isCorrect = true;
+                }
+            } else if (question.question_type === 'scenario' || question.question_type === 'text' || question.question_type === 'essay') {
+                // FIXED (2026-08-23): 'text' and 'essay' were also never
+                // handled here — same silent always-zero gap as
+                // true_false. Both are open-ended responses,
+                // conceptually identical to 'scenario' (which already has
+                // real AI-based scoring built) — routed through the same
+                // scoring path rather than inventing a separate one.
                 const aiScore = await scoreScenarioWithAI(question.question_text, userAnswer);
                 score = aiScore * (maxPoints / 10);
                 isCorrect = score >= maxPoints * 0.7;
