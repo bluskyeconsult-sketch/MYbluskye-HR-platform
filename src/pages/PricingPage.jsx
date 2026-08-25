@@ -1,3 +1,16 @@
+// FIXED (2026-08-23) — full pricing/cost harmony pass. Every
+// ai_credits_monthly and assessments_included number below was
+// significantly wrong versus the real, confirmed backend values
+// (TIER_MONTHLY_ALLOWANCE and the assessments limits object in
+// index.js) — in both directions: some tiers overpromised credits
+// customers would never actually receive (Professional showed 100,
+// really 25 — a 4x overstatement), others massively undersold real
+// benefits already being delivered (Registered showed 1 assessment,
+// really 10). Every number below now matches the real backend exactly.
+// Also: conversational Virtual Assistants (a new feature — remember
+// the conversation within a session) cost 2 credits per message, not
+// 1, and require a paid plan — reflected in the tooltip and a new note.
+
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Check, X, HelpCircle, CreditCard, Briefcase, Brain, FileText, Bell, Bookmark, MessageCircle, Users, Zap, Loader2 } from 'lucide-react';
@@ -19,13 +32,14 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: false,
       contact_professionals: false,
-      // FIXED (2026-08-16), total overhaul: va_tasks_included,
-      // ai_chat_messages, cv_analysis, and skill_gap_analysis used to be 4
-      // separate numbers per tier — misleading now that they all draw
-      // from one shared credit pool (chat, VA tasks, all 10 HR Tools,
-      // assessment insights). Consolidated into one accurate field.
+      // FIXED (2026-08-23): was 5 (this one happened to already be
+      // correct) — kept as-is, matches TIER_MONTHLY_ALLOWANCE.free
+      // exactly.
       ai_credits_monthly: 5,
-      assessments_included: 0,
+      // FIXED (2026-08-23): was 0 — the real backend actually grants
+      // free-tier users 3 assessments/month; this was underselling a
+      // real benefit already being delivered.
+      assessments_included: 3,
       saved_jobs: 0,
       job_alerts: 0,
       newsletter: true,
@@ -52,8 +66,11 @@ const tiers = [
       skill_submission: { value: '3 total', limit: 3 },
       trust_score_visibility: true,
       contact_professionals: false,
-      ai_credits_monthly: 20,
-      assessments_included: 1,
+      // FIXED (2026-08-23): was 20 — real backend allowance is 10.
+      ai_credits_monthly: 10,
+      // FIXED (2026-08-23): was 1 — real backend allowance is 10, a
+      // significant real benefit that was being massively undersold.
+      assessments_included: 10,
       saved_jobs: { value: '10 jobs', limit: 10 },
       job_alerts: { value: '3 alerts', limit: 3 },
       newsletter: true,
@@ -80,8 +97,12 @@ const tiers = [
       skill_submission: { value: 'Unlimited', limit: null },
       trust_score_visibility: true,
       contact_professionals: true,
-      ai_credits_monthly: 100,
-      assessments_included: 5,
+      // FIXED (2026-08-23): was 100 — real backend allowance is 25. This
+      // was a 4x overstatement of a real, paid benefit — customers were
+      // being promised credits the backend would never actually grant.
+      ai_credits_monthly: 25,
+      // FIXED (2026-08-23): was 5 — real backend allowance is 50.
+      assessments_included: 50,
       saved_jobs: { value: 'Unlimited', limit: null },
       job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
@@ -108,8 +129,11 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: true,
       contact_professionals: true,
-      ai_credits_monthly: 60,
-      assessments_included: 3,
+      // FIXED (2026-08-23): was 60 — real backend allowance is 20, a 3x
+      // overstatement of a real, paid benefit.
+      ai_credits_monthly: 20,
+      // FIXED (2026-08-23): was 3 — real backend allowance is 30.
+      assessments_included: 30,
       saved_jobs: false,
       job_alerts: { value: '10 alerts', limit: 10 },
       newsletter: true,
@@ -136,12 +160,19 @@ const tiers = [
       skill_submission: false,
       trust_score_visibility: true,
       contact_professionals: true,
-      // FIXED: was "Unlimited" — even the top tier stays capped (though
-      // high) under the overhauled framework, to protect against runaway
-      // OpenAI cost from a single account. 300/month is generous for
-      // normal use without being truly open-ended.
-      ai_credits_monthly: 300,
-      assessments_included: 10,
+      // FIXED (2026-08-23): this comment previously said "300 — even the
+      // top tier stays capped... generous for normal use" — an earlier
+      // attempt at the same real concern (protecting against runaway
+      // OpenAI cost from one account), but landed on a different number
+      // (300) than what was actually decided and built into the real
+      // backend since then: 200/month, following an explicit decision
+      // that business tier gets a high-but-finite cap, not true
+      // unlimited. This was a genuine, confirmed customer-facing
+      // overstatement (300 promised, 200 actually delivered) — now
+      // matches exactly.
+      ai_credits_monthly: 200,
+      // FIXED (2026-08-23): was 10 — real backend allowance is 100.
+      assessments_included: 100,
       saved_jobs: false,
       job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
@@ -162,7 +193,7 @@ const benefitCategories = [
   { key: 'skill_submission', label: 'Skill Submission', icon: Brain, tooltip: 'Submit skills for verification' },
   { key: 'trust_score_visibility', label: 'Trust Score', icon: Zap, tooltip: 'See your verified trust score' },
   { key: 'contact_professionals', label: 'Contact Professionals', icon: MessageCircle, tooltip: 'Message other users' },
-  { key: 'ai_credits_monthly', label: 'AI Credits (Monthly)', icon: Zap, tooltip: 'One shared credit pool for AI Chat, HR Tools, Virtual Assistant tasks, and assessment insights — 1 credit per use' },
+  { key: 'ai_credits_monthly', label: 'AI Credits (Monthly)', icon: Zap, tooltip: 'One shared credit pool for AI Chat, HR Tools, and single-turn Virtual Assistant tasks (1 credit each) — conversational Virtual Assistants, which remember your conversation, cost 2 credits per message and require a paid plan' },
   { key: 'assessments_included', label: 'Assessments (Monthly)', icon: Brain, tooltip: 'Psychometric assessments included' },
   { key: 'saved_jobs', label: 'Saved Jobs', icon: Bookmark, tooltip: 'Save jobs for later' },
   { key: 'job_alerts', label: 'Job Alerts', icon: Bell, tooltip: 'Email notifications for new jobs' },
@@ -413,7 +444,26 @@ export default function PricingPage() {
         {/* Credit Pricing Section */}
         <div className="mt-12 bg-slate-900/30 border border-slate-800 rounded-xl p-6">
           <h2 className="text-xl font-bold text-white mb-4 text-center">Need Extra? Purchase Credits</h2>
-          <p className="text-slate-400 text-center mb-6">Get additional VA tasks and assessments beyond your plan's included limits</p>
+          {/* FIXED (2026-08-23): previously claimed credits also cover
+              "assessments beyond your plan's included limits" — checked
+              against the real assessment eligibility logic
+              (checkAssessmentEligibility in assessmentService.js) and
+              confirmed it never references va_credits at all; assessment
+              limits are a separate, fixed monthly counter with no
+              purchase mechanism. Purchasing credits would not have
+              delivered what this promised — corrected to only claim
+              what credits actually do. */}
+          <p className="text-slate-400 text-center mb-2">Get additional AI Chat, HR Tools, and Virtual Assistant tasks beyond your plan's included monthly credits</p>
+          {/* NEW (2026-08-23): conversational VAs (a new feature — the
+              assistant remembers your conversation across messages) cost
+              more per use than single-turn tasks, reflecting the real,
+              higher compute cost of maintaining conversation history —
+              and require a paid plan. Stated plainly here since it's a
+              real pricing difference customers should know about before
+              buying credits. */}
+          <p className="text-slate-500 text-sm text-center mb-6">
+            Most tasks cost 1 credit. Conversational assistants that remember your conversation cost 2 credits per message and require a paid plan.
+          </p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 max-w-3xl mx-auto">
             {[
               { credits: 5, price: '$25', perCredit: '$5/credit' },
@@ -441,7 +491,7 @@ export default function PricingPage() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-slate-500 text-center mt-4">Credits never expire. Use for any VA task or assessment.</p>
+          <p className="text-xs text-slate-500 text-center mt-4">Credits never expire — unused credits carry over and add to next month's allowance.</p>
         </div>
 
         {/* Free Tier Note */}
