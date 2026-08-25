@@ -299,15 +299,17 @@ export default function ProposalsList({ professionalId }) {
                                         </details>
                                     )}
                                 </div>
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => {/* View details */}}
-                                        className="px-3 py-1.5 border border-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-800 transition flex items-center gap-1"
-                                    >
-                                        <Eye className="w-3 h-3" /> Details
-                                    </button>
-                                </div>
                             </div>
+                            {/* FIXED (2026-08-23): removed a "Details" button
+                                with an empty onClick handler
+                                (onClick={() => {/* View details *\/}}) —
+                                clicking it did nothing. Everything it could
+                                have shown (title, description, rate, days,
+                                status, cover letter) is already directly
+                                visible on this card, including the working
+                                <details> expansion just above for the full
+                                cover letter — there was nothing left to
+                                build a real detail view around. */}
                         </div>
                     ))}
                 </div>
