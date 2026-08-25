@@ -291,8 +291,14 @@ export default function ProductsPage() {
                         Become a tester and explore all features for free
                     </p>
                     <div className="flex flex-wrap gap-3 justify-center">
+                        {/* FIXED (2026-08-23): pointed at /tester-register —
+                            this route now just redirects to /sign-up (found
+                            and fixed after a hardcoded invite-code
+                            vulnerability), and every other link to it across
+                            the site was already updated to point directly at
+                            /sign-up. This CTA was the one missed. */}
                         <Link 
-                            to="/tester-register" 
+                            to="/sign-up" 
                             className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all duration-200 hover:scale-105 shadow-lg shadow-primary-500/20"
                         >
                             Become a Tester →
