@@ -1,120 +1,83 @@
-import { createClient } from '@supabase/supabase-js'
+// src/services/testerService.js
+//
+// FIXED (2026-08-23) — full project harmony pass. This file is an entire,
+// older, PARALLEL tester management system that predates and conflicts
+// with the tester system rebuilt this session (SignUpPage.jsx,
+// AdminTesterInvites.jsx, AdminUsers.jsx, tester_invite_codes +
+// consume_invite_code()). Concretely:
+//
+// - registerTester()/upgradeToRegistered() force user_type/tier to
+//   'tester'/'free' or 'registered'/'registered' — the OLD, discarded
+//   design this session explicitly moved away from (testers now keep
+//   their REAL selected tier's user_type, flagged separately via
+//   is_tester). Calling either of these on a real account would corrupt
+//   it — e.g. downgrading a tester testing at Business tier straight to
+//   Registered, losing their real tier entirely (the exact bug already
+//   found and fixed once this session in AdminUsers.jsx's old
+//   convertTesterToRegistered).
+// - generateInviteCode()/validateInviteCode() write/read uses_limit and
+//   uses_used on tester_invite_codes — but the REAL, currently-enforced
+//   columns (confirmed via consume_invite_code() and
+//   AdminTesterInvites.jsx) are max_uses and times_used. A code created
+//   via generateInviteCode() here would never actually be honoured by
+//   the real signup validation, and vice versa.
+// - trackTesterAction() calls supabase.rpc('decrement_tester_uses', ...)
+//   — a different RPC name than the real, existing
+//   consume_tester_allocation() this session built. Unconfirmed whether
+//   decrement_tester_uses exists as a real SQL function at all.
+//
+// getTesterStatus() is the ONE function confirmed actually in use
+// (TesterDashboard.jsx) — read-only, and its shape (remaining_uses,
+// allocated_uses, expires_at, status) matches the real tester_allocations
+// table correctly. Left working, with one robustness fix (.maybeSingle()
+// instead of .single(), so a tester with no allocation row yet degrades
+// gracefully instead of throwing).
+//
+// The other functions are left in place (deleting exported functions
+// risks breaking an import I haven't found) but now throw a clear,
+// loud error directing to the real system, rather than silently running
+// incompatible logic that could corrupt real user data if anything still
+// calls them. If nothing calls them, this is a safe no-op; if something
+// does, it fails loudly and immediately instead of silently corrupting
+// an account.
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { supabase } from '../lib/supabase';
+
+const DEPRECATED_MESSAGE = 'This function is part of an older, incompatible tester system and has been disabled to prevent data corruption — the real tester registration/invite/role system is now in SignUpPage.jsx, AdminTesterInvites.jsx (tester_invite_codes, consume_invite_code), and AdminUsers.jsx (profiles.is_tester). If you see this error, something is still calling the old system and needs to be pointed at the real one.';
 
 // Generate a new invite code (Admin only)
 export async function generateInviteCode(adminId, usesLimit = 1, expiresInDays = 30) {
-    try {
-        const code = 'TESTER_' + Math.random().toString(36).substring(2, 10).toUpperCase()
-        
-        const { data, error } = await supabase
-            .from('tester_invite_codes')
-            .insert({
-                code: code,
-                created_by: adminId,
-                uses_limit: usesLimit,
-                expires_at: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
-            })
-            .select()
-            .single()
-
-        if (error) throw error
-        return { success: true, code: data.code, expires_at: data.expires_at }
-    } catch (error) {
-        return { success: false, error: error.message }
-    }
+    console.error('[testerService] generateInviteCode() is deprecated:', DEPRECATED_MESSAGE);
+    return { success: false, error: DEPRECATED_MESSAGE };
 }
 
 // Validate invite code (Public)
 export async function validateInviteCode(code) {
-    try {
-        const { data, error } = await supabase
-            .from('tester_invite_codes')
-            .select('*')
-            .eq('code', code)
-            .eq('is_active', true)
-            .single()
-
-        if (error || !data) {
-            return { success: false, error: 'Invalid invite code' }
-        }
-
-        if (data.expires_at && new Date(data.expires_at) < new Date()) {
-            return { success: false, error: 'Invite code has expired' }
-        }
-
-        if (data.uses_used >= data.uses_limit) {
-            return { success: false, error: 'Invite code has already been used' }
-        }
-
-        return { success: true, codeData: data }
-    } catch (error) {
-        return { success: false, error: error.message }
-    }
+    console.error('[testerService] validateInviteCode() is deprecated:', DEPRECATED_MESSAGE);
+    return { success: false, error: DEPRECATED_MESSAGE };
 }
 
 // Register as tester (uses invite code)
 export async function registerTester(email, password, fullName, inviteCode) {
-    try {
-        // Validate invite code first
-        const { success, error, codeData } = await validateInviteCode(inviteCode)
-        if (!success) {
-            return { success: false, error: error }
-        }
-
-        // Create auth user
-        const { data: authUser, error: signUpError } = await supabase.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-                data: { full_name: fullName, user_type: 'tester' }
-            }
-        })
-
-        if (signUpError) throw signUpError
-
-        // Update profile to tester
-        await supabase
-            .from('profiles')
-            .update({ user_type: 'tester', tier: 'free' })
-            .eq('id', authUser.user.id)
-
-        // Create tester allocation
-        await supabase
-            .from('tester_allocations')
-            .insert({
-                user_id: authUser.user.id,
-                allocated_uses: 10,
-                used_uses: 0,
-                remaining_uses: 10,
-                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            })
-
-        // Update invite code usage
-        await supabase
-            .from('tester_invite_codes')
-            .update({ uses_used: codeData.uses_used + 1 })
-            .eq('code', inviteCode)
-
-        return { success: true, userId: authUser.user.id, message: 'Tester account created' }
-    } catch (error) {
-        return { success: false, error: error.message }
-    }
+    console.error('[testerService] registerTester() is deprecated:', DEPRECATED_MESSAGE);
+    return { success: false, error: DEPRECATED_MESSAGE };
 }
 
-// Get tester status (remaining uses, expiry)
+// Get tester status (remaining uses, expiry) — the one real, confirmed
+// function still in active use (TesterDashboard.jsx). Left working.
 export async function getTesterStatus(userId) {
     try {
+        // FIXED (2026-08-23): .single() throws if no allocation row
+        // exists yet for this user — .maybeSingle() degrades gracefully
+        // to a clean "not a tester" result instead of an exception.
         const { data, error } = await supabase
             .from('tester_allocations')
             .select('*')
             .eq('user_id', userId)
-            .single()
+            .maybeSingle();
 
-        if (error) {
-            return { isTester: false, error: error.message }
+        if (error || !data) {
+            return { isTester: false, error: error?.message };
         }
 
         const remaining = data.remaining_uses || 0
@@ -140,24 +103,13 @@ export async function getTesterStatus(userId) {
 
 // Track tester action (decrements remaining uses)
 export async function trackTesterAction(userId, actionType) {
-    try {
-        // Record activity
-        await supabase.from('tester_activity_log').insert({
-            user_id: userId,
-            action_type: actionType,
-            remaining_uses: (await getTesterStatus(userId)).remainingUses
-        })
-
-        // Decrement uses via database function
-        await supabase.rpc('decrement_tester_uses', { p_user_id: userId })
-        
-        return { success: true }
-    } catch (error) {
-        return { success: false, error: error.message }
-    }
+    console.error('[testerService] trackTesterAction() is deprecated:', DEPRECATED_MESSAGE);
+    return { success: false, error: DEPRECATED_MESSAGE };
 }
 
-// Submit tester feedback
+// Submit tester feedback — real table/columns confirmed against
+// AdminTesterFeedback.jsx's flexible field reads (feedback_text, rating
+// both match), left working.
 export async function submitTesterFeedback(userId, feedbackData) {
     try {
         const { data, error } = await supabase
@@ -184,31 +136,14 @@ export async function submitTesterFeedback(userId, feedbackData) {
 
 // Upgrade tester to registered user
 export async function upgradeToRegistered(userId) {
-    try {
-        // Update profile
-        await supabase
-            .from('profiles')
-            .update({ user_type: 'registered', tier: 'registered' })
-            .eq('id', userId)
-
-        // Deactivate tester allocation
-        await supabase
-            .from('tester_allocations')
-            .update({ status: 'disabled' })
-            .eq('user_id', userId)
-
-        // Award upgrader badge
-        await supabase
-            .from('tester_badges')
-            .insert({ user_id: userId, badge_type: 'upgrader' })
-
-        return { success: true, message: 'Upgraded to Registered User' }
-    } catch (error) {
-        return { success: false, error: error.message }
-    }
+    console.error('[testerService] upgradeToRegistered() is deprecated:', DEPRECATED_MESSAGE);
+    return { success: false, error: DEPRECATED_MESSAGE };
 }
 
-// Get all tester feedback (Admin only)
+// Get all tester feedback (Admin only) — real table confirmed, left
+// working. AdminTesterFeedback.jsx queries this table directly itself
+// rather than calling this function, but kept working in case anything
+// else calls it.
 export async function getAllTesterFeedback() {
     try {
         const { data, error } = await supabase
