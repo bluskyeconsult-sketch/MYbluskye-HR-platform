@@ -49,8 +49,13 @@ export default function AdminUsers() {
         { value: 'job_seeker', label: 'Job Seeker', icon: Briefcase, color: 'blue' },
         { value: 'employer', label: 'Employer', icon: Building2, color: 'emerald' },
         { value: 'admin', label: 'Admin', icon: Shield, color: 'purple' },
-        { value: 'super_admin', label: 'Super Admin', icon: Award, color: 'red' },
-        { value: 'tester', label: 'Tester', icon: Star, color: 'amber' }
+        { value: 'super_admin', label: 'Super Admin', icon: Award, color: 'red' }
+        // FIXED (2026-08-23): 'tester' removed — under the tester system
+        // rebuild this session, no account ever has user_type='tester'
+        // anymore. Testers keep their REAL tier's user_type
+        // (job_seeker/employer/business_owner) plus a separate is_tester
+        // boolean flag. This option was stale, describing a model that no
+        // longer exists.
     ];
 
     useEffect(() => {
@@ -121,21 +126,31 @@ export default function AdminUsers() {
         setFilteredUsers(filtered);
     }
 
-    // NEW (2026-08-08): confirmed by SOP 9.2 as a documented tester
-    // management action — was missing entirely. Converts a tester account
-    // to a regular registered user with one click, reusing the same
-    // update-role logic already proven correct in updateUserRole below.
-    async function convertTesterToRegistered(userId) {
-        if (!confirm('Convert this tester to a registered user? They will lose tester-specific perks and move to the standard registered tier.')) return;
+    // FIXED (2026-08-23): checked user_type === 'tester' and forced
+    // user_type to 'registered' — both stale under the current tester
+    // system. No account has user_type='tester' anymore (testers keep
+    // their real tier's user_type, e.g. 'employer' or 'business_owner',
+    // plus a separate is_tester boolean). Forcing user_type to
+    // 'registered' would have incorrectly downgraded, say, a tester
+    // testing the Business tier down to Registered, losing their real
+    // tier entirely — this button would also simply never have appeared
+    // for any real tester created under the rebuilt system, since the
+    // condition it checked could never be true. Now toggles the real
+    // is_tester flag and leaves the account's actual tier/user_type
+    // completely untouched — "ending" someone's tester status just means
+    // the usage cap and tester-only features stop applying, not that
+    // their real tier changes.
+    async function endTesterStatus(userId) {
+        if (!confirm('End tester status for this user? They will keep their current plan/tier exactly as-is, but the tester usage cap and tester-only features will no longer apply.')) return;
         try {
             await supabase
                 .from('profiles')
-                .update({ user_type: 'registered' })
+                .update({ is_tester: false })
                 .eq('id', userId);
             await loadUsers();
         } catch (err) {
-            console.error('Error converting tester:', err);
-            alert('Failed to convert tester: ' + err.message);
+            console.error('Error ending tester status:', err);
+            alert('Failed to update: ' + err.message);
         }
     }
 
@@ -322,6 +337,11 @@ export default function AdminUsers() {
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                     {getRoleBadge(user.user_type)}
+                                    {user.is_tester && (
+                                        <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                                            <Star className="w-2.5 h-2.5" /> Tester
+                                        </span>
+                                    )}
                                     {user.is_suspended ? (
                                         <span className="text-red-400 text-xs flex items-center gap-1">
                                             <XCircle className="w-3 h-3" /> Suspended
@@ -346,12 +366,12 @@ export default function AdminUsers() {
                                 >
                                     <Shield className="w-4 h-4" /> Change Role
                                 </button>
-                                {user.user_type === 'tester' && (
+                                {user.is_tester && (
                                     <button
-                                        onClick={() => convertTesterToRegistered(user.id)}
+                                        onClick={() => endTesterStatus(user.id)}
                                         className="flex-1 py-2 bg-primary-500/20 text-primary-400 rounded-lg text-sm flex items-center justify-center gap-1.5"
                                     >
-                                        <UserCheck className="w-4 h-4" /> Convert
+                                        <UserCheck className="w-4 h-4" /> End Tester
                                     </button>
                                 )}
                                 <button
@@ -405,7 +425,17 @@ export default function AdminUsers() {
                                         </div>
                                     </td>
                                     <td className="px-4 py-3">
-                                        {getRoleBadge(user.user_type)}
+                                        <div className="flex items-center gap-1.5">
+                                            {getRoleBadge(user.user_type)}
+                                            {/* NEW (2026-08-23): is_tester is the real flag now —
+                                                worth showing directly rather than only using it
+                                                silently to gate the "end tester status" button. */}
+                                            {user.is_tester && (
+                                                <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400" title="Tester account">
+                                                    <Star className="w-2.5 h-2.5" /> Tester
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-1">
@@ -438,11 +468,11 @@ export default function AdminUsers() {
                                             >
                                                 <Shield className="w-4 h-4" />
                                             </button>
-                                            {user.user_type === 'tester' && (
+                                            {user.is_tester && (
                                                 <button
-                                                    onClick={() => convertTesterToRegistered(user.id)}
+                                                    onClick={() => endTesterStatus(user.id)}
                                                     className="p-1.5 text-primary-400 hover:bg-primary-500/20 transition rounded-lg"
-                                                    title="Convert to registered user"
+                                                    title="End tester status (keeps their real plan/tier)"
                                                 >
                                                     <UserCheck className="w-4 h-4" />
                                                 </button>
