@@ -205,9 +205,13 @@ export default function HomePage() {
         }
     }, []);
 
-    // FIXED: direct Supabase count query per country instead of the
-    // nonexistent ?action=country-jobs endpoint. Matches the confirmed real
-    // jobs schema/filters already used successfully in JobsPage.jsx.
+    // FIXED (2026-08-23): filtered on 'country_code' — the same wrong
+    // column already found and fixed once in JobsPage.jsx (whose own fix
+    // comment explicitly documents that this column doesn't return real
+    // results; the actual column jobs are stored/filtered by is
+    // source_country). That fix was never propagated here — every single
+    // country card in the "Global Presence" section has shown 0 jobs
+    // regardless of how many real jobs exist for that country.
     const loadCountryStats = useCallback(async () => {
         try {
             const countryData = await Promise.all(
@@ -216,7 +220,7 @@ export default function HomePage() {
                         const { count, error } = await supabase
                             .from('jobs')
                             .select('id', { count: 'exact', head: true })
-                            .eq('country_code', country.code)
+                            .eq('source_country', country.code)
                             .eq('is_active', true)
                             .eq('compliance_status', 'approved');
                         
