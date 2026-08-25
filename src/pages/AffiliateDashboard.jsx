@@ -177,6 +177,16 @@ export default function AffiliateDashboard() {
 
     const commissionRate = affiliate?.commission_rate || 10;
     const isActive = affiliate?.status === 'active';
+    // FIXED (2026-08-23): affiliate.tier is never set anywhere in the real
+    // backend (the affiliate-stats handler's insert only creates clicks/
+    // signups/earnings/balance fields) — this always defaulted to
+    // 'bronze' regardless of real performance, while the "Next Tier"
+    // progress bar right next to it WAS correctly computed from real
+    // earnings. That's a visible, confusing inconsistency: someone past
+    // the Gold threshold would still see a Bronze badge. Now derives the
+    // current tier the same way the next-tier logic already does, from
+    // real stats.earnings, instead of a field that's never populated.
+    const currentTier = stats.earnings >= 1000 ? 'platinum' : stats.earnings >= 500 ? 'gold' : stats.earnings >= 100 ? 'silver' : 'bronze';
     const nextTier = stats.earnings >= 1000 ? 'Platinum' : stats.earnings >= 500 ? 'Gold' : stats.earnings >= 100 ? 'Silver' : 'Bronze';
 
     return (
@@ -193,7 +203,7 @@ export default function AffiliateDashboard() {
                         <p className="text-slate-400">Earn commissions by referring professionals to ODUSBABA</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        {getCommissionBadge(affiliate?.tier || 'bronze')}
+                        {getCommissionBadge(currentTier)}
                         {isActive ? (
                             <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-sm flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3" /> Active
