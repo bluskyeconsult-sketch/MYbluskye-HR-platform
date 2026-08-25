@@ -223,9 +223,30 @@ export default function ODUSBABAChat() {
 
     async function loadCredits() {
         if (!user) return;
-        const { data: profile } = await supabase.from('profiles').select('ai_credits_remaining, tier, user_type').eq('id', user.id).single();
-        const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin' || profile?.tier === 'business';
-        setRemainingCredits(isUnlimited ? 999999 : (profile?.ai_credits_remaining ?? 5));
+        // FIXED (2026-08-23): two real issues found in this one function
+        // during a project-wide pricing/cost harmony pass:
+        // 1. Read profiles.ai_credits_remaining — a confirmed-dead column
+        //    (the real credit system lives in a separate va_credits
+        //    table, found and fixed in SignUpPage.jsx/TesterRegisterPage.jsx
+        //    earlier this session). This widget always showed either 999999
+        //    or a hardcoded fallback of 5 on initial load, completely
+        //    disconnected from the real balance — self-corrected only
+        //    after the first message actually completed, since the real
+        //    chat action correctly returns the true remaining value.
+        // 2. isUnlimited included tier === 'business' — the same stale
+        //    assumption already found and corrected in the backend
+        //    (checkAndDeductCredit, va-credits) and in
+        //    HireVirtualAssistant.jsx's fallback path, after the explicit
+        //    decision that business tier gets a real 200/month cap, not
+        //    unlimited. This file never got that fix.
+        const { data: profile } = await supabase.from('profiles').select('tier, user_type').eq('id', user.id).single();
+        const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin';
+        if (isUnlimited) {
+            setRemainingCredits(999999);
+            return;
+        }
+        const { data: credits } = await supabase.from('va_credits').select('balance').eq('user_id', user.id).maybeSingle();
+        setRemainingCredits(credits?.balance ?? 5);
     }
 
     // ============================================
