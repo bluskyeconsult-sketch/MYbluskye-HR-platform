@@ -1,11 +1,30 @@
-// src/pages/AdminLogin.jsx - COMPLETE PRODUCTION READY
+// src/pages/AdminLogin.jsx
+//
+// CONSOLIDATED (2026-08-24) — replaced two conflicting implementations,
+// neither of which had a working admin-role check (see prior fix notes
+// in project history for the full account).
+//
+// UPGRADED (2026-08-24) — real, server-side rate limiting/lockout, now
+// actually built. Sign-in no longer calls supabase.auth.signInWithPassword()
+// directly from the browser — that call bypassed the backend gateway
+// entirely, which is exactly why failed attempts could never be tracked
+// server-side before. Now posts to the new admin-login backend action,
+// which performs the real credential check itself, logs every attempt
+// (security_events), and locks out an IP after 5 failed attempts within
+// 15 minutes (blocked_ips) — reusing the same proven security
+// infrastructure already used elsewhere in this gateway, not a new
+// parallel system. On success, the real session tokens are handed back
+// and established in the browser via supabase.auth.setSession().
+
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, clearAuthAndRetry } from '../lib/supabase';
 import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
 
+const API_BASE = '/api/index';
+
 export default function AdminLogin() {
-    const [email, setEmail] = useState('bluskyeconsult@gmail.com');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -27,7 +46,17 @@ export default function AdminLogin() {
     async function checkExistingSession() {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user?.email === 'bluskyeconsult@gmail.com') {
+            if (!session?.user) return;
+
+            // FIXED: real role check instead of a hardcoded email —
+            // matches the pattern used everywhere else in this admin panel.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('user_type')
+                .eq('id', session.user.id)
+                .single();
+
+            if (profile?.user_type === 'admin' || profile?.user_type === 'super_admin') {
                 navigate('/admin/dashboard');
             }
         } catch (err) {
@@ -47,24 +76,36 @@ export default function AdminLogin() {
         }
 
         try {
-            const { data, error: signInError } = await supabase.auth.signInWithPassword({
-                email: email.trim(),
-                password
+            // FIXED (2026-08-24): no longer calls
+            // supabase.auth.signInWithPassword() directly from the
+            // browser — that call never passed through the backend
+            // gateway, which is exactly why rate limiting/lockout could
+            // never be tracked before. The real credential check, role
+            // verification, attempt logging, and lockout enforcement all
+            // happen server-side now, in the admin-login action.
+            const response = await fetch(`${API_BASE}?action=admin-login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email.trim(), password })
             });
 
-            if (signInError) {
-                if (signInError.message.includes('Invalid login credentials')) {
-                    throw new Error('Invalid email or password');
-                }
-                throw signInError;
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || result.error || 'Login failed');
             }
 
-            if (!data.user) throw new Error('Login failed');
+            // Real session tokens, obtained server-side after every real
+            // check passed — established in the browser's own Supabase
+            // client so the rest of the app sees a normal, authenticated
+            // session exactly as if signInWithPassword had been called
+            // directly.
+            const { error: setSessionError } = await supabase.auth.setSession({
+                access_token: result.session.access_token,
+                refresh_token: result.session.refresh_token
+            });
 
-            if (data.user?.email !== 'bluskyeconsult@gmail.com') {
-                await supabase.auth.signOut();
-                throw new Error('Not authorized as admin');
-            }
+            if (setSessionError) throw setSessionError;
 
             setRedirecting(true);
             setTimeout(() => navigate('/admin/dashboard'), 500);
@@ -116,6 +157,7 @@ export default function AdminLogin() {
                                     required
                                     disabled={loading || redirecting}
                                     autoComplete="email"
+                                    placeholder="admin@example.com"
                                 />
                             </div>
                         </div>
