@@ -115,7 +115,16 @@ export default function AboutPage() {
                                 <li className="flex items-start gap-2">• AI-verified skills with Trust Scores</li>
                                 <li className="flex items-start gap-2">• Employer verification and fraud protection</li>
                                 <li className="flex items-start gap-2">• Intelligent matching powered by AI</li>
-                                <li className="flex items-start gap-2">• Transparent geo-pricing for fair access</li>
+                                {/* FIXED (2026-08-23): "Transparent
+                                    geo-pricing for fair access" — same
+                                    unconfirmed claim found and removed
+                                    from FAQPage.jsx this session (no
+                                    geo-pricing logic exists anywhere in
+                                    the real Stripe checkout handlers
+                                    checked). Softened rather than assert
+                                    a specific mechanism that isn't
+                                    confirmed to exist. */}
+                                <li className="flex items-start gap-2">• Fair, straightforward pricing</li>
                                 <li className="flex items-start gap-2">• Connect with professionals across 8 countries</li>
                             </ul>
                         </div>
@@ -136,7 +145,7 @@ export default function AboutPage() {
                         { icon: Brain, title: 'AI-Powered Intelligence', desc: 'ODUSBABA learns from every interaction to provide smarter recommendations and personalized career guidance.', color: 'from-purple-500/20 to-purple-600/20' },
                         { icon: Shield, title: 'Governed Trust', desc: 'Every skill is verified through AI and human oversight. Trust Scores reflect authentic capabilities.', color: 'from-blue-500/20 to-blue-600/20' },
                         { icon: Users, title: 'Global Workforce', desc: 'Connect with professionals and employers from 8 countries, with more coming soon.', color: 'from-emerald-500/20 to-emerald-600/20' },
-                        { icon: Globe, title: '8 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia, France - with intelligent geo-pricing for fair access.', color: 'from-cyan-500/20 to-cyan-600/20' },
+                        { icon: Globe, title: '8 Countries', desc: 'UK, Nigeria, Ireland, Canada, US, Germany, Australia, France - with more coming soon.', color: 'from-cyan-500/20 to-cyan-600/20' },
                         { icon: Zap, title: 'Real-Time Matching', desc: 'Instant job and skill matching powered by advanced AI algorithms that learn your preferences.', color: 'from-amber-500/20 to-amber-600/20' },
                         { icon: Hand, title: 'Value Partnership', desc: 'Creating Value for Partnership in every interaction - we succeed when you succeed.', color: 'from-emerald-500/20 to-emerald-600/20' }
                     ].map((pillar, idx) => (
@@ -238,7 +247,12 @@ export default function AboutPage() {
                         <Link to="/sign-up" className="px-6 py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all">
                             Get Started Free
                         </Link>
-                        <Link to="/tester-register" className="px-6 py-3 border border-primary-500 text-primary-500 rounded-xl font-semibold hover:bg-primary-500/10 transition-all">
+                        {/* FIXED (2026-08-23): pointed at /tester-register —
+                            the same stale link already found and fixed in
+                            ProductsPage.jsx after the hardcoded invite-code
+                            vulnerability was found; that route now just
+                            redirects to /sign-up. This one was missed. */}
+                        <Link to="/sign-up" className="px-6 py-3 border border-primary-500 text-primary-500 rounded-xl font-semibold hover:bg-primary-500/10 transition-all">
                             Become a Tester
                         </Link>
                         <Link to="/contact" className="px-6 py-3 border border-slate-600 text-slate-300 rounded-xl font-semibold hover:bg-slate-800 transition-all">
