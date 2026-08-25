@@ -310,8 +310,22 @@ Would you like me to provide more specific information?`;
                         HR Tools
                     </h1>
                     <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-                        AI-powered, law-aware HR tools for professionals
+                        Instant, ready-to-use outputs for specific HR and career tasks — no conversation needed.
                     </p>
+                </div>
+
+                {/* NEW (2026-08-23): reciprocal clarity-of-purpose cross-link —
+                    matches the one added to HireVirtualAssistant.jsx. These two
+                    pages solve genuinely different problems: this one is for
+                    "I know exactly what I need, give it to me now"; Hire VA is
+                    for an ongoing conversation with a specialist. */}
+                <div className="mb-8 p-4 bg-slate-900/50 border border-slate-800 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 max-w-3xl mx-auto">
+                    <p className="text-slate-400 text-sm">
+                        <span className="text-white font-medium">Want to talk through your options</span> — brainstorm, get iterative feedback, explore an idea over several messages? These tools give one instant output each, not a conversation.
+                    </p>
+                    <a href="/hire-va" className="flex-shrink-0 px-4 py-2 bg-slate-800 text-slate-200 rounded-lg hover:bg-slate-700 transition text-sm font-medium whitespace-nowrap">
+                        Hire an Assistant instead →
+                    </a>
                 </div>
 
                 {/* Tools Grid */}
