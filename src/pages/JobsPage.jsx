@@ -1,8 +1,16 @@
 // src/pages/JobsPage.jsx - UNIFIED & OPTIMIZED
 // ODUSBABA JOB BOARD v4.3 - Fixed: removed client-side job insert (was causing 400 errors + bypassing approval pipeline)
+//
+// FIXED (2026-08-23): selectedCountry always initialized to 'all' with no
+// reading of the URL's ?country= parameter — but HomePage.jsx's "Global
+// Presence" section links directly to /jobs?country=NG (etc.) for every
+// country card, implying clicking one pre-filters this page. It never
+// did; every click landed on the fully unfiltered jobs list, silently
+// ignoring the country the visitor actually clicked. Now reads the real
+// URL parameter on load.
 
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
 import { 
@@ -71,8 +79,12 @@ export default function JobsPage() {
     const [jobsPerPage, setJobsPerPage] = useState(50);
     
     // Filter states
+    const [searchParams] = useSearchParams();
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCountry, setSelectedCountry] = useState('all');
+    // FIXED (2026-08-23): now reads the real ?country= URL param on
+    // initial load instead of always defaulting to 'all', regardless of
+    // what HomePage.jsx's country links actually sent.
+    const [selectedCountry, setSelectedCountry] = useState(() => searchParams.get('country') || 'all');
     const [selectedJobType, setSelectedJobType] = useState('all');
     const [sortBy, setSortBy] = useState('newest');
     const [showFilters, setShowFilters] = useState(false);
