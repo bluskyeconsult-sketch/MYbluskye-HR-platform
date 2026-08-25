@@ -1,9 +1,32 @@
 // src/pages/CourseDetailsPage.jsx
 // COMPLETE PROFESSIONAL COURSE DETAILS PAGE - With unified API, enrollment tracking, curriculum display, and reviews
+//
+// FIXED (2026-08-23):
+// 1. Disconnected Supabase client (createClient() directly) — same
+//    anti-pattern found and fixed repeatedly this session. Now uses the
+//    shared singleton.
+// 2. loadCourse() called ?action=course, loadEnrollmentStatus() called
+//    ?action=user-enrollment, loadReviews() called ?action=course-reviews,
+//    loadRelatedCourses() called ?action=courses-related, and
+//    handleSubmitReview() called ?action=course-submit-review — NONE of
+//    these five actions exist anywhere in the backend. This entire page
+//    was non-functional: no course could ever load, no reviews could ever
+//    be read or written, related courses never showed. Rewired to direct
+//    Supabase queries, matching the established pattern for detail pages
+//    elsewhere in this project (ArticleDetail.jsx, JobDetailPage.jsx).
+// 3. handleEnroll() called ?action=course-enroll — the real, confirmed
+//    action is named the other way round: enroll-course. Every enrollment
+//    attempt failed with "unknown action" silently.
+// 4. handleContinue() navigated to /courses/:id/learn — not a real route.
+//    The actual confirmed route for continuing a course is /learning/:id
+//    (CourseDetail.jsx).
+// 5. Built a real course_reviews table (see add-course-reviews-table.sql)
+//    — no review system for courses existed anywhere in this project
+//    before now, matching the same gap already found and closed for books.
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
     Clock, BookOpen, Star, ArrowLeft, Loader2, CheckCircle, 
     Users, Award, Play, FileText, MessageCircle, ThumbsUp,
@@ -11,10 +34,6 @@ import {
     ChevronRight, ChevronDown, ExternalLink, Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function CourseDetailsPage() {
     const { id } = useParams();
@@ -48,17 +67,15 @@ export default function CourseDetailsPage() {
         setError(null);
         
         try {
-            // ✅ Using unified API endpoint
-            const response = await fetch(`/api/index?action=course&id=${id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            const { data: courseData, error: courseError } = await supabase
+                .from('courses')
+                .select('*')
+                .eq('id', id)
+                .eq('is_published', true)
+                .single();
+
+            if (courseError || !courseData) throw new Error(courseError?.message || 'Course not found');
             
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
-            
-            const courseData = result.data;
             setCourse(courseData);
             
             // Load enrollment status if user is logged in
@@ -86,16 +103,18 @@ export default function CourseDetailsPage() {
         if (!user) return;
         
         try {
-            const response = await fetch(`/api/index?action=user-enrollment&courseId=${courseId}&userId=${user.id}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success && result.data) {
+            const { data, error } = await supabase
+                .from('course_enrollments')
+                .select('progress')
+                .eq('course_id', courseId)
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+            if (error) throw error;
+
+            if (data) {
                 setEnrolled(true);
-                setEnrollmentProgress(result.data.progress || 0);
+                setEnrollmentProgress(data.progress || 0);
             }
         } catch (err) {
             console.error('Error loading enrollment:', err);
@@ -104,16 +123,14 @@ export default function CourseDetailsPage() {
 
     async function loadReviews(courseId) {
         try {
-            const response = await fetch(`/api/index?action=course-reviews&courseId=${courseId}`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                setReviews(result.data || []);
-            }
+            const { data, error } = await supabase
+                .from('course_reviews')
+                .select('*, profiles:user_id(full_name)')
+                .eq('course_id', courseId)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            setReviews(data || []);
         } catch (err) {
             console.error('Error loading reviews:', err);
         }
@@ -121,16 +138,16 @@ export default function CourseDetailsPage() {
 
     async function loadRelatedCourses(category, courseId) {
         try {
-            const response = await fetch(`/api/index?action=courses-related&category=${category}&excludeId=${courseId}&limit=3`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                setRelatedCourses(result.data || []);
-            }
+            const { data, error } = await supabase
+                .from('courses')
+                .select('*')
+                .eq('category', category)
+                .eq('is_published', true)
+                .neq('id', courseId)
+                .limit(3);
+
+            if (error) throw error;
+            setRelatedCourses(data || []);
         } catch (err) {
             console.error('Error loading related courses:', err);
         }
@@ -144,7 +161,7 @@ export default function CourseDetailsPage() {
         }
 
         try {
-            const response = await fetch('/api/index?action=course-enroll', {
+            const response = await fetch('/api/index?action=enroll-course', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, courseId: id })
@@ -162,7 +179,7 @@ export default function CourseDetailsPage() {
     }
 
     async function handleContinue() {
-        navigate(`/courses/${id}/learn`);
+        navigate(`/learning/${id}`);
     }
 
     async function handleSubmitReview() {
@@ -180,20 +197,17 @@ export default function CourseDetailsPage() {
         setSubmittingReview(true);
         
         try {
-            const response = await fetch('/api/index?action=course-submit-review', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    courseId: id,
-                    userId: user.id,
+            const { error } = await supabase
+                .from('course_reviews')
+                .upsert({
+                    course_id: id,
+                    user_id: user.id,
                     rating: userRating,
-                    review: userReview
-                })
-            });
-            
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
+                    review_text: userReview,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'course_id,user_id' });
+
+            if (error) throw error;
             
             toast.success('Review submitted successfully!');
             setUserReview('');
@@ -556,10 +570,10 @@ export default function CourseDetailsPage() {
                                                 <div className="flex items-center justify-between mb-2">
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white text-sm font-bold">
-                                                            {review.user_name?.[0] || 'U'}
+                                                            {review.profiles?.full_name?.[0] || 'U'}
                                                         </div>
                                                         <div>
-                                                            <p className="text-white text-sm font-medium">{review.user_name || 'Anonymous'}</p>
+                                                            <p className="text-white text-sm font-medium">{review.profiles?.full_name || 'Anonymous'}</p>
                                                             <div className="flex items-center gap-1">
                                                                 {[1,2,3,4,5].map(star => (
                                                                     <Star key={star} className={`w-3 h-3 ${star <= review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-600'}`} />
@@ -571,7 +585,7 @@ export default function CourseDetailsPage() {
                                                         {new Date(review.created_at).toLocaleDateString()}
                                                     </span>
                                                 </div>
-                                                <p className="text-slate-400 text-sm">{review.review}</p>
+                                                <p className="text-slate-400 text-sm">{review.review_text}</p>
                                             </div>
                                         ))
                                     )}
