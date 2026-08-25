@@ -46,7 +46,18 @@ export default function WorkforceDashboard() {
 
         const workforceProfile = await getWorkforceProfile(user.id);
         
-        if (!workforceProfile && userProfile?.user_type === 'professional') {
+        // FIXED (2026-08-23): checked userProfile?.user_type === 'professional'
+        // — but 'professional' is a subscription TIER name, not a real
+        // user_type value anywhere in this system (confirmed real values:
+        // job_seeker, employer, business_owner, admin, super_admin). This
+        // meant the onboarding prompt below never triggered for anyone,
+        // and the same broken value flows into userType, which also
+        // silently broke the "My Proposals" tab visibility check further
+        // down and EngagementsDashboard's professional-side logic (which,
+        // correctly, only ever checks === 'employer' and treats
+        // everything else as the professional side — matching that same
+        // pattern here instead of the nonexistent 'professional' value).
+        if (!workforceProfile && userProfile?.user_type !== 'employer') {
             setNeedsOnboarding(true);
         } else {
             setProfile(workforceProfile);
@@ -69,7 +80,10 @@ export default function WorkforceDashboard() {
 
     const visibleTabs = tabs.filter(tab => {
         if (tab.employerOnly && userType !== 'employer') return false;
-        if (tab.professionalOnly && userType !== 'professional') return false;
+        // FIXED (2026-08-23): same fix as above — was userType !==
+        // 'professional', a value that never exists, so this tab never
+        // showed for anyone.
+        if (tab.professionalOnly && userType === 'employer') return false;
         return true;
     });
 
@@ -119,7 +133,7 @@ export default function WorkforceDashboard() {
                 </div>
 
                 {/* Stats Cards */}
-                {stats && userType === 'professional' && (
+                {stats && userType !== 'employer' && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                             <div className="flex items-center gap-3">
@@ -203,7 +217,7 @@ export default function WorkforceDashboard() {
                                         Post a Service Request →
                                     </button>
                                 )}
-                                {userType === 'professional' && (
+                                {userType !== 'employer' && (
                                     <button
                                         onClick={() => setActiveTab('proposals')}
                                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
@@ -231,7 +245,7 @@ export default function WorkforceDashboard() {
                         <ServiceRequestsList employerId={user?.id} />
                     )}
 
-                    {activeTab === 'proposals' && userType === 'professional' && profile && (
+                    {activeTab === 'proposals' && userType !== 'employer' && profile && (
                         <ProposalsList professionalId={profile.id} />
                     )}
 
