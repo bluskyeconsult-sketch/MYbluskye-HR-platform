@@ -33,66 +33,6 @@ const CATEGORIES = [
 ];
 
 // ============================================
-// MOCK DATA (Fallback)
-// ============================================
-
-const MOCK_ASSESSMENTS = [
-    {
-        id: 'mock-1',
-        title: 'Career Aptitude Test',
-        description: 'Discover your ideal career path based on your skills and interests',
-        assessment_type: 'career_aptitude',
-        question_count: 15,
-        time_limit_minutes: 25,
-        difficulty: 'intermediate',
-        is_active: true,
-        created_at: new Date().toISOString()
-    },
-    {
-        id: 'mock-2',
-        title: 'Leadership Potential Assessment',
-        description: 'Evaluate your leadership capabilities and identify growth areas',
-        assessment_type: 'leadership',
-        question_count: 20,
-        time_limit_minutes: 30,
-        difficulty: 'advanced',
-        is_active: true,
-        created_at: new Date().toISOString()
-    },
-    {
-        id: 'mock-3',
-        title: 'Communication Skills Evaluation',
-        description: 'Assess your communication effectiveness in the workplace',
-        assessment_type: 'communication',
-        question_count: 12,
-        time_limit_minutes: 20,
-        difficulty: 'intermediate',
-        is_active: true,
-        created_at: new Date().toISOString()
-    },
-    {
-        id: 'mock-4',
-        title: 'Problem Solving Skills Test',
-        description: 'Test your analytical and problem-solving abilities',
-        assessment_type: 'problem_solving',
-        question_count: 10,
-        time_limit_minutes: 25,
-        difficulty: 'intermediate',
-        is_active: true,
-        created_at: new Date().toISOString()
-    },
-    {
-        id: 'mock-5',
-        title: 'Emotional Intelligence Assessment',
-        description: 'Evaluate your EQ and interpersonal skills',
-        assessment_type: 'emotional_intelligence',
-        question_count: 15,
-        time_limit_minutes: 25,
-        difficulty: 'advanced',
-        is_active: true,
-        created_at: new Date().toISOString()
-    }
-];
 
 // ============================================
 // MAIN COMPONENT
@@ -109,7 +49,6 @@ export default function AssessmentsPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [user, setUser] = useState(null);
     const [eligibility, setEligibility] = useState(null);
-    const [showMockWarning, setShowMockWarning] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
 
     // ============================================
@@ -211,32 +150,23 @@ export default function AssessmentsPage() {
                 const safeData = enhancedData.filter(a => a && a.id && a.title);
                 setAssessments(safeData);
                 setFilteredAssessments(safeData);
-                setShowMockWarning(false);
             } else {
-                // Try debug endpoint
-                const debugResponse = await fetch(`${API_BASE}?action=assessments-debug`);
-                const debugData = await debugResponse.json();
-                
-                if (debugData.success && debugData.data?.assessments?.length > 0) {
-                    setAssessments(debugData.data.assessments);
-                    setFilteredAssessments(debugData.data.assessments);
-                    setShowMockWarning(true);
-                    setError('Showing assessments from debug data');
-                } else {
-                    // Use mock data
-                    setAssessments(MOCK_ASSESSMENTS);
-                    setFilteredAssessments(MOCK_ASSESSMENTS);
-                    setShowMockWarning(true);
-                    setError('No assessments found. Showing sample data.');
-                }
+                // FIXED (2026-08-23): previously fell back to a debug
+                // endpoint, then to fully fabricated MOCK_ASSESSMENTS data
+                // if even that came back empty — showing invented
+                // assessments to real users as if they were genuine,
+                // exactly the same issue already found and fixed on
+                // BooksPage.jsx. An empty result is a genuine, honest
+                // "no assessments published yet" state, not a reason to
+                // invent content.
+                setAssessments([]);
+                setFilteredAssessments([]);
             }
         } catch (error) {
             console.error('Error loading assessments:', error);
-            // Use mock data on error
-            setAssessments(MOCK_ASSESSMENTS);
-            setFilteredAssessments(MOCK_ASSESSMENTS);
-            setShowMockWarning(true);
-            setError('Unable to load assessments. Showing sample data.');
+            setAssessments([]);
+            setFilteredAssessments([]);
+            setError('Unable to load assessments. Please try again shortly.');
         } finally {
             setLoading(false);
         }
@@ -409,14 +339,15 @@ export default function AssessmentsPage() {
                     </button>
                 </div>
 
-                {/* Mock Data Warning */}
-                {showMockWarning && (
-                    <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
-                        <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                        <div>
-                            <p className="text-amber-400 text-sm">{error || 'Showing sample assessments'}</p>
-                            <p className="text-slate-500 text-xs mt-1">Add assessments via Admin Panel to see real data</p>
-                        </div>
+                {/* Real load-error banner — FIXED (2026-08-23): replaces the
+                    old "Mock Data Warning" block, which existed to admit
+                    the page was showing fabricated data. Now only shows
+                    for a genuine load failure, not as cover for invented
+                    content. */}
+                {error && (
+                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-red-400 text-sm">{error}</p>
                     </div>
                 )}
 
