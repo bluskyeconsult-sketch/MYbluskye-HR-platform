@@ -5,11 +5,31 @@
 // Calendar, Loader2 } from lucide-react. Briefcase is used even in the empty
 // state, so this page threw "Briefcase is not defined" and crashed for every
 // user, with zero or more jobs. Added the missing imports.
+//
+// FIXED (2026-08-23):
+// 1. The Edit button linked to /edit-job/:id — confirmed via a direct
+//    search of the real App.jsx that no such route exists anywhere at
+//    all. Every single click on "Edit" has 404'd. There is no edit-job
+//    page built yet — this now disables the button with an honest
+//    "coming soon" state instead of linking to a dead end, rather than
+//    silently leaving a broken link.
+// 2. Salary was hardcoded to £ regardless of the job's actual source
+//    country — the same currency-hardcoding bug already found and fixed
+//    in JobDetailPage.jsx, recurring here in a different file. Now uses
+//    the same real country-to-currency mapping.
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Eye, Edit, Trash2, Users, Calendar, Loader2, MapPin, Clock, DollarSign, Briefcase } from 'lucide-react';
+
+// Matches the same mapping used in JobDetailPage.jsx's JobPosting
+// structured data — kept consistent rather than inventing a second copy.
+const CURRENCY_BY_COUNTRY = {
+    GB: 'GBP', US: 'USD', NG: 'NGN', CA: 'CAD',
+    AU: 'AUD', DE: 'EUR', IE: 'EUR'
+};
+const CURRENCY_SYMBOL = { GBP: '£', USD: '$', NGN: '₦', CAD: 'C$', AUD: 'A$', EUR: '€' };
 
 export default function ManageJobs() {
     const [jobs, setJobs] = useState([]);
@@ -116,7 +136,7 @@ export default function ManageJobs() {
                                             {job.salary_min && job.salary_max && (
                                                 <span className="flex items-center gap-1">
                                                     <DollarSign className="w-4 h-4" />
-                                                    £{job.salary_min.toLocaleString()} - £{job.salary_max.toLocaleString()}
+                                                    {CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[job.source_country]] || '£'}{job.salary_min.toLocaleString()} - {CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[job.source_country]] || '£'}{job.salary_max.toLocaleString()}
                                                 </span>
                                             )}
                                             <span className="flex items-center gap-1">
@@ -135,13 +155,13 @@ export default function ManageJobs() {
                                         >
                                             <Eye className="w-5 h-5" />
                                         </Link>
-                                        <Link
-                                            to={`/edit-job/${job.id}`}
-                                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                                            title="Edit Job"
+                                        <button
+                                            disabled
+                                            title="Job editing isn't built yet"
+                                            className="p-2 text-slate-600 cursor-not-allowed rounded-lg"
                                         >
                                             <Edit className="w-5 h-5" />
-                                        </Link>
+                                        </button>
                                         <button
                                             onClick={() => handleDelete(job.id)}
                                             disabled={deleting === job.id}
