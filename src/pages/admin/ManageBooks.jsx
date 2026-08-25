@@ -18,14 +18,24 @@ export default function ManageBooks() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+    // NEW (2026-08-23): real upload state for the three file types —
+    // replaces the manual "paste a URL/path" workflow with actual
+    // uploads, since the private-bucket path especially was error-prone
+    // to type correctly by hand.
+    const [uploadingCover, setUploadingCover] = useState(false);
+    const [uploadingPreview, setUploadingPreview] = useState(false);
+    const [uploadingFullBook, setUploadingFullBook] = useState(false);
     const [bookForm, setBookForm] = useState({
         title: '',
         author: '',
         description: '',
         price: 29.99,
+        ebook_price: 14.99,
         category: 'HR',
         cover_url: '',
         file_url: '',
+        preview_file_url: '',
+        external_purchase_url: '',
         is_published: true
     });
 
@@ -61,9 +71,12 @@ export default function ManageBooks() {
             author: '',
             description: '',
             price: 29.99,
+            ebook_price: 14.99,
             category: 'HR',
             cover_url: '',
             file_url: '',
+            preview_file_url: '',
+            external_purchase_url: '',
             is_published: true
         });
         setError(null);
@@ -77,13 +90,110 @@ export default function ManageBooks() {
             author: book.author || '',
             description: book.description || '',
             price: book.price || 29.99,
+            ebook_price: book.ebook_price || 14.99,
             category: book.category || 'HR',
             cover_url: book.cover_url || '',
             file_url: book.file_url || '',
+            preview_file_url: book.preview_file_url || '',
+            external_purchase_url: book.external_purchase_url || '',
             is_published: book.is_published !== undefined ? book.is_published : true
         });
         setError(null);
         setShowModal(true);
+    }
+
+    // NEW (2026-08-23): real file uploads, replacing the manual
+    // "paste a URL/path" workflow. Uses the Supabase client directly —
+    // this works because the admin's own authenticated session already
+    // satisfies the admin-only write policies on both storage buckets
+    // (see add-book-store-schema.sql), so no separate backend action
+    // is needed just to upload a file.
+
+    async function handleCoverUpload(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingCover(true);
+        setError(null);
+        try {
+            const path = `${crypto.randomUUID()}-${file.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('books-public')
+                .upload(path, file, { upsert: false });
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase
+                .storage
+                .from('books-public')
+                .getPublicUrl(path);
+
+            setBookForm(prev => ({ ...prev, cover_url: publicUrlData.publicUrl }));
+        } catch (err) {
+            setError('Cover upload failed: ' + err.message);
+        } finally {
+            setUploadingCover(false);
+            e.target.value = '';
+        }
+    }
+
+    async function handlePreviewUpload(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingPreview(true);
+        setError(null);
+        try {
+            const path = `${crypto.randomUUID()}-${file.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('books-public')
+                .upload(path, file, { upsert: false });
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase
+                .storage
+                .from('books-public')
+                .getPublicUrl(path);
+
+            setBookForm(prev => ({ ...prev, preview_file_url: publicUrlData.publicUrl }));
+        } catch (err) {
+            setError('Preview upload failed: ' + err.message);
+        } finally {
+            setUploadingPreview(false);
+            e.target.value = '';
+        }
+    }
+
+    async function handleFullBookUpload(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingFullBook(true);
+        setError(null);
+        try {
+            // Uploaded to the PRIVATE bucket — the resulting value
+            // stored in file_url is a path, never a public URL. Nobody
+            // can read this file directly; it's only ever resolved to
+            // a real, short-lived signed URL server-side, after a
+            // confirmed purchase (see get-book-read-url in index.js).
+            const path = `${crypto.randomUUID()}-${file.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('books-private')
+                .upload(path, file, { upsert: false });
+
+            if (uploadError) throw uploadError;
+
+            setBookForm(prev => ({ ...prev, file_url: path }));
+        } catch (err) {
+            setError('Full book upload failed: ' + err.message);
+        } finally {
+            setUploadingFullBook(false);
+            e.target.value = '';
+        }
     }
 
     async function handleSubmit(e) {
@@ -109,9 +219,20 @@ export default function ManageBooks() {
                 author: bookForm.author.trim(),
                 description: bookForm.description.trim(),
                 price: bookForm.price,
+                ebook_price: bookForm.ebook_price || null,
                 category: bookForm.category,
                 cover_url: bookForm.cover_url.trim(),
+                // FIXED (2026-08-23): this now expects a PATH inside the
+                // private 'books-private' Supabase Storage bucket, NOT a
+                // public URL — the full e-copy file must never be
+                // directly, permanently accessible, or anyone could
+                // download it without paying. Upload the file via the
+                // Supabase Dashboard's Storage UI into books-private,
+                // then paste the resulting path here (e.g.
+                // "my-book/full.pdf"), not a public link.
                 file_url: bookForm.file_url.trim(),
+                preview_file_url: bookForm.preview_file_url.trim(),
+                external_purchase_url: bookForm.external_purchase_url.trim(),
                 is_published: bookForm.is_published,
                 updated_at: new Date().toISOString()
             };
@@ -318,8 +439,14 @@ export default function ManageBooks() {
                                 <div className="flex items-center gap-4 text-sm text-slate-500 mb-4">
                                     <span className="flex items-center gap-1">
                                         <DollarSign className="w-3 h-3" />
-                                        ${book.price?.toFixed(2) || '0.00'}
+                                        HC ${book.price?.toFixed(2) || '0.00'}
                                     </span>
+                                    {book.ebook_price && (
+                                        <span className="flex items-center gap-1 text-primary-400">
+                                            <DollarSign className="w-3 h-3" />
+                                            EC ${book.ebook_price.toFixed(2)}
+                                        </span>
+                                    )}
                                     <span className="flex items-center gap-1">
                                         <FileText className="w-3 h-3" />
                                         {book.category || 'Uncategorized'}
@@ -418,7 +545,7 @@ export default function ManageBooks() {
                             {/* Price and Category */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm text-slate-400 mb-1">Price (USD)</label>
+                                    <label className="block text-sm text-slate-400 mb-1">Hardcopy Price (USD)</label>
                                     <input
                                         type="number"
                                         value={bookForm.price}
@@ -427,43 +554,108 @@ export default function ManageBooks() {
                                         step="0.01"
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     />
+                                    <p className="text-xs text-slate-500 mt-1">Reference price shown alongside the Amazon link below — not charged directly on this site</p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm text-slate-400 mb-1">Category</label>
-                                    <select
-                                        value={bookForm.category}
-                                        onChange={(e) => setBookForm({ ...bookForm, category: e.target.value })}
+                                    <label className="block text-sm text-slate-400 mb-1">E-Copy Price (USD)</label>
+                                    <input
+                                        type="number"
+                                        value={bookForm.ebook_price}
+                                        onChange={(e) => setBookForm({ ...bookForm, ebook_price: parseFloat(e.target.value) || 0 })}
+                                        min="0"
+                                        step="0.01"
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
-                                    >
-                                        {categories.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
-                                    </select>
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">Real Stripe checkout price, charged on this site</p>
                                 </div>
                             </div>
 
-                            {/* URLs */}
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">Cover Image URL</label>
+                                <label className="block text-sm text-slate-400 mb-1">Category</label>
+                                <select
+                                    value={bookForm.category}
+                                    onChange={(e) => setBookForm({ ...bookForm, category: e.target.value })}
+                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                >
+                                    {categories.map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Files */}
+                            {/* NEW (2026-08-23): real upload buttons, replacing the
+                                manual "paste a URL/path" workflow — especially
+                                important for the private e-copy file below, where
+                                typing the exact path by hand was error-prone. Manual
+                                paste is still available underneath as a fallback
+                                (e.g. if a cover is already hosted elsewhere). */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Cover Image</label>
+                                <div className="flex items-center gap-3">
+                                    {bookForm.cover_url && (
+                                        <img src={bookForm.cover_url} alt="Cover preview" className="w-12 h-16 object-cover rounded-lg border border-slate-700" />
+                                    )}
+                                    <label className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition">
+                                        {uploadingCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
+                                        {uploadingCover ? 'Uploading...' : 'Upload Cover Image'}
+                                        <input type="file" accept="image/*" onChange={handleCoverUpload} disabled={uploadingCover} className="hidden" />
+                                    </label>
+                                </div>
                                 <input
                                     type="url"
                                     value={bookForm.cover_url}
                                     onChange={(e) => setBookForm({ ...bookForm, cover_url: e.target.value })}
-                                    placeholder="https://example.com/cover.jpg"
-                                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    placeholder="or paste an existing image URL"
+                                    className="w-full mt-2 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-primary-500"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">PDF File URL</label>
+                                <label className="block text-sm text-slate-400 mb-1">Amazon (or Retailer) Purchase Link</label>
                                 <input
                                     type="url"
-                                    value={bookForm.file_url}
-                                    onChange={(e) => setBookForm({ ...bookForm, file_url: e.target.value })}
-                                    placeholder="https://example.com/book.pdf"
+                                    value={bookForm.external_purchase_url}
+                                    onChange={(e) => setBookForm({ ...bookForm, external_purchase_url: e.target.value })}
+                                    placeholder="https://amazon.com/dp/..."
                                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">Upload PDF to a storage service and paste the URL here</p>
+                                <p className="text-xs text-slate-500 mt-1">Where "Buy Hardcopy" sends the customer — this site never processes that payment</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Full E-Copy File</label>
+                                <label className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition">
+                                    {uploadingFullBook ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                    {uploadingFullBook ? 'Uploading...' : (bookForm.file_url ? 'Replace uploaded file' : 'Upload Full Book PDF')}
+                                    <input type="file" accept="application/pdf" onChange={handleFullBookUpload} disabled={uploadingFullBook} className="hidden" />
+                                </label>
+                                {bookForm.file_url && (
+                                    <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Uploaded: {bookForm.file_url}
+                                    </p>
+                                )}
+                                {/* FIXED (2026-08-23): uploading here goes straight
+                                    into the private 'books-private' bucket — the
+                                    resulting path is never a public URL, and this
+                                    file is only ever revealed through a short-lived
+                                    signed link, generated after a confirmed purchase. */}
+                                <p className="text-xs text-slate-500 mt-1">Uploaded directly to private storage — never publicly accessible, only revealed after a confirmed purchase</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Free Preview File</label>
+                                <label className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition">
+                                    {uploadingPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                    {uploadingPreview ? 'Uploading...' : (bookForm.preview_file_url ? 'Replace preview file' : 'Upload Sample Chapter PDF')}
+                                    <input type="file" accept="application/pdf" onChange={handlePreviewUpload} disabled={uploadingPreview} className="hidden" />
+                                </label>
+                                {bookForm.preview_file_url && (
+                                    <a href={bookForm.preview_file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-400 hover:underline mt-1 inline-block">
+                                        View uploaded preview
+                                    </a>
+                                )}
+                                <p className="text-xs text-slate-500 mt-1">A separate, intentionally public sample (e.g. first chapter) — freely accessible, unlike the full file above</p>
                             </div>
 
                             {/* Publish Status */}
