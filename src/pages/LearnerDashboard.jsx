@@ -96,10 +96,17 @@ export default function LearnerDashboard() {
                 setRecommendedCourses(filtered.slice(0, 3));
             }
 
-            // Load certificates
+            // FIXED (2026-08-23): queried 'certificates' — the real,
+            // confirmed table (verified via CertificatePage.jsx and the
+            // real get-certificate backend handler) is course_certificates,
+            // with course title reached via a join, not a flat
+            // course_title column. This section has silently shown zero
+            // certificates for every user, even those who genuinely
+            // earned them, since the query was against a table that
+            // likely doesn't exist (or isn't the real one) at all.
             const { data: certData, error: certError } = await supabase
-                .from('certificates')
-                .select('*')
+                .from('course_certificates')
+                .select('*, courses(title, duration_hours)')
                 .eq('user_id', user.id)
                 .order('issued_at', { ascending: false });
 
@@ -398,7 +405,11 @@ export default function LearnerDashboard() {
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <Award className="w-5 h-5 text-amber-400" />
-                                            <h3 className="text-white font-semibold">{cert.course_title}</h3>
+                                            {/* FIXED (2026-08-23): was cert.course_title (a flat
+                                                column that doesn't exist on course_certificates) —
+                                                now reads the joined courses.title, matching the
+                                                real schema confirmed via get-certificate. */}
+                                            <h3 className="text-white font-semibold">{cert.courses?.title || 'Course'}</h3>
                                         </div>
                                         <p className="text-xs text-slate-500 mt-1">Certificate #{cert.certificate_number || cert.id.slice(0, 8)}</p>
                                         <p className="text-xs text-slate-500 flex items-center gap-1">
@@ -406,15 +417,20 @@ export default function LearnerDashboard() {
                                             Issued: {formatDate(cert.issued_at || cert.created_at)}
                                         </p>
                                     </div>
-                                    {cert.download_url && (
-                                        <a 
-                                            href={cert.download_url} 
-                                            download 
-                                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2"
-                                        >
-                                            <Download className="w-4 h-4" /> Download
-                                        </a>
-                                    )}
+                                    {/* FIXED (2026-08-23): was an <a href={cert.download_url}>
+                                        — that field was never confirmed to exist anywhere,
+                                        and no PDF-generation/storage system for certificates
+                                        was found this session. The real, working way to
+                                        view/print/share a certificate is CertificatePage.jsx
+                                        at /certificate/:id (real print + share functionality
+                                        already built there) — links there instead of a
+                                        field that likely never had a real value. */}
+                                    <Link
+                                        to={`/certificate/${cert.id}`}
+                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors flex items-center gap-2"
+                                    >
+                                        <Award className="w-4 h-4" /> View Certificate
+                                    </Link>
                                 </div>
                             ))}
                         </div>
