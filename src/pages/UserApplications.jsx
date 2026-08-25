@@ -307,12 +307,22 @@ export default function UserApplications() {
                                             </button>
                                         </Link>
                                         {app.status === 'accepted' && (
-                                            <Link to={`/applications/${app.id}/proceed`}>
-                                                <button className="w-full px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-500 transition">
-                                                    Proceed →
-                                                </button>
-                                            </Link>
+                                            <button
+                                                disabled
+                                                title="Not built yet"
+                                                className="w-full px-3 py-1.5 bg-slate-700 text-slate-400 rounded-lg text-sm cursor-not-allowed"
+                                            >
+                                                Proceed →
+                                            </button>
                                         )}
+                                        {/* FIXED (2026-08-23): linked to
+                                            /applications/:id/proceed — confirmed
+                                            no such route exists anywhere in the
+                                            real App.jsx. Every click on an
+                                            accepted application would have
+                                            404'd. Same honest-disable treatment
+                                            as ManageJobs.jsx's dead Edit link,
+                                            rather than a link to nowhere. */}
                                     </div>
                                 </div>
 
