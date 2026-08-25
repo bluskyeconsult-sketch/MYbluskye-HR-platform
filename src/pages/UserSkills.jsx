@@ -1,19 +1,19 @@
 // src/pages/UserSkills.jsx
 // COMPLETE PROFESSIONAL USER SKILLS - With unified API, categories, verification status, and trust scoring
+//
+// FIXED (2026-08-23): disconnected Supabase client (createClient() directly)
+// — same anti-pattern found and fixed repeatedly this session. Now uses
+// the shared singleton.
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { 
     Code, Award, CheckCircle, XCircle, Clock, Plus, X,
     TrendingUp, Shield, Star, Filter, Search, Loader2,
     AlertCircle, Briefcase, Brain, Database, Brush, BarChart,
     MessageCircle, Users, Zap, Sparkles, Trash2, Edit
 } from 'lucide-react';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Skill categories with icons
 const SKILL_CATEGORIES = [
