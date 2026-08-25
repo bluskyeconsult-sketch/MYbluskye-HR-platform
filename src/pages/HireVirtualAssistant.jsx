@@ -53,10 +53,10 @@ const API_BASE = '/api/index';
 
 const CATEGORIES = [
     { id: 'all', name: 'All Assistants', icon: Bot },
-    { id: 'resume', name: 'Resume & CV', icon: FileText },
-    { id: 'career', name: 'Career Advice', icon: Briefcase },
-    { id: 'writing', name: 'Writing', icon: TrendingUp },
-    { id: 'productivity', name: 'Productivity', icon: Shield }
+    { id: 'resume', name: 'CV Strategy & Feedback', icon: FileText },
+    { id: 'career', name: 'Career Coaching', icon: Briefcase },
+    { id: 'writing', name: 'Writing Partner', icon: TrendingUp },
+    { id: 'productivity', name: 'Productivity Coach', icon: Shield }
 ];
 
 // ============================================
@@ -84,6 +84,13 @@ export default function HireVirtualAssistant() {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [retryCount, setRetryCount] = useState(0);
+    // NEW (2026-08-23): real conversation thread for VAs marked
+    // execution_type='conversational' — the actual mechanical
+    // difference between "hiring an assistant" and running a
+    // single-shot tool. Keyed by VA id so switching between assistants
+    // doesn't mix up separate conversations. single_turn VAs (the
+    // default, matching every VA's original behavior) never touch this.
+    const [conversations, setConversations] = useState({}); // { [vaId]: [{role, content}] }
 
     // ============================================
     // LOAD VA CATALOG
@@ -169,10 +176,28 @@ export default function HireVirtualAssistant() {
                     .single();
                 
                 const tier = profile?.tier || profile?.user_type || 'free';
-                const isUnlimited = tier === 'super_admin' || tier === 'admin' || tier === 'business';
+                // FIXED (2026-08-23): this fallback path (only used if the
+                // primary ?action=va-credits call fails) still treated
+                // business tier as unlimited — stale versus the real
+                // backend decision made this session (business gets a
+                // real 200/month cap, not unlimited, applied consistently
+                // in va-credits/checkAndDeductCredit). Removed 'business'
+                // so this fallback matches what the backend actually does
+                // if it were reached successfully.
+                const isUnlimited = tier === 'super_admin' || tier === 'admin';
+
+                // FIXED (2026-08-23): the '|| 5' default here (only used
+                // if no va_credits row exists yet AND the primary API
+                // failed) ignored which tier the person is actually on —
+                // mirrors index.js's real TIER_MONTHLY_ALLOWANCE constant
+                // so this rare fallback-of-fallback path gives a
+                // consistent number rather than always defaulting to the
+                // free-tier amount regardless of real tier.
+                const tierDefaults = { free: 5, registered: 10, professional: 25, employer: 20, business: 200, tester: 10 };
+                const fallbackDefault = tierDefaults[tier] ?? 5;
                 
                 setEligibility({
-                    remaining: isUnlimited ? 999999 : (credits?.balance || 5),
+                    remaining: isUnlimited ? 999999 : (credits?.balance ?? fallbackDefault),
                     limit: isUnlimited ? 999999 : 10,
                     tier: tier,
                     isUnlimited: isUnlimited
@@ -265,12 +290,24 @@ export default function HireVirtualAssistant() {
             return;
         }
         
-        // FIXED (2026-08-16): was comparing against selectedVA.price (a
-        // per-VA variable price) — the real va-execute backend always
-        // deducts a flat 1 credit regardless of which VA is used, so this
-        // now checks against 1 to match actual backend behavior.
-        if (!eligibility?.isUnlimited && eligibility?.remaining < 1) {
-            alert(`⚠️ Insufficient credits! Upgrade your plan or purchase more credits to continue.`);
+        // FIXED (2026-08-23): was checking against a flat 1 — real cost is
+        // now execution-type-derived (2 credits for conversational VAs,
+        // reflecting the real, confirmed higher compute cost of
+        // maintaining conversation history).
+        const requiredCost = selectedVA.execution_type === 'conversational' ? 2 : 1;
+        if (!eligibility?.isUnlimited && eligibility?.remaining < requiredCost) {
+            alert(`⚠️ This assistant costs ${requiredCost} credit${requiredCost > 1 ? 's' : ''} per ${selectedVA.execution_type === 'conversational' ? 'message' : 'use'}. Upgrade your plan or purchase more credits to continue.`);
+            return;
+        }
+
+        // NEW (2026-08-23): conversational VAs require a paid tier —
+        // checked here too (the real enforcement is server-side in
+        // va-execute) so a free-tier user gets a clear message before
+        // attempting the request at all.
+        if (selectedVA.execution_type === 'conversational' && !canUseConversational) {
+            if (confirm('Conversational assistants that remember your conversation are available on paid plans. View pricing now?')) {
+                window.location.href = '/pricing';
+            }
             return;
         }
         
@@ -278,6 +315,15 @@ export default function HireVirtualAssistant() {
         setOutput(null);
         setIsProcessing(true);
         setProcessingProgress(0);
+
+        // NEW (2026-08-23): for conversational VAs, this VA's prior
+        // thread is sent as real history so the model actually has
+        // context — the mechanical difference from HR Tools' one-shot
+        // utilities. single_turn VAs never send history, matching their
+        // original, unchanged behavior exactly.
+        const isConversational = selectedVA.execution_type === 'conversational';
+        const priorHistory = isConversational ? (conversations[selectedVA.id] || []) : [];
+        const userInput = input;
         
         // Simulate progress for better UX
         const progressInterval = setInterval(() => {
@@ -300,8 +346,9 @@ export default function HireVirtualAssistant() {
                 },
                 body: JSON.stringify({
                     assistantId: selectedVA.id,
-                    input: input,
-                    userId: user.id
+                    input: userInput,
+                    userId: user.id,
+                    history: priorHistory
                 })
             });
             
@@ -312,6 +359,19 @@ export default function HireVirtualAssistant() {
             
             if (result.success) {
                 setOutput(result.output);
+
+                if (isConversational) {
+                    setConversations(prev => ({
+                        ...prev,
+                        [selectedVA.id]: [
+                            ...priorHistory,
+                            { role: 'user', content: userInput },
+                            { role: 'assistant', content: result.output }
+                        ]
+                    }));
+                    setInput('');
+                }
+
                 await loadUserAndEligibility();
             } else {
                 setError(result.error || 'Failed to execute task. Please try again.');
@@ -335,6 +395,16 @@ export default function HireVirtualAssistant() {
         const userLevel = tierLevels[eligibility?.tier || 'free'];
         const vaLevel = tierLevels[vaTier || 'free'];
         return userLevel >= vaLevel;
+    }, [eligibility]);
+
+    // NEW (2026-08-23): conversational VAs are restricted to paid tiers —
+    // this mirrors the real server-side enforcement in va-execute (which
+    // is the actual security boundary); this UI check exists only to give
+    // a clear, honest experience rather than letting someone try and then
+    // get a 403.
+    const canUseConversational = useMemo(() => {
+        const tier = eligibility?.tier || 'free';
+        return tier !== 'free';
     }, [eligibility]);
 
     // ============================================
@@ -368,13 +438,28 @@ export default function HireVirtualAssistant() {
                 <div className="text-center mb-6 sm:mb-8">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 mb-4">
                         <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-400" />
-                        <span className="text-primary-400 text-xs sm:text-sm">AI-Powered Career Assistants</span>
+                        <span className="text-primary-400 text-xs sm:text-sm">Ongoing AI Advisors</span>
                     </div>
                     <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 sm:mb-4">Hire a Virtual Assistant</h1>
                     <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-                        Professional AI helpers for CV optimization, interview prep, salary negotiation, and career development.
-                        Available 24/7 to help you succeed.
+                        Bring on a specialist you can keep coming back to — talk through your CV strategy, career direction,
+                        or writing over time, not just a single request.
                     </p>
+                </div>
+
+                {/* NEW (2026-08-23): clarity-of-purpose cross-link — Hire VA and
+                    HR Tools solve genuinely different problems, but a person
+                    landing on either page has no way to know that without this.
+                    "Need a specific document right now" vs "want an ongoing
+                    conversation" is the real distinction, not just different
+                    branding for the same thing. */}
+                <div className="mb-6 sm:mb-8 p-4 bg-slate-900/50 border border-slate-800 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <p className="text-slate-400 text-sm">
+                        <span className="text-white font-medium">Need one specific document right now</span> — a cover letter, a contract review, a salary number? Assistants here are built for back-and-forth conversation, not a single instant output.
+                    </p>
+                    <a href="/hr-tools" className="flex-shrink-0 px-4 py-2 bg-slate-800 text-slate-200 rounded-lg hover:bg-slate-700 transition text-sm font-medium whitespace-nowrap">
+                        Try HR Tools instead →
+                    </a>
                 </div>
 
                 {/* Error Banner */}
@@ -515,7 +600,14 @@ export default function HireVirtualAssistant() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
                             {filteredVAs.map(va => {
                                 const isSelected = selectedVA?.id === va.id;
-                                const isAccessible = isVAAccessible(va.tier);
+                                const isConversationalVA = va.execution_type === 'conversational';
+                                // NEW (2026-08-23): conversational VAs need BOTH the
+                                // existing tier-level check AND the paid-tier gate —
+                                // a free-tier user shouldn't be able to select one at
+                                // all, matching the real server-side restriction.
+                                const isAccessible = isVAAccessible(va.tier) && (!isConversationalVA || canUseConversational);
+                                const isLockedForFreeTier = isConversationalVA && !canUseConversational;
+                                const realCost = isConversationalVA ? 2 : 1;
                                 return (
                                     <div 
                                         key={va.id} 
@@ -524,20 +616,62 @@ export default function HireVirtualAssistant() {
                                                 ? 'ring-2 ring-primary-500 border-primary-500 shadow-lg shadow-primary-500/20' 
                                                 : 'border-slate-700 hover:border-primary-500/50 hover:-translate-y-1'
                                         } ${!isAccessible ? 'opacity-60' : ''}`}
-                                        onClick={() => isAccessible && setSelectedVA(va)}
+                                        onClick={() => {
+                                            if (isLockedForFreeTier) {
+                                                if (confirm('Conversational assistants that remember your conversation are available on paid plans. View pricing now?')) {
+                                                    window.location.href = '/pricing';
+                                                }
+                                                return;
+                                            }
+                                            isAccessible && setSelectedVA(va);
+                                        }}
                                     >
                                         <div className="flex items-start justify-between mb-3 sm:mb-4">
                                             <div className="text-3xl sm:text-4xl group-hover:scale-110 transition">{va.icon}</div>
                                             <div className="text-right">
-                                                <p className="text-xl sm:text-2xl font-bold text-primary-400">{va.price}</p>
-                                                <p className="text-[10px] sm:text-xs text-slate-500">credits</p>
+                                                {/* FIXED (2026-08-23): va.price was labeled "credits"
+                                                    and gated the Execute button as if it were the real
+                                                    credit cost — but it's a dollar value (admin form
+                                                    label: "Price ($)"), and the real backend always
+                                                    deducts exactly 1 credit regardless of this number.
+                                                    A VA priced at 9.99 was disabling the button for
+                                                    anyone with under 10 credits, even though the real
+                                                    cost was 1. Now shown honestly as its own thing —
+                                                    equivalent value, not what's actually charged — and
+                                                    the real, execution-type-derived cost is stated
+                                                    separately below. */}
+                                                {va.price && (
+                                                    <p className="text-sm sm:text-base font-semibold text-slate-400">${Number(va.price).toFixed(2)} value</p>
+                                                )}
+                                                <p className="text-[10px] sm:text-xs text-primary-400 font-medium">
+                                                    {realCost} credit{realCost > 1 ? 's' : ''} per {isConversationalVA ? 'message' : 'use'}
+                                                </p>
+                                                {isConversationalVA && (
+                                                    <p className="text-[10px] sm:text-xs text-amber-400/80 mt-0.5">
+                                                        {isLockedForFreeTier ? '🔒 Paid plans only' : 'Remembers your conversation'}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                         <h3 className="text-base sm:text-lg font-semibold text-white mb-1">{va.name}</h3>
                                         <p className="text-slate-400 text-xs sm:text-sm mb-2 sm:mb-3 line-clamp-2">{va.description}</p>
                                         <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 mb-2 sm:mb-3">
-                                            <span className="flex items-center gap-0.5 sm:gap-1"><Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-yellow-400 fill-yellow-400" /> {va.rating}</span>
-                                            <span>({va.reviews} reviews)</span>
+                                            {/* FIXED (2026-08-23): rating/reviews were hardcoded
+                                                4.8/0 for EVERY VA, identical and fabricated —
+                                                same issue already found and fixed on
+                                                BooksPage.jsx and AssessmentsPage.jsx. Now computed
+                                                from real va_tasks.user_rating feedback (the actual
+                                                thumbs-up/down users already give per task). A VA
+                                                with no feedback yet shows that honestly rather than
+                                                inventing a number. */}
+                                            {va.rating !== null && va.rating !== undefined ? (
+                                                <>
+                                                    <span className="flex items-center gap-0.5 sm:gap-1"><Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-yellow-400 fill-yellow-400" /> {va.rating.toFixed(1)}</span>
+                                                    <span>({va.reviews} rating{va.reviews !== 1 ? 's' : ''})</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-slate-600">Not yet rated</span>
+                                            )}
                                             <span className="flex items-center gap-0.5 sm:gap-1"><Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> {va.responseTime || va.processingTime}</span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 sm:gap-2">
@@ -586,7 +720,9 @@ export default function HireVirtualAssistant() {
                                         <div className="flex items-center gap-2">
                                             <span className="text-2xl sm:text-3xl">{selectedVA.icon}</span>
                                             <h3 className="text-lg sm:text-xl font-bold text-white">{selectedVA.name}</h3>
-                                            <span className="text-xs sm:text-sm text-slate-400">({selectedVA.price} credits)</span>
+                                            <span className="text-xs sm:text-sm text-primary-400 font-medium">
+                                                ({selectedVA.execution_type === 'conversational' ? '2 credits per message' : '1 credit per use'})
+                                            </span>
                                         </div>
                                         <p className="text-slate-400 text-xs sm:text-sm mt-1">{selectedVA.longDescription}</p>
                                     </div>
@@ -603,6 +739,16 @@ export default function HireVirtualAssistant() {
                                 </div>
                                 
                                 <form onSubmit={handleExecute} className="space-y-4">
+                                    {selectedVA.execution_type === 'conversational' && (
+                                        <div className="p-2.5 bg-slate-800/50 border border-slate-700 rounded-lg text-xs text-slate-400">
+                                            {/* FIXED (2026-08-23): was "1 credit" — real cost for
+                                                conversational VAs is 2 credits per message, since
+                                                each turn resends the whole conversation as input
+                                                tokens (a real ~1.56x average cost vs. a single-turn
+                                                call, confirmed against actual OpenAI pricing). */}
+                                            This assistant remembers your conversation — each message you send costs 2 credits, reflecting the real cost of maintaining context across the conversation.
+                                        </div>
+                                    )}
                                     <div>
                                         <label className="block text-xs sm:text-sm font-medium text-slate-300 mb-1.5 sm:mb-2">What do you need help with?</label>
                                         <textarea
@@ -617,11 +763,18 @@ export default function HireVirtualAssistant() {
                                     
                                     <button
                                         type="submit"
-                                        disabled={loading || (eligibility && !eligibility.isUnlimited && eligibility.remaining < selectedVA.price) || !isVAAccessible(selectedVA.tier)}
+                                        // FIXED (2026-08-23): was disabled based on
+                                        // eligibility.remaining < selectedVA.price — the
+                                        // real backend always deducts exactly 1 credit,
+                                        // so this could disable the button for a user who
+                                        // could clearly afford the actual cost, whenever a
+                                        // VA's dollar-value price field happened to be
+                                        // higher than their remaining balance.
+                                        disabled={loading || (eligibility && !eligibility.isUnlimited && eligibility.remaining < (selectedVA.execution_type === 'conversational' ? 2 : 1)) || !isVAAccessible(selectedVA.tier)}
                                         className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-xl hover:from-primary-700 to-sky-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium transition-all duration-200 text-sm sm:text-base"
                                     >
                                         {loading ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                                        {loading ? 'Processing...' : `Execute Task (${selectedVA.price} credits)`}
+                                        {loading ? 'Processing...' : (selectedVA.execution_type === 'conversational' ? 'Send Message (2 credits)' : 'Execute Task (1 credit)')}
                                     </button>
                                 </form>
                                 
@@ -644,8 +797,39 @@ export default function HireVirtualAssistant() {
                                     </div>
                                 )}
                                 
-                                {/* Result Output */}
-                                {output && (
+                                {/* NEW (2026-08-23): conversational VAs show a real
+                                    growing thread (the actual point of "hiring an
+                                    assistant" rather than running a one-shot tool) —
+                                    single_turn VAs keep the original single-box
+                                    output view unchanged below. */}
+                                {selectedVA?.execution_type === 'conversational' && (conversations[selectedVA.id]?.length > 0) && (
+                                    <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700 space-y-3 max-h-96 overflow-y-auto">
+                                        {conversations[selectedVA.id].map((msg, idx) => (
+                                            <div
+                                                key={idx}
+                                                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                                            >
+                                                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
+                                                    msg.role === 'user'
+                                                        ? 'bg-primary-600 text-white'
+                                                        : 'bg-slate-700 text-slate-200'
+                                                }`}>
+                                                    {msg.content}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={() => setConversations(prev => ({ ...prev, [selectedVA.id]: [] }))}
+                                            className="text-xs text-slate-500 hover:text-slate-300"
+                                        >
+                                            Clear conversation
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Result Output — single_turn VAs (the original,
+                                    unchanged behavior) */}
+                                {output && selectedVA?.execution_type !== 'conversational' && (
                                     <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700">
                                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                                             <h4 className="text-white font-semibold flex items-center gap-2 text-sm sm:text-base">
