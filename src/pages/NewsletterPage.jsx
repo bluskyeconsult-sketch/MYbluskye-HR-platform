@@ -4,6 +4,24 @@
 // ✅ Stats display, benefits showcase, testimonial
 // ✅ Enhanced UI with preference toggles
 // ✅ Complete error handling and success states
+//
+// FIXED (2026-08-23):
+// 1. Initial stats state hardcoded specific fake numbers (5284
+//    subscribers, 68% open rate, 156 weekly issues) — shown briefly on
+//    every load before the real fetch resolves. The real, already-fixed
+//    backend (newsletter-stats) correctly returns a genuine subscriber
+//    count but honestly returns null for openRate/weeklyIssues, since
+//    no real tracking for either exists — but this page was never
+//    updated to handle that, so after the real (honest) data arrived,
+//    it would literally render "null+ Weekly Issues Sent" and "null%
+//    Average Open Rate" on screen. Now starts at null/loading and hides
+//    the two untracked stat cards entirely rather than fabricate or
+//    show broken values.
+// 2. Removed a specific named testimonial ("Sarah Johnson, HR Manager...
+//    Subscriber since 2024") — unverifiable, specific-sounding
+//    attributed content, the same category of fabricated social proof
+//    already found and removed elsewhere this session (AboutPage.jsx's
+//    own header documents the same standard being applied there).
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -30,9 +48,9 @@ export default function NewsletterPage() {
     const [subscribed, setSubscribed] = useState(false);
     const [error, setError] = useState('');
     const [stats, setStats] = useState({
-        subscribers: 5284,
-        openRate: 68,
-        weeklyIssues: 156
+        subscribers: null,
+        openRate: null,
+        weeklyIssues: null
     });
     const [preferences, setPreferences] = useState({
         jobs: true,
@@ -180,22 +198,18 @@ export default function NewsletterPage() {
                 </div>
 
                 {/* Stats Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
-                    <div className="group bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition hover:-translate-y-1">
-                        <Users className="w-8 h-8 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
-                        <p className="text-2xl font-bold text-white">{stats.subscribers.toLocaleString()}+</p>
-                        <p className="text-sm text-slate-400">Active Subscribers</p>
-                    </div>
-                    <div className="group bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition hover:-translate-y-1">
-                        <Mail className="w-8 h-8 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
-                        <p className="text-2xl font-bold text-white">{stats.weeklyIssues}+</p>
-                        <p className="text-sm text-slate-400">Weekly Issues Sent</p>
-                    </div>
-                    <div className="group bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition hover:-translate-y-1">
-                        <TrendingUp className="w-8 h-8 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
-                        <p className="text-2xl font-bold text-white">{stats.openRate}%</p>
-                        <p className="text-sm text-slate-400">Average Open Rate</p>
-                    </div>
+                {/* FIXED (2026-08-23): weeklyIssues/openRate are honestly
+                    null from the real backend (nothing tracks either yet)
+                    — only render a stat card when there's a real number
+                    to show, rather than display "null". */}
+                <div className={`grid grid-cols-1 ${stats.subscribers !== null ? 'sm:grid-cols-1 max-w-xs mx-auto' : ''} gap-4 mb-12`}>
+                    {stats.subscribers !== null && (
+                        <div className="group bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center hover:border-primary-500/30 transition hover:-translate-y-1">
+                            <Users className="w-8 h-8 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <p className="text-2xl font-bold text-white">{stats.subscribers.toLocaleString()}+</p>
+                            <p className="text-sm text-slate-400">Active Subscribers</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Main Subscription Card */}
@@ -207,7 +221,9 @@ export default function NewsletterPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-2">Subscribe for Weekly Insights</h2>
                         <p className="text-slate-400">
-                            Join {stats.subscribers.toLocaleString()}+ HR professionals and career-driven individuals
+                            {stats.subscribers !== null
+                                ? `Join ${stats.subscribers.toLocaleString()}+ HR professionals and career-driven individuals`
+                                : 'Join HR professionals and career-driven individuals'}
                         </p>
                     </div>
                     
@@ -330,19 +346,18 @@ export default function NewsletterPage() {
                     </div>
                 </div>
 
-                {/* Testimonial / Social Proof */}
+                {/* FIXED (2026-08-23): removed a specific named testimonial
+                    ("Sarah Johnson, HR Manager... Subscriber since 2024")
+                    — unverifiable, specific-sounding attributed content,
+                    the same category already found and removed elsewhere
+                    this session. Replaced with an honest value statement
+                    instead of an invented quote. */}
                 <div className="mt-12 p-6 bg-slate-900/30 border border-slate-800 rounded-xl">
                     <div className="flex flex-col items-center text-center">
-                        <div className="flex gap-1 mb-3">
-                            {[...Array(5)].map((_, i) => (
-                                <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                            ))}
-                        </div>
-                        <p className="text-slate-300 italic max-w-lg">
-                            "The ODUSBABA newsletter has been instrumental in my career growth. The weekly insights and job alerts helped me land my dream role!"
+                        <Mail className="w-8 h-8 text-primary-400 mb-3" />
+                        <p className="text-slate-300 max-w-lg">
+                            Real career insights, real job opportunities, delivered weekly — no spam, unsubscribe anytime.
                         </p>
-                        <p className="text-white font-medium mt-3">— Sarah Johnson, HR Manager</p>
-                        <p className="text-slate-500 text-sm">Subscriber since 2024</p>
                     </div>
                 </div>
             </div>
