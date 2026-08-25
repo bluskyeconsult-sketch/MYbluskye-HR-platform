@@ -1,5 +1,18 @@
 // src/pages/JobAlertsPage.jsx
 // COMPLETE PROFESSIONAL JOB ALERTS PAGE - With unified API, enhanced UI, and complete CRUD operations
+//
+// FIXED (2026-08-23): CRITICAL — every single operation on this page
+// (loading alerts, creating, updating, toggling, deleting) called one of
+// five backend actions (user-job-alerts, user-job-alert-create/-update/
+// -toggle/-delete) that don't exist anywhere in the real backend at all.
+// The only "job_alert" reference anywhere in api/index.js is an email
+// TEMPLATE for sending alert notifications — no CRUD logic was ever
+// built. This entire feature has been completely non-functional end to
+// end: nobody could ever view, create, edit, toggle, or delete a job
+// alert. Rewired every operation to direct Supabase queries against the
+// real job_alerts table, matching the same working pattern already
+// proven in SavedJobsPage.jsx and the job_alerts count query already
+// used successfully in UserDashboard.jsx.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -84,18 +97,15 @@ export default function JobAlertsPage() {
             }
             setUser(user);
             
-            // ✅ Using unified API endpoint
-            const response = await fetch('/api/index?action=user-job-alerts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id })
-            });
+            const { data, error: loadError } = await supabase
+                .from('job_alerts')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
             
-            const result = await response.json();
+            if (loadError) throw loadError;
             
-            if (!result.success) throw new Error(result.error);
-            
-            setAlerts(result.data || []);
+            setAlerts(data || []);
             
         } catch (error) {
             console.error('Error loading alerts:', error);
@@ -128,20 +138,21 @@ export default function JobAlertsPage() {
         }
 
         try {
-            const action = editingAlert ? 'user-job-alert-update' : 'user-job-alert-create';
-            const body = editingAlert 
-                ? { alertId: editingAlert.id, userId: user.id, updates: alertData }
-                : { userId: user.id, alert: alertData };
-            
-            const response = await fetch(`/api/index?action=${action}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
+            if (editingAlert) {
+                const { error: updateError } = await supabase
+                    .from('job_alerts')
+                    .update(alertData)
+                    .eq('id', editingAlert.id)
+                    .eq('user_id', user.id);
+
+                if (updateError) throw updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('job_alerts')
+                    .insert({ ...alertData, user_id: user.id, is_active: true, created_at: new Date().toISOString() });
+
+                if (insertError) throw insertError;
+            }
             
             resetModal();
             await loadUserAndAlerts();
@@ -159,19 +170,13 @@ export default function JobAlertsPage() {
         const newStatus = !alert.is_active;
         
         try {
-            const response = await fetch('/api/index?action=user-job-alert-toggle', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    alertId: alert.id,
-                    userId: user.id,
-                    isActive: newStatus
-                })
-            });
+            const { error: toggleError } = await supabase
+                .from('job_alerts')
+                .update({ is_active: newStatus })
+                .eq('id', alert.id)
+                .eq('user_id', user.id);
             
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
+            if (toggleError) throw toggleError;
             
             await loadUserAndAlerts();
             
@@ -187,18 +192,13 @@ export default function JobAlertsPage() {
         setError(null);
         
         try {
-            const response = await fetch('/api/index?action=user-job-alert-delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    alertId: alertId,
-                    userId: user.id
-                })
-            });
+            const { error: deleteError } = await supabase
+                .from('job_alerts')
+                .delete()
+                .eq('id', alertId)
+                .eq('user_id', user.id);
             
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
+            if (deleteError) throw deleteError;
             
             await loadUserAndAlerts();
             
