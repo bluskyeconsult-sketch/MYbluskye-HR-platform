@@ -44,6 +44,8 @@ export default function VirtualAssistantManager() {
         features: [],
         price: 9.99,
         category: 'resume',
+        execution_type: 'single_turn',
+        required_tier: 'free',
         processing_time_minutes: 5,
         sample_prompt: '',
         sample_output: '',
@@ -184,7 +186,7 @@ export default function VirtualAssistantManager() {
         setEditingVA(null);
         setFormData({
             name: '', title: '', description: '', long_description: '', features: [], price: 9.99,
-            category: 'resume', processing_time_minutes: 5, sample_prompt: '', sample_output: '', tags: [], is_active: true
+            category: 'resume', execution_type: 'single_turn', required_tier: 'free', processing_time_minutes: 5, sample_prompt: '', sample_output: '', tags: [], is_active: true
         });
         loadAssistants();
         setSaving(false);
@@ -259,7 +261,7 @@ export default function VirtualAssistantManager() {
                         <Sparkles className="w-4 h-4" /> AI Generate VA
                     </button>
                     <button
-                        onClick={() => { setEditingVA(null); setFormData({ name: '', title: '', description: '', long_description: '', features: [], price: 9.99, category: 'resume', processing_time_minutes: 5, sample_prompt: '', sample_output: '', tags: [], is_active: true }); setShowModal(true); }}
+                        onClick={() => { setEditingVA(null); setFormData({ name: '', title: '', description: '', long_description: '', features: [], price: 9.99, category: 'resume', execution_type: 'single_turn', required_tier: 'free', processing_time_minutes: 5, sample_prompt: '', sample_output: '', tags: [], is_active: true }); setShowModal(true); }}
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2"
                     >
                         <Plus className="w-4 h-4" /> Create Manual
@@ -493,6 +495,39 @@ export default function VirtualAssistantManager() {
                                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
+                            </div>
+                            {/* NEW (2026-08-23): controls whether this VA remembers
+                                the conversation within a session (real message
+                                history sent to the model) or behaves like today's
+                                original one-shot VAs. This is the actual mechanical
+                                difference between "hiring an assistant" and a
+                                single-purpose HR Tool — also the extension point for
+                                future VA execution types. */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Execution Type</label>
+                                <select value={formData.execution_type || 'single_turn'} onChange={e => setFormData({...formData, execution_type: e.target.value})} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                                    <option value="single_turn">Single-turn (one input, one output — no memory)</option>
+                                    <option value="conversational">Conversational (remembers the thread within a session)</option>
+                                </select>
+                                <p className="text-xs text-slate-500 mt-1">Conversational VAs show a chat-style thread and carry context between messages; single-turn matches every VA's original behavior.</p>
+                            </div>
+                            {/* NEW (2026-08-23): this field never existed before — the
+                                "some VAs require a higher plan" concept was built into
+                                the frontend catalog UI, but there was no way for an
+                                admin to actually set it, and the backend hardcoded every
+                                VA as 'free' regardless. Now a real, enforced setting —
+                                checked both here (display/access) and server-side in
+                                va-execute (the real security boundary). */}
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Required Plan</label>
+                                <select value={formData.required_tier || 'free'} onChange={e => setFormData({...formData, required_tier: e.target.value})} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                                    <option value="free">Free — available to everyone</option>
+                                    <option value="registered">Registered or higher</option>
+                                    <option value="professional">Professional or higher</option>
+                                    <option value="employer">Employer or higher</option>
+                                    <option value="business">Business only</option>
+                                </select>
+                                <p className="text-xs text-slate-500 mt-1">Minimum plan needed to use this assistant — enforced server-side, not just hidden in the UI.</p>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
