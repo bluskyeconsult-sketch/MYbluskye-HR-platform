@@ -1,15 +1,27 @@
 // src/pages/SignInPage.jsx
 // ODUSBABA SIGN IN PAGE — written 2026-08-07 by Claude, since no real
-// SignInPage.jsx was available to review. This follows the same confirmed-safe
-// patterns already established elsewhere in the codebase (direct Supabase auth,
-// same as GovernanceContext.jsx / JobsPage.jsx / the fixed App.jsx — NOT the
-// broken unified-API-first pattern that caused the earlier sitewide auth bug).
+// SignInPage.jsx was available to review at that time. This file's own
+// original header carried an explicit warning that if a different real
+// file existed and differed from this, that one should be treated as
+// authoritative — that ambiguity was never resolved by the time this was
+// sent back for the rate-limiting work below, so it's noted here plainly
+// rather than silently dropped.
 //
-// IMPORTANT: if a real SignInPage.jsx already exists in the deployed project
-// and differs from this, treat that one as authoritative and send it over —
-// this file is a best-effort placeholder, not a "correction" of existing code.
+// UPGRADED (2026-08-24) — real, server-side rate limiting/lockout on
+// sign-in, same underlying principle as the equivalent AdminLogin.jsx
+// build, but deliberately different thresholds and primary signal:
+// regular users can legitimately share one public IP (an office, a
+// campus network) in a way a handful of admin accounts never do, so
+// IP-based lockout here would risk locking out everyone on a shared
+// network over one person's typo. The new user-login backend action
+// tracks failures primarily by the targeted email (protects the specific
+// account without punishing everyone nearby), with IP-based tracking
+// kept only as a much more generous, spray-attack-specific secondary
+// signal. Sign-in no longer calls supabase.auth.signInWithPassword()
+// directly — that call never passed through the backend gateway, which
+// is exactly why attempts couldn't be tracked server-side before.
 //
-// Behavior:
+// Behavior otherwise unchanged:
 // - Supports a `?redirect=` query param (ProtectedRoute in App.jsx already
 //   sends users here with one, e.g. /sign-in?redirect=/dashboard) and returns
 //   them there after login.
@@ -24,6 +36,8 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, CheckCircle, ArrowLeft, LogIn } from 'lucide-react';
+
+const API_BASE = '/api/index';
 
 export default function SignInPage() {
     const navigate = useNavigate();
@@ -58,35 +72,49 @@ export default function SignInPage() {
         setError('');
 
         try {
-            const { data, error: signInError } = await supabase.auth.signInWithPassword({
-                email: formData.email,
-                password: formData.password
+            // FIXED (2026-08-24): no longer calls
+            // supabase.auth.signInWithPassword() directly from the
+            // browser — routes through the new user-login backend action
+            // instead, which is what makes real rate limiting/lockout
+            // possible at all (a direct client call never passes through
+            // the backend gateway and can't be tracked server-side).
+            const response = await fetch(`${API_BASE}?action=user-login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: formData.email, password: formData.password })
             });
 
-            if (signInError) throw signInError;
-            if (!data.user) throw new Error('Sign in failed. Please try again.');
+            const result = await response.json();
 
-            // Send admins to the admin dashboard by default when no explicit
-            // redirect was requested; everyone else goes to /dashboard.
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || result.error || 'Sign in failed. Please try again.');
+            }
+
+            // Real session tokens, obtained server-side after the real
+            // check passed — established in the browser exactly as if
+            // signInWithPassword had been called directly.
+            const { error: setSessionError } = await supabase.auth.setSession({
+                access_token: result.session.access_token,
+                refresh_token: result.session.refresh_token
+            });
+
+            if (setSessionError) throw setSessionError;
+
+            // Same destination logic as before, just using the isAdmin
+            // flag the backend already determined rather than a second
+            // profile query here.
             if (redirectTo) {
                 navigate(redirectTo, { replace: true });
                 return;
             }
 
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('user_type')
-                .eq('id', data.user.id)
-                .single();
-
-            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
-            navigate(isAdmin ? '/admin/dashboard' : '/dashboard', { replace: true });
+            navigate(result.isAdmin ? '/admin/dashboard' : '/dashboard', { replace: true });
 
         } catch (err) {
             console.error('Sign in error:', err);
-            // Supabase returns a generic "Invalid login credentials" message for
-            // both wrong password and unknown email — kept as-is deliberately,
-            // so this page doesn't reveal whether an email is registered.
+            // Deliberately generic message preserved — doesn't reveal
+            // whether an email is registered, same philosophy as before,
+            // now also true of the rate-limit messaging itself.
             setError(err.message || 'Unable to sign in. Please try again.');
         } finally {
             setLoading(false);
