@@ -1,5 +1,28 @@
 // src/components/course/ProgressDashboard.jsx
 // Complete learning progress dashboard with analytics and monitoring
+//
+// FIXED (2026-08-23): calculateLearningAnalytics() queried quiz_attempts
+// without await, inside a non-async function — quiz_average has silently
+// shown 0% for every user regardless of real quiz performance. Made the
+// function async and awaited properly. See inline comments for the full
+// mechanism.
+//
+// RESOLVED (2026-08-23): this file read enrollment.progress_percent
+// throughout — but the real, confirmed write path (update-course-progress
+// in index.js, used successfully by the already-verified-clean
+// CourseDetail.jsx) writes literally to a column named `progress`, not
+// `progress_percent`. Since that write succeeds against real data in a
+// confirmed-working flow, `progress` is the real column — this file's
+// `progress_percent` was the actual bug, silently showing 0%/never-
+// completed everywhere via the `|| 0` fallbacks, regardless of a
+// learner's real progress. Fixed all five references.
+//
+// STILL FLAGGED, NOT FIXED: enrollment?.started_at — unconfirmed whether
+// this column exists on course_enrollments. If it doesn't, new
+// Date(undefined) produces an Invalid Date, propagating to NaN for both
+// completion_velocity and retention_rate (displayed literally as "NaN%
+// per day" / "NaN%"). Separate, unrelated to the progress fix above —
+// worth confirming directly against the real schema.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -50,7 +73,16 @@ export default function ProgressDashboard({ userId, courseId }) {
             .order('created_at', { ascending: true });
 
         // Calculate analytics
-        const analyticsData = calculateLearningAnalytics(learningEvents, enrollment);
+        // FIXED (2026-08-23): calculateLearningAnalytics wasn't async and
+        // never awaited its internal quiz_attempts query — destructuring
+        // {data} from an un-awaited Supabase query builder gives
+        // undefined (the builder itself has no .data property until
+        // resolved), so quizAttempts was always undefined,
+        // quizAttempts?.reduce(...) short-circuited to undefined, and the
+        // final `|| 0` silently turned that into 0. quiz_average has
+        // shown 0% for every single user regardless of actual quiz
+        // performance since this was written.
+        const analyticsData = await calculateLearningAnalytics(learningEvents, enrollment, userId);
         
         // Get certificates
         const { data: certs } = await supabase
@@ -65,7 +97,7 @@ export default function ProgressDashboard({ userId, courseId }) {
         setLoading(false);
     }
 
-    function calculateLearningAnalytics(events, enrollment) {
+    async function calculateLearningAnalytics(events, enrollment, userId) {
         if (!events || events.length === 0) {
             return {
                 total_time_spent: 0,
@@ -90,7 +122,9 @@ export default function ProgressDashboard({ userId, courseId }) {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         
         // Quiz performance
-        const { data: quizAttempts } = supabase.from('quiz_attempts')
+        // FIXED (2026-08-23): was missing await entirely — see the call
+        // site comment for the full explanation of the resulting bug.
+        const { data: quizAttempts } = await supabase.from('quiz_attempts')
             .select('percentage')
             .eq('user_id', userId);
         
@@ -98,7 +132,7 @@ export default function ProgressDashboard({ userId, courseId }) {
         
         // Completion velocity (progress per day)
         const daysSinceStart = Math.max(1, (new Date() - new Date(enrollment?.started_at)) / (1000 * 60 * 60 * 24));
-        const completionVelocity = (enrollment?.progress_percent || 0) / daysSinceStart;
+        const completionVelocity = (enrollment?.progress || 0) / daysSinceStart;
 
         return {
             total_time_spent: Math.round(totalTime / 60), // minutes
@@ -122,12 +156,12 @@ export default function ProgressDashboard({ userId, courseId }) {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Progress</p>
-                            <p className="text-2xl font-bold text-white">{progress?.progress_percent || 0}%</p>
+                            <p className="text-2xl font-bold text-white">{progress?.progress || 0}%</p>
                         </div>
                         <TrendingUp className="w-8 h-8 text-emerald-500" />
                     </div>
                     <div className="mt-2 w-full bg-slate-700 rounded-full h-2">
-                        <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${progress?.progress_percent || 0}%` }}></div>
+                        <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${progress?.progress || 0}%` }}></div>
                     </div>
                 </div>
 
@@ -191,7 +225,7 @@ export default function ProgressDashboard({ userId, courseId }) {
                         Achievements
                     </h3>
                     <div className="space-y-3">
-                        {progress?.progress_percent === 100 && (
+                        {progress?.progress === 100 && (
                             <div className="flex items-center gap-2 text-emerald-400">
                                 <CheckCircle className="w-4 h-4" />
                                 <span>Course Completed!</span>
@@ -220,7 +254,7 @@ export default function ProgressDashboard({ userId, courseId }) {
             </div>
 
             {/* Certificate Actions */}
-            {progress?.progress_percent === 100 && certificates.length === 0 && (
+            {progress?.progress === 100 && certificates.length === 0 && (
                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-5 text-center">
                     <Award className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
                     <h3 className="text-white font-semibold mb-2">Congratulations! You've completed the course!</h3>
