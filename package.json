@@ -45,19 +45,19 @@
     "framer-motion": "^10.16.16",
     "lucide-react": "^0.292.0",
     "nodemailer": "^6.9.7",
+    "otpauth": "^9.5.1",
+    "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-countup": "^6.4.2",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "react-intersection-observer": "^9.5.3",
     "react-markdown": "^9.0.1",
+    "react-pdf": "^10.5.0",
     "react-router-dom": "^6.20.1",
     "stripe": "^17.4.0",
     "fast-xml-parser": "^4.5.1",
     "xml2js": "^0.6.2"
-  },
-  "optionalDependencies": {
-    "qrcode": "^1.5.3"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
