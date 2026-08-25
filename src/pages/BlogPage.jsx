@@ -1,4 +1,21 @@
 // src/pages/BlogPage.jsx
+//
+// FIXED (2026-08-23): queried .eq('status', 'published') — but the real,
+// confirmed articles schema uses is_published (boolean), verified
+// independently via ArticleEditor.jsx and ArticleDetail.jsx earlier this
+// session. Since nothing anywhere sets a 'status' column to 'published'
+// (that column likely doesn't exist on this table at all, or if it does,
+// nothing writes to it), this page has always silently returned zero
+// articles — showing "No articles found. Check back soon!" regardless of
+// how many real, published articles actually existed. Same bug class
+// already found and fixed in aiArticleService.js.
+//
+// Also worth flagging, not fixed here: this page and /articles
+// (ArticlesPage.jsx) both read from the exact same `articles` table —
+// worth a decision on whether /blog is meant to be a genuinely distinct
+// experience or should be consolidated with /articles, now that both
+// actually work against the same real data.
+
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -19,7 +36,7 @@ export default function BlogPage() {
             const { data, error } = await supabase
                 .from('articles')
                 .select('*')
-                .eq('status', 'published')
+                .eq('is_published', true)
                 .order('published_at', { ascending: false });
 
             if (error) throw error;
