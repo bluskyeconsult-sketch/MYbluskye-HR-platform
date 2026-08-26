@@ -4578,6 +4578,102 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== VA FEEDBACK ==========
+    // ========== TEST CHECKLIST (NEW — 2026-08-24) ==========
+    // Real, structured per-task testing feedback — replaces "leave a
+    // general comment at the end" with actual pass/fail/notes per
+    // specific page or flow, so problems can be traced to exactly what
+    // broke, not just inferred from a paragraph of free text.
+    'get-test-checklist': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const [{ data: items, error: itemsError }, { data: results }] = await Promise.all([
+                supabaseClient.from('test_checklist_items').select('*').eq('is_active', true).order('section').order('task_order'),
+                supabaseClient.from('tester_task_results').select('*').eq('user_id', auth.userId)
+            ]);
+
+            if (itemsError) throw itemsError;
+
+            const resultsByItem = {};
+            for (const r of results || []) resultsByItem[r.checklist_item_id] = r;
+
+            const merged = (items || []).map(item => ({
+                ...item,
+                myResult: resultsByItem[item.id] || null
+            }));
+
+            return res.status(200).json({ success: true, items: merged });
+        } catch (error) {
+            console.error('get-test-checklist error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'submit-test-result': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { checklistItemId, status, notes } = req.body;
+        if (!checklistItemId || !['pass', 'fail', 'skip'].includes(status)) {
+            return res.status(400).json({ error: 'checklistItemId and a valid status (pass/fail/skip) are required' });
+        }
+
+        try {
+            const { error } = await supabaseClient
+                .from('tester_task_results')
+                .upsert({
+                    user_id: auth.userId,
+                    checklist_item_id: checklistItemId,
+                    status,
+                    notes: notes || null,
+                    tested_at: new Date().toISOString()
+                }, { onConflict: 'user_id,checklist_item_id' });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('submit-test-result error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Admin view — aggregated pass/fail counts per task, so a real
+    // problem (many testers failing the same specific task) is visible
+    // at a glance rather than buried across individual free-text notes.
+    'admin-test-results-summary': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+            if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+                return res.status(403).json({ error: 'Admin access required' });
+            }
+
+            const [{ data: items }, { data: results }] = await Promise.all([
+                supabaseClient.from('test_checklist_items').select('*').order('section').order('task_order'),
+                supabaseClient.from('tester_task_results').select('*, profiles:user_id(full_name, email)')
+            ]);
+
+            const byItem = {};
+            for (const item of items || []) byItem[item.id] = { ...item, pass: 0, fail: 0, skip: 0, notes: [] };
+            for (const r of results || []) {
+                if (!byItem[r.checklist_item_id]) continue;
+                byItem[r.checklist_item_id][r.status]++;
+                if (r.notes) byItem[r.checklist_item_id].notes.push({ tester: r.profiles?.full_name || r.profiles?.email, note: r.notes, status: r.status });
+            }
+
+            return res.status(200).json({ success: true, summary: Object.values(byItem) });
+        } catch (error) {
+            console.error('admin-test-results-summary error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'va-feedback': async (req, res) => {
         const { taskId, rating } = req.body;
         const supabaseClient = getSupabase();
