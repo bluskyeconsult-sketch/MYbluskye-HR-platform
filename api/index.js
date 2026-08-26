@@ -3324,6 +3324,70 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
     },
 
+    // ========== EXTERNAL JOB APPROVAL (NEW - 2026-08-27) ==========
+    // Confirmed this session: no backend action existed anywhere for
+    // approving or rejecting a job's compliance_status. The real,
+    // live "Pending Review" tab in the admin External Jobs page had
+    // no way to actually approve or reject anything through it,
+    // regardless of what buttons the frontend shows - there was
+    // nothing on the backend for those buttons to call.
+    'admin-approve-job': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { jobId } = req.body;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        try {
+            const { error } = await supabaseClient
+                .from('jobs')
+                .update({ compliance_status: 'approved', is_active: true })
+                .eq('id', jobId);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-approve-job error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-reject-job': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { jobId, reason } = req.body;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        // Requires add-jobs-rejection-reason.sql to have been run first
+        // (adds the rejection_reason column) - included here now that
+        // it's a real, confirmed column rather than an unconfirmed guess.
+        try {
+            const { error } = await supabaseClient
+                .from('jobs')
+                .update({ compliance_status: 'rejected', is_active: false, rejection_reason: reason || null })
+                .eq('id', jobId);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-reject-job error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'assessment-results': async (req, res) => {
         const { id } = req.query;
         const authHeader = req.headers.authorization;
