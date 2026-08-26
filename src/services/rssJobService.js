@@ -878,14 +878,25 @@ export async function approveExternalJob(jobId) {
     let jobType = externalJob.job_type || 'full_time';
     if (jobType === 'full-time') jobType = 'full_time';
     if (jobType === 'part-time') jobType = 'part_time';
-    
+
+    // FIXED (2026-08-27): confirmed real, live failure —
+    // "null value in column description of relation jobs violates
+    // not-null constraint". Traced this to genuinely stale rows in
+    // external_jobs left behind by one of several older, now-dead
+    // fetch services that predate the current real fetcher (this
+    // specific row's source_name, "NITDA", doesn't match any source
+    // this file actually configures — the real parseRSSFeed() always
+    // produces at least an empty string for description, never null,
+    // so this was never something the current fetcher could produce).
+    // Rather than let old, incomplete data crash approval outright,
+    // every field going into the insert now has a real fallback.
     const { data: newJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
-            title: externalJob.title,
-            company: externalJob.company,
-            location: externalJob.location || externalJob.source_country,
-            description: externalJob.description,
+            title: externalJob.title || 'Untitled Position',
+            company: externalJob.company || externalJob.source_name || 'Unknown Company',
+            location: externalJob.location || externalJob.source_country || 'Not specified',
+            description: externalJob.description || 'No description was provided for this listing. View the original posting for full details.',
             salary_range: externalJob.salary_range,
             salary_min: externalJob.salary_min,
             salary_max: externalJob.salary_max,
