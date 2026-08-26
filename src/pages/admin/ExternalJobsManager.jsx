@@ -42,7 +42,9 @@ import {
     rejectExternalJob, 
     getExternalJobsStats,
     fetchExternalJobs,
-    testRSSConnection
+    testRSSConnection,
+    RSS_FEEDS,
+    API_SOURCES
 } from '../../services/rssJobService';
 import { 
     CheckCircle, 
@@ -68,29 +70,30 @@ import {
 } from 'lucide-react';
 
 // ============================================
-// RSS FEED SOURCES CONFIGURATION (informational display only —
-// the actual sources fetched are whatever rssJobService.js implements)
+// RSS FEED SOURCES CONFIGURATION
+//
+// FIXED (2026-08-27): this used to be a separate, local, hardcoded array
+// that had drifted from reality — every entry (including Stack Overflow
+// and Zapier) was marked active: true here, even though the real
+// rssJobService.js correctly has both disabled (is_active: false). This
+// is what made the "Active RSS Feeds" stat show 13 regardless of what
+// was actually configured to run. Now imports the real, authoritative
+// source list directly from rssJobService.js instead of maintaining a
+// second, driftable copy.
 // ============================================
-
-const RSS_FEEDS = [
-    { name: 'UK Civil Service Jobs', url: 'https://www.civilservicejobs.service.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
-    { name: 'NHS Jobs', url: 'https://www.jobs.nhs.uk/feeds/jobs.xml', country: 'UK', active: true },
-    { name: 'Find a Job - UK Government', url: 'https://www.findajob.dwp.gov.uk/feeds/jobs.xml', country: 'UK', active: true },
-    { name: 'Public Jobs Ireland', url: 'https://www.publicjobs.ie/feeds/jobs.xml', country: 'Ireland', active: true },
-    { name: 'GC Jobs Canada', url: 'https://www.jobs-emplois.gc.ca/feeds/jobs.xml', country: 'Canada', active: true },
-    { name: 'APS Jobs Australia', url: 'https://www.apsjobs.gov.au/feeds/jobs.xml', country: 'Australia', active: true },
-    { name: 'USAJobs', url: 'https://www.usajobs.gov/feeds/jobs.xml', country: 'USA', active: true },
-    { name: 'Bund.de', url: 'https://www.bund.de/feeds/jobs.xml', country: 'Germany', active: true },
-    { name: 'Jobicy', url: 'https://jobicy.com/api/v2/remote-jobs', country: 'Global', active: true, isApi: true },
-    { name: 'Remote OK', url: 'https://remoteok.com/api', country: 'Global', active: true, isApi: true },
-    { name: 'We Work Remotely', url: 'https://weworkremotely.com/feed.xml', country: 'Global', active: true },
-    { name: 'Stack Overflow', url: 'https://stackoverflow.com/jobs/feed', country: 'Global', active: true },
-    { name: 'Zapier', url: 'https://zapier.com/feeds/jobs.xml', country: 'Global', active: true }
-];
 
 // ============================================
 // MAIN COMPONENT
 // ============================================
+
+// FIXED (2026-08-27): RSS_FEEDS and API_SOURCES (imported above, real)
+// are keyed objects with an is_active flag, not the array-of-{active}
+// shape the old local stand-in used. This combines both real source
+// configs into one flat, displayable list.
+const ALL_SOURCES = [
+    ...Object.entries(RSS_FEEDS).map(([key, cfg]) => ({ key, name: cfg.name, country: cfg.country, active: cfg.is_active })),
+    ...Object.entries(API_SOURCES).map(([key, cfg]) => ({ key, name: cfg.name, country: cfg.country, active: cfg.is_active }))
+];
 
 export default function ExternalJobsManager() {
     // State Management
@@ -189,7 +192,7 @@ export default function ExternalJobsManager() {
         
         try {
             const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, message: `Added ${result.totalAdded} new jobs` });
+            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Added ${result.totalAdded} new jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -206,7 +209,7 @@ export default function ExternalJobsManager() {
         
         try {
             const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, message: `Synced ${result.totalAdded} jobs` });
+            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Synced ${result.totalAdded} jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -223,7 +226,7 @@ export default function ExternalJobsManager() {
         
         try {
             const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, message: `Added ${result.totalAdded} external jobs` });
+            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Added ${result.totalAdded} external jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -242,7 +245,7 @@ export default function ExternalJobsManager() {
         
         try {
             const result = await fetchExternalJobs(true);
-            setSyncResult({ success: true, inserted: result.totalAdded, forceRefresh: true, message: `Force refresh complete. Added ${result.totalAdded} jobs.` });
+            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, forceRefresh: true, message: `Force refresh complete. Added ${result.totalAdded} jobs.` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -504,11 +507,11 @@ export default function ExternalJobsManager() {
                 <div className="p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
                     <h3 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
                         <Rss className="w-4 h-4" />
-                        Active RSS Feed Sources ({RSS_FEEDS.filter(f => f.active).length} of {RSS_FEEDS.length})
+                        Active RSS Feed Sources ({ALL_SOURCES.filter(f => f.active).length} of {ALL_SOURCES.length})
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
-                        {RSS_FEEDS.map(feed => (
-                            <div key={feed.name} className="flex items-center gap-2 text-slate-400">
+                        {ALL_SOURCES.map(feed => (
+                            <div key={feed.key} className="flex items-center gap-2 text-slate-400">
                                 <span className={feed.active ? 'text-emerald-400' : 'text-red-400'}>
                                     {feed.active ? '✅' : '❌'}
                                 </span>
@@ -521,6 +524,13 @@ export default function ExternalJobsManager() {
             )}
 
             {/* Sync Result Banner */}
+            {/* FIXED (2026-08-27): only showed an aggregate count ("Added
+                0 new jobs") - the real fetchExternalJobs() already
+                returns a full per-source breakdown (found/added/status/
+                error for each source), which was being fetched but
+                silently discarded. Now shown directly, so "why did
+                fetch find nothing" is answered immediately without a
+                separate diagnostic step. */}
             {syncResult && (
                 <div className={`p-3 rounded-lg ${syncResult.success ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                     <p className={syncResult.success ? 'text-emerald-400' : 'text-red-400'}>
@@ -528,6 +538,18 @@ export default function ExternalJobsManager() {
                             ? `✅ ${syncResult.message || `Sync complete: ${syncResult.inserted} new jobs added`}${syncResult.forceRefresh ? ' (force refresh)' : ''}`
                             : `❌ Sync failed: ${syncResult.error}`}
                     </p>
+                    {syncResult.results && syncResult.results.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-800/50 space-y-1">
+                            {syncResult.results.map((r, idx) => (
+                                <p key={idx} className="text-xs text-slate-400 flex items-center justify-between">
+                                    <span>{r.source}</span>
+                                    <span className={r.status === 'failed' ? 'text-red-400' : 'text-slate-500'}>
+                                        {r.status === 'failed' ? `Failed: ${r.error}` : `${r.found ?? 0} found, ${r.added ?? 0} new`}
+                                    </span>
+                                </p>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -573,7 +595,7 @@ export default function ExternalJobsManager() {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-slate-400 text-sm">Active RSS Feeds</p>
-                            <p className="text-2xl font-bold text-white">{RSS_FEEDS.filter(f => f.active).length}</p>
+                            <p className="text-2xl font-bold text-white">{ALL_SOURCES.filter(f => f.active).length}</p>
                         </div>
                         <TrendingUp className="w-8 h-8 text-primary-400 opacity-70" />
                     </div>
