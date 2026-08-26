@@ -807,7 +807,17 @@ function AppContent() {
                             <Route path="/admin/testing-mode" element={<ProtectedRoute requireAdmin><AdminLayout><TestingModeSettings /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/settings/tester-visibility" element={<ProtectedRoute requireAdmin><AdminLayout><TesterVisibilitySettings /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/email-test" element={<ProtectedRoute requireAdmin><AdminLayout><EmailTest /></AdminLayout></ProtectedRoute>} />
-                            <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobs /></AdminLayout></ProtectedRoute>} />
+                            {/* FIXED (2026-08-27): the real problem behind the "no
+                                fetch button, no approval protocol" complaint - this
+                                exact URL (the one the admin sidebar actually links to)
+                                was rendering ExternalJobs.jsx, a simple read-only
+                                viewer with no admin actions at all. The complete,
+                                already-correct tool (real Fetch/Force Refresh buttons,
+                                real Approve/Reject wired to the real rssJobService.js
+                                functions, batch approval, connection testing) already
+                                existed the whole time, one URL away and unused. Both
+                                routes now point to the real, complete tool. */}
+                            <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobsManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobsManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><AdminLayout><KnowledgeSourceManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/books" element={<ProtectedRoute requireAdmin><AdminLayout><ManageBooks /></AdminLayout></ProtectedRoute>} />
