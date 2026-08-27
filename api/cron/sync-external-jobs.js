@@ -7,8 +7,21 @@
 // (/api/cron/sync-external-jobs) — it thinly wraps fetchExternalJobs() in
 // src/services/rssJobService.js, which was verified correct and properly
 // targets the real external_jobs table earlier this session.
+//
+// UPGRADED (2026-08-27): now also runs the verified employer source
+// scraper (employerWebsiteScraperService.js) in the same daily
+// invocation, rather than requesting a third Vercel cron slot. Hobby
+// plan's cron budget is already fully used by this job and
+// dispatch-job-alerts - both real, scheduled operations here are
+// background, non-time-pressured work with the same 60-second budget
+// available, so running them sequentially in one invocation is a safe,
+// free way to get both scheduled without any plan upgrade. If either
+// step fails, the other still runs and reports its own real result -
+// they're isolated from each other, not all-or-nothing.
 
 import { fetchExternalJobs } from '../../src/services/rssJobService.js';
+import { scrapeAllVerifiedEmployers } from '../../src/services/employerWebsiteScraperService.js';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
     // Enable CORS
@@ -32,23 +45,47 @@ export default async function handler(req, res) {
 
     console.log('🕐 Cron job started:', new Date().toISOString());
 
+    const response = {
+        success: true,
+        timestamp: new Date().toISOString(),
+        rssSync: null,
+        employerScrape: null
+    };
+
+    // Step 1: RSS/API sources - unchanged, real, already-fixed logic.
     try {
         const result = await fetchExternalJobs(false);
-
-        console.log(`🕐 Cron job finished: ${result.totalAdded} new jobs added`);
-
-        return res.status(200).json({
+        console.log(`🕐 RSS sync finished: ${result.totalAdded} new jobs added`);
+        response.rssSync = {
             success: true,
             jobsAdded: result.totalAdded,
-            timestamp: new Date().toISOString(),
-            details: result.results?.slice(0, 10) // First 10 results for logging
-        });
+            details: result.results?.slice(0, 10)
+        };
     } catch (error) {
-        console.error('Cron job failed:', error);
-        return res.status(500).json({
-            success: false,
-            error: error.message,
-            timestamp: new Date().toISOString()
-        });
+        console.error('RSS sync failed:', error);
+        response.rssSync = { success: false, error: error.message };
     }
+
+    // Step 2: NEW - verified employer sources (Schema.org JobPosting
+    // scraping). Isolated in its own try/catch so an issue here never
+    // prevents the RSS sync above from having already completed and
+    // reported its real result.
+    try {
+        const supabaseClient = createClient(
+            process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY
+        );
+        const employerResult = await scrapeAllVerifiedEmployers(supabaseClient);
+        console.log(`🕐 Employer source scrape finished: ${employerResult.totalAdded} new jobs added`);
+        response.employerScrape = {
+            success: true,
+            jobsAdded: employerResult.totalAdded,
+            details: employerResult.results
+        };
+    } catch (error) {
+        console.error('Employer source scrape failed:', error);
+        response.employerScrape = { success: false, error: error.message };
+    }
+
+    return res.status(200).json(response);
 }
