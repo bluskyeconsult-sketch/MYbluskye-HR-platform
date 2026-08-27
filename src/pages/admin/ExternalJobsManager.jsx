@@ -553,6 +553,31 @@ export default function ExternalJobsManager() {
                 </div>
             )}
 
+            {/* FIXED (2026-08-27): connectionStatus was already being set
+                by handleTestConnections() with real, detailed per-source
+                results (URL, HTTP status, specific error) - but nothing
+                anywhere actually rendered it. Only a generic alert() with
+                an aggregate count ("1/12 feeds working") ever reached the
+                admin, with no way to see WHICH sources failed or why
+                without this. */}
+            {connectionStatus && (
+                <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+                    <p className="text-slate-300 text-sm font-medium mb-2">
+                        Feed connection test: {connectionStatus.filter(r => r.ok).length}/{connectionStatus.length} reachable
+                    </p>
+                    <div className="space-y-1">
+                        {connectionStatus.map((r, idx) => (
+                            <p key={idx} className="text-xs flex items-center justify-between">
+                                <span className="text-slate-400">{r.source} <span className="text-slate-600">({r.country})</span></span>
+                                <span className={r.ok ? 'text-emerald-400' : 'text-red-400'}>
+                                    {r.ok ? `✅ ${r.status}` : `❌ ${r.message || r.error}`}
+                                </span>
+                            </p>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Stats Dashboard */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div 
