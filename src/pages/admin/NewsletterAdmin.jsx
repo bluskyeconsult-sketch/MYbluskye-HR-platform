@@ -82,9 +82,17 @@ export default function NewsletterAdmin() {
     async function handleGenerateDigest() {
         setGeneratingDigest(true);
         try {
+            // FIXED (2026-08-27): the backend now correctly requires real
+            // admin authorization (was "admin-only" by comment alone,
+            // with zero actual enforcement) - this call must now send a
+            // real auth token, or every request would fail with 401/403.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=generate-newsletter-digest', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                }
             });
             const data = await response.json();
 
@@ -241,7 +249,7 @@ export default function NewsletterAdmin() {
     // uses the real, confirmed `email` action with the `newsletter`
     // template already defined in api/index.js, once per subscriber.
     async function handleSendNow(newsletterId) {
-        const segmentLabels = { all: 'All Active Subscribers', registered: 'Job Seekers (registered)', employer: 'Employers', tester: 'Testers' };
+        const segmentLabels = { all: 'All Active Subscribers', job_seeker: 'Job Seekers', employer: 'Employers', tester: 'Testers' };
         if (!confirm(`Send this newsletter now to: ${segmentLabels[sendSegment]}?`)) return;
         
         setSending(true);
@@ -257,6 +265,27 @@ export default function NewsletterAdmin() {
                     .select('email')
                     .eq('status', 'active');
                 if (subError) throw subError;
+                activeSubscribers = data;
+            } else if (sendSegment === 'tester') {
+                // FIXED (2026-08-27): confirmed same recurring bug already
+                // found and fixed in Navbar.jsx, UserDashboard.jsx, and
+                // AdminUsers.jsx this engagement - no account has ever had
+                // user_type literally equal to 'tester' under the real,
+                // rebuilt tester system (testers keep their real tier's
+                // user_type, flagged separately via the is_tester boolean).
+                // The "Testers" segment has always silently matched zero
+                // subscribers. Now correctly filters on is_tester.
+                const { data, error: subError } = await supabase
+                    .from('newsletter_subscribers')
+                    .select('email, profiles!inner(is_tester)')
+                    .eq('status', 'active')
+                    .eq('profiles.is_tester', true);
+
+                if (subError) {
+                    throw new Error(
+                        `Segment targeting isn't available: ${subError.message}. This likely means newsletter_subscribers doesn't have a user_id column linking to profiles — subscribers may be guest emails not tied to accounts. Use "All Active Subscribers" instead, or add that link if segmentation is needed.`
+                    );
+                }
                 activeSubscribers = data;
             } else {
                 // Segment targeting requires newsletter_subscribers to link
@@ -473,7 +502,12 @@ export default function NewsletterAdmin() {
 
             {/* Actions Bar */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <div className="flex gap-2">
+                {/* FIXED (2026-08-27): 4 labeled buttons in a single
+                    non-wrapping row - "Generate Weekly Digest" in
+                    particular is a long enough label that this could
+                    overflow or force horizontal scroll on narrow mobile
+                    screens. Now wraps onto additional rows instead. */}
+                <div className="flex flex-wrap gap-2">
                     <button
                         onClick={() => setShowCreateModal(true)}
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
@@ -541,7 +575,12 @@ export default function NewsletterAdmin() {
                         className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                     >
                         <option value="all">Send to: All Active</option>
-                        <option value="registered">Send to: Job Seekers</option>
+                        {/* FIXED (2026-08-27): value was "registered" - a
+                            tier name, not a real user_type value. The real
+                            value for a job seeker account is "job_seeker".
+                            This segment, like "Testers", has always
+                            silently matched zero subscribers. */}
+                        <option value="job_seeker">Send to: Job Seekers</option>
                         <option value="employer">Send to: Employers</option>
                         <option value="tester">Send to: Testers</option>
                     </select>
