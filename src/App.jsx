@@ -540,6 +540,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
+const VerifiedEmployersPage = lazy(() => import('./pages/VerifiedEmployersPage'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
@@ -764,6 +765,7 @@ function AppContent() {
                             {/* Public Routes */}
                             <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
                             <Route path="/jobs" element={<AnimatedPage><JobsPage /></AnimatedPage>} />
+                            <Route path="/verified-employers" element={<AnimatedPage><VerifiedEmployersPage /></AnimatedPage>} />
                             <Route path="/jobs/:id" element={<AnimatedPage><JobDetailPage /></AnimatedPage>} />
                             <Route path="/workforce" element={<AnimatedPage><WorkforceMarketplace /></AnimatedPage>} />
                             <Route path="/courses" element={<AnimatedPage><CoursesPage /></AnimatedPage>} />
