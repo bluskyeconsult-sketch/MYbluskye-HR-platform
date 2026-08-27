@@ -17,6 +17,8 @@
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
+import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from '../src/services/liveJobSearchService.js';
+import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
 
 // ============================================
 // CONFIGURATION
@@ -972,42 +974,73 @@ async function fetchAllJobs() {
 // bare `function` statement sitting directly inside the handlers object
 // literal — invalid JavaScript (object literals only allow key: value
 // pairs, never a standalone function statement). This has been a hard
-// SyntaxError since the job-search chat feature was added, breaking the
-// entire file — every single action in this file 500'd as a result,
-// since the whole module failed to parse at cold start. Moved to a
-// proper top-level function, same as every other shared helper here.
+// FIXED (2026-08-27): confirmed real, concrete gap - the previous
+// version stripped job-related words and stopwords, then searched for
+// the ENTIRE remaining leftover phrase as one literal substring. A
+// query combining several real, separately-filterable concepts (e.g.
+// "sponsorship jobs in UK for an HR expert") would almost certainly
+// match zero jobs even with perfect real candidates in the table,
+// since no real listing contains that exact combined phrase verbatim.
+// Now parses sponsorship intent, country/location, and role/keyword as
+// genuinely separate signals.
 //
-// Detects whether a chat message is asking about jobs, and if so,
-// searches the real jobs table (which already contains both
-// admin-posted internal listings AND approved external jobs sourced
-// from the official government portals — they're unified into one
-// table by the existing approval flow, so one query naturally covers
-// both "internal job board and verified country official sources" as
-// asked for). Returns a compact list for the AI to reference, or null
-// if the message doesn't look job-related.
+// REFACTORED (2026-08-27): this parsing is now its own shared function,
+// used by BOTH the internal job-board search (findRelevantJobs) and the
+// new live external search (searchLiveExternalJobs, wired in below) -
+// avoids parsing the same message twice with two separate, potentially
+// drifting implementations.
+const JOB_INTENT_KEYWORDS = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
+
+function parseJobSearchIntent(userMessage) {
+    if (!JOB_INTENT_KEYWORDS.test(userMessage)) return null;
+
+    const msg = userMessage.toLowerCase();
+
+    const wantsSponsorship = /\b(sponsor|visa|work permit|relocat|skilled worker)\w*/i.test(msg);
+
+    const countryMap = {
+        'uk': 'GB', 'united kingdom': 'GB', 'britain': 'GB', 'england': 'GB',
+        'us': 'US', 'usa': 'US', 'united states': 'US', 'america': 'US',
+        'nigeria': 'NG', 'canada': 'CA', 'australia': 'AU',
+        'germany': 'DE', 'ireland': 'IE'
+    };
+    let matchedCountry = null;
+    for (const [name, code] of Object.entries(countryMap)) {
+        if (msg.includes(name)) { matchedCountry = code; break; }
+    }
+
+    const keyword = userMessage
+        .replace(JOB_INTENT_KEYWORDS, '')
+        .replace(/\b(sponsor\w*|visa|work permit|relocat\w*|skilled worker)\b/gi, '')
+        .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around|help)\b/gi, '')
+        .trim()
+        .substring(0, 100);
+
+    return { wantsSponsorship, country: matchedCountry, keyword: keyword.length >= 3 ? keyword : null };
+}
+
 async function findRelevantJobs(supabaseClient, userMessage) {
-    const jobKeywords = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
-    if (!jobKeywords.test(userMessage)) return null;
+    const intent = parseJobSearchIntent(userMessage);
+    if (!intent) return null;
 
     try {
-        // Naive keyword extraction: strip common stopwords/job-generic
-        // terms, keep whatever's left as the search term (likely a job
-        // title, skill, or location the user mentioned).
-        const searchTerm = userMessage
-            .replace(jobKeywords, '')
-            .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around)\b/gi, '')
-            .trim()
-            .substring(0, 100);
-
         let query = supabaseClient
             .from('jobs')
-            .select('title, company, location, job_type, salary_range, external_apply_url, source_country')
+            .select('title, company, location, job_type, salary_range, external_apply_url, source_country, sponsorship_eligible, verified_employer_source_id')
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(5);
 
-        if (searchTerm.length >= 3) {
-            query = query.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,location.ilike.%${searchTerm}%`);
+        // Each real signal detected becomes its own genuine filter,
+        // combined with AND - not folded into one substring search.
+        if (intent.wantsSponsorship) {
+            query = query.eq('sponsorship_eligible', true);
+        }
+        if (intent.country) {
+            query = query.eq('source_country', intent.country);
+        }
+        if (intent.keyword) {
+            query = query.or(`title.ilike.%${intent.keyword}%,description.ilike.%${intent.keyword}%`);
         }
 
         const { data: jobs } = await query;
@@ -1017,6 +1050,19 @@ async function findRelevantJobs(supabaseClient, userMessage) {
         return null;
     }
 }
+
+// NEW (2026-08-27): real HR Tools catalog for the chat to proactively
+// reference alongside job matches - the "intelligent value angle"
+// connecting a job search directly to a concrete next action on this
+// platform, rather than leaving the person with just a list of links.
+const HR_TOOLS_FOR_CHAT = [
+    { name: 'CV Analyzer', use: 'get real, specific feedback on a CV before applying' },
+    { name: 'Cover Letter Writer', use: 'draft a tailored cover letter for a specific role' },
+    { name: 'Interview Simulator', use: 'practice for an upcoming interview' },
+    { name: 'Salary Calculator', use: 'check whether an offer or listed range is competitive' },
+    { name: 'LinkedIn Optimizer', use: 'strengthen a LinkedIn profile before applying' }
+];
+
 
 const handlers = {
     // ========== HEALTH & SYSTEM ==========
@@ -1164,15 +1210,62 @@ const handlers = {
             // additional context so the AI can act as a genuine guide,
             // recommending real jobs rather than generic advice or
             // fabricated listings.
+            const jobIntent = parseJobSearchIntent(message);
             const relevantJobs = await findRelevantJobs(supabaseClient, message);
-            if (relevantJobs) {
-                const jobContext = relevantJobs.map(j =>
-                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${j.source_country && j.source_country !== 'internal' ? ` [via official ${j.source_country} government portal]` : ''}`
-                ).join('\n');
+
+            // NEW (2026-08-27): live, on-demand external search - a
+            // genuinely different feature from the job board's batch
+            // fetch-and-approve pipeline. Only triggers when real
+            // job-search intent is detected, respects a real per-user
+            // rate limit (separate from normal chat credits, since this
+            // makes several real third-party API calls), and only ever
+            // reaches out to the sources already confirmed reliably
+            // reachable from this platform's real infrastructure -
+            // deliberately not the government sources already confirmed
+            // blocked, since attempting those here would only slow every
+            // chat response down for no benefit.
+            let liveJobs = null;
+            if (jobIntent) {
+                const rateLimitCheck = await checkLiveSearchRateLimit(supabaseClient, userId);
+                if (rateLimitCheck.allowed) {
+                    await logLiveSearch(supabaseClient, userId, jobIntent.keyword);
+                    liveJobs = await searchLiveExternalJobs({
+                        keyword: jobIntent.keyword,
+                        country: jobIntent.country,
+                        sponsorshipOnly: jobIntent.wantsSponsorship
+                    });
+                }
+            }
+
+            if (relevantJobs || (liveJobs && liveJobs.length > 0)) {
+                // FIXED (2026-08-27): previously labeled every non-internal
+                // job as "via official government portal" unconditionally -
+                // factually wrong for verified-employer-sourced jobs, which
+                // come from the employer's own careers page (cross-
+                // referenced against a government sponsor register), not a
+                // government portal at all. Now distinguishes the two real
+                // source types honestly.
+                const boardContext = relevantJobs ? relevantJobs.map(j => {
+                    const sourceLabel = j.verified_employer_source_id
+                        ? " [via a government-verified sponsor employer's own careers page]"
+                        : (j.source_country && j.source_country !== 'internal' ? ` [via official ${j.source_country} government portal]` : '');
+                    return `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${sourceLabel}${j.sponsorship_eligible ? ' [sponsorship available]' : ''}`;
+                }).join('\n') : '';
+
+                // FIXED (2026-08-27): live results are explicitly, honestly
+                // labeled as not yet reviewed - unlike the job board's
+                // admin-approved listings, nothing here has passed human
+                // review, and the AI is told to say so plainly rather than
+                // present both tiers with equal confidence.
+                const liveContext = (liveJobs && liveJobs.length > 0) ? liveJobs.map(j =>
+                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'} [LIVE result from ${j.source_name}, not yet reviewed by our team]`
+                ).join('\n') : '';
+
+                const toolSuggestions = HR_TOOLS_FOR_CHAT.map(t => `${t.name} (${t.use})`).join(', ');
 
                 messages = [{
                     role: 'system',
-                    content: `The user's message may be about job searching. Here are real, current listings from our job board that might be relevant (this includes both internally-posted jobs and jobs sourced from verified official government portals):\n\n${jobContext}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply on our Jobs page. Never invent or describe job listings that aren't in this list — if none of these are a good match, say so honestly and suggest they browse the full job board instead.`
+                    content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external remote-job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply directly. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
                 }, ...messages];
             }
 
@@ -3336,6 +3429,216 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // (ExternalJobsManager.jsx) - not through any backend action. Removed
     // these two actions entirely rather than leave a second, incompatible,
     // unused approval path sitting in the codebase alongside the real one.
+
+    // ========== VERIFIED EMPLOYER SOURCES (NEW - 2026-08-27) ==========
+    // Admin-managed list of individual company career pages to source
+    // jobs directly from - built specifically to use a government's own
+    // published sponsor license register as the source list, so every
+    // entry can carry a genuine, verified sponsorship flag.
+    'admin-add-employer-source': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { companyName, websiteUrl, careersPageUrl, isVerifiedSponsor, sponsorLicenseType, countryCode } = req.body;
+        if (!companyName || !websiteUrl) {
+            return res.status(400).json({ error: 'companyName and websiteUrl are required' });
+        }
+
+        // SECURITY: validated here, at entry, not just when actually
+        // scraped - rejects an unsafe URL before it ever reaches the
+        // database at all.
+        const urlToCheck = careersPageUrl || websiteUrl;
+        const safetyCheck = isSafeExternalUrl(urlToCheck);
+        if (!safetyCheck.safe) {
+            return res.status(400).json({ error: `URL rejected for safety: ${safetyCheck.reason}` });
+        }
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('verified_employer_sources')
+                .insert({
+                    company_name: companyName,
+                    website_url: websiteUrl,
+                    careers_page_url: careersPageUrl || null,
+                    is_verified_sponsor: !!isVerifiedSponsor,
+                    sponsor_license_type: sponsorLicenseType || null,
+                    country_code: countryCode || 'GB',
+                    added_by: auth.userId
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, source: data });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Bulk import - built specifically for the real use case described:
+    // pasting in rows from a government's own published sponsor
+    // register, rather than adding companies one at a time.
+    'admin-bulk-import-employer-sources': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { companies } = req.body; // array of { companyName, websiteUrl, careersPageUrl?, sponsorLicenseType?, countryCode? }
+        if (!Array.isArray(companies) || companies.length === 0) {
+            return res.status(400).json({ error: 'companies must be a non-empty array' });
+        }
+
+        let added = 0, skipped = 0, errors = [];
+        for (const c of companies) {
+            if (!c.companyName || !c.websiteUrl) { skipped++; continue; }
+
+            // SECURITY: every URL in a bulk import is validated
+            // individually - one unsafe entry in a large pasted register
+            // is rejected on its own, it doesn't block or corrupt the
+            // rest of the batch.
+            const urlToCheck = c.careersPageUrl || c.websiteUrl;
+            const safetyCheck = isSafeExternalUrl(urlToCheck);
+            if (!safetyCheck.safe) {
+                errors.push({ company: c.companyName, error: `Rejected for safety: ${safetyCheck.reason}` });
+                continue;
+            }
+
+            try {
+                const { error } = await supabaseClient
+                    .from('verified_employer_sources')
+                    .insert({
+                        company_name: c.companyName,
+                        website_url: c.websiteUrl,
+                        careers_page_url: c.careersPageUrl || null,
+                        is_verified_sponsor: true, // bulk import is specifically for the sponsor register use case
+                        sponsor_license_type: c.sponsorLicenseType || null,
+                        country_code: c.countryCode || 'GB',
+                        added_by: auth.userId
+                    });
+                if (error) {
+                    // Real, expected case: the unique constraint on
+                    // website_url means re-importing an updated register
+                    // skips companies already added, rather than erroring
+                    // the whole batch.
+                    if (error.code === '23505') skipped++;
+                    else errors.push({ company: c.companyName, error: error.message });
+                } else {
+                    added++;
+                }
+            } catch (err) {
+                errors.push({ company: c.companyName, error: err.message });
+            }
+        }
+
+        return res.status(200).json({ success: true, added, skipped, errors });
+    },
+
+    'admin-list-employer-sources': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('verified_employer_sources')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, sources: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Public directory listing - genuinely public information (a real,
+    // government-cross-referenced list of verified sponsor companies is
+    // valuable to a job seeker even before any job data has been scraped
+    // from a given company). No auth required to view.
+    //
+    // SAFETY: deliberately selects only the specific columns meant to be
+    // public, rather than select('*') - internal fields like added_by,
+    // last_scrape_status, and last_scrape_job_count are operational
+    // detail for admins, not something a public visitor needs exposed.
+    'verified-employers-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { country } = req.query;
+
+        try {
+            let query = supabaseClient
+                .from('verified_employer_sources')
+                .select('id, company_name, website_url, careers_page_url, is_verified_sponsor, sponsor_license_type, country_code')
+                .eq('is_active', true)
+                .order('company_name')
+                .limit(200);
+
+            if (country) query = query.eq('country_code', country);
+
+            const { data, error } = await query;
+            if (error) throw error;
+            return res.status(200).json({ success: true, companies: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-deactivate-employer-source': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { sourceId } = req.body;
+        if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
+
+        try {
+            const { error } = await supabaseClient
+                .from('verified_employer_sources')
+                .update({ is_active: false })
+                .eq('id', sourceId);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Real, on-demand trigger - scrapes every active configured employer
+    // right now, same "Fetch Now" pattern already proven for the RSS
+    // sources in ExternalJobsManager.jsx.
+    'admin-scrape-employer-sources': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        try {
+            const result = await scrapeAllVerifiedEmployers(supabaseClient);
+            return res.status(200).json({ success: true, ...result });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
 
     'assessment-results': async (req, res) => {
         const { id } = req.query;
