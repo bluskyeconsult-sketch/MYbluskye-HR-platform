@@ -311,6 +311,7 @@ export default function Navbar() {
         { name: 'Testing Mode', path: '/admin/testing-mode', icon: Settings },
         { name: 'External Jobs', path: '/admin/external-jobs', icon: Database },
         { name: 'Analytics', path: '/admin/analytics', icon: BarChart3 },
+        { name: 'Insight Engine', path: '/admin/insight-engine', icon: Sparkles },
         { name: 'System Health', path: '/admin/health', icon: Activity },
     ] : [];
 
