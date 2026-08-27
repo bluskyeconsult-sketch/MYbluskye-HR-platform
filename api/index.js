@@ -1363,6 +1363,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1389,6 +1395,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, feedback: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1411,6 +1423,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, advice: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1434,6 +1452,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, grievance: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1456,6 +1480,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1485,6 +1515,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1508,6 +1544,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1531,6 +1573,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1554,6 +1602,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -1577,6 +1631,12 @@ const handlers = {
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed same real leakage pattern as
+            // the chat handler - a credit was already deducted above
+            // before this call, but a failure here previously returned
+            // an error with no refund, charging the user for a service
+            // they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -2489,6 +2549,9 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
             });
         } catch (error) {
+            // FIXED (2026-08-27): same confirmed leakage pattern - credit
+            // already deducted above, no refund on failure.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             console.error('extract-skills-from-chat error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
@@ -2604,9 +2667,22 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // applicable, an actual system prompt that could power it), not just
     // a description of the problem.
     'analyze-opportunity-gaps': async (req, res) => {
+        // FIXED (2026-08-27): this was "admin-only" by comment alone -
+        // confirmed zero actual server-side enforcement anywhere in this
+        // handler. Same vulnerability class already found and fixed
+        // earlier this engagement for generateCourseImage,
+        // generateLessonImage, generateLessonAudio, generate-course, and
+        // generate-assessment (all had zero backend authorization,
+        // reachable by anyone who found the URL) - this handler was
+        // simply missed at the time. Any authenticated non-admin user
+        // could previously call this and have their own real credits
+        // deducted for an admin-only analytics feature.
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const { userId } = req.body;
 
-        const supabaseClient = getSupabase();
         const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
         if (!creditCheck.allowed) {
             return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -2621,6 +2697,13 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .limit(500);
 
             if (!signals || signals.length < 10) {
+                // FIXED (2026-08-27): confirmed real leakage - this early
+                // return happens AFTER the credit above was already
+                // deducted, and the user gets back gaps: [] with a
+                // message that no analysis was possible. They were
+                // charged for a report that was known, in advance, to
+                // be un-generatable - not even reaching the OpenAI call.
+                await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
                 return res.status(200).json({ success: true, gaps: [], message: 'Not enough recent activity yet for a meaningful analysis — check back after more usage builds up.' });
             }
 
@@ -2640,6 +2723,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
             return res.status(200).json({ success: true, gaps, signalsAnalyzed: signals.length, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             console.error('analyze-opportunity-gaps error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
@@ -2763,6 +2847,13 @@ ${topTrending.length > 0 ? `### What People Are Searching For\n${topTrending.map
                         updated++;
                     }
                 } catch (perArticleError) {
+                    // FIXED (2026-08-27): confirmed same real leakage
+                    // pattern, per-iteration - the credit for THIS
+                    // specific article was already deducted above, but a
+                    // failure here previously just logged a warning and
+                    // moved on to the next article, with no refund for
+                    // the one that failed.
+                    await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
                     console.warn(`SEO generation failed for article ${article.id}:`, perArticleError);
                 }
             }
