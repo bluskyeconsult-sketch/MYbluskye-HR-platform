@@ -28,7 +28,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
   Users, CheckCircle, Award, TrendingUp, Save, Bookmark,
-  Share2, Flag, ExternalLink, Loader2, ArrowLeft, Send
+  Share2, Flag, ExternalLink, Loader2, ArrowLeft, Send, ShieldCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -311,9 +311,23 @@ export default function JobDetailPage() {
           {/* Header */}
           <div className="flex justify-between items-start mb-4">
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className="text-2xl">{getCountryFlag(job.country_code)}</span>
                 <h1 className="text-2xl md:text-3xl font-bold text-white">{job.title}</h1>
+                {/* NEW (2026-08-27): same real badges JobsPage.jsx already
+                    shows on the list view - added here too so this
+                    information isn't lost when someone opens the full
+                    detail page. */}
+                {job.sponsorship_eligible && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Visa Sponsorship
+                  </span>
+                )}
+                {job.source_type === 'authoritative' && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Verified
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 text-slate-400">
                 <Building className="w-4 h-4" />
