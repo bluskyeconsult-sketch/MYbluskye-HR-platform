@@ -316,29 +316,45 @@ async function checkAndDeductCredit(supabaseClient, userId, req = null, cost = 1
         }
     }
 
-    const { data: credits } = await supabaseClient
-        .from('va_credits')
-        .select('balance')
-        .eq('user_id', userId)
-        .maybeSingle();
+    // FIXED (2026-08-27): confirmed real credit-leakage bug — this used
+    // to read the current balance, compute a new balance in application
+    // code, then write it back as a separate step. Two concurrent
+    // requests for the same user (a double-click, multiple tabs, a
+    // retry) could both read the same starting balance and both succeed
+    // in deducting, letting a user get more than one OpenAI call for the
+    // price of one credit. Now a single atomic database operation, the
+    // same real pattern already used correctly for tester allocations —
+    // two concurrent calls can no longer both succeed against the same
+    // balance.
+    const { data: consumeResult, error: consumeError } = await supabaseClient
+        .rpc('consume_va_credit', { p_user_id: userId, p_cost: cost });
 
-    const currentBalance = credits?.balance ?? 0;
-
-    if (currentBalance < cost) {
-        return { allowed: false, unlimited: false, remaining: currentBalance };
+    if (consumeError) {
+        console.error('Credit consumption check failed:', consumeError.message);
+        return { allowed: false, unlimited: false, remaining: 0 };
     }
 
-    const newBalance = currentBalance - cost;
-
-    if (credits) {
-        await supabaseClient.from('va_credits').update({ balance: newBalance }).eq('user_id', userId);
-    } else {
-        // Shouldn't normally happen (monthly grant creates the row), but
-        // handle it defensively rather than crash.
-        await supabaseClient.from('va_credits').insert({ user_id: userId, balance: 0 });
+    const result = consumeResult?.[0];
+    if (!result?.success) {
+        return { allowed: false, unlimited: false, remaining: result?.new_balance ?? 0 };
     }
 
-    return { allowed: true, unlimited: false, remaining: newBalance };
+    return { allowed: true, unlimited: false, remaining: result.new_balance };
+}
+
+// NEW (2026-08-27): companion to checkAndDeductCredit — call this from a
+// catch block whenever a credit was successfully deducted but the paid-for
+// OpenAI call then failed, so the user isn't charged for a service they
+// never received. Safe no-op for unlimited (admin/guest) or tester paths,
+// since no real va_credits balance was touched for those in the first
+// place — only refunds when a real deduction actually happened.
+async function refundCreditIfDeducted(supabaseClient, userId, creditCheck, cost = 1) {
+    if (!userId || !creditCheck || creditCheck.unlimited || creditCheck.isTester) return;
+    try {
+        await supabaseClient.rpc('refund_va_credit', { p_user_id: userId, p_amount: cost });
+    } catch (refundError) {
+        console.error('Credit refund failed after an upstream error — a user may have been charged for a failed request:', refundError.message);
+    }
 }
 
 // NEW (2026-08-21): shared admin-only gate for backend actions that must
@@ -1278,6 +1294,11 @@ const handlers = {
                 jobsReferenced: relevantJobs ? relevantJobs.length : 0
             });
         } catch (error) {
+            // FIXED (2026-08-27): confirmed real leakage — a credit was
+            // already deducted above before this call, but a failure here
+            // previously just returned an error with no refund, charging
+            // the user for a service they never received.
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ error: error.message });
         }
     },
