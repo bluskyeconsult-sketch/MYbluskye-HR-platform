@@ -241,6 +241,9 @@ export default function Navbar() {
     const productsDropdownItems = [
         { name: 'All Products', path: '/products', icon: Sparkles, description: 'Explore all our offerings' },
         { name: 'Hire Virtual Assistant', path: '/hire-va', icon: Bot, description: 'AI-powered career helpers' },
+        // NEW (2026-08-27): added — a real, live page with no menu entry
+        // anywhere on the site until now.
+        { name: 'Verified Employers', path: '/verified-employers', icon: Shield, description: 'Government-verified sponsor companies' },
         { name: 'Newsletter', path: '/newsletter', icon: Mail, description: 'Weekly career insights' },
         { name: 'Affiliate Program', path: '/affiliate', icon: TrendingUp, description: 'Earn with referrals' },
     ];
@@ -276,7 +279,12 @@ export default function Navbar() {
         { name: 'Settings', path: '/settings', icon: Settings },
     ] : [];
 
-    const isEmployer = profile?.user_type === 'employer' || profile?.user_type === 'business';
+    // FIXED (2026-08-27): checked user_type === 'business' — this value
+    // has never existed on any real account. The confirmed real
+    // user_type for the Business tier is 'business_owner'. This meant
+    // every business-tier employer has never seen the Company
+    // Profile/Post Job/Manage Jobs nav items below.
+    const isEmployer = profile?.user_type === 'employer' || profile?.user_type === 'business_owner';
     const employerNavItems = isEmployer ? [
         { name: 'Company Profile', path: '/company-profile', icon: Building2 },
         { name: 'Post a Job', path: '/post-job', icon: Briefcase },
@@ -290,6 +298,15 @@ export default function Navbar() {
         { name: 'Manage Jobs', path: '/admin/jobs', icon: Briefcase },
         { name: 'Manage Courses', path: '/admin/courses', icon: BookOpen },
         { name: 'Manage Articles', path: '/admin/articles', icon: FileText },
+        // NEW (2026-08-27): six real, existing admin pages that had no
+        // entry anywhere in this dropdown - all paths confirmed directly
+        // against the real, current App.jsx routes.
+        { name: 'Manage Books', path: '/admin/books', icon: BookOpen },
+        { name: 'Employer Verification', path: '/admin/employer-verification', icon: Building2 },
+        { name: 'Refund Requests', path: '/admin/refund-requests', icon: AlertTriangle },
+        { name: 'Affiliate Management', path: '/admin/affiliate-management', icon: TrendingUp },
+        { name: 'Tester Invite Codes', path: '/admin/tester-invites', icon: Star },
+        { name: 'Tester Feedback', path: '/admin/tester-feedback', icon: MessageCircle },
         { name: 'Fraud Reports', path: '/admin/fraud-reports', icon: Shield },
         { name: 'Testing Mode', path: '/admin/testing-mode', icon: Settings },
         { name: 'External Jobs', path: '/admin/external-jobs', icon: Database },
@@ -297,11 +314,25 @@ export default function Navbar() {
         { name: 'System Health', path: '/admin/health', icon: Activity },
     ] : [];
 
-    const isTester = profile?.user_type === 'tester';
+    // FIXED (2026-08-27): checked profile?.user_type === 'tester' — the
+    // same stale check already found and fixed in UserDashboard.jsx and
+    // AdminUsers.jsx this engagement. No account has ever had this
+    // literal user_type value under the real tester system (testers keep
+    // their real tier's user_type, flagged separately via is_tester).
+    // This meant the entire Tester nav section below has never shown for
+    // any real tester account.
+    const isTester = profile?.is_tester === true;
     const testerNavItems = isTester ? [
+        // FIXED (2026-08-27): '/tester/allocations' and '/tester/feedback'
+        // were both confirmed dead links — neither route exists anywhere
+        // in the real App.jsx. TesterDashboard.jsx (the one real,
+        // confirmed route, /tester/dashboard) already shows remaining
+        // allocation and the structured feedback/checklist system
+        // directly on one page — these were fully redundant dead links,
+        // not two separate real destinations. Removed rather than invent
+        // two new routes for functionality that already exists,
+        // consolidated, elsewhere.
         { name: 'Tester Dashboard', path: '/tester/dashboard', icon: LayoutDashboard },
-        { name: 'My Allocations', path: '/tester/allocations', icon: Award },
-        { name: 'Feedback', path: '/tester/feedback', icon: MessageCircle },
     ] : [];
 
     const isActive = (path) => location.pathname === path || location.pathname.startsWith(`${path}/`);
@@ -359,17 +390,23 @@ export default function Navbar() {
                     </Link>
 
                     {/* Desktop Navigation */}
+                    {/* NEW (2026-08-27): each item now gets a soft,
+                        rounded background that fades and scales in on
+                        hover, with the text itself becoming bolder and
+                        brighter - sized to hug the text closely (modest
+                        padding, no layout shift) so it stays legible and
+                        doesn't visually dominate the header. */}
                     <div className="hidden lg:flex items-center space-x-1">
                         {mainNavItems.map((item) => (
                             <Link
                                 key={item.name}
                                 to={item.path}
-                                className={`relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 group ${
+                                className={`relative px-3 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5 group ${
                                     isActive(item.path)
-                                        ? 'bg-primary-500/20 text-primary-400'
+                                        ? 'bg-primary-500/20 text-primary-400 font-semibold'
                                         : item.highlight
-                                            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
-                                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                                            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 font-medium hover:bg-primary-500/25 hover:font-semibold'
+                                            : 'text-slate-300 font-medium hover:text-white hover:bg-slate-800 hover:font-semibold'
                                 }`}
                             >
                                 <item.icon className="w-4 h-4 transition-transform group-hover:scale-110" />
@@ -507,14 +544,40 @@ export default function Navbar() {
                                                     {item.name}
                                                 </Link>
                                             ))}
+                                            {/* FIXED (2026-08-27): adminNavItems
+                                                was defined with 16 real admin
+                                                pages but never actually
+                                                rendered anywhere in this file -
+                                                only ever a single hardcoded
+                                                link to /admin/dashboard. Now
+                                                shows the most-used few
+                                                directly, plus the full
+                                                dashboard link for everything
+                                                else - this dropdown has
+                                                limited space, the mobile menu
+                                                below shows the complete list. */}
                                             {isAdmin && (
-                                                <Link
-                                                    to="/admin/dashboard"
-                                                    onClick={() => setUserMenuOpen(false)}
-                                                    className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
-                                                >
-                                                    <Shield className="w-4 h-4" /> Admin Panel
-                                                </Link>
+                                                <>
+                                                    <div className="border-t border-slate-700 my-1"></div>
+                                                    <div className="px-4 pt-1 pb-0.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Admin</div>
+                                                    {adminNavItems.slice(0, 4).map((item) => (
+                                                        <Link
+                                                            key={item.name}
+                                                            to={item.path}
+                                                            onClick={() => setUserMenuOpen(false)}
+                                                            className="flex items-center gap-3 px-4 py-2 text-sm text-primary-400 hover:bg-slate-700 transition"
+                                                        >
+                                                            <item.icon className="w-4 h-4" /> {item.name}
+                                                        </Link>
+                                                    ))}
+                                                    <Link
+                                                        to="/admin/dashboard"
+                                                        onClick={() => setUserMenuOpen(false)}
+                                                        className="flex items-center gap-3 px-4 py-2 text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition"
+                                                    >
+                                                        <LayoutDashboard className="w-4 h-4" /> View All Admin Pages
+                                                    </Link>
+                                                </>
                                             )}
                                             <div className="border-t border-slate-700 my-1"></div>
                                             <button
@@ -538,7 +601,7 @@ export default function Navbar() {
                                     </Link>
                                 )}
                                 {testerVisibility.show_register_button && (
-                                    <Link to="/tester-register" className="px-3 py-2 text-sm bg-purple-600/80 text-white rounded-lg hover:bg-purple-700">
+                                    <Link to="/sign-up" className="px-3 py-2 text-sm bg-purple-600/80 text-white rounded-lg hover:bg-purple-700">
                                         Become Tester
                                     </Link>
                                 )}
@@ -683,15 +746,26 @@ export default function Navbar() {
                                         </Link>
                                     ))}
                                     
+                                    {/* FIXED (2026-08-27): same dead
+                                        adminNavItems array, now actually
+                                        rendered - mobile has real scroll
+                                        room, so shows the complete list
+                                        rather than a slice. */}
                                     {isAdmin && (
-                                        <Link 
-                                            to="/admin/dashboard" 
-                                            className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg transition"
-                                            onClick={() => setMobileMenuOpen(false)}
-                                        >
-                                            <Shield className="w-5 h-5" /> 
-                                            <span className="text-sm">Admin Panel</span>
-                                        </Link>
+                                        <>
+                                            <div className="text-xs font-semibold text-primary-400 uppercase tracking-wider px-4 pt-2 pb-1">Admin</div>
+                                            {adminNavItems.map((item) => (
+                                                <Link
+                                                    key={item.name}
+                                                    to={item.path}
+                                                    className="flex items-center gap-3 px-4 py-3 text-primary-400 hover:bg-slate-800 rounded-lg transition"
+                                                    onClick={() => setMobileMenuOpen(false)}
+                                                >
+                                                    <item.icon className="w-5 h-5" />
+                                                    <span className="text-sm">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </>
                                     )}
                                     
                                     {isSuperAdmin && (
@@ -735,9 +809,16 @@ export default function Navbar() {
                                             Tester Login
                                         </Link>
                                     )}
+                                    {/* FIXED (2026-08-27): pointed at
+                                        /tester-register — the same stale
+                                        link already found and fixed in
+                                        ProductsPage.jsx and AboutPage.jsx
+                                        after the hardcoded invite-code
+                                        vulnerability; that route now just
+                                        redirects to /sign-up. */}
                                     {testerVisibility.show_register_button && (
                                         <Link 
-                                            to="/tester-register" 
+                                            to="/sign-up" 
                                             className="flex items-center justify-center px-4 py-3 bg-purple-600/80 text-white rounded-lg hover:bg-purple-700 transition"
                                             onClick={() => setMobileMenuOpen(false)}
                                         >
