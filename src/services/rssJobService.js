@@ -380,6 +380,17 @@ function delay(ms) {
 // ============================================
 
 async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
+    // FIXED (2026-08-27): confirmed real, live problem — a "Test Feeds"
+    // connectivity check showed only 1 of 12 real feed URLs actually
+    // reachable right now, but a real fetch attempt showed all 11
+    // unreachable sources reporting "0 found, 0 new" with no failure
+    // indicated at all. Traced this to here: every failure path below
+    // (!response.ok, an XML parse error, zero items in a successfully-
+    // parsed feed) all silently `return []` — a real "can't reach this
+    // site at all" and a genuine "this site has no jobs right now"
+    // were completely indistinguishable to every caller. Now returns
+    // { jobs, error } so a real failure reason can actually surface
+    // instead of looking identical to zero real postings.
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -393,8 +404,9 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         clearTimeout(timeoutId);
         
         if (!response.ok) {
+            const reason = `HTTP ${response.status} ${response.statusText || ''}`.trim();
             console.warn(`Failed to fetch RSS: ${feedUrl} - Status: ${response.status}`);
-            return [];
+            return { jobs: [], error: reason };
         }
         
         const text = await response.text();
@@ -407,7 +419,7 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
             parsed = xmlParser.parse(text);
         } catch (parseError) {
             console.warn(`RSS parsing error for ${feedUrl}:`, parseError.message);
-            return [];
+            return { jobs: [], error: `XML parse error: ${parseError.message}` };
         }
 
         // RSS items normally live at rss.channel.item — fast-xml-parser
@@ -418,7 +430,13 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
 
         if (items.length === 0) {
             console.warn(`No items found in RSS feed: ${feedUrl}`);
-            return [];
+            // Genuinely different from a fetch/parse failure — the request
+            // succeeded and produced valid, well-formed XML, it just didn't
+            // contain any <item> entries under rss.channel (e.g. the feed
+            // uses a different structure than expected, such as Atom's
+            // <entry> instead of RSS's <item>, or is a redirect/placeholder
+            // page rather than the real feed).
+            return { jobs: [], error: 'No <item> entries found — feed may use a different format (e.g. Atom) or the URL may be stale' };
         }
 
         const jobs = [];
@@ -456,10 +474,10 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
             if (jobs.length >= MAX_JOBS_PER_SOURCE) break;
         }
 
-        return jobs;
+        return { jobs, error: null };
     } catch (error) {
         console.error(`Error parsing RSS feed ${feedUrl}:`, error);
-        return [];
+        return { jobs: [], error: error.name === 'AbortError' ? `Timed out after ${REQUEST_TIMEOUT}ms` : error.message };
     }
 }
 
@@ -689,7 +707,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
         console.log(`  📡 Fetching from ${source.name}...`);
         
         try {
-            const jobs = await parseRSSFeed(source.url, source.name, source.country);
+            const { jobs, error: fetchIssue } = await parseRSSFeed(source.url, source.name, source.country);
             let added = 0;
             
             for (const job of jobs) {
@@ -704,11 +722,17 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 await delay(100);
             }
             
+            // FIXED (2026-08-27): jobs.length === 0 with a real fetchIssue
+            // now correctly reports as failed, with the actual reason
+            // (HTTP status, parse error, or timeout) — previously always
+            // reported "success" with found: 0, indistinguishable from a
+            // source that was reachable but genuinely had no postings.
             results.push({
                 source: source.name,
                 found: jobs.length,
                 added: added,
-                status: 'success'
+                status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
+                error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
             });
             
             await delay(2000);
@@ -1030,7 +1054,7 @@ export async function searchLiveJobs(query, filters = {}) {
         .filter(([_, config]) => !filters.country || config.country === filters.country);
     
     const fetchPromises = activeFeeds.map(async ([_, config]) => {
-        const jobs = await parseRSSFeed(config.url, config.name, config.country);
+        const { jobs } = await parseRSSFeed(config.url, config.name, config.country);
         return { config, jobs };
     });
     
