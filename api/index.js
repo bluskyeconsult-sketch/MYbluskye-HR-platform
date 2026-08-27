@@ -2734,7 +2734,17 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // newsletter draft — closes the "newsletter pool" request without
     // requiring manual curation from scratch every time.
     'generate-newsletter-digest': async (req, res) => {
+        // FIXED (2026-08-27): same real gap found and fixed in the
+        // sibling analyze-opportunity-gaps handler - "admin-only" by
+        // comment alone, zero actual server-side enforcement. No OpenAI
+        // call here (pure database aggregation), so no credit-leakage
+        // risk, but any authenticated or unauthenticated caller could
+        // still reach this admin panel endpoint and pull real recent
+        // job/course/article/search-activity data, or spam it as a minor
+        // load vector against the activity_signals table scan.
         const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
             const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
