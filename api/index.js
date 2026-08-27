@@ -2666,6 +2666,129 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // drafts a concrete starting point (a suggested tool name and, where
     // applicable, an actual system prompt that could power it), not just
     // a description of the problem.
+    // ========== INSIGHT ENGINE (NEW - 2026-08-27) ==========
+    // Converts real, existing user activity into four distinct,
+    // actionable "clues" for content and product creation - Course,
+    // Newsletter, Product Design, Service Design. Deliberately built as
+    // one aggregation pass over real data, not four separate guesses:
+    // - activity_signals: real chat/search query topics
+    // - job_alerts: real, explicit keyword + country preferences people
+    //   set up themselves - a direct, unambiguous demand signal, not an
+    //   inferred one
+    // - jobs + job_applications: real regional application demand by
+    //   source_country
+    // - va_tasks: which VA categories get real usage, cross-referenced
+    //   against which HR Tools/VA categories exist at all
+    // - course_enrollments + course_reviews: real course engagement,
+    //   cross-referenced against existing course titles/categories to
+    //   find genuine gaps (topics discussed a lot, no course covers them)
+    //
+    // Admin-only and credit-metered (one real OpenAI call) - same
+    // requireAdmin + checkAndDeductCredit pattern used everywhere else in
+    // this file, not a new, separate access model.
+    'generate-insight-clues': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { userId } = req.body;
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+        if (!creditCheck.allowed) {
+            return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+        }
+
+        try {
+            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+            const [
+                { data: signals },
+                { data: alerts },
+                { data: courses },
+                { data: vaTasks },
+                { data: jobsByCountry }
+            ] = await Promise.all([
+                supabaseClient.from('activity_signals').select('query_text, signal_type').gte('created_at', since).limit(500),
+                supabaseClient.from('job_alerts').select('keywords, country_code, job_type').eq('is_active', true).limit(300),
+                supabaseClient.from('courses').select('title, category').eq('is_published', true),
+                supabaseClient.from('va_tasks').select('va_id, virtual_assistants(category)').gte('created_at', since).limit(500),
+                supabaseClient.from('jobs').select('source_country').eq('is_active', true).gte('created_at', since).limit(1000)
+            ]);
+
+            if ((!signals || signals.length < 10) && (!alerts || alerts.length < 5)) {
+                await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
+                return res.status(200).json({ success: true, clues: null, message: 'Not enough recent activity yet for meaningful insight clues — check back after more usage builds up.' });
+            }
+
+            // Real regional distribution — counts, not guesses.
+            const countryCounts = {};
+            for (const j of jobsByCountry || []) {
+                if (!j.source_country) continue;
+                countryCounts[j.source_country] = (countryCounts[j.source_country] || 0) + 1;
+            }
+            const alertCountryCounts = {};
+            for (const a of alerts || []) {
+                if (!a.country_code) continue;
+                alertCountryCounts[a.country_code] = (alertCountryCounts[a.country_code] || 0) + 1;
+            }
+
+            // Real VA/HR Tool category demand - joined through
+            // virtual_assistants since va_tasks itself only stores va_id,
+            // not category directly.
+            const vaCategoryCounts = {};
+            for (const t of vaTasks || []) {
+                const cat = t.virtual_assistants?.category;
+                if (!cat) continue;
+                vaCategoryCounts[cat] = (vaCategoryCounts[cat] || 0) + 1;
+            }
+
+            // Real existing course titles/categories, so the model can
+            // identify genuine gaps rather than suggesting something that
+            // already exists.
+            const existingCourseTitles = (courses || []).map(c => `${c.title} (${c.category || 'uncategorized'})`).join('; ') || 'None published yet.';
+
+            const signalText = (signals || []).map(s => `[${s.signal_type}] ${s.query_text}`).join('\n').substring(0, 6000);
+            const alertKeywords = (alerts || []).flatMap(a => a.keywords || []).join(', ').substring(0, 2000) || 'None set up yet.';
+            const regionSummary = Object.entries(countryCounts).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n} recent job postings`).join(', ') || 'No regional job data yet.';
+            const alertRegionSummary = Object.entries(alertCountryCounts).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n} active alerts`).join(', ') || 'No regional alert data yet.';
+            const vaCategorySummary = Object.entries(vaCategoryCounts).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n} tasks`).join(', ') || 'No VA usage data yet.';
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are a product strategist for ODUSBABA, an HR/career platform. Given real, aggregated user activity data below, produce FOUR distinct sets of actionable "clues" for the team's next creation cycle. Return ONLY valid JSON in this exact shape: {"course_clues": [{"topic": string, "why": string, "suggested_category": string}], "newsletter_clues": [{"headline_idea": string, "why": string, "angle": string}], "product_design_clues": [{"feature_idea": string, "why": string, "evidence": string}], "service_design_clues": [{"service_idea": string, "why": string, "target_region": string}]}. 3-5 items per array. "why" and "evidence" must reference the real data patterns given, not generic assumptions. For service_design_clues, actively use the regional and VA-category data to suggest region-specific service opportunities (e.g. a service more relevant to one country's real demand than another's) — this is the differentiation the data is specifically meant to reveal.`
+                },
+                {
+                    role: 'user',
+                    content: `RECENT CHAT/SEARCH TOPICS (last 30 days):\n${signalText}\n\nEXPLICIT JOB ALERT KEYWORDS PEOPLE SET UP THEMSELVES:\n${alertKeywords}\n\nREGIONAL JOB POSTING VOLUME:\n${regionSummary}\n\nREGIONAL JOB ALERT DEMAND:\n${alertRegionSummary}\n\nVIRTUAL ASSISTANT / HR TOOL CATEGORY USAGE:\n${vaCategorySummary}\n\nEXISTING PUBLISHED COURSES (do not suggest topics that duplicate these):\n${existingCourseTitles}`
+                }
+            ], 2000, 0.6);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const clues = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+            if (!clues) {
+                await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
+                return res.status(500).json({ success: false, error: 'Could not parse insight clues from the AI response — no charge was made for this attempt.' });
+            }
+
+            return res.status(200).json({
+                success: true,
+                clues,
+                dataPoints: {
+                    signalsAnalyzed: (signals || []).length,
+                    alertsAnalyzed: (alerts || []).length,
+                    regionsRepresented: Object.keys(countryCounts).length
+                },
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+            });
+        } catch (error) {
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
+            console.error('generate-insight-clues error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'analyze-opportunity-gaps': async (req, res) => {
         // FIXED (2026-08-27): this was "admin-only" by comment alone -
         // confirmed zero actual server-side enforcement anywhere in this
