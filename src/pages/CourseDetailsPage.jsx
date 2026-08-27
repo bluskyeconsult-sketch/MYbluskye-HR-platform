@@ -31,7 +31,8 @@ import {
     Clock, BookOpen, Star, ArrowLeft, Loader2, CheckCircle, 
     Users, Award, Play, FileText, MessageCircle, ThumbsUp,
     Calendar, TrendingUp, Shield, Target, Sparkles, X,
-    ChevronRight, ChevronDown, ExternalLink, Download
+    ChevronRight, ChevronDown, ExternalLink, Download,
+    AlertCircle, Lock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -298,8 +299,13 @@ export default function CourseDetailsPage() {
                         {/* Course Header */}
                         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
                             <div className="flex flex-wrap items-center gap-3 mb-3">
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${getLevelColor(course.level)}`}>
-                                    {getLevelBadge(course.level)}
+                                {/* FIXED (2026-08-27): third confirmed
+                                    instance of the same course.level ->
+                                    course.difficulty mistake in this one
+                                    file - the main course header badge
+                                    never displayed correctly either. */}
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${getLevelColor(course.difficulty)}`}>
+                                    {getLevelBadge(course.difficulty)}
                                 </span>
                                 {course.is_featured && (
                                     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 flex items-center gap-1">
@@ -598,9 +604,15 @@ export default function CourseDetailsPage() {
                     <div className="space-y-6">
                         {/* Enrollment Card */}
                         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 sticky top-24">
-                            {course.thumbnail_url && (
+                            {/* FIXED (2026-08-27): read course.thumbnail_url -
+                                the real, confirmed column (established by
+                                CourseEditor.jsx, the actual writer of this
+                                field) is image_url. The cover image set
+                                through the course editor has never once
+                                displayed here. */}
+                            {course.image_url && (
                                 <img 
-                                    src={course.thumbnail_url} 
+                                    src={course.image_url} 
                                     alt={course.title} 
                                     className="w-full h-48 object-cover rounded-xl mb-4"
                                 />
@@ -667,9 +679,18 @@ export default function CourseDetailsPage() {
                                             <h4 className="text-white text-sm font-medium group-hover:text-primary-400 transition line-clamp-1">
                                                 {related.title}
                                             </h4>
+                                            {/* FIXED (2026-08-27): read
+                                                related.level - the real
+                                                column is difficulty, the
+                                                exact same mistake already
+                                                found and fixed in
+                                                AICourseBuilder.jsx's
+                                                loadRecentCourses(), now
+                                                confirmed to have recurred
+                                                independently here. */}
                                             <div className="flex items-center gap-2 mt-1">
-                                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${getLevelColor(related.level)}`}>
-                                                    {getLevelBadge(related.level)}
+                                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${getLevelColor(related.difficulty)}`}>
+                                                    {getLevelBadge(related.difficulty)}
                                                 </span>
                                                 <span className="text-xs text-slate-500">{related.duration_hours || 2} hours</span>
                                             </div>
