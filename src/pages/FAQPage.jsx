@@ -7,6 +7,7 @@ import {
     Search, ChevronDown, ChevronUp, HelpCircle, Mail, MessageCircle,
     ThumbsUp, ThumbsDown, BookOpen, Users, CreditCard, Shield, Bot, 
     FileText, Filter, Sparkles, TrendingUp, Award, Clock, Star,
+    Wrench, Lock,
     Loader2, AlertCircle, ChevronRight
 } from 'lucide-react';
 import { apiCall, trackEvent } from '../lib/supabase';
@@ -43,24 +44,25 @@ export default function FAQPage() {
                 },
                 { 
                     q: "Is ODUSBABA free to use?", 
-                    // FIXED (2026-08-23): removed a false claim that new
-                    // users automatically get "4 weeks of free tester
-                    // access" — the real tester system requires a real
-                    // invite code (confirmed extensively: tester_invite_codes,
-                    // consume_invite_code()); nobody gets tester status
-                    // automatically just by signing up. This directly
-                    // contradicted the very next FAQ entry below, which
-                    // correctly describes the real invite-code requirement.
-                    a: "Yes! We offer a free tier with basic features. Professional and employer plans start at $39.99/month.",
+                    // FIXED (2026-08-27): stated Employer plans "start at
+                    // $39.99/month" - that's the real Professional price.
+                    // Employer is actually $129.99/month, Business is
+                    // $399.99/month - both confirmed against the real
+                    // backend tier constants.
+                    a: "Yes! We offer a free tier with basic features. Professional plans start at $39.99/month, Employer at $129.99/month, and Business at $399.99/month.",
                     keywords: ["free", "trial", "cost", "price"],
                     link: "/pricing",
                     popularity: 98
                 },
                 { 
                     q: "What is the tester program?", 
-                    a: "Testers get 10 free uses and 30 days of full access to all features. Register with an invite code at /tester-register. Your feedback helps us improve!",
+                    // FIXED (2026-08-27): linked to /tester-register - the
+                    // same stale link already fixed in several other files
+                    // this engagement; that route now just redirects to
+                    // /sign-up, where tester registration actually happens.
+                    a: "Testers get a real, admin-configured usage allowance and access period. Register with a valid invite code at /sign-up. Your feedback directly helps us improve!",
                     keywords: ["tester", "invite", "beta"],
-                    link: "/tester-register",
+                    link: "/sign-up",
                     popularity: 88
                 },
                 { 
@@ -93,7 +95,19 @@ export default function FAQPage() {
                 },
                 { 
                     q: "What are authoritative jobs?", 
-                    a: "Jobs marked with 'Verified Source' come directly from government websites like Civil Service Jobs, USAJobs, and NHS Jobs. These are pre-approved and trustworthy.",
+                    // FIXED (2026-08-27): named USAJobs and NHS Jobs
+                    // specifically as reliable, verified sources - but
+                    // direct testing this session confirmed most UK/
+                    // government portal sources are currently unreachable
+                    // from this platform's infrastructure (several block
+                    // automated access as policy, not a bug on our end).
+                    // Rewritten to describe what's genuinely true: jobs
+                    // are labeled by their real, confirmed origin, and
+                    // "Verified" specifically means cross-referenced
+                    // against an official source or a real employer
+                    // career page - not a blanket claim about which
+                    // specific government sites are currently live.
+                    a: "Jobs tagged 'Verified' or with a source label come from official government portals (where currently reachable) or from a verified employer's own career page, cross-referenced against real sponsor license registers. Coverage varies by country and can change if a source becomes temporarily unreachable — the label always reflects the job's real, current origin.",
                     keywords: ["verified", "government", "authoritative"],
                     link: "/jobs",
                     popularity: 89
@@ -104,6 +118,16 @@ export default function FAQPage() {
                     keywords: ["alert", "notification", "email"],
                     link: "/job-alerts",
                     popularity: 91
+                },
+                {
+                    // NEW (2026-08-27): the Verified Employer Directory
+                    // (/verified-employers) is a real, live page with no
+                    // FAQ coverage at all until now.
+                    q: "What is the Verified Employer Directory?",
+                    a: "A real, browsable list of companies cross-referenced against official government sponsor license registers — genuine, verified sponsors, not a generic company list. Some listings show real, current job openings pulled directly from that employer's own careers page.",
+                    keywords: ["verified employer", "sponsor", "directory", "companies"],
+                    link: "/verified-employers",
+                    popularity: 81
                 }
             ]
         },
@@ -214,7 +238,11 @@ export default function FAQPage() {
                 },
                 { 
                     q: "How do I get my certificate?", 
-                    a: "Complete all lessons and pass the final quiz with 70% or higher. Your certificate will be available for download in the learner dashboard at /learning.",
+                    // FIXED (2026-08-27): stated "pass the final quiz
+                    // with 70% or higher" - the real, confirmed
+                    // completion logic is reaching 100% lesson progress,
+                    // not a quiz score threshold.
+                    a: "Complete every lesson in a course to reach 100% progress. Your certificate is issued automatically at a permanent, shareable link — no login required for anyone you send it to. Find it in your learner dashboard at /learning.",
                     keywords: ["certificate", "certification", "complete"],
                     link: "/learning",
                     popularity: 90
@@ -225,6 +253,53 @@ export default function FAQPage() {
                     keywords: ["progress", "track", "dashboard"],
                     link: "/learning",
                     popularity: 88
+                }
+            ]
+        },
+        // NEW (2026-08-27): the Workforce Marketplace never had any FAQ
+        // coverage at all - this is a real, live feature (job seeker,
+        // professional, and tradesperson listings; employer-paid contact
+        // unlock) with genuinely different pricing logic worth explaining
+        // clearly, since it's easy to confuse with "applying to a job."
+        workforceMarketplace: {
+            title: "Workforce Marketplace",
+            icon: Wrench,
+            color: "orange",
+            questions: [
+                {
+                    q: "What is the Workforce Marketplace?",
+                    a: "A place to be discovered by employers browsing for talent — genuinely different from applying to a specific job. Your skills are visible to everyone; your contact details and exact location are only ever shared with an employer after they choose to unlock your profile.",
+                    keywords: ["workforce", "marketplace", "listing", "discover"],
+                    link: "/workforce",
+                    popularity: 85
+                },
+                {
+                    q: "Is it free to list myself on the Workforce Marketplace?",
+                    a: "Yes, for everyone — job seekers, professionals, and tradespeople all list at no cost. Employers pay only when they choose to unlock a specific profile's contact details, never you.",
+                    keywords: ["free", "cost", "listing", "price"],
+                    link: "/workforce",
+                    popularity: 87
+                },
+                {
+                    q: "What's the difference between the three listing categories?",
+                    a: "Job Seeker listings are free and basic to start, automatically upgrading to show your full skills and ratings once you complete an assessment, a course, or verify a few skills. Professional and Tradesperson listings (plumbers, electricians, braiders, handymen, and similar trades) are reviewed and verified by our team before appearing, matching our '100% Verified' marketplace promise.",
+                    keywords: ["job seeker", "professional", "tradesperson", "category"],
+                    link: "/workforce",
+                    popularity: 84
+                },
+                {
+                    q: "How does an employer contact me?",
+                    a: "An employer spends real credits to unlock your contact details — once unlocked, they have permanent access and can message you directly. You're never charged for being contacted.",
+                    keywords: ["contact", "employer", "unlock", "credits"],
+                    link: "/workforce",
+                    popularity: 82
+                },
+                {
+                    q: "Does the platform suggest roles I'm suited for?",
+                    a: "Yes — an AI feature reviews your real skills and background to suggest specific roles you're genuinely well-suited for, shown directly on your listing.",
+                    keywords: ["ai", "roles", "suggestions", "suitable"],
+                    link: "/workforce",
+                    popularity: 79
                 }
             ]
         },
@@ -277,6 +352,19 @@ export default function FAQPage() {
                     keywords: ["security", "data", "privacy", "encryption"],
                     link: "/legal/privacy",
                     popularity: 96
+                },
+                {
+                    // NEW (2026-08-27): 2FA is a real, complete, working
+                    // feature (TOTP-based, real QR provisioning, hashed
+                    // backup codes) confirmed this session - previously
+                    // had no FAQ coverage AND no real route to reach it
+                    // at all (TwoFactorSettings.jsx was completely
+                    // orphaned - fixed alongside this entry).
+                    q: "Can I enable two-factor authentication?",
+                    a: "Yes — a real, TOTP-based 2FA option (compatible with any standard authenticator app) is available to any account. Enable it at Settings → Security; you'll get a QR code to scan and a set of one-time backup codes to save somewhere safe.",
+                    keywords: ["2fa", "two-factor", "security", "authenticator"],
+                    link: "/settings/security",
+                    popularity: 78
                 },
                 { 
                     q: "How do I report fraud?", 
@@ -370,16 +458,21 @@ export default function FAQPage() {
     }, [openItems]);
 
     // Handle feedback
+    // FIXED (2026-08-27): confirmed real bug - called apiCall('faq-feedback',
+    // ...), an action that doesn't exist anywhere in index.js (only
+    // 'track-event' is real, already used correctly by toggleItem above).
+    // Every thumbs-up/down click has silently failed since this page was
+    // built - the "thank you" message showed regardless, since setFeedback
+    // updates the display before the (always-failing) API call runs. Now
+    // routed through the same real track-event action, just with its own
+    // event_type.
     const handleFeedback = useCallback(async (faqId, faqTitle, helpful) => {
         setFeedback(prev => ({ ...prev, [faqId]: helpful }));
         
-        // Send feedback via unified API
         try {
-            await apiCall('faq-feedback', {
-                faq_id: faqId,
-                faq_title: faqTitle,
-                helpful,
-                timestamp: new Date().toISOString()
+            await apiCall('track-event', {
+                event_type: 'faq_feedback',
+                event_data: { faq_id: faqId, faq_title: faqTitle, helpful, timestamp: new Date().toISOString() }
             });
         } catch (e) {
             console.debug('Feedback error:', e);
