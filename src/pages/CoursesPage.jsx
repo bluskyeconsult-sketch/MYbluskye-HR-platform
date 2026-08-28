@@ -25,6 +25,7 @@
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { supabase } from '../lib/supabase';
 import { 
     BookOpen, Clock, Users, Star, Loader2, Search, 
@@ -315,6 +316,12 @@ export default function CoursesPage() {
                         Advance your career with expert-led courses in HR, leadership, and professional development.
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    Not sure where to start? Ask ODUSBABA AI below — recommendations are based on your actual
+                    goals, not a generic list. Complete a course fully and you get a real, permanent, shareable
+                    certificate — no login required for anyone you send the link to.
+                </PageEdgeBanner>
 
                 {/* Search and Filters */}
                 <div className="flex flex-col sm:flex-row gap-4 mb-6">
