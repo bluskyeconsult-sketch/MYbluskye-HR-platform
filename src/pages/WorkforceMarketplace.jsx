@@ -24,6 +24,7 @@
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
 import GateGuard from '../components/GateGuard';
@@ -273,6 +274,13 @@ export default function WorkforceMarketplace() {
                         Verified professionals, real proposals, trusted engagements
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    Listing your skills is free — job seekers, professionals, and tradespeople all list at no
+                    cost. Employers pay only when they choose to unlock a specific profile's contact details.
+                    Your skills are always visible; your contact info never is, until an employer decides it's
+                    worth unlocking.
+                </PageEdgeBanner>
 
                 <div className="mb-8 p-4 bg-gradient-to-r from-emerald-900/20 to-sky-900/20 border border-emerald-500/30 rounded-xl">
                     <div className="flex items-start gap-3">
