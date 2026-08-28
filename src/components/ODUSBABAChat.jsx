@@ -173,8 +173,16 @@ export default function ODUSBABAChat() {
         setUser(user);
         
         if (user) {
-            await loadUserProfile();
-            await Promise.all([loadConversation(), loadCredits()]);
+            // FIXED (2026-08-28): loadUserProfile() and loadConversation()
+            // previously read `user` from this component's closure/state
+            // rather than a passed argument - relying on setUser(user)
+            // above having already been flushed to a re-render by the
+            // time these run. That isn't a guaranteed ordering, just
+            // something that may happen to work depending on exact React
+            // scheduling - a fragile pattern regardless. Now passed
+            // explicitly, removing any dependency on that timing.
+            await loadUserProfile(user);
+            await Promise.all([loadConversation(user), loadCredits(user)]);
         } else {
             setMessages([createWelcomeMessage()]);
         }
@@ -195,8 +203,9 @@ export default function ODUSBABAChat() {
         };
     }
 
-    async function loadUserProfile() {
-        if (!user) return;
+    async function loadUserProfile(explicitUser) {
+        const activeUser = explicitUser || user;
+        if (!activeUser) return;
         // FIXED (2026-08-27): selected ai_credits_remaining - the exact
         // same confirmed-dead column already found and fixed in
         // loadCredits() further down this same file, missed here in its
@@ -205,17 +214,18 @@ export default function ODUSBABAChat() {
         // was always null here, and the "Welcome back, {name}" message
         // below always silently fell back to the email prefix instead
         // of ever showing a real full_name.
-        const { data: profile } = await supabase.from('profiles').select('user_type, tier, full_name, job_title, years_experience').eq('id', user.id).single();
+        const { data: profile } = await supabase.from('profiles').select('user_type, tier, full_name, job_title, years_experience').eq('id', activeUser.id).single();
         setUserProfile(profile);
         return profile;
     }
 
-    async function loadConversation() {
-        if (!user) return;
-        const { data: existing } = await supabase.from('chat_conversations').select('id').eq('user_id', user.id).order('updated_at', { ascending: false }).limit(1).maybeSingle();
+    async function loadConversation(explicitUser) {
+        const activeUser = explicitUser || user;
+        if (!activeUser) return;
+        const { data: existing } = await supabase.from('chat_conversations').select('id').eq('user_id', activeUser.id).order('updated_at', { ascending: false }).limit(1).maybeSingle();
         let convId = existing?.id;
         if (!convId) {
-            const { data: newConv } = await supabase.from('chat_conversations').insert({ user_id: user.id, title: 'New Conversation' }).select().single();
+            const { data: newConv } = await supabase.from('chat_conversations').insert({ user_id: activeUser.id, title: 'New Conversation' }).select().single();
             convId = newConv?.id;
         }
         setConversationId(convId);
@@ -224,19 +234,20 @@ export default function ODUSBABAChat() {
             if (history?.length > 0) {
                 setMessages(history);
             } else {
-                const profile = await loadUserProfile();
+                const profile = await loadUserProfile(activeUser);
                 setMessages([{
                     id: 'welcome',
                     sender: 'odusbaba',
-                    message: `👋 Welcome back, ${profile?.full_name || user.email?.split('@')[0]}! I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nWhat would you like help with today?`,
+                    message: `👋 Welcome back, ${profile?.full_name || activeUser.email?.split('@')[0]}! I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nWhat would you like help with today?`,
                     created_at: new Date().toISOString()
                 }]);
             }
         }
     }
 
-    async function loadCredits() {
-        if (!user) return;
+    async function loadCredits(explicitUser) {
+        const activeUser = explicitUser || user;
+        if (!activeUser) return;
         // FIXED (2026-08-23): two real issues found in this one function
         // during a project-wide pricing/cost harmony pass:
         // 1. Read profiles.ai_credits_remaining — a confirmed-dead column
@@ -253,13 +264,13 @@ export default function ODUSBABAChat() {
         //    HireVirtualAssistant.jsx's fallback path, after the explicit
         //    decision that business tier gets a real 200/month cap, not
         //    unlimited. This file never got that fix.
-        const { data: profile } = await supabase.from('profiles').select('tier, user_type').eq('id', user.id).single();
+        const { data: profile } = await supabase.from('profiles').select('tier, user_type').eq('id', activeUser.id).single();
         const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin';
         if (isUnlimited) {
             setRemainingCredits(999999);
             return;
         }
-        const { data: credits } = await supabase.from('va_credits').select('balance').eq('user_id', user.id).maybeSingle();
+        const { data: credits } = await supabase.from('va_credits').select('balance').eq('user_id', activeUser.id).maybeSingle();
         setRemainingCredits(credits?.balance ?? 5);
     }
 
@@ -444,9 +455,18 @@ export default function ODUSBABAChat() {
                 clearTimeout(typingTimer);
                 setIsTyping(false);
                 try {
+                    // FIXED (2026-08-28): confirmed regression found during
+                    // a complete, line-by-line re-read of this file -
+                    // match-jobs-to-skills is one of the 21 handlers now
+                    // requiring a verified auth token, and this call never
+                    // sent one.
+                    const { data: { session: matchSession } } = await supabase.auth.getSession();
                     const matchResponse = await fetch(`${API_BASE}?action=match-jobs-to-skills`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(matchSession?.access_token ? { 'Authorization': `Bearer ${matchSession.access_token}` } : {})
+                        },
                         body: JSON.stringify({ userId: user.id })
                     });
                     const matchData = await matchResponse.json();
