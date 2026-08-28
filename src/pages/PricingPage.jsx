@@ -242,9 +242,18 @@ export default function PricingPage() {
         return;
       }
 
+      // FIXED (2026-08-28): confirmed severe, live regression - sent
+      // userId with no Authorization header. A backend security fix
+      // now requires a matching real auth token whenever userId is
+      // claimed, meaning every real tier upgrade attempt has been
+      // failing with 401 since that fix went out.
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/index?action=create-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+        },
         body: JSON.stringify({
           tierName: tierName.toLowerCase(),
           userId: user.id,
@@ -294,9 +303,15 @@ export default function PricingPage() {
         return;
       }
 
+      // FIXED (2026-08-28): same confirmed regression as tier upgrades
+      // above - every real credit purchase attempt has been failing.
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/index?action=create-credit-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+        },
         body: JSON.stringify({ credits, userId: user.id, userEmail: user.email })
       });
 
