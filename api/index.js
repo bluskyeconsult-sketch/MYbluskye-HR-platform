@@ -388,6 +388,49 @@ async function getAuthenticatedUser(req, supabaseClient) {
     return { authorized: true, userId: user.id };
 }
 
+// FIXED (2026-08-27): confirmed a real, systemic gap - 33 handlers across
+// this file destructure userId directly from req.body and trust it as-is,
+// with no verification that the caller actually IS that user. Anyone who
+// knew or guessed another real user's ID could pass it in the body and
+// have that person's credits deducted, tier limits checked, or personal
+// data read/written, entirely bypassing whatever their own real session
+// says. This closes that gap without breaking legitimate guest paths
+// (chat, for example, genuinely allows unauthenticated use) - if a
+// userId is claimed, a real, matching auth token is now required; if no
+// userId is claimed at all, the request proceeds as a real guest, same
+// as before.
+//
+// Returns { verified: true, userId } when either: a real userId was
+// claimed AND a matching real session backs it up, or no userId was
+// claimed at all (a legitimate guest call). Returns
+// { verified: false, status, error } when a userId was claimed but
+// either no valid session exists, or the real session belongs to a
+// DIFFERENT user than the one claimed - both are real impersonation
+// attempts, not innocent mistakes, and are rejected the same way.
+async function verifyClaimedUserId(req, supabaseClient, claimedUserId) {
+    if (!claimedUserId) {
+        return { verified: true, userId: null };
+    }
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!token) {
+        return { verified: false, status: 401, error: 'A real, authenticated session is required to act as a specific account.' };
+    }
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !user) {
+        return { verified: false, status: 401, error: 'Invalid or expired session.' };
+    }
+
+    if (user.id !== claimedUserId) {
+        return { verified: false, status: 403, error: 'You can only act as your own account.' };
+    }
+
+    return { verified: true, userId: claimedUserId };
+}
+
 // NEW (2026-08-21): shared admin-only gate for backend actions that must
 // never be reachable by an unauthenticated or non-admin caller — currently
 // generateCourseImage, generateLessonImage, generateLessonAudio,
@@ -1208,6 +1251,14 @@ const handlers = {
             // VA tasks and HR Tools. One credit currency across every
             // AI-costing feature now, not three separate ones.
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
 
             if (!creditCheck.allowed) {
@@ -1351,6 +1402,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1379,6 +1438,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1411,6 +1478,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1440,6 +1515,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1468,6 +1551,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1497,6 +1588,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1532,6 +1631,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1561,6 +1668,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1590,6 +1705,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1619,6 +1742,14 @@ const handlers = {
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -1658,6 +1789,12 @@ const handlers = {
         }
 
         const supabaseClient = getSupabase();
+
+        // FIXED (2026-08-27): closes the systemic userId-impersonation
+        // gap - without this, anyone could pass another real user's ID
+        // here and have a tier upgrade attributed to that account.
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
         // NEW (2026-08-16): Free Access Mode — distinct from Enforcement
         // Mode. Tier-based feature gating stays fully real and testable;
@@ -1763,6 +1900,9 @@ const handlers = {
         if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
 
         const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
         try {
             const { data: profile } = await supabaseClient
@@ -1923,6 +2063,9 @@ const handlers = {
         const supabaseClient = getSupabase();
         const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
         try {
             let { data: affiliate } = await supabaseClient
                 .from('affiliates')
@@ -2060,6 +2203,9 @@ const handlers = {
 
         const supabaseClient = getSupabase();
 
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
         try {
             const { data: book, error: bookError } = await supabaseClient
                 .from('books')
@@ -2194,6 +2340,15 @@ const handlers = {
         }
 
         try {
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - this handler never had a supabaseClient at all before
+            // going straight to Stripe; added specifically for this check,
+            // since a credit purchase should only ever be attributable to
+            // the real, authenticated account making the request.
+            const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
@@ -2393,6 +2548,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             const { data, error } = await supabaseClient
                 .from('user_skills')
                 .select('*')
@@ -2415,6 +2572,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             const { data, error } = await supabaseClient
                 .from('user_skills')
                 .insert({
@@ -2443,6 +2602,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             const { error } = await supabaseClient
                 .from('user_skills')
                 .update({
@@ -2469,6 +2630,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             const { error } = await supabaseClient
                 .from('user_skills')
                 .delete()
@@ -2496,6 +2659,14 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+
+            // FIXED (2026-08-27): closes the systemic userId-impersonation
+            // gap - verifies the claimed userId actually matches a real,
+            // authenticated session before it's ever used to check/deduct
+            // credits.
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
             const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
             if (!creditCheck.allowed) {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -2567,6 +2738,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             const { data: skillRows } = await supabaseClient
                 .from('user_skills')
                 .select('skill_name')
@@ -2614,6 +2787,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
         try {
             const supabaseClient = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
             await supabaseClient.from('activity_signals').insert({
                 signal_type: signalType,
                 query_text: queryText.trim().substring(0, 300),
@@ -2873,7 +3048,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         const auth = await requireAdmin(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { userId } = req.body;
+        // FIXED (2026-08-27): requireAdmin already verifies the real
+        // caller - using that verified identity directly rather than a
+        // separately-trusted userId from the body, which could otherwise
+        // let a real admin (accidentally or otherwise) charge a
+        // DIFFERENT user's credit balance instead of their own.
+        const userId = auth.userId;
         const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
         if (!creditCheck.allowed) {
             return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
@@ -2986,7 +3166,10 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         const auth = await requireAdmin(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { userId } = req.body;
+        // FIXED (2026-08-27): same fix as generate-insight-clues - use
+        // the already-verified admin identity rather than a separately-
+        // trusted body field.
+        const userId = auth.userId;
 
         const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
         if (!creditCheck.allowed) {
@@ -3119,6 +3302,9 @@ ${topTrending.length > 0 ? `### What People Are Searching For\n${topTrending.map
     'generate-seo-metadata': async (req, res) => {
         const { articleId, userId } = req.body;
         const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
         try {
             let articles;
@@ -4111,6 +4297,9 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     'assessment-generate-report': async (req, res) => {
         const { userAssessmentId, userId } = req.body;
         const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
         
         try {
             const { data: userAssessment, error } = await supabaseClient
@@ -5161,6 +5350,12 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         if (!assistantId || !input) {
             return res.status(400).json({ error: 'Assistant ID and input required' });
         }
+
+        {
+            const supabaseClientForIdCheck = getSupabase();
+            const idCheck = await verifyClaimedUserId(req, supabaseClientForIdCheck, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+        }
         
         const supabaseClient = getSupabase();
 
@@ -5473,6 +5668,9 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const supabaseClient = getSupabase();
         
         if (!userId || !courseId) return res.status(400).json({ error: 'User ID and Course ID required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
         
         try {
             const { data: existing } = await supabaseClient
@@ -5508,6 +5706,9 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     'update-course-progress': async (req, res) => {
         const { userId, courseId, progress, lessonId } = req.body;
         const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
         
         try {
             const updates = {
@@ -5646,6 +5847,16 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
         const supabaseClient = getSupabase();
 
+        // FIXED (2026-08-27): unlike the credit/data-modifying handlers,
+        // this one's own design explicitly says tracking should never be
+        // able to break the site - a hard 401/403 here would violate
+        // that. Instead, an unverified claimed userId is silently
+        // dropped to null (tracked as anonymous) rather than rejected,
+        // closing the same real gap (someone attributing page views to
+        // another real user's account) without ever failing the request.
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        const verifiedUserId = idCheck.verified ? idCheck.userId : null;
+
         const country = req.headers['x-vercel-ip-country'] || null;
         const city = req.headers['x-vercel-ip-city'] || null;
         const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
@@ -5691,7 +5902,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                         start_time: new Date().toISOString(),
                         page_count: 1,
                         duration_seconds: 0,
-                        user_id: userId || null
+                        user_id: verifiedUserId
                     });
             }
 
@@ -5704,7 +5915,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                     country,
                     city,
                     device_type: deviceType,
-                    user_id: userId || null,
+                    user_id: verifiedUserId,
                     created_at: new Date().toISOString()
                 });
 
