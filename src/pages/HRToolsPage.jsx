@@ -17,6 +17,7 @@
 import { useState } from 'react';
 import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
     CheckCircle, Loader2, Sparkles, TrendingUp,
@@ -313,6 +314,11 @@ Would you like me to provide more specific information?`;
                         Instant, ready-to-use outputs for specific HR and career tasks — no conversation needed.
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    10 distinct tools, each its own dedicated AI action — not one generic prompt wearing
+                    different labels. Every tool costs a flat 1 credit per use, regardless of which one.
+                </PageEdgeBanner>
 
                 {/* NEW (2026-08-23): reciprocal clarity-of-purpose cross-link —
                     matches the one added to HireVirtualAssistant.jsx. These two
