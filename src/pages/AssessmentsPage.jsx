@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
     AlertCircle, Star, Users, FileText, CheckCircle, 
@@ -311,6 +312,14 @@ export default function AssessmentsPage() {
                     <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">
                         Discover your potential with science-backed assessments
                     </p>
+
+                    <div className="max-w-2xl mx-auto">
+                        <PageEdgeBanner>
+                            Real AI scoring across multiple question types — multiple choice, scenario-based,
+                            and more — with genuine insights generated from your actual answers, not a
+                            templated result.
+                        </PageEdgeBanner>
+                    </div>
                     
                     {/* Eligibility Badge */}
                     {user && eligibility && (
