@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { createServiceRequest, updateServiceRequest } from '../../services/workforceService';
 import { 
     Send, X, Calendar, MapPin, DollarSign, Briefcase, 
     Loader2, AlertCircle, CheckCircle, Globe, Clock,
@@ -133,40 +134,35 @@ export default function ServiceRequestForm({ onClose, onSuccess, editRequest = n
         setError(null);
         
         try {
-            const action = isEditMode ? 'workforce-update-request' : 'workforce-post-request';
-            const endpoint = `/api/index?action=${action}`;
-            
-            const requestData = {
-                userId: user?.id,
-                request: {
-                    title: formData.title.trim(),
-                    description: formData.description.trim(),
-                    category: formData.category,
-                    budget_min: parseFloat(formData.budget_min) || null,
-                    budget_max: parseFloat(formData.budget_max) || null,
-                    deadline: formData.deadline || null,
-                    location: formData.location?.trim() || null,
-                    is_remote: formData.is_remote,
-                    required_skills: formData.required_skills,
-                    experience_level: formData.experience_level,
-                    estimated_duration: formData.estimated_duration || null
-                }
+            // FIXED (2026-08-27): confirmed real, severe bug - this called
+            // ?action=workforce-post-request and ?action=workforce-update-
+            // request, neither of which has ever existed anywhere in the
+            // backend. Every submission through this form has always
+            // failed. The real, working functions were sitting unused in
+            // workforceService.js the entire time - now wired to those
+            // directly, matching the pattern already proven correct
+            // elsewhere in this file's own service layer.
+            const request = {
+                title: formData.title.trim(),
+                description: formData.description.trim(),
+                category: formData.category,
+                budget_min: parseFloat(formData.budget_min) || null,
+                budget_max: parseFloat(formData.budget_max) || null,
+                deadline: formData.deadline || null,
+                location: formData.location?.trim() || null,
+                is_remote: formData.is_remote,
+                required_skills: formData.required_skills,
+                experience_level: formData.experience_level,
+                estimated_duration: formData.estimated_duration || null
             };
-            
-            // ✅ Using unified API endpoint
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
-            });
-            
-            const result = await response.json();
-            
-            if (!result.success) throw new Error(result.error);
-            
+
+            const result = isEditMode
+                ? await updateServiceRequest(editRequest.id, user.id, request)
+                : await createServiceRequest(user.id, request);
+
             setSuccess(true);
             
-            if (onSuccess) onSuccess(result.requestId);
+            if (onSuccess) onSuccess(result.requestId || editRequest?.id);
             
             // Close modal after 1.5 seconds on success
             setTimeout(() => {
