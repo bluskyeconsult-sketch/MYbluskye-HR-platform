@@ -591,6 +591,12 @@ const AdminArticles = lazy(() => import('./pages/admin/AdminArticles'));
 const ArticleEditor = lazy(() => import('./pages/admin/ArticleEditor'));
 const TestingModeSettings = lazy(() => import('./pages/admin/TestingModeSettings'));
 const TesterVisibilitySettings = lazy(() => import('./pages/admin/TesterVisibilitySettings'));
+// FIXED (2026-08-27): confirmed real bug - TwoFactorSettings.jsx exists,
+// with a fully complete, working backend (setup-2fa/confirm-2fa-setup/
+// disable-2fa, all verified correct), but had no route anywhere in this
+// file at all. A fully-built security feature was completely unreachable
+// by any real user.
+const TwoFactorSettings = lazy(() => import('./pages/TwoFactorSettings'));
 const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
 const ExternalJobs = lazy(() => import('./pages/admin/ExternalJobs'));
 const ExternalJobsManager = lazy(() => import('./pages/admin/ExternalJobsManager'));
@@ -854,6 +860,7 @@ function AppContent() {
                             <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
                             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
+                            <Route path="/settings/security" element={<ProtectedRoute><TwoFactorSettings /></ProtectedRoute>} />
                             <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
                             <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
