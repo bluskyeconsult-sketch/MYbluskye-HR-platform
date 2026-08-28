@@ -328,7 +328,14 @@ export default function ExternalJobsManager() {
                 }
             }
             
-            alert(`✅ Batch approve complete!\nApproved: ${approved}\nFailed: ${failed}${failed > 0 ? '\nCheck console for details' : ''}`);
+            // FIXED (2026-08-28): errors[] already had the real, specific
+            // reason for each failure, but the alert only ever said
+            // "Check console for details" - genuinely useful information
+            // was being thrown away. Now shown directly.
+            const errorSummary = errors.length > 0
+                ? '\n\nReasons:\n' + errors.map(e => `- ${e.id}: ${e.error}`).join('\n')
+                : '';
+            alert(`✅ Batch approve complete!\nApproved: ${approved}\nFailed: ${failed}${errorSummary}`);
             setSelectedJobs(new Set());
             await loadJobs();
             await loadStats();
