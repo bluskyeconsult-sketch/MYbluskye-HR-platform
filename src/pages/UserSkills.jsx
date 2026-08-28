@@ -78,9 +78,15 @@ export default function UserSkills() {
             }
             
             // ✅ Using unified API endpoint
+            // FIXED (2026-08-28): confirmed same regression -
+            // real Authorization header now required.
+            const { data: { session: sessionForAuth } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=user-skills', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(sessionForAuth?.access_token ? { 'Authorization': `Bearer ${sessionForAuth.access_token}` } : {})
+                },
                 body: JSON.stringify({ userId: user.id })
             });
             
@@ -115,9 +121,15 @@ export default function UserSkills() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             
+            // FIXED (2026-08-28): confirmed same regression -
+            // real Authorization header now required.
+            const { data: { session: sessionForAuth } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=user-skill-add', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(sessionForAuth?.access_token ? { 'Authorization': `Bearer ${sessionForAuth.access_token}` } : {})
+                },
                 body: JSON.stringify({
                     userId: user.id,
                     skill: {
@@ -155,9 +167,15 @@ export default function UserSkills() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             
+            // FIXED (2026-08-28): confirmed same regression -
+            // real Authorization header now required.
+            const { data: { session: sessionForAuth } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=user-skill-update', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(sessionForAuth?.access_token ? { 'Authorization': `Bearer ${sessionForAuth.access_token}` } : {})
+                },
                 body: JSON.stringify({
                     userId: user.id,
                     skillId: editingSkill.id,
@@ -194,9 +212,15 @@ export default function UserSkills() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             
+            // FIXED (2026-08-28): confirmed same regression -
+            // real Authorization header now required.
+            const { data: { session: sessionForAuth } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=user-skill-delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(sessionForAuth?.access_token ? { 'Authorization': `Bearer ${sessionForAuth.access_token}` } : {})
+                },
                 body: JSON.stringify({
                     userId: user.id,
                     skillId: skillId
