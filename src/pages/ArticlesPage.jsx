@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
     Calendar, User, Eye, ArrowRight, Flame, TrendingUp, 
     Search, Filter, BookOpen, Clock, ChevronRight, 
@@ -240,6 +241,13 @@ export default function ArticlesPage() {
                         In-depth insights, research findings, and expert analysis on HR trends, 
                         employment laws, and workforce intelligence.
                     </p>
+                </div>
+
+                <div className="max-w-2xl mx-auto">
+                    <PageEdgeBanner>
+                        Trending topics below are drawn from real, current search and engagement patterns —
+                        every AI-assisted draft is reviewed and edited by a real person before publishing.
+                    </PageEdgeBanner>
                 </div>
 
                 {/* Search Bar */}
