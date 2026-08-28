@@ -3493,7 +3493,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             });
 
             if (signInError || !authData?.user) {
-                await logSecurityEvent('user_login_failed', ip, 'info', { email: normalizedEmail });
+                logSecurityEvent('user_login_failed', ip, 'info', { email: normalizedEmail }); // fire-and-forget, see note below
 
                 // Spray-attack check — only meaningfully triggers on
                 // genuinely abnormal volume (many distinct emails failing
@@ -3509,7 +3509,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                         expires_at: new Date(Date.now() + IP_SPRAY_LOCKOUT_MINUTES * 60000).toISOString(),
                         reason: 'user_login_spray'
                     });
-                    await logSecurityEvent('user_login_spray_lockout_triggered', ip, 'critical', {});
+                    logSecurityEvent('user_login_spray_lockout_triggered', ip, 'critical', {}); // fire-and-forget
                 }
 
                 // Deliberately generic — same message regardless of
@@ -3547,6 +3547,19 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
     },
 
+    // FIXED (2026-08-27): confirmed real report of admin login "just
+    // spinning, not loading" - every login attempt (success or failure)
+    // previously AWAITED a security_events insert before the response
+    // could return, including on the success path of every single
+    // ordinary login. If that insert is ever slow (table growth,
+    // temporary DB load, a missing index), that latency was added
+    // directly to every login response - in a bad case, this is exactly
+    // what an indefinite-looking spinner would feel like. logSecurityEvent
+    // already has its own internal try/catch (a failed log entry was
+    // never going to break login), so there was no reason to block the
+    // response waiting for it. Every logSecurityEvent call on this
+    // critical path is now fire-and-forget - logging still happens, it
+    // just no longer gates how fast a real person gets logged in.
     'admin-login': async (req, res) => {
         const { email, password } = req.body;
         const ip = getRequestIP(req);
@@ -3592,7 +3605,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 // targeted email, so lockout catches both "one IP
                 // hammering the login form" and "one admin account being
                 // targeted from rotating IPs."
-                await logSecurityEvent('admin_login_failed', ip, 'warning', { email: email.trim() });
+                logSecurityEvent('admin_login_failed', ip, 'warning', { email: email.trim() }); // fire-and-forget
 
                 const since = new Date(Date.now() - LOCKOUT_WINDOW_MINUTES * 60000).toISOString();
                 const [{ count: ipFailCount }, { count: emailFailCount }] = await Promise.all([
@@ -3611,7 +3624,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                         expires_at: new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60000).toISOString(),
                         reason: 'admin_login_brute_force'
                     });
-                    await logSecurityEvent('admin_login_lockout_triggered', ip, 'critical', { email: email.trim() });
+                    logSecurityEvent('admin_login_lockout_triggered', ip, 'critical', { email: email.trim() }); // fire-and-forget
                     return res.status(429).json({
                         error: 'Too many failed attempts',
                         message: `Too many failed login attempts. This IP is locked out for ${LOCKOUT_DURATION_MINUTES} minutes.`
@@ -3642,11 +3655,11 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 // obtained above are simply never sent to the client;
                 // nothing further to invalidate since the browser never
                 // received them.
-                await logSecurityEvent('admin_login_unauthorized_role', ip, 'critical', { email: email.trim(), userId: authData.user.id });
+                logSecurityEvent('admin_login_unauthorized_role', ip, 'critical', { email: email.trim(), userId: authData.user.id }); // fire-and-forget
                 return res.status(403).json({ error: 'Not authorized as admin' });
             }
 
-            await logSecurityEvent('admin_login_success', ip, 'info', { email: email.trim(), userId: authData.user.id });
+            logSecurityEvent('admin_login_success', ip, 'info', { email: email.trim(), userId: authData.user.id }); // fire-and-forget
 
             return res.status(200).json({
                 success: true,
