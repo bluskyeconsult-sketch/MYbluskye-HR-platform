@@ -2686,6 +2686,188 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // Admin-only and credit-metered (one real OpenAI call) - same
     // requireAdmin + checkAndDeductCredit pattern used everywhere else in
     // this file, not a new, separate access model.
+    // ========== WORKFORCE MARKETPLACE ENHANCEMENTS (NEW - 2026-08-27) ==========
+    // CORRECTED after reviewing the real, existing workforce_profiles +
+    // workforceService.js system - an earlier version of this session
+    // built a separate, competing set of tables before that real system
+    // was known. This extends workforce_profiles instead, matching what
+    // already exists and is already proven working end-to-end.
+    //
+    // Real pricing blend: job_seeker listings are free, with tier
+    // (basic/enhanced) computed from real engagement - no payment
+    // involved. Professional/tradesperson listings keep the existing
+    // admin-verification requirement (matches the page's own "100%
+    // Verified" promise). Employer contact-unlock costs real credits -
+    // the actual monetization mechanism, reusing the existing, proven
+    // credit system rather than new Stripe work.
+
+    // Real, AI-generated "suitable roles" suggestion, fed with the
+    // person's real platform skills - small, real credit cost, same
+    // metering as every other AI feature.
+    'generate-workforce-role-suggestions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const creditCheck = await checkAndDeductCredit(supabaseClient, auth.userId, req);
+        if (!creditCheck.allowed) {
+            return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+        }
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('workforce_profiles')
+                .select('id, listing_category, headline, bio, skills, experience_years')
+                .eq('user_id', auth.userId)
+                .single();
+
+            if (!profile) {
+                await refundCreditIfDeducted(supabaseClient, auth.userId, creditCheck);
+                return res.status(404).json({ success: false, error: 'No workforce profile found — complete onboarding first.' });
+            }
+
+            const { data: realSkills } = await supabaseClient
+                .from('user_skills')
+                .select('skill_name, category, verification_status')
+                .eq('user_id', auth.userId);
+
+            const realSkillsText = (realSkills || []).map(s => `${s.skill_name} (${s.category}${s.verification_status === 'verified' ? ', verified' : ''})`).join(', ') || 'None recorded yet.';
+            const manualSkillsText = (profile.skills || []).join(', ') || 'None listed.';
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are a workforce placement specialist. Given a person's real skills and background, suggest 3-5 specific, realistic job roles or service categories they are genuinely well-suited for. Return ONLY valid JSON: {"roles": [{"role": string, "why": string}]}. Be specific and grounded in what was actually provided, not generic.`
+                },
+                {
+                    role: 'user',
+                    content: `Listing category: ${profile.listing_category}\nHeadline: ${profile.headline || 'not specified'}\nYears of experience: ${profile.experience_years || 'not specified'}\nBio: ${profile.bio || 'none provided'}\nSelf-listed skills: ${manualSkillsText}\nReal platform-verified skills: ${realSkillsText}`
+                }
+            ], 600, 0.5);
+
+            const content = data.choices[0].message.content;
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+            if (!parsed) {
+                await refundCreditIfDeducted(supabaseClient, auth.userId, creditCheck);
+                return res.status(500).json({ success: false, error: 'Could not generate role suggestions — no charge was made for this attempt.' });
+            }
+
+            await supabaseClient
+                .from('workforce_profiles')
+                .update({ ai_suggested_roles: parsed.roles, ai_roles_generated_at: new Date().toISOString() })
+                .eq('id', profile.id);
+
+            return res.status(200).json({ success: true, roles: parsed.roles, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+        } catch (error) {
+            await refundCreditIfDeducted(supabaseClient, auth.userId, creditCheck);
+            console.error('generate-workforce-role-suggestions error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Syncs real, platform-verified skills (user_skills) into the
+    // profile's platform_skills field - kept separate from the
+    // manually-typed skills array so nothing the person entered
+    // themselves is ever silently overwritten. Free - not AI-metered,
+    // this is a plain data sync.
+    'sync-workforce-platform-skills': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data: profile } = await supabaseClient
+                .from('workforce_profiles')
+                .select('id')
+                .eq('user_id', auth.userId)
+                .single();
+
+            if (!profile) return res.status(404).json({ success: false, error: 'No workforce profile found.' });
+
+            const { data: skills } = await supabaseClient
+                .from('user_skills')
+                .select('skill_name, category, verification_status')
+                .eq('user_id', auth.userId);
+
+            const { data: tier } = await supabaseClient
+                .rpc('compute_workforce_listing_tier', { p_user_id: auth.userId });
+
+            await supabaseClient
+                .from('workforce_profiles')
+                .update({
+                    platform_skills: skills || [],
+                    platform_skills_synced_at: new Date().toISOString(),
+                    listing_tier: tier
+                })
+                .eq('id', profile.id);
+
+            return res.status(200).json({ success: true, skillsSynced: (skills || []).length, listingTier: tier });
+        } catch (error) {
+            console.error('sync-workforce-platform-skills error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // The real monetization mechanism - an employer spends real credits
+    // to unlock ONE specific profile's real contact email, permanently
+    // (unique constraint on workforce_contact_unlocks). Replaces the
+    // confirmed real privacy gap where email was previously exposed
+    // directly in the public browse response.
+    'workforce-unlock-contact': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { profileId } = req.body;
+        if (!profileId) return res.status(400).json({ error: 'profileId is required' });
+
+        const CONTACT_UNLOCK_COST = 5;
+
+        try {
+            const { data: existing } = await supabaseClient
+                .from('workforce_contact_unlocks')
+                .select('id')
+                .eq('employer_user_id', auth.userId)
+                .eq('profile_id', profileId)
+                .maybeSingle();
+
+            let alreadyUnlocked = !!existing;
+
+            if (!alreadyUnlocked) {
+                const creditCheck = await checkAndDeductCredit(supabaseClient, auth.userId, req, CONTACT_UNLOCK_COST);
+                if (!creditCheck.allowed) {
+                    return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : `Unlocking contact details costs ${CONTACT_UNLOCK_COST} credits. Please upgrade your plan or purchase more credits.` });
+                }
+
+                const { error: unlockError } = await supabaseClient
+                    .from('workforce_contact_unlocks')
+                    .insert({ employer_user_id: auth.userId, profile_id: profileId, credits_spent: CONTACT_UNLOCK_COST });
+
+                if (unlockError) {
+                    await refundCreditIfDeducted(supabaseClient, auth.userId, creditCheck, CONTACT_UNLOCK_COST);
+                    throw unlockError;
+                }
+            }
+
+            const { data: profile } = await supabaseClient
+                .from('workforce_profiles')
+                .select('user_id, profiles!inner(full_name, email)')
+                .eq('id', profileId)
+                .single();
+
+            return res.status(200).json({
+                success: true,
+                alreadyUnlocked,
+                contact: { name: profile?.profiles?.full_name, email: profile?.profiles?.email }
+            });
+        } catch (error) {
+            console.error('workforce-unlock-contact error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-insight-clues': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
