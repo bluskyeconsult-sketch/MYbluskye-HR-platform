@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { authenticatedFetch } from '../lib/authFetch';
 import BookReader from '../components/BookReader';
 import {
     ArrowLeft, ExternalLink, Download, BookOpen, Loader2,
@@ -80,14 +81,18 @@ export default function BookDetailPage() {
 
         setCheckingOut(true);
         try {
-            const response = await fetch('/api/index?action=create-book-checkout-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bookId: id, userId: user.id, userEmail: user.email })
+            // FIXED (2026-08-28): confirmed real, live regression - same
+            // missing-Authorization-header pattern found across ~9 other
+            // files, never previously caught here. Book e-copy purchases
+            // have been failing for every real, logged-in user since the
+            // backend security fix went out. Uses the new shared
+            // authenticatedFetch utility rather than hand-assembling
+            // headers again - the whole point of building it.
+            const data = await authenticatedFetch('create-book-checkout-session', {
+                bookId: id,
+                userId: user.id,
+                userEmail: user.email
             });
-            const data = await response.json();
-
-            if (!data.success) throw new Error(data.error || 'Checkout failed');
             window.location.href = data.url;
         } catch (err) {
             alert('Unable to start checkout: ' + err.message);
