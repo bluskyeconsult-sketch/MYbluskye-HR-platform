@@ -238,11 +238,17 @@ class ODUSABAApi {
     }
     
     async enrollInCourse(courseId, userId) {
-        return this.postRequest('enroll-course', { courseId, userId });
+        // FIXED (2026-08-28): missing-auth-header regression - enroll-course
+        // now requires a matching real token.
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('enroll-course', { courseId, userId }, headers);
     }
     
     async updateCourseProgress(courseId, progress, lessonId, userId) {
-        return this.postRequest('update-course-progress', { courseId, progress, lessonId, userId });
+        // FIXED (2026-08-28): same regression - update-course-progress now
+        // requires a matching real token.
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('update-course-progress', { courseId, progress, lessonId, userId }, headers);
     }
     
     async getUserEnrollments(userId) {
@@ -279,24 +285,38 @@ class ODUSABAApi {
     // the entire HR Tools page has shown a raw technical error message to
     // every user for every tool since it was built. Now call real backend
     // actions, added to api/index.js alongside this fix.
+    //
+    // FIXED (2026-08-28): a separate, more recent backend security fix
+    // (closing a real userId-impersonation gap across ~30 handlers) now
+    // requires a matching, real Authorization header whenever a userId is
+    // sent - none of these 10 methods ever attached one, even though this
+    // file's own header claims auth headers were wired in "everywhere
+    // needed." That claim was true at the time it was written (before the
+    // security fix existed) and has been stale since - every one of these
+    // 10 tools has been failing with 401 for every real, logged-in user.
     async analyzeCV(cvText, userId) {
-        return this.postRequest('analyzeCV', { cvText, userId });
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('analyzeCV', { cvText, userId }, headers);
     }
     
     async simulateInterview(role, questions, userId) {
-        return this.postRequest('simulate-interview', { role, questions, userId });
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('simulate-interview', { role, questions, userId }, headers);
     }
     
     async checkRights(situation, country, userId) {
-        return this.postRequest('checkRights', { situation, country, userId });
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('checkRights', { situation, country, userId }, headers);
     }
     
     async generateGrievance(details) {
-        return this.postRequest('generateGrievance', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('generateGrievance', details, headers);
     }
     
     async analyzeContract(contractText, userId) {
-        return this.postRequest('analyze-contract', { contractText, userId });
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('analyze-contract', { contractText, userId }, headers);
     }
     
     // NEW (2026-08-08): HRToolsPage.jsx's salary calculator previously
@@ -304,24 +324,29 @@ class ODUSABAApi {
     // calculator, use a more structured approach... Placeholder"). Given a
     // real backend action, so it now does what it's supposed to.
     async calculateSalary(details) {
-        return this.postRequest('calculate-salary', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('calculate-salary', details, headers);
     }
 
     // NEW (2026-08-16): 4 HR Tools expansion methods.
     async generateCoverLetter(details) {
-        return this.postRequest('generate-cover-letter', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('generate-cover-letter', details, headers);
     }
 
     async optimizeLinkedIn(details) {
-        return this.postRequest('optimize-linkedin', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('optimize-linkedin', details, headers);
     }
 
     async writeJobDescription(details) {
-        return this.postRequest('write-job-description', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('write-job-description', details, headers);
     }
 
     async writePerformanceReview(details) {
-        return this.postRequest('write-performance-review', details);
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('write-performance-review', details, headers);
     }
     
     // ========== AI CHAT ==========
@@ -329,18 +354,24 @@ class ODUSABAApi {
         // FIXED: real handler expects a single `message` string plus a `history`
         // array, not a `messages` array + `context` object. Reshaping here so
         // existing callers of chat(messages, context) don't need to change.
+        //
+        // FIXED (2026-08-28): same missing-auth-header regression as the
+        // HR Tools above - the chat handler now requires a matching real
+        // token whenever userId is present in the request.
         const history = Array.isArray(messages) ? messages.slice(0, -1) : [];
         const lastMessage = Array.isArray(messages) && messages.length > 0
             ? messages[messages.length - 1]?.content ?? String(messages[messages.length - 1])
             : String(messages);
         
+        const headers = await this.getAuthHeaders();
         return this.postRequest('chat', {
             message: lastMessage,
             history,
             systemPrompt: context.systemPrompt,
             temperature: context.temperature,
-            maxTokens: context.maxTokens
-        });
+            maxTokens: context.maxTokens,
+            userId: context.userId
+        }, headers);
     }
     
     // ========== NEWSLETTER ==========
@@ -361,7 +392,10 @@ class ODUSABAApi {
         // NOTE (see project brief): this handler currently returns hardcoded
         // template text per assistant type, not a real OpenAI call — flagged
         // separately for clarification, not something this client fix changes.
-        return this.postRequest('va-execute', { assistantId: vaId, input, userId });
+        // FIXED (2026-08-28): same missing-auth-header regression - va-execute
+        // is credit-metered and now requires a matching real token.
+        const headers = await this.getAuthHeaders();
+        return this.postRequest('va-execute', { assistantId: vaId, input, userId }, headers);
     }
     
     async getVATasks(userId) {
