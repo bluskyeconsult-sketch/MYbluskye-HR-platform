@@ -343,7 +343,19 @@ export function invalidateJobCache() {
 // ============================================
 
 function mapJobType(jobType) {
+    // FIXED (2026-08-28): confirmed real, live bug via a Test Feeds
+    // connectivity check - Jobicy is genuinely reachable (200 OK), but
+    // every fetch failed with "e.toLowerCase is not a function". This
+    // only guarded against jobType being null/undefined/empty, not
+    // against it being some other truthy, non-string value - Jobicy's
+    // real response apparently returns jobType as something other than
+    // a plain string (an array, object, or number) at least some of the
+    // time. Now defensively coerces to a string first.
     if (!jobType) return 'full_time';
+    if (typeof jobType !== 'string') {
+        console.warn('mapJobType received a non-string value:', jobType);
+        return 'full_time';
+    }
     
     const type = jobType.toLowerCase();
     
