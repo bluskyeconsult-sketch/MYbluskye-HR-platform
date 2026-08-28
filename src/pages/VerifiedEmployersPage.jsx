@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { Building2, ExternalLink, ShieldCheck, Search, Loader2, Globe } from 'lucide-react';
 
 const API_BASE = '/api/index';
@@ -73,6 +74,11 @@ export default function VerifiedEmployersPage() {
                         automatically from their published listings.
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    Any jobs sourced from these companies still go through the same admin review as every other
+                    listing before appearing on the main job board — this directory isn't a shortcut around that.
+                </PageEdgeBanner>
 
                 <div className="flex flex-col sm:flex-row gap-3 mb-8">
                     <div className="flex-1 relative">
