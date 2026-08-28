@@ -286,9 +286,15 @@ export default function ODUSBABAChat() {
         if (!user) return;
         setExtractingSkillsFor(messageId);
         try {
+            // FIXED (2026-08-28): same confirmed bug as the main chat call
+            // above - sent userId with no Authorization header.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch(`${API_BASE}?action=extract-skills-from-chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
                 body: JSON.stringify({ cvOrSkillsText: text, userId: user.id })
             });
             const data = await response.json();
@@ -474,9 +480,16 @@ export default function ODUSBABAChat() {
             // signal — feeds the "Latest Trend Corner", opportunity-gap
             // analysis, and newsletter content pool. Fire-and-forget:
             // never blocks or fails the actual chat response.
+            // FIXED (2026-08-28): same confirmed missing-Authorization-
+            // header bug as the main chat call below - fetched once here
+            // and reused for both calls in this function.
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
             fetch(`${API_BASE}?action=log-activity-signal`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(currentSession?.access_token ? { 'Authorization': `Bearer ${currentSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ signalType: 'chat_topic', queryText: currentInput, sourcePage: 'chat', userId: user?.id })
             }).catch(() => {});
 
@@ -500,9 +513,21 @@ export default function ODUSBABAChat() {
             const systemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The user's current tier is: ${userProfile?.tier || (user ? 'free' : 'visitor')}.`;
 
             // ✅ Call unified API endpoint
+            // FIXED (2026-08-28): confirmed live, reported bug - sent
+            // userId in the body with no Authorization header at all.
+            // A backend security fix (closing a real userId-impersonation
+            // gap) now correctly requires a matching, real auth token
+            // whenever a userId is claimed - this call never sent one,
+            // so every logged-in user's real chat request was being
+            // rejected with 401, exactly matching the reported error.
+            // Reuses currentSession fetched just above for the activity
+            // signal log, rather than fetching it twice.
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(currentSession?.access_token ? { 'Authorization': `Bearer ${currentSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ 
                     message: currentInput,
                     history,
