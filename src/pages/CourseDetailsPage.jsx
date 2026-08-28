@@ -162,9 +162,16 @@ export default function CourseDetailsPage() {
         }
 
         try {
+            // FIXED (2026-08-28): confirmed same regression - every real
+            // course enrollment attempt has been failing with 401 since
+            // the backend security fix went out.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=enroll-course', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
                 body: JSON.stringify({ userId: user.id, courseId: id })
             });
             
