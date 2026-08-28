@@ -32,6 +32,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
     Bot, Sparkles, DollarSign, Clock, Loader2, Star, Shield, 
     FileText, Briefcase, Users, Award, TrendingUp, 
@@ -446,6 +447,12 @@ export default function HireVirtualAssistant() {
                         or writing over time, not just a single request.
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    Conversational assistants genuinely remember your earlier messages within a session — not
+                    a stateless chatbot resetting every reply. That's real, working memory (2 credits/message on
+                    paid tiers), not a marketing description.
+                </PageEdgeBanner>
 
                 {/* NEW (2026-08-23): clarity-of-purpose cross-link — Hire VA and
                     HR Tools solve genuinely different problems, but a person
