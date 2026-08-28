@@ -79,14 +79,31 @@ export async function toggleAvailability(profileId, userId, isAvailable) {
     return { success: true };
 }
 
-export async function getVerifiedProfessions(limit = 50) {
-    const { data, error } = await supabase
+export async function getVerifiedProfessions(limit = 50, listingCategory = null) {
+    // FIXED (2026-08-27): confirmed real privacy gap - this previously
+    // selected profiles!inner(full_name, email, avatar_url) directly,
+    // meaning the email address was present in the fetched JSON for
+    // every professional regardless of the viewer's tier. The "Contact
+    // Professional" button in WorkforceMarketplace.jsx is gated by
+    // GateGuard, but that only controls whether the BUTTON renders -
+    // the email was already sitting in browser memory either way,
+    // visible to anyone who opened dev tools. Email is no longer part
+    // of this public query at all - it is only ever returned by the new
+    // unlock-workforce-contact backend action, after a real, paid
+    // unlock is confirmed to exist.
+    let query = supabase
         .from('workforce_profiles')
-        .select('*, profiles!inner(full_name, email, avatar_url)')
+        .select('*, profiles!inner(full_name, avatar_url)')
         .eq('verification_status', 'verified')
         .eq('is_available', true)
         .order('rating_avg', { ascending: false })
         .limit(limit);
+
+    if (listingCategory) {
+        query = query.eq('listing_category', listingCategory);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
@@ -97,6 +114,10 @@ export async function getVerifiedProfessions(limit = 50) {
 // ============================================
 
 export async function createServiceRequest(employerId, requestData) {
+    // FIXED (2026-08-27): confirmed real bug - ServiceRequestForm.jsx
+    // collects required_skills, experience_level, and estimated_duration,
+    // but this function was silently dropping all three (they were never
+    // in the insert object at all).
     const { data, error } = await supabase
         .from('service_requests')
         .insert({
@@ -109,6 +130,9 @@ export async function createServiceRequest(employerId, requestData) {
             deadline: requestData.deadline,
             location: requestData.location,
             is_remote: requestData.is_remote,
+            required_skills: requestData.required_skills || [],
+            experience_level: requestData.experience_level || null,
+            estimated_duration: requestData.estimated_duration || null,
             status: 'open'
         })
         .select()
@@ -116,6 +140,34 @@ export async function createServiceRequest(employerId, requestData) {
 
     if (error) throw error;
     return { success: true, requestId: data.id };
+}
+
+// NEW (2026-08-27): ServiceRequestForm.jsx has a real, working edit mode
+// (isEditMode), but there was no function anywhere to actually perform a
+// full update - only updateServiceRequestStatus() below, which only ever
+// touches the status field. This is what the edit path actually needed.
+export async function updateServiceRequest(requestId, employerId, requestData) {
+    const { error } = await supabase
+        .from('service_requests')
+        .update({
+            title: requestData.title,
+            description: requestData.description,
+            category: requestData.category,
+            budget_min: requestData.budget_min,
+            budget_max: requestData.budget_max,
+            deadline: requestData.deadline,
+            location: requestData.location,
+            is_remote: requestData.is_remote,
+            required_skills: requestData.required_skills || [],
+            experience_level: requestData.experience_level || null,
+            estimated_duration: requestData.estimated_duration || null,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', requestId)
+        .eq('employer_id', employerId);
+
+    if (error) throw error;
+    return { success: true };
 }
 
 export async function getServiceRequests(employerId) {
