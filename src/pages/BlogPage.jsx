@@ -19,6 +19,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { Calendar, User, ArrowRight, Search, Tag } from 'lucide-react';
 
 export default function BlogPage() {
@@ -72,6 +73,13 @@ export default function BlogPage() {
                 <div className="text-center mb-12">
                     <h1 className="text-4xl font-bold text-white mb-4">Blog & Insights</h1>
                     <p className="text-xl text-slate-400">Latest news, tips, and success stories</p>
+                </div>
+
+                <div className="max-w-2xl mx-auto">
+                    <PageEdgeBanner>
+                        Topics are informed by real, current workplace trends — every AI-assisted draft is
+                        reviewed and edited by a real person before publishing, never posted unedited.
+                    </PageEdgeBanner>
                 </div>
 
                 {/* Search and Filter */}
