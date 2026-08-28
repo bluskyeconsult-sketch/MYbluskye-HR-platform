@@ -31,7 +31,7 @@ import { getVerifiedProfessions } from '../services/workforceService';
 import { 
     Users, Search, Star, Award, Shield, CheckCircle, 
     Loader2, AlertCircle, Mail, X, Code, Palette, Brain, Database,
-    MessageCircle, Briefcase, TrendingUp, DollarSign, Clock
+    MessageCircle, Briefcase, TrendingUp, DollarSign, Clock, Wrench
 } from 'lucide-react';
 
 const SKILL_CATEGORIES = [
@@ -57,6 +57,7 @@ export default function WorkforceMarketplace() {
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [listingCategory, setListingCategory] = useState('professional');
     const [sortBy, setSortBy] = useState('rating');
     const [selectedProfessional, setSelectedProfessional] = useState(null);
     const [contactMessage, setContactMessage] = useState('');
@@ -67,7 +68,7 @@ export default function WorkforceMarketplace() {
     useEffect(() => {
         loadMarketplaceData();
         getCurrentUser();
-    }, []);
+    }, [listingCategory]);
 
     useEffect(() => {
         filterAndSortProfessionals();
@@ -83,7 +84,12 @@ export default function WorkforceMarketplace() {
             setLoading(true);
             setError(null);
 
-            const data = await getVerifiedProfessions(100);
+            // FIXED (2026-08-27): now passes the real listing_category
+            // filter - getVerifiedProfessions() was extended this
+            // session to support it, so Professional Services,
+            // Tradespeople, and Job Seekers are genuinely separate,
+            // real browse views rather than all mixed together.
+            const data = await getVerifiedProfessions(100, listingCategory);
             setProfessionals(data);
 
             const avgRating = data.reduce((sum, p) => sum + (p.rating_avg || 0), 0) / (data.length || 1);
@@ -160,7 +166,30 @@ export default function WorkforceMarketplace() {
         setSending(true);
 
         try {
-            const recipientEmail = professional.profiles?.email;
+            // FIXED (2026-08-27): this used to read
+            // professional.profiles?.email directly from data already
+            // sitting in browser memory - the real, confirmed privacy
+            // gap fixed this session (getVerifiedProfessions() no
+            // longer includes email at all). Contact now goes through
+            // the real, credit-gated unlock action - it returns the
+            // real email only after confirming (or creating) a real,
+            // paid unlock, rather than assuming it was already fetched.
+            const { data: { session } } = await supabase.auth.getSession();
+            const unlockResponse = await fetch('/api/index?action=workforce-unlock-contact', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({ profileId: professional.id })
+            });
+
+            const unlockResult = await unlockResponse.json();
+            if (!unlockResult.success) {
+                throw new Error(unlockResult.error || 'Could not unlock this profile\'s contact details.');
+            }
+
+            const recipientEmail = unlockResult.contact?.email;
             if (!recipientEmail) {
                 throw new Error('This professional has no contact email on file.');
             }
@@ -185,7 +214,9 @@ export default function WorkforceMarketplace() {
             const data = await response.json();
 
             if (data.success) {
-                alert('Message sent successfully! For ongoing project work, consider submitting a formal proposal instead.');
+                alert(unlockResult.alreadyUnlocked
+                    ? 'Message sent successfully! For ongoing project work, consider submitting a formal proposal instead.'
+                    : 'Contact unlocked and message sent! You now have permanent access to this profile\'s contact details. For ongoing project work, consider submitting a formal proposal instead.');
                 setSelectedProfessional(null);
                 setContactMessage('');
             } else {
@@ -283,6 +314,30 @@ export default function WorkforceMarketplace() {
                             </div>
                         </div>
                     </div>
+                </div>
+
+                {/* NEW (2026-08-27): real listing-category tabs -
+                    Professional Services, Tradesperson, and Job Seeker
+                    are genuinely separate browse views now, matching the
+                    new listing_category field on workforce_profiles. */}
+                <div className="flex gap-2 mb-6 border-b border-slate-800 overflow-x-auto scrollbar-hide">
+                    {[
+                        { id: 'professional', label: 'Professional Services', icon: Briefcase },
+                        { id: 'tradesperson', label: 'Tradespeople & Skilled Workers', icon: Wrench },
+                        { id: 'job_seeker', label: 'Job Seeker Profiles', icon: Users }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setListingCategory(tab.id)}
+                            className={`px-4 py-2 text-sm font-medium transition flex items-center gap-2 border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
+                                listingCategory === tab.id
+                                    ? 'text-primary-400 border-primary-400'
+                                    : 'text-slate-400 border-transparent hover:text-white'
+                            }`}
+                        >
+                            <tab.icon className="w-4 h-4" /> {tab.label}
+                        </button>
+                    ))}
                 </div>
 
                 <div className="flex flex-col lg:flex-row gap-4 mb-8">
@@ -477,6 +532,16 @@ export default function WorkforceMarketplace() {
 
                                     {selectedProfessional?.id === professional.id && (
                                         <div className="mt-4 pt-4 border-t border-slate-700">
+                                            {/* NEW (2026-08-27): honest,
+                                                upfront note about the real
+                                                credit cost - unlocking a
+                                                new profile's contact
+                                                details costs credits;
+                                                re-contacting an already-
+                                                unlocked one doesn't. */}
+                                            <p className="text-xs text-slate-500 mb-2">
+                                                First message to a new profile unlocks their contact details for 5 credits (permanent access after that).
+                                            </p>
                                             <textarea
                                                 value={contactMessage}
                                                 onChange={(e) => setContactMessage(e.target.value)}
