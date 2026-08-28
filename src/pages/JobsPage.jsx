@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
     Briefcase, MapPin, DollarSign, Building2, Clock, 
     Search, Filter, Loader2, AlertCircle, ExternalLink,
@@ -435,8 +436,16 @@ export default function JobsPage() {
                     <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4 text-center">
                         Verified Job Marketplace
                     </h1>
+                    {/* FIXED (2026-08-27): claimed "across 9 countries" -
+                        the confirmed real coverage is 7 countries via
+                        government/official sources (UK, US, Nigeria,
+                        Canada, Australia, Germany, Ireland), plus genuine
+                        global remote sources that aren't country-specific
+                        at all. "9" appears to be stale from an earlier
+                        iteration of this project. */}
                     <p className="text-sm sm:text-base text-slate-300 text-center max-w-2xl mx-auto">
-                        AI-verified, law-aware, and fraud-protected job opportunities across 9 countries.
+                        Real job listings sourced from official government portals and verified employer career
+                        pages across 7 countries, plus global remote opportunities.
                     </p>
                     
                     {/* Intelligence Banner */}
@@ -449,6 +458,13 @@ export default function JobsPage() {
                             </div>
                         </div>
                     </div>
+
+                    <PageEdgeBanner>
+                        Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
+                        career pages of employers cross-referenced against real sponsor license registers — not
+                        generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
+                        live results pulled directly from these sources.
+                    </PageEdgeBanner>
 
                     {/* Search Bar */}
                     <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
