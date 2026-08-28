@@ -697,8 +697,17 @@ async function scrapeNigeriaFCSC() {
 // ============================================
 
 async function fetchFromAPI(source) {
-    if (!source.is_active) return [];
-    
+    // FIXED (2026-08-27): confirmed real, live mystery - Jobicy and
+    // Himalayas both showed "0 found, 0 new" after being enabled, with
+    // no way to tell why. Traced to the exact same silent-swallowing
+    // bug already found and fixed once in parseRSSFeed() - every
+    // failure path here (bad HTTP status, a parseFunction crash, a
+    // network error) silently returned [], indistinguishable from an
+    // API that genuinely has zero current listings. Now returns
+    // {jobs, error} so the real reason surfaces instead of looking
+    // identical to "nothing new right now."
+    if (!source.is_active) return { jobs: [], error: 'Source is disabled' };
+
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -711,20 +720,39 @@ async function fetchFromAPI(source) {
         clearTimeout(timeoutId);
         
         if (!response.ok) {
+            const reason = `HTTP ${response.status} ${response.statusText || ''}`.trim();
             console.warn(`API error for ${source.name}: ${response.status}`);
-            return [];
+            return { jobs: [], error: reason };
         }
         
         const data = await response.json();
         
         if (source.parseFunction && typeof source.parseFunction === 'function') {
-            return source.parseFunction(data);
+            try {
+                const jobs = source.parseFunction(data);
+                if (!jobs || jobs.length === 0) {
+                    // The request succeeded and returned valid JSON, but
+                    // either the API genuinely has nothing right now, or
+                    // (more likely, given this is a real, confirmed
+                    // pattern this session) the parseFunction's assumed
+                    // field names don't match this response's real shape.
+                    // Logging a sample of the raw response here, once,
+                    // makes that distinguishable in real server logs
+                    // without needing another guess.
+                    console.warn(`${source.name} returned 0 jobs after parsing. Raw response sample: ${JSON.stringify(data).substring(0, 500)}`);
+                    return { jobs: [], error: 'Parsed successfully but found 0 jobs - the response shape may not match what this parser expects. Check server logs for a raw response sample.' };
+                }
+                return { jobs, error: null };
+            } catch (parseError) {
+                console.error(`${source.name} parseFunction crashed:`, parseError.message, 'Raw response sample:', JSON.stringify(data).substring(0, 500));
+                return { jobs: [], error: `Parser error: ${parseError.message} - the response shape likely doesn't match what this parser expects.` };
+            }
         }
         
-        return [];
+        return { jobs: [], error: 'No parseFunction configured for this source' };
     } catch (error) {
         console.error(`Error fetching from ${source.name}:`, error);
-        return [];
+        return { jobs: [], error: error.name === 'AbortError' ? `Timed out after ${REQUEST_TIMEOUT}ms` : error.message };
     }
 }
 
@@ -920,7 +948,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
         console.log(`  📡 Fetching from ${source.name}...`);
         
         try {
-            const jobs = await fetchFromAPI(source);
+            const { jobs, error: fetchIssue } = await fetchFromAPI(source);
             let added = 0;
             
             for (const job of jobs) {
@@ -933,11 +961,16 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 }
             }
             
+            // FIXED (2026-08-27): previously hardcoded 'success' here
+            // regardless of whether any jobs were actually found or why -
+            // this is what made the Jobicy/Himalayas "0 found" mystery
+            // look identical to genuine success.
             results.push({
                 source: source.name,
                 found: jobs.length,
                 added: added,
-                status: 'success'
+                status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
+                error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
             });
             
             await delay(1000);
@@ -1292,6 +1325,45 @@ export async function testRSSConnection() {
             
             clearTimeout(timeoutId);
             
+            results.push({
+                source: source.name,
+                url: source.url,
+                status: response.status,
+                ok: response.ok,
+                country: source.country,
+                message: response.ok ? 'Connected successfully' : `HTTP ${response.status}`
+            });
+        } catch (error) {
+            results.push({
+                source: source.name,
+                url: source.url,
+                status: 'error',
+                error: error.message,
+                country: source.country,
+                message: error.message
+            });
+        }
+    }
+
+    // FIXED (2026-08-27): this only ever tested RSS_FEEDS - the
+    // separate API_SOURCES (Jobicy, Remotive, Himalayas) were never
+    // covered at all, which is exactly why "Feed connection test: 1/12
+    // reachable" stayed unchanged even after those three were enabled
+    // and fixed. Now covers both, so this test actually reflects every
+    // real, active source.
+    for (const [_, source] of Object.entries(API_SOURCES)) {
+        if (!source.is_active) continue;
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const response = await fetch(source.url, {
+                headers: REALISTIC_BROWSER_HEADERS,
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
             results.push({
                 source: source.name,
                 url: source.url,
