@@ -39,6 +39,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import PageEdgeBanner from '../components/PageEdgeBanner';
 
 export default function BooksPage() {
     const [books, setBooks] = useState([]);
@@ -190,6 +191,12 @@ export default function BooksPage() {
                         Essential reads for HR professionals, leaders, and career-driven individuals
                     </p>
                 </div>
+
+                <PageEdgeBanner>
+                    Buy the hardcopy through Amazon, or the e-copy directly here — read instantly in your
+                    browser. E-copy files are never publicly accessible; each is unlocked with a private,
+                    time-limited link generated only after your purchase is confirmed.
+                </PageEdgeBanner>
 
                 {/* Search and Filter Bar */}
                 <div className="flex flex-col lg:flex-row gap-4 mb-8">
