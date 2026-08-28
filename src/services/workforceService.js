@@ -16,10 +16,25 @@ import { supabase } from '../lib/supabase';
 // ============================================
 
 export async function createWorkforceProfile(userId, profileData) {
+    // FIXED (2026-08-27): now accepts listingCategory, countryCode, and
+    // generalLocation - the new fields this session added to
+    // workforce_profiles. Verification is conditional: job_seeker
+    // listings are lower-stakes (skills/discovery only, no rate or
+    // formal engagement promise) and are auto-verified so they appear
+    // immediately, matching "free job seekers get most basic listing"
+    // - no waiting on manual review for that category. Professional and
+    // tradesperson listings keep the existing admin-review requirement,
+    // since those genuinely involve rate-setting and real engagements,
+    // matching the marketplace's own "100% Verified" promise already
+    // shown to visitors.
+    const listingCategory = profileData.listingCategory || 'professional';
+    const autoVerify = listingCategory === 'job_seeker';
+
     const { data, error } = await supabase
         .from('workforce_profiles')
         .insert({
             user_id: userId,
+            listing_category: listingCategory,
             headline: profileData.headline,
             bio: profileData.bio,
             skills: profileData.skills,
@@ -27,14 +42,16 @@ export async function createWorkforceProfile(userId, profileData) {
             hourly_rate: profileData.hourly_rate,
             portfolio_urls: profileData.portfolio_urls,
             certifications: profileData.certifications,
+            country_code: profileData.countryCode || null,
+            general_location: profileData.generalLocation || null,
             is_available: true,
-            verification_status: 'pending'
+            verification_status: autoVerify ? 'verified' : 'pending'
         })
         .select()
         .single();
 
     if (error) throw error;
-    return { success: true, profileId: data.id };
+    return { success: true, profileId: data.id, autoVerified: autoVerify };
 }
 
 export async function getWorkforceProfile(userId) {
