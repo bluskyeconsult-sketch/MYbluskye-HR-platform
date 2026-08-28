@@ -83,11 +83,25 @@ export default function AdminLogin() {
             // never be tracked before. The real credential check, role
             // verification, attempt logging, and lockout enforcement all
             // happen server-side now, in the admin-login action.
+            //
+            // FIXED (2026-08-27): confirmed real report of this page
+            // spinning indefinitely with no resolution. The backend fix
+            // (making security-event logging fire-and-forget rather than
+            // blocking every login response) addresses the most likely
+            // cause, but this timeout is a real, independent safety net —
+            // if anything ever causes the request to genuinely hang, the
+            // person sees a clear, actionable error at 15 seconds instead
+            // of a spinner with no way to know something went wrong.
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             const response = await fetch(`${API_BASE}?action=admin-login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim(), password })
+                body: JSON.stringify({ email: email.trim(), password }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const result = await response.json();
 
@@ -112,7 +126,7 @@ export default function AdminLogin() {
 
         } catch (err) {
             console.error('Login error:', err);
-            setError(err.message);
+            setError(err.name === 'AbortError' ? 'The request took too long and was stopped. Please try again — if this keeps happening, the site may be experiencing an issue.' : err.message);
         } finally {
             if (!redirecting) setLoading(false);
         }
