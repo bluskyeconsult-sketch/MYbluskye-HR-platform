@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import WorkforceOptInPrompt from '../components/workforce/WorkforceOptInPrompt';
 import { 
     Bot, Bell, Briefcase, BookOpen, User, 
     FileText, Award, TrendingUp, Loader2, AlertCircle,
@@ -44,6 +45,10 @@ export default function UserDashboard() {
     const [recentApplications, setRecentApplications] = useState([]);
     const [recentActivity, setRecentActivity] = useState([]);
     const [recommendedJobs, setRecommendedJobs] = useState([]);
+    // NEW (2026-08-27): the real registration/dashboard opt-in prompt for
+    // the Workforce Marketplace - shown once, to job_seeker accounts
+    // that haven't already dismissed it or created a listing.
+    const [showWorkforcePrompt, setShowWorkforcePrompt] = useState(false);
 
     // ============================================
     // HELPER FUNCTIONS
@@ -105,6 +110,34 @@ export default function UserDashboard() {
 
             const profileData = await getProfileWithRetry(user.id, user.email);
             setProfile(profileData);
+
+            // NEW (2026-08-27): real eligibility check for the Workforce
+            // Marketplace opt-in prompt - only ever shown to job_seeker
+            // accounts (matches "every candidate that registers"; not
+            // employers, who aren't the ones being listed), only if it
+            // hasn't already been dismissed (workforce_prompt_dismissed_at
+            // is null), and only if no workforce_profiles row already
+            // exists for them (someone who already opted in elsewhere,
+            // e.g. via /workforce/setup directly, shouldn't be prompted
+            // again). Runs after both the profile and skip conditions are
+            // known, and never blocks the rest of the dashboard from
+            // loading - failure here just means the prompt doesn't show,
+            // never an error the person sees.
+            if (profileData?.user_type === 'job_seeker' && !profileData?.workforce_prompt_dismissed_at) {
+                try {
+                    const { data: existingListing } = await supabase
+                        .from('workforce_profiles')
+                        .select('id')
+                        .eq('user_id', user.id)
+                        .maybeSingle();
+
+                    if (!existingListing) {
+                        setShowWorkforcePrompt(true);
+                    }
+                } catch (promptCheckErr) {
+                    console.warn('Workforce prompt eligibility check failed (non-critical):', promptCheckErr);
+                }
+            }
             
             const token = await getAuthToken();
             
@@ -161,19 +194,30 @@ export default function UserDashboard() {
                 .eq('profile_id', user.id);
             setStats(prev => ({ ...prev, profileViews: profileViews || 0 }));
             
-            // Verified skills count
+            // FIXED (2026-08-27): confirmed real bug - filtered on
+            // user_skills.verified (a boolean that doesn't exist).
+            // The real, confirmed column is verification_status (text,
+            // values 'pending'/'verified') - matches the actual schema
+            // used everywhere else this session (user-skill-add,
+            // UserSkills.jsx). This count has likely always returned 0.
             const { count: skillsVerified } = await supabase
                 .from('user_skills')
                 .select('id', { count: 'exact', head: true })
                 .eq('user_id', user.id)
-                .eq('verified', true);
+                .eq('verification_status', 'verified');
             setStats(prev => ({ ...prev, skillsVerified: skillsVerified || 0 }));
             
-            // Active engagements count
+            // FIXED (2026-08-27): confirmed real bug - filtered
+            // engagements.user_id, a column that doesn't exist on the
+            // real table at all. The confirmed real schema (from
+            // workforceService.js) uses employer_id and
+            // professional_id, never a generic user_id. This count has
+            // likely always returned 0 or errored silently regardless
+            // of real engagement activity.
             const { count: activeEngagements } = await supabase
                 .from('engagements')
                 .select('id', { count: 'exact', head: true })
-                .eq('user_id', user.id)
+                .or(`employer_id.eq.${user.id},professional_id.eq.${user.id}`)
                 .eq('status', 'active');
             setStats(prev => ({ ...prev, activeEngagements: activeEngagements || 0 }));
             
@@ -256,6 +300,17 @@ export default function UserDashboard() {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+            {/* NEW (2026-08-27): the real Workforce Marketplace opt-in
+                prompt - only ever mounted when the eligibility check
+                above genuinely passed, and only ever shown once (real
+                dismissal is persisted to profiles.workforce_prompt_
+                dismissed_at, not localStorage). */}
+            {showWorkforcePrompt && (
+                <WorkforceOptInPrompt
+                    userId={user?.id}
+                    onDismiss={() => setShowWorkforcePrompt(false)}
+                />
+            )}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 {/* Welcome Header */}
