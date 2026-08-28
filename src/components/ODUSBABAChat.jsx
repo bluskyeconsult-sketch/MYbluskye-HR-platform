@@ -184,14 +184,28 @@ export default function ODUSBABAChat() {
         return {
             id: `welcome_${Date.now()}`,
             sender: 'odusbaba',
-            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTell me what you're trying to do — job search, CV help, workplace advice, hiring, or learning — and I'll give you structured help.\n\nWhat brings you here today?",
+            // NEW (2026-08-27): added a real, specific hint about a
+            // genuinely working capability (live job search + real board
+            // integration) rather than leave this as generic "how can I
+            // help" copy - a chat widget has no page header to attach a
+            // value-edge banner to, so this welcome message is the
+            // natural place for it.
+            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTry asking something specific, like \"sponsorship jobs in UK for HR\" — I'll pull real, current results from our job board and live external sources, not generic advice.\n\nWhat brings you here today?",
             created_at: new Date().toISOString()
         };
     }
 
     async function loadUserProfile() {
         if (!user) return;
-        const { data: profile } = await supabase.from('profiles').select('user_type, tier, full_name, job_title, years_experience, ai_credits_remaining').eq('id', user.id).single();
+        // FIXED (2026-08-27): selected ai_credits_remaining - the exact
+        // same confirmed-dead column already found and fixed in
+        // loadCredits() further down this same file, missed here in its
+        // sibling function. Since this dead column doesn't exist,
+        // selecting it caused the entire query to fail - meaning profile
+        // was always null here, and the "Welcome back, {name}" message
+        // below always silently fell back to the email prefix instead
+        // of ever showing a real full_name.
+        const { data: profile } = await supabase.from('profiles').select('user_type, tier, full_name, job_title, years_experience').eq('id', user.id).single();
         setUserProfile(profile);
         return profile;
     }
