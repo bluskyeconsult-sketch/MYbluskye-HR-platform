@@ -4305,8 +4305,18 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const auth = await getAuthenticatedUser(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
-        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        const { data: profile, error: profileError } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        // FIXED (2026-08-30): confirmed real, live issue - a genuine
+        // super_admin account was getting a generic "Admin access
+        // required" with no way to tell why from the UI. If this
+        // query returns nothing or errors, that's now distinguished
+        // from a genuine, correct permission denial - most likely
+        // cause is SUPABASE_SERVICE_ROLE_KEY missing, putting this
+        // query under RLS instead of bypassing it.
+        if (profileError || !profile) {
+            return res.status(403).json({ error: 'Could not verify admin status - this usually means SUPABASE_SERVICE_ROLE_KEY is missing or misconfigured on the server, not that your account lacks permission. Check Vercel\'s environment variables.' });
+        }
+        if (profile.user_type !== 'admin' && profile.user_type !== 'super_admin') {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
@@ -4325,8 +4335,11 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const auth = await getAuthenticatedUser(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
-        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+        const { data: profile, error: profileError } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profileError || !profile) {
+            return res.status(403).json({ error: 'Could not verify admin status - this usually means SUPABASE_SERVICE_ROLE_KEY is missing or misconfigured on the server, not that your account lacks permission. Check Vercel\'s environment variables.' });
+        }
+        if (profile.user_type !== 'admin' && profile.user_type !== 'super_admin') {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
