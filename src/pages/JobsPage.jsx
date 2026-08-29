@@ -67,7 +67,9 @@ const PER_PAGE_OPTIONS = [25, 50, 100, 250];
 // ============================================
 
 export default function JobsPage() {
-    const { capabilities, userTier, canSync } = useCapability();
+    // FIXED (2026-08-30): same confirmed bug as HRToolsPage.jsx - the
+    // hook only ever returns 'tier', never 'userTier'.
+    const { capabilities, tier: userTier, canSync } = useCapability();
     const [jobs, setJobs] = useState([]);
     const [filteredJobs, setFilteredJobs] = useState([]);
     const [loading, setLoading] = useState(true);
