@@ -53,9 +53,15 @@ export default function AffiliateDashboard() {
             }
 
             // ✅ Using unified API endpoint
+            // FIXED (2026-08-28): confirmed regression - real
+            // Authorization header now required.
+            const { data: { session: affiliateSession } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=affiliate-stats', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(affiliateSession?.access_token ? { 'Authorization': `Bearer ${affiliateSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ userId: user.id })
             });
             
