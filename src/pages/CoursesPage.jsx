@@ -235,9 +235,15 @@ export default function CoursesPage() {
             const systemPrompt = 'You are a career course advisor. Return ONLY valid JSON, no other text, no markdown code fences.';
             const userMessage = `A learner says: "${aiQuestion}"\n\nAvailable courses:\n${courseList}\n\nRecommend up to 4 of the most relevant courses from the list above. Return a JSON array like: [{"courseId": "the exact id from the list", "reason": "a short reason this fits"}]`;
             
+            // FIXED (2026-08-28): confirmed regression - real Authorization
+            // header now required whenever userId is sent.
+            const { data: { session: coursesSession } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(coursesSession?.access_token ? { 'Authorization': `Bearer ${coursesSession.access_token}` } : {})
+                },
                 body: JSON.stringify({
                     message: userMessage,
                     systemPrompt,
