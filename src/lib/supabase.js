@@ -534,12 +534,22 @@ export async function batchUpdateVACredits(updates) {
  */
 export async function apiCall(action, data = {}, method = 'POST') {
     try {
-        const currentUser = await getCurrentUser();
+        // FIXED (2026-08-29): confirmed real bug, found during a
+        // line-by-line review - sent a custom 'X-User-Id' header instead
+        // of a real 'Authorization: Bearer' token. The backend's
+        // verifyClaimedUserId() (closing a real userId-impersonation
+        // gap across ~30 handlers) only ever checks the Authorization
+        // header - this custom header was silently ignored. Currently
+        // low-impact since the only real caller (FAQPage.jsx's
+        // track-event) doesn't require auth at all, but this was a real
+        // trap for any future caller using apiCall() for a protected
+        // action.
+        const { data: { session } } = await supabase.auth.getSession();
         const response = await fetch(`/api/index?action=${action}`, {
             method,
             headers: {
                 'Content-Type': 'application/json',
-                ...(currentUser?.id && { 'X-User-Id': currentUser.id })
+                ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
             },
             body: method !== 'GET' ? JSON.stringify(data) : undefined
         });
