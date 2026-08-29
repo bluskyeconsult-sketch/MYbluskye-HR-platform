@@ -36,13 +36,12 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
 import { 
     getPendingExternalJobs, 
     approveExternalJob, 
     rejectExternalJob, 
     getExternalJobsStats,
-    fetchExternalJobs,
-    testRSSConnection,
     RSS_FEEDS,
     API_SOURCES
 } from '../../services/rssJobService';
@@ -183,16 +182,20 @@ export default function ExternalJobsManager() {
         setFilteredJobs(filtered);
     }
 
-    // FIXED: all three fetch/sync buttons now call the one real, proven
-    // fetchExternalJobs() service function instead of three different
-    // broken/nonexistent API paths (see file header for details).
+    // FIXED (2026-08-29): confirmed severe, real bug - these called
+    // fetchExternalJobs() directly, running the RSS-fetch logic in the
+    // admin's own browser. Every external request was being blocked by
+    // CORS, which is exactly why every government/job-board source
+    // appeared "unreachable" regardless of whether it actually is. Now
+    // correctly calls the new server-side admin-force-refresh-external-
+    // jobs action, where CORS never applies at all.
     async function handleFetchRSSJobs() {
         setSyncing(true);
         setSyncResult(null);
         
         try {
-            const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Added ${result.totalAdded} new jobs` });
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Added ${result.inserted} new jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -208,8 +211,8 @@ export default function ExternalJobsManager() {
         setSyncResult(null);
         
         try {
-            const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Synced ${result.totalAdded} jobs` });
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Synced ${result.inserted} jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -225,8 +228,8 @@ export default function ExternalJobsManager() {
         setSyncResult(null);
         
         try {
-            const result = await fetchExternalJobs(false);
-            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, message: `Added ${result.totalAdded} external jobs` });
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Added ${result.inserted} external jobs` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -244,8 +247,8 @@ export default function ExternalJobsManager() {
         setSyncResult(null);
         
         try {
-            const result = await fetchExternalJobs(true);
-            setSyncResult({ success: true, inserted: result.totalAdded, results: result.results, forceRefresh: true, message: `Force refresh complete. Added ${result.totalAdded} jobs.` });
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: true });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, forceRefresh: true, message: `Force refresh complete. Added ${result.inserted} jobs.` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -350,7 +353,8 @@ export default function ExternalJobsManager() {
     async function handleTestConnections() {
         setTestingConnection(true);
         try {
-            const results = await testRSSConnection();
+            const data = await authenticatedFetch('admin-test-feed-connections', {}, { method: 'POST' });
+            const results = data.results;
             setConnectionStatus(results);
             const workingCount = results.filter(r => r.ok === true).length;
             alert(`✅ Connection test complete!\n${workingCount}/${results.length} feeds working`);
