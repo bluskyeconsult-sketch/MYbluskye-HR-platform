@@ -327,13 +327,40 @@ export default function SystemHealthDashboard() {
         // ============================================
         try {
             const realtimeStart = Date.now();
-            const realtimeChannel = supabase.channel('health-check');
+            // FIXED (2026-08-30): confirmed real bug, causing a repeating
+            // "Maximum call stack size exceeded" crash. Two compounding
+            // issues: (1) Supabase's subscribe() callback can fire more
+            // than once as a channel's status changes (SUBSCRIBING, then
+            // SUBSCRIBED, etc.) - this had no guard against running its
+            // resolve+unsubscribe logic more than once. (2) unsubscribe()
+            // was called synchronously from inside the very callback
+            // still processing a status change - a re-entrant call into
+            // the channel's own event-handling mid-flight, matching the
+            // real stack trace exactly (unsubscribe -> leave -> send ->
+            // back into the channel's own callback machinery). Also used
+            // a hardcoded channel name, risking a collision with a
+            // still-unraveling previous channel every 60 seconds via
+            // auto-refresh. Now guarded to run its settle logic exactly
+            // once, defers unsubscribe to the next tick so it never
+            // re-enters mid-processing, and uses a unique name per check.
+            const realtimeChannel = supabase.channel(`health-check-${Date.now()}`);
+            let settled = false;
+            let resolveHealth;
+            const settleOnce = (result) => {
+                if (settled) return;
+                settled = true;
+                resolveHealth(result);
+                setTimeout(() => {
+                    try { realtimeChannel.unsubscribe(); } catch (e) { /* already gone, fine */ }
+                }, 0);
+            };
             await new Promise((resolve) => {
-                const timeout = setTimeout(() => resolve(false), 5000);
+                resolveHealth = resolve;
+                const timeout = setTimeout(() => settleOnce(false), 5000);
                 realtimeChannel.subscribe((status) => {
+                    if (settled) return;
                     clearTimeout(timeout);
-                    resolve(status === 'SUBSCRIBED');
-                    realtimeChannel.unsubscribe();
+                    settleOnce(status === 'SUBSCRIBED');
                 });
             });
             checks.push({
