@@ -33,6 +33,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
 import { 
     Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
@@ -184,13 +185,10 @@ export default function AICourseBuilder() {
             // real outline endpoint directly, same as the final generate
             // step, since that's the only real AI course capability the
             // backend actually offers.
-            const response = await fetch(GENERATE_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, level })
-            });
-            
-            const data = await response.json();
+            // FIXED (2026-08-29): confirmed real, reported 401 - this
+            // action requires admin authorization, and this call never
+            // sent one.
+            const data = await authenticatedFetch('generate-course', { topic, level });
             
             if (data.success) {
                 setGeneratedOutline(data.outline);
@@ -226,13 +224,8 @@ export default function AICourseBuilder() {
         setGenerationStatus('Generating course outline...');
         
         try {
-            const response = await fetch(GENERATE_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, level })
-            });
-            
-            const data = await response.json();
+            // FIXED (2026-08-29): same confirmed regression.
+            const data = await authenticatedFetch('generate-course', { topic, level });
             
             if (!data.success) {
                 throw new Error(data.error || 'Failed to generate course outline');
