@@ -33,8 +33,29 @@
 // structure, genuinely more fragile than the RSS-based sources — if the
 // Nigerian government redesigns that portal, this will need updating.
 
-import { supabase } from '../lib/supabase';
+// FIXED (2026-08-30): CRITICAL, confirmed real regression - this
+// imported the FRONTEND Supabase singleton (../lib/supabase), which
+// reads import.meta.env.VITE_SUPABASE_URL - a Vite/browser build-time
+// construct that does not exist in a plain Node.js serverless function.
+// Accessing .env on an undefined import.meta throws immediately, at
+// MODULE IMPORT TIME, not inside any try/catch. Once this file got
+// imported into api/index.js (the main gateway, handling every action),
+// that crash took down the ENTIRE gateway before any handler could run
+// - not just RSS-related actions, but chat, assessments-list,
+// virtual-assistants-list, books-list, everything - exactly matching
+// the sudden, widespread "can't load"/"not valid JSON" failures
+// reported across completely unrelated pages. Fixed by creating a
+// dedicated, Node-safe client here using process.env (the same pattern
+// index.js's own getSupabase() already uses correctly), completely
+// decoupled from the frontend singleton. Every internal call in this
+// file keeps working unchanged, since they all reference this same
+// local `supabase` binding - only where it comes from changed.
+import { createClient } from '@supabase/supabase-js';
 import { XMLParser } from 'fast-xml-parser';
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ============================================
 // CONSTANTS & CONFIGURATION
@@ -1424,3 +1445,4 @@ export default {
     RSS_FEEDS,
     API_SOURCES
 };
+
