@@ -139,9 +139,14 @@ export default function AICourseBuilder() {
 
     async function loadRecentCourses() {
         try {
+            // FIXED (2026-08-29): confirmed real bug via a live 400 error
+            // - view_count belongs to the articles table, not courses.
+            // courses genuinely uses review_count instead, confirmed
+            // against CoursesPage.jsx and LearnerDashboard.jsx both
+            // correctly using it.
             const { data, error } = await supabase
                 .from('courses')
-                .select('id, title, created_at, is_published, view_count, category, difficulty')
+                .select('id, title, created_at, is_published, review_count, category, difficulty')
                 .order('created_at', { ascending: false })
                 .limit(5);
             
@@ -159,7 +164,7 @@ export default function AICourseBuilder() {
                 .from('courses')
                 .select('id, title, created_at, is_published')
                 .eq('is_published', true)
-                .order('view_count', { ascending: false })
+                .order('review_count', { ascending: false })
                 .limit(10);
             
             if (!error && data) {
