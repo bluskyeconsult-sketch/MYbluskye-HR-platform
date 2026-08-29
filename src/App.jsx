@@ -541,6 +541,11 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 const HomePage = lazy(() => import('./pages/HomePage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
 const VerifiedEmployersPage = lazy(() => import('./pages/VerifiedEmployersPage'));
+// NEW (2026-08-28): this admin page never existed at all until now - the
+// real backend actions (admin-add-employer-source,
+// admin-bulk-import-employer-sources, etc.) were built and working, but
+// there was no frontend to actually use them.
+const EmployerSourcesManager = lazy(() => import('./pages/admin/EmployerSourcesManager'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
@@ -844,6 +849,7 @@ function AppContent() {
                             <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><AdminLayout><UsageMeter /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAudit /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/insight-engine" element={<ProtectedRoute requireAdmin><AdminLayout><InsightEngine /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/employer-sources" element={<ProtectedRoute requireAdmin><AdminLayout><EmployerSourcesManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminLayout><AdminEmployerVerification /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminLayout><AdminOpportunityGaps /></AdminLayout></ProtectedRoute>} />
