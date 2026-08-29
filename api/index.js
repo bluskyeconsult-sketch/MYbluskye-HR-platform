@@ -19,6 +19,15 @@ import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from '../src/services/liveJobSearchService.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
+// NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
+// was importing fetchExternalJobs()/testRSSConnection() directly and
+// running them IN THE ADMIN'S OWN BROWSER, not on the server. CORS
+// blocks every external government/job-board request when it runs
+// client-side, which is exactly why every one of those sources appeared
+// "unreachable" - the real, honest picture (reachable from a genuine
+// server, blocked only because of where the code was running) was never
+// actually visible before now.
+import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
 
 // ============================================
 // CONFIGURATION
@@ -4261,6 +4270,55 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         try {
             const result = await scrapeAllVerifiedEmployers(supabaseClient);
             return res.status(200).json({ success: true, ...result });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
+    // previously called fetchExternalJobs() and testRSSConnection()
+    // directly, running them client-side in the admin's own browser.
+    // Every external government/job-board RSS request was being blocked
+    // by CORS as a result - the "Failed to fetch" results shown to
+    // admins reflected where the code was running, not whether these
+    // sources are actually reachable. These two actions wrap the exact
+    // same, already-proven-correct rssJobService.js functions
+    // (identical to what api/cron/sync-external-jobs.js already uses),
+    // just running properly on the server, where CORS never applies at
+    // all.
+    'admin-force-refresh-external-jobs': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { forceRefresh } = req.body;
+
+        try {
+            const result = await fetchExternalJobs(!!forceRefresh);
+            return res.status(200).json({ success: true, inserted: result.totalAdded, results: result.results });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-test-feed-connections': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
+        if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        try {
+            const results = await testRSSConnection();
+            return res.status(200).json({ success: true, results });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
