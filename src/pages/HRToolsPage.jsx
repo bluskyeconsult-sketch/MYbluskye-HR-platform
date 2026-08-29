@@ -31,7 +31,11 @@ export default function HRToolsPage() {
     const [input, setInput] = useState('');
     const [output, setOutput] = useState('');
     const [loading, setLoading] = useState(false);
-    const { canSync, userTier, capabilities, user } = useCapability();
+    // FIXED (2026-08-30): confirmed real bug - useCapability() has never
+    // returned a property named userTier, only tier. This was always
+    // undefined here, meaning the comparison below always evaluated to
+    // false regardless of the real user's tier.
+    const { canSync, tier: userTier, capabilities, user } = useCapability();
 
     const tools = [
         { id: 'cv_analyzer', name: 'CV Analyzer', icon: FileText, description: 'Get AI-powered CV feedback and optimization tips', color: 'blue', apiMethod: 'analyzeCV' },
