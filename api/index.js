@@ -37,6 +37,20 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 let supabase = null;
 
+// NEW (2026-08-30): confirmed real, live symptom - a genuine super_admin
+// account (verified directly against profiles.user_type) was getting
+// 403 "Admin access required" on admin-only actions. The most likely
+// cause: SUPABASE_SERVICE_ROLE_KEY isn't set, so this silently falls
+// back to the anon key - every admin-check query (like the profiles
+// lookup in requireAdmin/admin-gated handlers) then runs under RLS
+// instead of bypassing it, and can silently return nothing even for a
+// real admin. This warning makes that immediately visible in server
+// logs instead of manifesting as a confusing, hard-to-trace 403
+// somewhere else entirely.
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY is not set - falling back to the anon key. Admin-gated actions may fail with a false "Admin access required" even for genuine admins, since profile lookups will run under RLS instead of bypassing it. Set this environment variable in Vercel to fix.');
+}
+
 function getSupabase() {
     if (!supabase) {
         supabase = createClient(supabaseUrl, supabaseKey);
