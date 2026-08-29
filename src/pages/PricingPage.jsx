@@ -354,24 +354,30 @@ export default function PricingPage() {
         )}
 
         {/* Billing Toggle */}
+        {/* FIXED (2026-08-30): confirmed real, serious issue - this
+            toggle only ever changed the DISPLAYED price. The actual
+            checkout request never sent a billing-cycle field, and the
+            backend maps each tier to exactly one Stripe Price ID with
+            no monthly/yearly branching at all. A customer selecting
+            Yearly and seeing a discounted annual total could have been
+            charged a completely different, disconnected amount. Real
+            annual billing needs separate Price objects created in
+            Stripe first - deliberately not guessed at here. Disabled
+            the interactive toggle until that's genuinely wired,
+            replaced with an honest "coming soon" note rather than
+            silently removing the concept. billingCycle is now forced
+            to 'monthly' so no code path can reach the yearly display
+            math at all. */}
         <div className="flex justify-center mb-10">
-          <div className="bg-slate-900 p-1 rounded-lg inline-flex">
+          <div className="bg-slate-900 p-1 rounded-lg inline-flex items-center gap-3">
             <button
-              onClick={() => setBillingCycle('monthly')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                billingCycle === 'monthly' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
+              className="px-6 py-2 rounded-md text-sm font-medium bg-emerald-600 text-white"
             >
               Monthly
             </button>
-            <button
-              onClick={() => setBillingCycle('yearly')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                billingCycle === 'yearly' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Yearly <span className="text-emerald-400 text-xs ml-1">Save 17%</span>
-            </button>
+            <span className="px-4 py-2 text-xs text-slate-500 italic">
+              Annual billing coming soon
+            </span>
           </div>
         </div>
 
@@ -392,12 +398,9 @@ export default function PricingPage() {
               <h3 className="text-xl font-bold text-white mb-2">{tier.name}</h3>
               <div className="mb-4">
                 <span className="text-3xl font-bold text-white">
-                  ${billingCycle === 'monthly' ? tier.price : (tier.priceYearly / 12).toFixed(2)}
+                  ${tier.price}
                 </span>
                 <span className="text-slate-400">/month</span>
-                {billingCycle === 'yearly' && tier.priceYearly > 0 && (
-                  <p className="text-xs text-slate-500 mt-1">Billed annually (${tier.priceYearly}/year)</p>
-                )}
                 {tier.price === 0 && <p className="text-xs text-emerald-400 mt-1">Free forever</p>}
               </div>
               <button
