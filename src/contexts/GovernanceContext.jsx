@@ -103,9 +103,19 @@ export function GovernanceProvider({ children }) {
 
     async function loadVACredits(userId, profileData) {
         try {
+            // FIXED (2026-08-30): confirmed real inconsistency - treated
+            // business tier as unlimited, contradicting an explicit
+            // decision already made and applied elsewhere this
+            // engagement (checkAndDeductCredit, va-credits,
+            // HireVirtualAssistant.jsx's fallback) that business tier
+            // gets a real 200/month credit cap, not unlimited. This file
+            // was never updated to match, meaning a business-tier user's
+            // credit display here could have shown 999999 while the
+            // backend correctly enforced a real 200 cap - a real,
+            // confusing mismatch between what this context reported and
+            // what the backend actually allowed.
             const isUnlimitedUser = profileData?.user_type === 'super_admin' || 
-                                   profileData?.user_type === 'admin' || 
-                                   profileData?.tier === 'business';
+                                   profileData?.user_type === 'admin';
             
             if (isUnlimitedUser) {
                 setRemainingCredits(999999);
