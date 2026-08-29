@@ -7,7 +7,7 @@
 // DELIBERATE DESIGN: this is a lightweight launcher, not a second form.
 // WorkforceOnboarding.jsx already has a real, complete, working multi-step
 // flow (category choice, basic info, skills, pricing/portfolio, review).
-// Duplicating that here would create exactly the kind of parallel,
+// Duplicating this here would create exactly the kind of parallel,
 // competing implementation this whole engagement has repeatedly found and
 // fixed elsewhere. This component only ever asks "yes/no/later," then
 // either launches the real onboarding flow in a modal, or dismisses.
