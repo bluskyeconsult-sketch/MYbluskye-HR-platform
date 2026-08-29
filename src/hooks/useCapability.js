@@ -35,7 +35,20 @@ export function useCapability() {
             },
             loading: false,
             getTier: () => 'visitor',
-            isAdmin: () => false,
+            // FIXED (2026-08-30): confirmed real, severe bug - this was
+            // () => false (a function), while line 139's
+            // `isUserAdmin || ...` destructures this value directly and
+            // uses it in a boolean OR, never calling it. Every function
+            // reference is truthy in JavaScript regardless of what it
+            // returns when called - so whenever this fallback fired
+            // (useGovernance() unavailable), isAdmin evaluated as true
+            // for every visitor, including logged-out ones. This is
+            // exactly what made BrainstormPartner (gated by
+            // capabilities.isAdmin in App.jsx) show for anonymous
+            // incognito visitors. Now a real boolean, matching the
+            // nested capabilities.isAdmin above and every other isAdmin
+            // usage in this file.
+            isAdmin: false,
             getCredits: () => 5,
             getIsUnlimited: () => false
         };
@@ -136,7 +149,22 @@ export function useCapability() {
     const isProfessional = tier === 'professional';
     const isEmployer = tier === 'employer';
     const isBusiness = tier === 'business';
-    const isAdmin = isUserAdmin || profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+    // FIXED (2026-08-30): my earlier fix only addressed the fallback
+    // object (used when useGovernance() throws) - but the REAL,
+    // working GovernanceContext.jsx provider ALSO exposes isAdmin as a
+    // function by design (`const isAdmin = () => capabilities.isAdmin
+    // || false`), confirmed correct there since GateGuard.jsx's own
+    // AdminGate calls it properly as `isAdmin()`. This file destructured
+    // that same function but used it directly in a boolean OR without
+    // ever calling it - meaning this bug fired on the REAL, NORMAL
+    // path (GovernanceProvider working correctly), not just the rare
+    // fallback case, which is why fixing only the fallback didn't
+    // resolve the reported issue. Now robust to either shape - calls it
+    // if it's a function (the real provider's design), uses it directly
+    // if it's already a boolean (the fallback's design, also already
+    // fixed).
+    const rawAdminFlag = typeof isUserAdmin === 'function' ? isUserAdmin() : isUserAdmin;
+    const isAdmin = rawAdminFlag || profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
     const isSuperAdmin = profile?.user_type === 'super_admin';
 
     // Extended capabilities object for easy access
