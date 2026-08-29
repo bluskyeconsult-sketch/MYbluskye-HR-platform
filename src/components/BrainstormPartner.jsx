@@ -326,7 +326,17 @@ export default function BrainstormPartner() {
             {/* Brainstorm Button */}
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-36 right-6 z-50 p-3.5 bg-gradient-to-r from-amber-500 to-orange-600 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 group"
+                // FIXED (2026-08-30): confirmed real bug, reported directly
+                // - this sat at bottom-36 right-6, which falls squarely
+                // inside ODUSBABAChat's open window footprint (fixed
+                // bottom-24 right-6, up to 600px tall). Both are z-50, and
+                // since this renders later in App.jsx's DOM order, it
+                // physically intercepted clicks meant for the chat's own
+                // Send button underneath it - not just a visual overlap,
+                // an actual click-blocking one. Moved to the left side so
+                // the two can never occupy the same screen space, rather
+                // than fight over z-index stacking in the same footprint.
+                className="fixed bottom-6 left-6 z-50 p-3.5 bg-gradient-to-r from-amber-500 to-orange-600 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 group"
                 title="AI Brainstorm Partner"
             >
                 <Lightbulb className="w-5 h-5 text-white group-hover:animate-pulse" />
@@ -511,7 +521,7 @@ export default function BrainstormPartner() {
                                 <button
                                     onClick={generateIdeas}
                                     disabled={isLoading || !topic.trim()}
-                                    className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-500 hover:to-orange-500 transition disabled:opacity-50 flex items-center gap-2"
+                                    className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-500 to-orange-500 transition disabled:opacity-50 flex items-center gap-2"
                                 >
                                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                                     Generate
