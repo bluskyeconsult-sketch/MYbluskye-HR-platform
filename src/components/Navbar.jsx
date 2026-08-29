@@ -310,6 +310,7 @@ export default function Navbar() {
         { name: 'Fraud Reports', path: '/admin/fraud-reports', icon: Shield },
         { name: 'Testing Mode', path: '/admin/testing-mode', icon: Settings },
         { name: 'External Jobs', path: '/admin/external-jobs', icon: Database },
+        { name: 'Employer Sources', path: '/admin/employer-sources', icon: Building2 },
         { name: 'Analytics', path: '/admin/analytics', icon: BarChart3 },
         { name: 'Insight Engine', path: '/admin/insight-engine', icon: Sparkles },
         { name: 'System Health', path: '/admin/health', icon: Activity },
@@ -749,8 +750,7 @@ export default function Navbar() {
                                     
                                     {/* FIXED (2026-08-27): same dead
                                         adminNavItems array, now actually
-                                        rendered - mobile has real scroll
-                                        room, so shows the complete list
+                                        rendered - mobile has real scroll                                        room, so shows the complete list
                                         rather than a slice. */}
                                     {isAdmin && (
                                         <>
