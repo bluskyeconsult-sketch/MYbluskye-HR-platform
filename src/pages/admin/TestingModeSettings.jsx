@@ -226,8 +226,14 @@ export default function TestingModeSettings() {
                 .upsert({
                     config_key: 'testing_mode',
                     config_value: stringValue,
-                    updated_at: new Date().toISOString(),
-                    updated_by: user?.id
+                    updated_at: new Date().toISOString()
+                    // FIXED (2026-08-29): confirmed real bug - updated_by
+                    // isn't a real column on system_config (confirmed via
+                    // a direct query of the actual schema: id, config_key,
+                    // config_value, updated_at, created_at, description
+                    // only). Referencing a nonexistent column in an
+                    // upsert is a real, independent cause of a 400,
+                    // separate from the config_value type mismatch.
                 }, { onConflict: 'config_key' });
             
             if (dbError) throw dbError;
