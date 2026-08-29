@@ -4,7 +4,7 @@
 // FIXED (2026-08-07):
 // 1. Used a `status` string field ('draft'/'published') throughout, but the
 //    real articles table (confirmed via the articles-list handler and the
-//    HomePage.jsx fix, and already corrected in AdminArticles.jsx) uses
+// HomePage.jsx fix, and already corrected in AdminArticles.jsx) uses
 //    `is_published` (boolean). This is the file that actually publishes
 //    article content — even after fixing AdminArticles.jsx's list view,
 //    clicking Publish HERE still wouldn't set the column the public site
@@ -258,10 +258,15 @@ export default function ArticleEditor() {
             // (IP-rate-limited, not properly attributed to the admin's own
             // account). Fetches the real session for correct attribution.
             const { data: { user: currentUser } } = await supabase.auth.getUser();
+            // FIXED (2026-08-28): confirmed regression - real Authorization header now required.
+            const { data: { session: editorSession } } = await supabase.auth.getSession();
 
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(editorSession?.access_token ? { 'Authorization': `Bearer ${editorSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.7, maxTokens: 1500, userId: currentUser?.id })
             });
             
@@ -315,10 +320,15 @@ export default function ArticleEditor() {
             const systemPrompt = 'You are a professional editor. Improve the grammar, clarity, and flow of the given article while preserving its markdown formatting, meaning, and structure. Return ONLY the improved article text, no commentary.';
             
             const { data: { user: currentUser } } = await supabase.auth.getUser();
+            // FIXED (2026-08-28): confirmed regression - real Authorization header now required.
+            const { data: { session: editorSession } } = await supabase.auth.getSession();
 
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(editorSession?.access_token ? { 'Authorization': `Bearer ${editorSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ message: article.content, systemPrompt, history: [], temperature: 0.4, maxTokens: 2000, userId: currentUser?.id })
             });
             
@@ -354,10 +364,15 @@ export default function ArticleEditor() {
             const userMessage = `Original article title: "${article.title}"`;
             
             const { data: { user: currentUser } } = await supabase.auth.getUser();
+            // FIXED (2026-08-28): confirmed regression - real Authorization header now required.
+            const { data: { session: editorSession } } = await supabase.auth.getSession();
 
             const response = await fetch('/api/index?action=chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(editorSession?.access_token ? { 'Authorization': `Bearer ${editorSession.access_token}` } : {})
+                },
                 body: JSON.stringify({ message: userMessage, systemPrompt, history: [], temperature: 0.5, maxTokens: 40, userId: currentUser?.id })
             });
             
