@@ -53,8 +53,22 @@
 import { createClient } from '@supabase/supabase-js';
 import { XMLParser } from 'fast-xml-parser';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+// FIXED (2026-08-30): CRITICAL correction to my own previous fix. That
+// fix used process.env directly, which is correct for the backend
+// (api/index.js, a Node.js serverless function) but this exact file is
+// ALSO imported directly by ExternalJobsManager.jsx - a FRONTEND admin
+// page, bundled for the browser, where `process` does not exist at
+// all. That made the whole page crash at import time with "Something
+// Went Wrong" - I fixed one crash and introduced a different one in
+// the opposite direction. `typeof process !== 'undefined'` is a safe
+// check that never throws even when process genuinely doesn't exist,
+// so this correctly works in EITHER context without crashing in
+// either - matching whichever real environment this file is actually
+// loaded into.
+const supabaseUrl = (typeof process !== 'undefined' ? process.env?.VITE_SUPABASE_URL : undefined)
+    || import.meta.env?.VITE_SUPABASE_URL;
+const supabaseKey = (typeof process !== 'undefined' ? (process.env?.SUPABASE_SERVICE_ROLE_KEY || process.env?.VITE_SUPABASE_ANON_KEY) : undefined)
+    || import.meta.env?.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ============================================
@@ -1445,4 +1459,3 @@ export default {
     RSS_FEEDS,
     API_SOURCES
 };
-
