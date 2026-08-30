@@ -4,9 +4,14 @@
 // would still be unreachable in practice, since nobody would know the
 // exact URL to type. Kept everything else as the deliberate stub it
 // already was - not over-building beyond what's actually needed.
+//
+// UPDATED (2026-08-30): added Refund Requests the same way - a real,
+// routed page (/request-refund) with no link anywhere in the main
+// navigation. Settings is the sensible home for it, matching how
+// Security was handled.
 
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ChevronRight } from 'lucide-react';
+import { ShieldCheck, ChevronRight, Receipt } from 'lucide-react';
 
 export default function UserSettings() {
   return (
@@ -18,13 +23,26 @@ export default function UserSettings() {
         </div>
         <Link
           to="/settings/security"
-          className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition"
+          className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition mb-4"
         >
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-5 h-5 text-primary-400" />
             <div>
               <p className="text-white font-medium">Security</p>
               <p className="text-slate-400 text-sm">Two-factor authentication and login security</p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-500" />
+        </Link>
+        <Link
+          to="/request-refund"
+          className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition"
+        >
+          <div className="flex items-center gap-3">
+            <Receipt className="w-5 h-5 text-primary-400" />
+            <div>
+              <p className="text-white font-medium">Request a Refund</p>
+              <p className="text-slate-400 text-sm">Submit a refund request for a recent payment</p>
             </div>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-500" />
