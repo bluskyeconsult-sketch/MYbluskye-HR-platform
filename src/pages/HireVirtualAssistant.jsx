@@ -57,7 +57,12 @@ const CATEGORIES = [
     { id: 'resume', name: 'CV Strategy & Feedback', icon: FileText },
     { id: 'career', name: 'Career Coaching', icon: Briefcase },
     { id: 'writing', name: 'Writing Partner', icon: TrendingUp },
-    { id: 'productivity', name: 'Productivity Coach', icon: Shield }
+    { id: 'productivity', name: 'Productivity Coach', icon: Shield },
+    // NEW (2026-08-30): the first employer/manager-facing VA category -
+    // previously all 4 categories were job-seeker-facing only, despite
+    // HR Tools already having employer-facing tools like Job Description
+    // Writer. Added alongside the new Rota Preparation Assistant.
+    { id: 'employer_ops', name: 'Employer & Workforce Tools', icon: Users }
 ];
 
 // ============================================
