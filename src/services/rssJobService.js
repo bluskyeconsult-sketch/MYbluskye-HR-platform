@@ -904,134 +904,137 @@ export async function fetchExternalJobs(forceRefresh = false) {
         .lt('created_at', thirtyDaysAgo)
         .eq('status', 'rejected');
     
-    // Fetch from RSS feeds in priority order
-    const sortedFeeds = Object.entries(RSS_FEEDS)
-        .filter(([_, source]) => source.is_active)
-        .sort((a, b) => (a[1].priority || 99) - (b[1].priority || 99));
-    
-    for (const [key, source] of sortedFeeds) {
+    // FIXED (2026-08-30): CONFIRMED real cause of a live 504 Gateway
+    // Timeout on Force Refresh - this ran all 15 sources completely
+    // sequentially with a mandatory 2000ms (RSS) or 1000ms (API) delay
+    // between EACH ONE, on top of real network time for each fetch.
+    // That's 20+ seconds of pure artificial delay alone, easily
+    // exceeding even the 60-second maxDuration already configured in
+    // vercel.json. Each source is a completely independent external
+    // server - running them concurrently doesn't hammer any single one
+    // harder than fetching them one at a time did, since a source has
+    // no way to know (or care) whether other, unrelated servers are
+    // also being called at the same moment. Converted all three groups
+    // to run in parallel via Promise.allSettled, which tolerates
+    // individual source failures without ever rejecting the whole
+    // batch - preserving the exact same per-source error isolation the
+    // original sequential try/catch blocks provided.
+
+    async function processRSSSource([key, source]) {
         console.log(`  📡 Fetching from ${source.name}...`);
-        
         try {
             const { jobs, error: fetchIssue } = await parseRSSFeed(source.url, source.name, source.country);
             let added = 0;
-            
+            const sourceJobs = [];
+
             for (const job of jobs) {
                 const sponsorship = detectSponsorshipEligibility(job.title, job.description, source);
                 const saveResult = await saveJobToDatabase(job, sponsorship);
-                
                 if (saveResult.status === 'added') {
-                    allJobs.push(job);
+                    sourceJobs.push(job);
                     added++;
                 }
-                
                 await delay(100);
             }
-            
-            // FIXED (2026-08-27): jobs.length === 0 with a real fetchIssue
-            // now correctly reports as failed, with the actual reason
-            // (HTTP status, parse error, or timeout) — previously always
-            // reported "success" with found: 0, indistinguishable from a
-            // source that was reachable but genuinely had no postings.
-            results.push({
-                source: source.name,
-                found: jobs.length,
-                added: added,
-                status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
-                error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
-            });
-            
-            await delay(2000);
-            
+
+            return {
+                jobs: sourceJobs,
+                result: {
+                    source: source.name,
+                    found: jobs.length,
+                    added,
+                    status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
+                    error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
+                }
+            };
         } catch (error) {
             console.error(`  ❌ Error with ${source.name}:`, error.message);
-            results.push({
-                source: source.name,
-                error: error.message,
-                status: 'failed'
-            });
+            return { jobs: [], result: { source: source.name, error: error.message, status: 'failed' } };
         }
     }
-    
-    // NEW (2026-08-16): Nigeria — dedicated scraper, no RSS feed available.
-    // Isolated in its own try/catch, same as every RSS source above, so a
-    // failure here never affects the other 7 sources.
-    console.log('  📡 Fetching from Federal Civil Service Commission Nigeria...');
-    try {
-        const nigeriaJobs = await scrapeNigeriaFCSC();
-        let added = 0;
 
-        for (const job of nigeriaJobs) {
-            const sponsorship = detectSponsorshipEligibility(job.title, job.description);
-            const saveResult = await saveJobToDatabase(job, sponsorship);
-
-            if (saveResult.status === 'added') {
-                allJobs.push(job);
-                added++;
-            }
-
-            await delay(100);
-        }
-
-        results.push({
-            source: 'Federal Civil Service Commission Nigeria',
-            found: nigeriaJobs.length,
-            added: added,
-            status: 'success'
-        });
-    } catch (error) {
-        console.error('  ❌ Error with Nigeria FCSC:', error.message);
-        results.push({
-            source: 'Federal Civil Service Commission Nigeria',
-            error: error.message,
-            status: 'failed'
-        });
-    }
-
-    // Fetch from API sources (if enabled)
-    for (const [key, source] of Object.entries(API_SOURCES)) {
-        if (!source.is_active) continue;
-        
+    async function processApiSource([key, source]) {
         console.log(`  📡 Fetching from ${source.name}...`);
-        
         try {
             const { jobs, error: fetchIssue } = await fetchFromAPI(source);
             let added = 0;
-            
+            const sourceJobs = [];
+
             for (const job of jobs) {
                 const sponsorship = detectSponsorshipEligibility(job.title, job.description);
                 const saveResult = await saveJobToDatabase(job, sponsorship);
-                
                 if (saveResult.status === 'added') {
-                    allJobs.push(job);
+                    sourceJobs.push(job);
                     added++;
                 }
             }
-            
-            // FIXED (2026-08-27): previously hardcoded 'success' here
-            // regardless of whether any jobs were actually found or why -
-            // this is what made the Jobicy/Himalayas "0 found" mystery
-            // look identical to genuine success.
-            results.push({
-                source: source.name,
-                found: jobs.length,
-                added: added,
-                status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
-                error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
-            });
-            
-            await delay(1000);
-            
+
+            return {
+                jobs: sourceJobs,
+                result: {
+                    source: source.name,
+                    found: jobs.length,
+                    added,
+                    status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
+                    error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
+                }
+            };
         } catch (error) {
             console.error(`  ❌ Error with ${source.name}:`, error.message);
-            results.push({
-                source: source.name,
-                error: error.message,
-                status: 'failed'
-            });
+            return { jobs: [], result: { source: source.name, error: error.message, status: 'failed' } };
         }
     }
-    
+
+    async function processNigeria() {
+        console.log('  📡 Fetching from Federal Civil Service Commission Nigeria...');
+        try {
+            const nigeriaJobs = await scrapeNigeriaFCSC();
+            let added = 0;
+            const sourceJobs = [];
+
+            for (const job of nigeriaJobs) {
+                const sponsorship = detectSponsorshipEligibility(job.title, job.description);
+                const saveResult = await saveJobToDatabase(job, sponsorship);
+                if (saveResult.status === 'added') {
+                    sourceJobs.push(job);
+                    added++;
+                }
+                await delay(100);
+            }
+
+            return { jobs: sourceJobs, result: { source: 'Federal Civil Service Commission Nigeria', found: nigeriaJobs.length, added, status: 'success' } };
+        } catch (error) {
+            console.error('  ❌ Error with Nigeria FCSC:', error.message);
+            return { jobs: [], result: { source: 'Federal Civil Service Commission Nigeria', error: error.message, status: 'failed' } };
+        }
+    }
+
+    const sortedFeeds = Object.entries(RSS_FEEDS)
+        .filter(([_, source]) => source.is_active)
+        .sort((a, b) => (a[1].priority || 99) - (b[1].priority || 99));
+    const activeApiSources = Object.entries(API_SOURCES).filter(([_, source]) => source.is_active);
+
+    const [rssOutcomes, nigeriaOutcome, apiOutcomes] = await Promise.all([
+        Promise.allSettled(sortedFeeds.map(processRSSSource)),
+        processNigeria(),
+        Promise.allSettled(activeApiSources.map(processApiSource))
+    ]);
+
+    for (const outcome of rssOutcomes) {
+        if (outcome.status === 'fulfilled') {
+            allJobs.push(...outcome.value.jobs);
+            results.push(outcome.value.result);
+        }
+    }
+    allJobs.push(...nigeriaOutcome.jobs);
+    results.push(nigeriaOutcome.result);
+    for (const outcome of apiOutcomes) {
+        if (outcome.status === 'fulfilled') {
+            allJobs.push(...outcome.value.jobs);
+            results.push(outcome.value.result);
+        }
+    }
+
     await logFetchResults('all_sources', allJobs.length, allJobs.length, results);
     
     incrementFetchCount();
