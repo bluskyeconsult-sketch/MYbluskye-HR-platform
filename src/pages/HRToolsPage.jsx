@@ -29,6 +29,21 @@ import api from '../lib/api';
 export default function HRToolsPage() {
     const [activeTool, setActiveTool] = useState(null);
     const [input, setInput] = useState('');
+    // NEW (2026-08-30): optional target role field for CV Analyzer -
+    // lets the AI give real, role-specific ATS and keyword feedback
+    // instead of guessing the role from CV content alone. Optional by
+    // design: leaving it blank still works, just with the same general
+    // feedback as before.
+    const [cvTargetRole, setCvTargetRole] = useState('');
+    // NEW (2026-08-30): real state for the interview simulator's actual
+    // question-then-answer-then-evaluate flow, closing the gap between
+    // what this tool promised ("get feedback") and what it delivered
+    // (only ever a question). askedQuestions tracks the session so the
+    // backend can genuinely avoid repeats.
+    const [askedQuestions, setAskedQuestions] = useState([]);
+    const [currentInterviewQuestion, setCurrentInterviewQuestion] = useState('');
+    const [interviewAnswer, setInterviewAnswer] = useState('');
+    const [evaluatingAnswer, setEvaluatingAnswer] = useState(false);
     const [output, setOutput] = useState('');
     const [loading, setLoading] = useState(false);
     // FIXED (2026-08-30): confirmed real bug - useCapability() has never
@@ -65,13 +80,18 @@ export default function HRToolsPage() {
             
             switch (activeTool) {
                 case 'cv_analyzer':
-                    data = await api.analyzeCV(input, user?.id);
+                    data = await api.analyzeCV(input, user?.id, cvTargetRole.trim() || null);
                     setOutput(data.analysis || data.result || formatFallbackResponse(activeTool));
                     break;
                     
                 case 'interview_simulator':
-                    data = await api.simulateInterview(input, [], user?.id);
+                    data = await api.simulateInterview(input, askedQuestions, user?.id);
                     setOutput(data.feedback || data.result || formatFallbackResponse(activeTool));
+                    if (data.question) {
+                        setCurrentInterviewQuestion(data.question);
+                        setAskedQuestions(prev => [...prev, data.question]);
+                    }
+                    setInterviewAnswer('');
                     break;
                     
                 case 'grievance_generator':
@@ -135,6 +155,28 @@ export default function HRToolsPage() {
             }
         } finally {
             setLoading(false);
+        }
+    }
+
+    // NEW (2026-08-30): the real, missing half of the interview
+    // simulator - submits the person's typed answer to the current
+    // question and gets it genuinely evaluated, rather than the tool
+    // only ever generating another question.
+    async function submitInterviewAnswer() {
+        if (!interviewAnswer.trim() || !currentInterviewQuestion) return;
+
+        setEvaluatingAnswer(true);
+        try {
+            const data = await api.simulateInterview(input, askedQuestions, user?.id, interviewAnswer, currentInterviewQuestion);
+            setOutput(data.feedback || 'Unable to evaluate your answer right now.');
+        } catch (error) {
+            if (error.message?.includes('Insufficient credits')) {
+                setOutput(`You're out of credits for this month. Upgrade your plan or purchase more credits to continue using HR Tools.`);
+            } else {
+                setOutput(`Unable to evaluate your answer. Please try again.\n\nError: ${error.message}`);
+            }
+        } finally {
+            setEvaluatingAnswer(false);
         }
     }
 
@@ -348,7 +390,12 @@ Would you like me to provide more specific information?`;
                             return (
                                 <button
                                     key={tool.id}
-                                    onClick={() => setActiveTool(tool.id)}
+                                    onClick={() => {
+                                        setActiveTool(tool.id);
+                                        setAskedQuestions([]);
+                                        setCurrentInterviewQuestion('');
+                                        setInterviewAnswer('');
+                                    }}
                                     className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-left hover:border-primary-500/30 transition-all duration-200 group"
                                 >
                                     <div className={`w-12 h-12 rounded-lg bg-${tool.color}-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition`}>
@@ -385,6 +432,9 @@ Would you like me to provide more specific information?`;
                                     setActiveTool(null);
                                     setInput('');
                                     setOutput('');
+                                    setAskedQuestions([]);
+                                    setCurrentInterviewQuestion('');
+                                    setInterviewAnswer('');
                                 }}
                                 className="text-slate-400 hover:text-white transition"
                             >
@@ -406,6 +456,20 @@ Would you like me to provide more specific information?`;
                             }
                         >
                             <div className="space-y-4">
+                                {activeTool === 'cv_analyzer' && (
+                                    <div>
+                                        <label className="block text-sm text-slate-400 mb-1.5">
+                                            Target role <span className="text-slate-500">(optional, but recommended for sharper feedback)</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={cvTargetRole}
+                                            onChange={(e) => setCvTargetRole(e.target.value)}
+                                            placeholder="e.g. Senior Marketing Manager, FinTech"
+                                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                        />
+                                    </div>
+                                )}
                                 <textarea
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
@@ -442,6 +506,31 @@ Would you like me to provide more specific information?`;
                                 <div className="text-slate-300 whitespace-pre-wrap prose prose-invert max-w-none">
                                     {output}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* NEW (2026-08-30): the real answer-then-evaluate
+                            step - only shown for the interview simulator,
+                            and only while there's an active question
+                            waiting for a response. */}
+                        {activeTool === 'interview_simulator' && currentInterviewQuestion && (
+                            <div className="mt-6 p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                                <h3 className="text-white font-semibold mb-3">Your answer</h3>
+                                <textarea
+                                    value={interviewAnswer}
+                                    onChange={(e) => setInterviewAnswer(e.target.value)}
+                                    rows={5}
+                                    placeholder="Type your answer to the question above, then submit it to get real feedback..."
+                                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                                <button
+                                    onClick={submitInterviewAnswer}
+                                    disabled={evaluatingAnswer || !interviewAnswer.trim()}
+                                    className="mt-3 px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition flex items-center gap-2"
+                                >
+                                    {evaluatingAnswer ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+                                    {evaluatingAnswer ? 'Evaluating...' : 'Submit Answer for Feedback'}
+                                </button>
                             </div>
                         )}
                     </div>
