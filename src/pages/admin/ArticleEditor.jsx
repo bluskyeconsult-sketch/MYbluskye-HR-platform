@@ -4,7 +4,7 @@
 // FIXED (2026-08-07):
 // 1. Used a `status` string field ('draft'/'published') throughout, but the
 //    real articles table (confirmed via the articles-list handler and the
-// HomePage.jsx fix, and already corrected in AdminArticles.jsx) uses
+//    HomePage.jsx fix, and already corrected in AdminArticles.jsx) uses
 //    `is_published` (boolean). This is the file that actually publishes
 //    article content — even after fixing AdminArticles.jsx's list view,
 //    clicking Publish HERE still wouldn't set the column the public site
@@ -129,6 +129,10 @@ export default function ArticleEditor() {
     const [preview, setPreview] = useState(false);
     const [aiGenerating, setAiGenerating] = useState(false);
     const [aiImproving, setAiImproving] = useState(false);
+    // NEW (2026-08-30): state for AI-generated featured images -
+    // separate loading flag since this can run independently of
+    // content generation/improvement.
+    const [generatingImage, setGeneratingImage] = useState(false);
     const [aiTopic, setAiTopic] = useState('');
     const [showAIPanel, setShowAIPanel] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -345,6 +349,45 @@ export default function ArticleEditor() {
             alert('⚠️ AI service unavailable. Used basic text improvement instead.');
         } finally {
             setAiImproving(false);
+        }
+    }
+
+    // NEW (2026-08-30): generates a real featured image via DALL-E,
+    // built from the article's actual title and category rather than
+    // requiring the admin to write an image prompt from scratch. The
+    // backend re-uploads to permanent Supabase Storage rather than
+    // returning the raw DALL-E URL, which expires after about an hour -
+    // important for a published article that could stay live for
+    // months, unlike a quick preview.
+    async function handleGenerateImage() {
+        if (!article.title.trim()) {
+            alert('Please add a title first, so the image reflects what the article is actually about');
+            return;
+        }
+
+        setGeneratingImage(true);
+        try {
+            const { data: { session: imageSession } } = await supabase.auth.getSession();
+            const prompt = `A professional, editorial-style featured image for a blog article titled "${article.title}"${article.category ? `, in the category of ${article.category}` : ''}. Clean, modern, suitable for a professional HR/career website. No text or words in the image.`;
+
+            const response = await fetch('/api/index?action=generateArticleImage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(imageSession?.access_token ? { 'Authorization': `Bearer ${imageSession.access_token}` } : {})
+                },
+                body: JSON.stringify({ prompt, articleId: article.id })
+            });
+
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Image generation failed');
+
+            setArticle({ ...article, featured_image: data.imageUrl });
+        } catch (error) {
+            console.error('Article image generation error:', error);
+            alert(`Unable to generate an image: ${error.message}`);
+        } finally {
+            setGeneratingImage(false);
         }
     }
 
@@ -573,11 +616,24 @@ export default function ArticleEditor() {
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Featured Image URL</label>
                             <div className="flex gap-2">
-                                <input type="text" value={article.featured_image} onChange={(e) => setArticle({ ...article, featured_image: e.target.value })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="https://example.com/image.jpg" />
+                                <input type="text" value={article.featured_image} onChange={(e) => setArticle({ ...article, featured_image: e.target.value })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="https://example.com/image.jpg, or generate one below" />
                                 {article.featured_image && (
                                     <button onClick={() => window.open(article.featured_image, '_blank')} className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition" title="Preview image"><ImageIcon className="w-4 h-4" /></button>
                                 )}
                             </div>
+                            {/* NEW (2026-08-30): AI image generation as an
+                                alternative to manually finding/hosting an
+                                image - the existing manual URL input above
+                                is left completely untouched for anyone who
+                                prefers to paste their own. */}
+                            <button
+                                onClick={handleGenerateImage}
+                                disabled={generatingImage || !article.title.trim()}
+                                className="mt-2 text-xs text-purple-400 hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-1"
+                            >
+                                {generatingImage ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                {generatingImage ? 'Generating...' : 'Generate image with AI'}
+                            </button>
                         </div>
 
                         <div>
