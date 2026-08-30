@@ -49,6 +49,11 @@ export default function UserDashboard() {
     // the Workforce Marketplace - shown once, to job_seeker accounts
     // that haven't already dismissed it or created a listing.
     const [showWorkforcePrompt, setShowWorkforcePrompt] = useState(false);
+    // NEW (2026-08-30): tracks whether this user already has a real
+    // workforce listing, so the Quick Actions grid can link to their
+    // actual workforce dashboard instead of leaving it unreachable
+    // once the one-time opt-in prompt has already been dismissed.
+    const [hasWorkforceListing, setHasWorkforceListing] = useState(false);
 
     // ============================================
     // HELPER FUNCTIONS
@@ -115,6 +120,25 @@ export default function UserDashboard() {
             // Marketplace opt-in prompt - only ever shown to job_seeker
             // accounts (matches "every candidate that registers"; not
             // employers, who aren't the ones being listed), only if it
+            // NEW (2026-08-30): checked for every account type, not just
+            // job_seeker - a workforce listing can belong to any user,
+            // and the Quick Actions grid needs to know this regardless
+            // of the job_seeker-only opt-in prompt logic below. Reused
+            // directly by that logic too, avoiding a duplicate query for
+            // job_seeker accounts specifically.
+            let userHasWorkforceListing = false;
+            try {
+                const { data: listing } = await supabase
+                    .from('workforce_profiles')
+                    .select('id')
+                    .eq('user_id', user.id)
+                    .maybeSingle();
+                userHasWorkforceListing = !!listing;
+                setHasWorkforceListing(userHasWorkforceListing);
+            } catch (listingCheckErr) {
+                console.warn('Workforce listing check failed (non-critical):', listingCheckErr);
+            }
+
             // hasn't already been dismissed (workforce_prompt_dismissed_at
             // is null), and only if no workforce_profiles row already
             // exists for them (someone who already opted in elsewhere,
@@ -123,20 +147,8 @@ export default function UserDashboard() {
             // known, and never blocks the rest of the dashboard from
             // loading - failure here just means the prompt doesn't show,
             // never an error the person sees.
-            if (profileData?.user_type === 'job_seeker' && !profileData?.workforce_prompt_dismissed_at) {
-                try {
-                    const { data: existingListing } = await supabase
-                        .from('workforce_profiles')
-                        .select('id')
-                        .eq('user_id', user.id)
-                        .maybeSingle();
-
-                    if (!existingListing) {
-                        setShowWorkforcePrompt(true);
-                    }
-                } catch (promptCheckErr) {
-                    console.warn('Workforce prompt eligibility check failed (non-critical):', promptCheckErr);
-                }
+            if (profileData?.user_type === 'job_seeker' && !profileData?.workforce_prompt_dismissed_at && !userHasWorkforceListing) {
+                setShowWorkforcePrompt(true);
             }
             
             const token = await getAuthToken();
@@ -566,23 +578,64 @@ export default function UserDashboard() {
                 </div>
 
                 {/* Quick Actions Grid */}
+                {/* FIXED (2026-08-30): confirmed real, significant gap -
+                    this showed the exact same six links to every account
+                    type. Employer and business_owner accounts had zero
+                    way to reach post-job, manage-jobs, or company-profile
+                    from their own dashboard - their most important
+                    features were completely unreachable here. HR Tools
+                    (a major paid feature) was also missing for everyone,
+                    regardless of account type. Now genuinely role-aware:
+                    employer-type accounts see their real quick actions
+                    instead of job-seeker-only ones, and anyone with an
+                    actual workforce listing gets a real link to it. */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
                     <Link to="/profile" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
                         <User className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
                         <span className="text-white text-xs">Profile</span>
                     </Link>
-                    <Link to="/skills" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                        <Award className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                        <span className="text-white text-xs">Skills</span>
+                    <Link to="/hr-tools" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                        <Zap className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                        <span className="text-white text-xs">HR Tools</span>
                     </Link>
-                    <Link to="/assessments" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                        <FileText className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                        <span className="text-white text-xs">Assessments</span>
-                    </Link>
-                    <Link to="/messages" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
-                        <MessageCircle className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
-                        <span className="text-white text-xs">Messages</span>
-                    </Link>
+                    {(profile?.user_type === 'employer' || profile?.user_type === 'business_owner') ? (
+                        <>
+                            <Link to="/post-job" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Briefcase className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Post a Job</span>
+                            </Link>
+                            <Link to="/manage-jobs" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <FileText className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Manage Jobs</span>
+                            </Link>
+                            <Link to="/company-profile" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Shield className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Company Profile</span>
+                            </Link>
+                        </>
+                    ) : (
+                        <>
+                            <Link to="/skills" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <Award className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Skills</span>
+                            </Link>
+                            <Link to="/assessments" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                                <FileText className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                                <span className="text-white text-xs">Assessments</span>
+                            </Link>
+                        </>
+                    )}
+                    {hasWorkforceListing ? (
+                        <Link to="/workforce/dashboard" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                            <Users className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                            <span className="text-white text-xs">My Listing</span>
+                        </Link>
+                    ) : (
+                        <Link to="/messages" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                            <MessageCircle className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                            <span className="text-white text-xs">Messages</span>
+                        </Link>
+                    )}
                     <Link to="/hire-va" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
                         <Bot className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
                         <span className="text-white text-xs">Hire VA</span>
