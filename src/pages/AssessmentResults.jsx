@@ -371,7 +371,20 @@ export default function AssessmentResults() {
                                 <Sparkles className="w-5 h-5 text-purple-400 print:text-gray-600" />
                             </div>
                             <div className="flex-1">
-                                <h3 className="text-white font-semibold mb-2 print:text-gray-800">AI-Powered Insights</h3>
+                                <h3 className="text-white font-semibold mb-2 print:text-gray-800">
+                                    {insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights'}
+                                </h3>
+                                {/* NEW (2026-08-30): honest note when the real
+                                    AI analysis wasn't available and this is a
+                                    fallback computed directly from the
+                                    person's actual dimension scores - not
+                                    hidden behind a heading that implies full
+                                    AI personalization when it isn't. */}
+                                {insights.usedFallback && (
+                                    <p className="text-slate-500 text-xs mb-3 print:text-gray-500">
+                                        Full AI analysis wasn't available for this result, so the summary below is based directly on your actual scores rather than an AI-generated write-up.
+                                    </p>
+                                )}
                                 {insights.summary && (
                                     <p className="text-slate-300 print:text-gray-600">{insights.summary}</p>
                                 )}
