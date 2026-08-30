@@ -13,7 +13,8 @@ import {
     LayoutDashboard, Users, Briefcase, BookOpen, FileText, ShieldAlert,
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
     Activity, Shield, BarChart3, UserCheck, Lightbulb, DollarSign,
-    FlaskConical, KeyRound, ChevronLeft, Menu, X
+    FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
+    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -24,8 +25,11 @@ const ADMIN_NAV = [
     { section: 'Overview', items: [
         { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/admin/health', label: 'System Health', icon: Activity },
+        { path: '/admin/diagnostics', label: 'Diagnostics', icon: Stethoscope },
         { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
+        { path: '/admin/usage-meter', label: 'Usage Meter', icon: Gauge },
         { path: '/admin/security', label: 'Security', icon: Shield },
+        { path: '/admin/audit', label: 'Audit Log', icon: FileSearch },
     ]},
     { section: 'People', items: [
         { path: '/admin/users', label: 'Users', icon: Users },
@@ -33,10 +37,14 @@ const ADMIN_NAV = [
         { path: '/admin/fraud-reports', label: 'Fraud Reports', icon: ShieldAlert },
         { path: '/admin/testing-mode', label: 'Testing Mode', icon: FlaskConical },
         { path: '/admin/tester-invites', label: 'Tester Invite Codes', icon: KeyRound },
+        { path: '/admin/settings/tester-visibility', label: 'Tester Visibility', icon: Eye },
+        { path: '/admin/tester-feedback', label: 'Tester Feedback', icon: MessageSquare },
     ]},
     { section: 'Content', items: [
         { path: '/admin/jobs', label: 'Job Management', icon: Briefcase },
         { path: '/admin/external-jobs', label: 'External Jobs', icon: Globe },
+        { path: '/admin/employer-sources', label: 'Employer Sources', icon: Building2 },
+        { path: '/admin/workforce', label: 'Workforce Marketplace', icon: Network },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
         { path: '/admin/articles', label: 'Articles', icon: FileText },
@@ -51,7 +59,9 @@ const ADMIN_NAV = [
         { path: '/admin/knowledge-sources', label: 'Knowledge Sources', icon: Database },
     ]},
     { section: 'Growth', items: [
+        { path: '/admin/insight-engine', label: 'Insight Engine', icon: Brain },
         { path: '/admin/opportunity-gaps', label: 'Opportunity Gaps', icon: Lightbulb },
+        { path: '/admin/affiliate-management', label: 'Affiliate Program', icon: Share2 },
         { path: '/admin/refund-requests', label: 'Refund Requests', icon: DollarSign },
     ]},
 ];
