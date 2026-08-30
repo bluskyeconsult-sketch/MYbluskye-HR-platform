@@ -294,14 +294,21 @@ class ODUSABAApi {
     // needed." That claim was true at the time it was written (before the
     // security fix existed) and has been stale since - every one of these
     // 10 tools has been failing with 401 for every real, logged-in user.
-    async analyzeCV(cvText, userId) {
+    // UPDATED (2026-08-30): added an optional targetRole parameter for
+    // real, role-specific ATS and keyword feedback - defaults to null so
+    // every existing call site (which only ever passed cvText and
+    // userId) continues to work exactly as before.
+    async analyzeCV(cvText, userId, targetRole = null) {
         const headers = await this.getAuthHeaders();
-        return this.postRequest('analyzeCV', { cvText, userId }, headers);
+        return this.postRequest('analyzeCV', { cvText, userId, targetRole }, headers);
     }
     
-    async simulateInterview(role, questions, userId) {
+    // UPDATED (2026-08-30): added optional userAnswer/currentQuestion
+    // params for real answer evaluation - default to null so any
+    // existing call (question-generation only) works exactly as before.
+    async simulateInterview(role, questions, userId, userAnswer = null, currentQuestion = null) {
         const headers = await this.getAuthHeaders();
-        return this.postRequest('simulate-interview', { role, questions, userId }, headers);
+        return this.postRequest('simulate-interview', { role, questions, userId, userAnswer, currentQuestion }, headers);
     }
     
     async checkRights(situation, country, userId) {
