@@ -494,14 +494,23 @@ async function safeFetch(url, timeout = 10000) {
     }
 }
 
-async function callOpenAI(messages, maxTokens = 800, temperature = 0.7) {
+// UPDATED (2026-08-30): added an optional responseFormat parameter for
+// callers that need reliable structured JSON (like assessment
+// generation, which previously relied on a fragile regex to extract a
+// JSON array from free-form text). Defaults to null, so every existing
+// caller - all 10 HR Tools, every VA, chat - is completely unaffected
+// and continues exactly as before.
+async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    const requestBody = { model: 'gpt-4o-mini', messages, max_tokens: maxTokens, temperature };
+    if (responseFormat) requestBody.response_format = responseFormat;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens, temperature })
+        body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -1390,16 +1399,77 @@ const handlers = {
         }
 
         try {
-            const data = await callOpenAI([
-                { role: 'system', content: 'You are an expert test creator. Return only valid JSON.' },
-                { role: 'user', content: `Create ${numberOfQuestions} ${difficulty} level questions about "${topic}". Return as JSON array with: question, options (array), correct (index 0-3), explanation.` }
-            ], 2000, 0.5);
+            // FIXED (2026-08-30): confirmed several real gaps. No
+            // dimension field was ever requested, meaning AI-generated
+            // assessments could never populate the dimension-breakdown
+            // feature the rest of the platform already supports and
+            // displays. Only ever produced multiple_choice, despite the
+            // real scoring system (submitAssessmentAnswers) already
+            // handling scenario, likert_scale, and true_false questions
+            // - a real mismatch between what could be generated and
+            // what could be scored. Used a fragile regex to pull a JSON
+            // array out of free text; now uses OpenAI's actual JSON
+            // mode for reliable output. No validation existed before
+            // returning to the admin - a malformed question (wrong
+            // answer index, missing options) would have silently
+            // reached the assessment builder.
+            const systemPrompt = `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
+
+Quality requirements:
+- Distractors (wrong options) must be plausible, not obviously wrong or joke answers - a test-taker with partial knowledge should be able to eliminate some but not all
+- Avoid ambiguous wording where more than one option could reasonably be defended as correct
+- Match the stated difficulty genuinely - ${difficulty === 'beginner' ? 'testing foundational understanding' : difficulty === 'advanced' ? 'testing nuanced, applied understanding, not just recall' : 'testing solid working knowledge, not just definitions'}
+- If "${topic}" involves behavioral, leadership, or soft-skill judgment (rather than pure factual knowledge), include 1-2 open-ended "scenario" questions that present a realistic situation and ask how the person would respond - these get evaluated on reasoning quality, not a single correct answer
+- Assign each question a "dimension" - a short label for what specific aspect it measures within this topic (e.g. for a leadership assessment: "Decision Making", "Team Communication", "Conflict Resolution" - use dimensions genuinely relevant to "${topic}", not generic placeholders)
+
+Return a JSON object with a "questions" array. Each question must have:
+- "question": the question text
+- "question_type": "multiple_choice" or "scenario"
+- "dimension": short label as described above
+- For multiple_choice: "options" (array of exactly 4 strings), "correct" (index 0-3), "explanation" (why the correct answer is right)
+- For scenario: no options/correct needed, just the question text describing the situation and what's being asked`;
+
+            const data = await callOpenAI(
+                [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: `Generate the assessment now as JSON.` }
+                ],
+                2400, 0.5,
+                { type: 'json_object' }
+            );
 
             const content = data.choices[0].message.content;
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
-            const questions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+            let parsed;
+            try {
+                parsed = JSON.parse(content);
+            } catch (parseErr) {
+                return res.status(500).json({ error: 'Assessment generation produced invalid output - please try again.' });
+            }
 
-            return res.status(200).json({ success: true, questions, usage: data.usage });
+            const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : (Array.isArray(parsed) ? parsed : []);
+
+            // Real validation - filters out anything malformed rather
+            // than silently passing it through to the assessment
+            // builder, where a bad correct-answer index would make a
+            // question unscorable or always wrong for every test-taker.
+            const validQuestions = rawQuestions.filter(q => {
+                if (!q.question || typeof q.question !== 'string') return false;
+                if (q.question_type === 'scenario') return true;
+                return Array.isArray(q.options) && q.options.length === 4
+                    && Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3;
+            });
+
+            if (validQuestions.length === 0) {
+                return res.status(500).json({ error: 'Assessment generation did not produce any valid questions - please try again.' });
+            }
+
+            return res.status(200).json({
+                success: true,
+                questions: validQuestions,
+                requestedCount: numberOfQuestions,
+                generatedCount: validQuestions.length,
+                usage: data.usage
+            });
         } catch (error) {
             return res.status(500).json({ error: error.message });
         }
@@ -1420,16 +1490,12 @@ const handlers = {
     // "OpenAI-costing = credits" framework applied everywhere else. ==========
 
     analyzeCV: async (req, res) => {
-        const { cvText, userId } = req.body;
+        const { cvText, targetRole, userId } = req.body;
         if (!cvText) return res.status(400).json({ error: 'cvText is required' });
 
         try {
             const supabaseClient = getSupabase();
 
-            // FIXED (2026-08-27): closes the systemic userId-impersonation
-            // gap - verifies the claimed userId actually matches a real,
-            // authenticated session before it's ever used to check/deduct
-            // credits.
             const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
             if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
@@ -1438,34 +1504,65 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            // FIXED (2026-08-30): confirmed real quality gap - this asked
+            // for "an estimated ATS score out of 100" with zero definition
+            // of what separates a 40 from an 80, and had no way to know
+            // what role the CV was even for, since the frontend only ever
+            // collected a CV paste with no target-role field at all.
+            // Genuinely rubric-based now, and uses the target role for
+            // role-specific keyword and ATS feedback when the frontend
+            // provides one. Fully backward compatible - if targetRole is
+            // absent (an older client, or any other caller), this falls
+            // back to the original general-purpose review.
+            const roleContext = targetRole
+                ? `The candidate is targeting this specific role: "${targetRole}". Evaluate keyword alignment, relevant experience emphasis, and ATS compatibility specifically against this role - not generically.`
+                : `No target role was specified. Infer the most likely role from the CV content itself, state that assumption explicitly at the start of your analysis, and note that feedback would be more precise with a specific target role.`;
+
+            const systemPrompt = `You are an expert CV/resume reviewer with deep knowledge of Applicant Tracking Systems (ATS) and real hiring practices.
+
+${roleContext}
+
+Score the CV from 0-100 using this rubric, and justify the score against these specific bands - do not just assert a number:
+0-40: Missing key sections (contact info, work history, or skills), poor formatting likely to break ATS parsing, vague or generic content with no measurable achievements.
+41-60: Core sections present but weak - achievements described without metrics, generic phrasing, likely keyword mismatches for the target role.
+61-80: Solid structure and mostly quantified achievements, but with specific gaps (missing keywords, formatting risks, or unclear career narrative).
+81-100: Strong quantified achievements throughout, clear alignment to the target role's likely keywords, clean ATS-parseable formatting, and a clear career narrative.
+
+Structure your response in exactly this order, using markdown headings:
+## ATS Score: [X]/100
+[One sentence justifying the score against the rubric above]
+
+## Strengths
+[2-4 specific, evidence-based strengths - quote or reference actual content from the CV, not generic praise]
+
+## Areas for Improvement
+[2-4 specific, actionable issues - name the exact section and what's missing or weak]
+
+## Keyword & ATS Notes
+[Specific keywords or phrasing likely expected for this role that are missing, and any formatting risks for ATS parsing]
+
+## Next Steps
+[2-3 concrete, prioritized actions]`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an expert CV/resume reviewer. Analyze the CV for ATS compatibility, clarity, and impact. Give specific, actionable feedback: strengths, areas for improvement, an estimated ATS score out of 100, and concrete next steps. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: cvText }
-            ], 1200, 0.6);
+            ], 1400, 0.5);
 
             return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
-            // FIXED (2026-08-27): confirmed same real leakage pattern as
-            // the chat handler - a credit was already deducted above
-            // before this call, but a failure here previously returned
-            // an error with no refund, charging the user for a service
-            // they never received.
             await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
 
     'simulate-interview': async (req, res) => {
-        const { role, questions, userId } = req.body;
+        const { role, questions, userAnswer, currentQuestion, userId } = req.body;
         if (!role) return res.status(400).json({ error: 'role is required' });
 
         try {
             const supabaseClient = getSupabase();
 
-            // FIXED (2026-08-27): closes the systemic userId-impersonation
-            // gap - verifies the claimed userId actually matches a real,
-            // authenticated session before it's ever used to check/deduct
-            // credits.
             const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
             if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
@@ -1474,16 +1571,65 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            // FIXED (2026-08-30): confirmed real, significant gap - this
+            // tool is named "Interview Simulator" and described as
+            // "practice with AI interviewer and get feedback," but there
+            // was never any way to actually submit an answer and be
+            // evaluated - it only ever generated a question plus generic
+            // STAR-method guidance. That's a real gap between what the
+            // product promises and what it delivers, not just a thin
+            // prompt. Now genuinely branches: if userAnswer is provided
+            // (the person answered currentQuestion), evaluate it against
+            // a real rubric; otherwise behave exactly as before and
+            // generate a new question - fully backward compatible with
+            // any caller that doesn't send an answer.
+            if (userAnswer && currentQuestion) {
+                const evalPrompt = `You are an experienced interviewer evaluating a candidate's answer for a ${role} role.
+
+The question asked was: "${currentQuestion}"
+The candidate's answer: "${userAnswer}"
+
+Evaluate the answer using this rubric:
+- Structure: did they use a clear narrative (ideally STAR - Situation, Task, Action, Result) rather than a vague or rambling response?
+- Specificity: did they give concrete details (numbers, names, outcomes) rather than generic statements?
+- Relevance: did they actually answer what was asked, and is the example relevant to a ${role} role?
+- Impact: is the outcome/result clearly stated, ideally with a measurable result?
+
+Structure your response in exactly this order, using markdown headings:
+## Overall Rating: [Strong / Solid / Needs Work]
+[One sentence summary]
+
+## What Worked
+[1-3 specific things the candidate did well, quoting or referencing their actual answer]
+
+## What to Improve
+[1-3 specific, actionable gaps - not generic advice, tied to what they actually said]
+
+## A Stronger Version
+[A brief example of how one part of their answer could be reworked to be more specific or better structured]`;
+
+                const data = await callOpenAI([
+                    { role: 'system', content: evalPrompt },
+                    { role: 'user', content: userAnswer }
+                ], 900, 0.5);
+
+                return res.status(200).json({ success: true, type: 'evaluation', feedback: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+            }
+
             const priorQuestions = Array.isArray(questions) && questions.length > 0
-                ? `Previously asked: ${questions.join('; ')}. Ask a different question this time.`
+                ? `Questions already asked in this session, do not repeat any of them or ask something very similar: ${questions.join(' | ')}.`
                 : '';
 
             const data = await callOpenAI([
-                { role: 'system', content: `You are an experienced interviewer running a mock interview. Given the candidate's target role and background, ask one realistic interview question (behavioral or technical, appropriate to the role), then provide guidance on how to structure a strong answer using the STAR method where relevant. Use markdown formatting.` },
-                { role: 'user', content: `${role}. ${priorQuestions}` }
-            ], 800, 0.7);
+                { role: 'system', content: `You are an experienced interviewer running a mock interview for a ${role} role. Ask exactly one realistic interview question - vary between behavioral and technical/role-specific questions across a session rather than defaulting to the same type each time. ${priorQuestions} Respond in exactly this format on the first line: QUESTION: [the question, nothing else]. Then on a new line: GUIDANCE: [1 sentence on what a strong answer would need to cover, without giving a full model answer].` },
+                { role: 'user', content: `Candidate background: ${role}` }
+            ], 700, 0.8);
 
-            return res.status(200).json({ success: true, feedback: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+            const rawText = data.choices[0].message.content;
+            const questionMatch = rawText.match(/QUESTION:\s*(.+?)(?:\n|$)/i);
+            const cleanQuestion = questionMatch ? questionMatch[1].trim() : rawText.split('\n')[0].trim();
+
+            return res.status(200).json({ success: true, type: 'question', question: cleanQuestion, feedback: rawText, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
             // FIXED (2026-08-27): confirmed same real leakage pattern as
             // the chat handler - a credit was already deducted above
@@ -1514,10 +1660,33 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            // FIXED (2026-08-30): confirmed real gap - country was
+            // hardcoded to 'GB' on the frontend regardless of which of
+            // the platform's 7 supported countries the user is actually
+            // in, silently giving UK-specific advice to everyone. Fixed
+            // on the frontend (real country selector) alongside this
+            // backend change, which also now requires the AI to
+            // identify which specific rights areas actually apply
+            // rather than dumping every category regardless of
+            // relevance to the situation described.
+            const systemPrompt = `You are a workplace rights advisor for ${country || 'the UK'}. Analyze the situation described and respond in exactly this structure:
+
+## Rights Areas That Apply
+[Identify only the 1-3 specific areas genuinely relevant to this situation - e.g. unfair dismissal, discrimination, working time, leave entitlements. Do not list areas that don't apply.]
+
+## What This Likely Means for You
+[Plain-language explanation of the relevant rights/protections in ${country || 'the UK'}, specific to what was described]
+
+## Recommended Next Steps
+[2-3 concrete actions - e.g. what to document, who to contact internally, relevant time limits if any]
+
+---
+*This is general information, not legal advice. For guidance specific to your situation, consult a qualified employment lawyer or your national labor authority.*`;
+
             const data = await callOpenAI([
-                { role: 'system', content: `You are a workplace rights advisor. Give general information about employment rights relevant to ${country || 'the UK'} based on the situation described — dismissal, discrimination, working hours, leave entitlements, etc. as applicable. End with a clear note that this is general information, not legal advice, and recommend consulting a qualified employment lawyer or the relevant national labor authority for specific guidance. Use markdown formatting.` },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: situation }
-            ], 1000, 0.5);
+            ], 1100, 0.5);
 
             return res.status(200).json({ success: true, advice: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -1551,10 +1720,30 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            // FIXED (2026-08-30): confirmed thin, generic prompt with no
+            // real criteria for what makes a grievance letter effective.
+            // Now grounds the AI in the specific things that determine
+            // whether HR actually acts on a grievance - dated specifics,
+            // a clear pattern (not just one incident), and a stated
+            // desired outcome - and asks it to flag when the person's
+            // account is missing any of these, rather than silently
+            // writing around the gap.
+            const systemPrompt = `You are an HR professional drafting a formal grievance letter. A grievance letter is far more likely to be taken seriously when it includes specific dates, names/roles (even if placeholders), a clear pattern of incidents (not just one), and a stated desired resolution.
+
+Write the letter with this structure:
+- Subject line
+- Background (brief, factual context)
+- Details of the issue (specific incidents with dates where given - use placeholders like [Date] only where genuinely not provided)
+- Impact (how this has affected the person's work, if mentioned)
+- Desired resolution (state clearly - infer a reasonable one if not explicitly given, and note it's an inference)
+- Professional closing
+
+After the letter, add a brief "## Before You Send This" section noting any specific gaps in what was provided (e.g. missing dates, no stated desired outcome) that would strengthen the letter if added.`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an HR professional drafting a formal grievance letter. Write a professional, factual grievance letter template based on the situation described — include placeholders like [Date], [Manager Name] where specific details aren\'t given. Structure: subject line, background, details of the issue, desired resolution, closing. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
-            ], 1200, 0.5);
+            ], 1300, 0.5);
 
             return res.status(200).json({ success: true, grievance: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -1569,16 +1758,12 @@ const handlers = {
     },
 
     'analyze-contract': async (req, res) => {
-        const { contractText, userId } = req.body;
+        const { contractText, jurisdiction, userId } = req.body;
         if (!contractText) return res.status(400).json({ error: 'contractText is required' });
 
         try {
             const supabaseClient = getSupabase();
 
-            // FIXED (2026-08-27): closes the systemic userId-impersonation
-            // gap - verifies the claimed userId actually matches a real,
-            // authenticated session before it's ever used to check/deduct
-            // credits.
             const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
             if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
@@ -1587,10 +1772,31 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            // FIXED (2026-08-30): confirmed thin prompt with no severity
+            // grading (every flagged clause read with equal weight) and
+            // no jurisdiction awareness, despite employment law varying
+            // meaningfully by country - a non-compete clause that's
+            // standard in the US can be unenforceable in parts of the
+            // UK, for example. Defaults to GB if not provided, fully
+            // backward compatible.
+            const systemPrompt = `You are an employment contract reviewer for ${jurisdiction || 'the UK'}. Analyze the contract for concerning clauses and grade each by real severity - do not treat every flagged item as equally serious.
+
+Structure your response as:
+## Red Flags
+[Clauses that are genuinely unusual or potentially unenforceable/exploitative in ${jurisdiction || 'the UK'} - e.g. non-competes far beyond reasonable scope, missing statutory minimums, one-sided liability terms]
+
+## Worth Clarifying
+[Clauses that are common but vague enough to warrant asking questions before signing]
+
+## Standard Terms
+[Briefly confirm which typical protections/entitlements ARE present, so the person knows what's already fine]
+
+Each item should name the specific clause and explain in plain language why it matters. End with a note that this is general review, not legal advice, and recommend a qualified employment lawyer for anything in the Red Flags section.`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an employment contract reviewer. Analyze the contract terms for potentially concerning clauses (restrictive non-competes, unclear termination terms, missing statutory entitlements, unusual liability clauses, etc.). Flag specific issues found, explain why each matters in plain language, and note this is general review, not legal advice — recommend a qualified employment lawyer for anything significant. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: contractText }
-            ], 1200, 0.5);
+            ], 1400, 0.5);
 
             return res.status(200).json({ success: true, analysis: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -1630,8 +1836,21 @@ const handlers = {
             // normally either way; caching only saves the OpenAI cost on
             // this side, it doesn't give users free extra uses.
             const cacheKey = `salary:${normalizeForCacheKey(content)}`;
+            const systemPrompt = `You are a compensation analyst. Given a job title, location, experience level, and industry, provide a realistic market salary estimate.
+
+Structure your response as:
+## Estimated Range
+[State a concrete low-mid-high range, e.g. "£45,000 - £55,000 - £65,000", based on the specifics given]
+
+## What Moves This Range
+[2-3 specific factors from what was described that push toward the higher or lower end - not generic factors, tied to what was actually stated]
+
+## Negotiation Notes
+[2-3 practical, specific tips relevant to this role/level - not generic "know your worth" advice]
+
+Be clear this is an estimate based on general market knowledge, not a guaranteed figure or a formal salary survey.`;
             const data = await callOpenAICached(cacheKey, [
-                { role: 'system', content: 'You are a compensation analyst. Given a job title, location, experience level, and industry, provide a realistic market salary range estimate with reasoning (factors that push it higher or lower), and 2-3 practical negotiation tips. Be clear this is an estimate based on general market knowledge, not a guaranteed figure. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
             ], 1000, 0.5, 168); // 1 week TTL — market rates don't move fast enough to need shorter
 
@@ -1667,8 +1886,17 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            const systemPrompt = `You are a professional cover letter writer. A cover letter is only as strong as the specifics behind it - genuinely tailored letters reference the actual company and role, connect specific past achievements (with real outcomes) to what the role needs, and avoid generic phrases like "I am passionate about" or "I believe I would be a great fit."
+
+Write 3-4 paragraphs following this logic:
+1. Opening that names the specific role and company (if given) and states a genuine, specific reason for interest - not a generic statement
+2. 1-2 paragraphs connecting specific past achievements (with real outcomes/numbers where the person provided them) directly to what this role likely needs
+3. Closing that's confident but not generic
+
+If no specific company name was given, write the letter using [Company Name] as a placeholder and add a brief note at the end: "Add the company name and one detail about them for a stronger opening."`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are a professional cover letter writer. Given the job title, company, and relevant background provided, write a compelling, professional cover letter — 3-4 paragraphs, tailored and specific rather than generic, highlighting relevant strengths. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
             ], 1000, 0.6);
 
@@ -1704,10 +1932,22 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            const systemPrompt = `You are a LinkedIn profile optimization expert. Recruiters search LinkedIn by keyword, and a generic headline like "Marketing Manager" or an About section written in third-person resume-speak gets far less visibility than one with a specific value proposition.
+
+Structure your response as:
+## Headline
+[A specific, keyword-rich headline - not just a job title. Should signal both what they do and a specific strength or focus area. Keep under 220 characters.]
+
+## About Section
+[Rewritten in first person, opening with a hook (not "Results-driven professional with X years..."), including at least one quantified achievement if the person provided one, and ending with a clear statement of what they're looking for or how to reach them.]
+
+## Discoverability Tips
+[3 specific tips based on what was actually shared - e.g. specific keywords to add given their field, skills section priorities, or how they're currently under-signaling their experience]`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are a LinkedIn profile optimization expert. Given the person\'s role, background, and goals, suggest an improved headline, a rewritten "About" section, and 3 specific tips for making their profile more discoverable to recruiters. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
-            ], 1000, 0.6);
+            ], 1200, 0.6);
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -1741,10 +1981,27 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            const systemPrompt = `You are an HR professional writing job descriptions. The most common problems with job descriptions are: unrealistic requirement lists (demanding "5+ years" in tools that haven't existed that long, or listing 15 "required" skills when 5 are actually essential), coded biased language (words like "rockstar," "ninja," "young and energetic," or gendered pronouns), and vague responsibilities that don't tell a candidate what the job actually involves day to day.
+
+Write the job description with this structure:
+## [Job Title]
+## About the Role
+[Engaging, specific summary of what this role actually does]
+## Key Responsibilities
+[Specific, measurable responsibilities - not vague generalities]
+## Required Qualifications
+[Only what's genuinely essential - be realistic about years of experience relative to how long the relevant skill/tool has existed]
+## Preferred Qualifications
+[Nice-to-haves, clearly separated from requirements]
+## Salary
+[If a range was given, state it. If not, add a brief note recommending salary transparency - it's increasingly expected and, in some jurisdictions including parts of the UK and EU, required]
+
+Use inclusive, bias-free language throughout - avoid gendered pronouns, age-coded phrases, and culture-fit buzzwords that can discourage qualified candidates.`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an HR professional writing job descriptions. Given the role, seniority, and key requirements provided, write a complete, well-structured job description: an engaging summary, key responsibilities, required qualifications, and nice-to-haves. Avoid discriminatory language and unrealistic requirement lists. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
-            ], 1200, 0.6);
+            ], 1400, 0.6);
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -1778,10 +2035,24 @@ const handlers = {
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
             }
 
+            const systemPrompt = `You are an HR professional helping a manager write a fair, constructive performance review. The most common problems with performance reviews are: vague statements with no evidence ("does great work," "needs to improve communication" with no example), recency bias (only reflecting the last few weeks rather than the full period), and growth areas listed without a concrete path forward.
+
+Write the review with this structure:
+## Overall Summary
+[Brief, balanced summary of the period]
+## Strengths
+[Specific examples from what was provided - name the actual achievement or behavior, not a generic trait]
+## Areas for Growth
+[Specific, evidence-based - even for a strong performer, there should be at least one genuine growth area unless the notes truly give none]
+## Goals for Next Period
+[2-3 concrete, measurable goals - specific enough that both manager and employee would agree whether they were met]
+
+Keep the tone professional and constructive throughout - direct about issues where they exist, without being harsh, and specific enough that the employee understands exactly what "good" looks like going forward.`;
+
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an HR professional helping a manager write a fair, constructive performance review. Given the employee\'s role and the notes/achievements/areas for improvement provided, write a balanced, specific, professionally-worded review covering strengths, areas for growth, and concrete next steps. Use markdown formatting.' },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content }
-            ], 1200, 0.6);
+            ], 1300, 0.6);
 
             return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
         } catch (error) {
@@ -3630,6 +3901,61 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             return res.status(200).json({ success: true, audioUrl: publicUrlData.publicUrl, duration: estimatedDuration });
         } catch (error) {
             console.error('Lesson audio generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-08-30): generates a real featured image for an article
+    // via DALL-E - the existing generateCourseImage/generateLessonImage
+    // return the raw DALL-E URL directly, which OpenAI documents as
+    // expiring after about an hour. That's an acceptable limitation for
+    // a course preview reviewed immediately, but a real problem for a
+    // published blog article that could stay live for months - a
+    // silently broken featured image on a live article is a genuinely
+    // bad, disappointing outcome for the site. This handler instead
+    // downloads the generated image and re-uploads it to permanent
+    // Supabase Storage, the same proven pattern generateLessonAudio
+    // already uses for audio files, so the URL saved to the article
+    // never expires.
+    generateArticleImage: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { prompt, articleId } = req.body;
+        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+
+        try {
+            const temporaryImageUrl = await callOpenAIImage(prompt);
+
+            // DALL-E returns a URL, not raw bytes (unlike the TTS audio
+            // API) - fetch the actual image bytes server-side before
+            // they can expire, then upload those bytes permanently.
+            const imageResponse = await fetch(temporaryImageUrl);
+            if (!imageResponse.ok) throw new Error('Failed to retrieve the generated image');
+            const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+            const fileName = `articles/${articleId || 'article'}-${Date.now()}.png`;
+
+            const { error: uploadError } = await supabaseClient.storage
+                .from('article-images')
+                .upload(fileName, imageBuffer, { contentType: 'image/png', upsert: true });
+
+            if (uploadError) {
+                throw new Error(
+                    uploadError.message.includes('not found') || uploadError.message.includes('Bucket')
+                        ? "Storage bucket 'article-images' doesn't exist yet — create it in your Supabase dashboard (Storage → New bucket → name it 'article-images' → make it Public), then try again."
+                        : uploadError.message
+                );
+            }
+
+            const { data: publicUrlData } = supabaseClient.storage
+                .from('article-images')
+                .getPublicUrl(fileName);
+
+            return res.status(200).json({ success: true, imageUrl: publicUrlData.publicUrl });
+        } catch (error) {
+            console.error('Article image generation error:', error);
             return res.status(200).json({ success: false, error: error.message });
         }
     },
@@ -5544,9 +5870,65 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
         const isTester = creditCheck.isTester === true;
         
-        const systemPrompt = va
-            ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''} Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.`
-            : 'You are a professional career assistant. Give specific, actionable advice based on what the user shares. Use markdown formatting for readability.';
+        // NEW (2026-08-30): the Rota Preparation Assistant needs a
+        // genuinely different system prompt than the generic template
+        // below - this involves real UK employment law (Working Time
+        // Regulations, leave entitlement) where a generic "give helpful
+        // advice" prompt is not an adequate safeguard. Branches by
+        // category rather than a hardcoded VA id, so this same,
+        // carefully-built prompt applies to any future VA placed in
+        // this category too, not just one specific database row.
+        const ROTA_COMPLIANCE_PROMPT = `You are a rota preparation assistant helping a manager build a compliant staff schedule. You have real, load-bearing responsibilities beyond just producing a schedule - getting this wrong has real legal and welfare consequences for real staff.
+
+BEFORE building any rota, if you do not yet have ALL of the following, ask for it - do not guess or assume:
+1. Number of staff and, for EACH person individually, their contracted weekly hours
+2. The days and hours the business/service actually needs covered
+3. The sector (general workplace, or care/health - this changes what applies)
+4. Any existing constraints (e.g. someone unavailable certain days, night-shift-only staff)
+
+REAL RULES YOU MUST APPLY (UK Working Time Regulations 1998, unless the person specifies a different country - if so, say clearly that these UK-specific rules may not apply and general principles only are being used):
+- Maximum average 48-hour working week (averaged over 17 weeks) unless the person has a signed opt-out - if a rota would exceed this without a confirmed opt-out, flag it explicitly
+- Minimum 11 consecutive hours rest in every 24-hour period
+- Minimum 24 hours uninterrupted rest per 7-day period (or 48 hours per 14 days)
+- A 20-minute break required for any shift longer than 6 hours
+- Night workers (regularly working 11pm-6am) should not average more than 8 hours in 24 over the reference period, and are entitled to free health assessments - flag if a rota relies heavily on one person for nights
+- Statutory annual leave is 5.6 weeks (28 days pro-rata for full-time, less if genuinely part-time) - note this in your response as something to track separately from the rota itself, not something the rota needs to resolve
+
+CARE SECTOR SPECIFIC (only if the person indicates this is a care/health setting):
+- Sleep-in shifts have real, court-tested complexity around National Minimum Wage (the 2021 Mencap Supreme Court ruling on time spent awake for work purposes) - note this needs specific payroll/HR guidance rather than treating it as a simple hourly rate
+- Distinguish waking nights (actively working, counts fully toward working time limits) from sleep-in shifts (different regulatory treatment) - ask which applies if unclear
+- Flag any shift pattern that leaves a single staff member lone working overnight without a clear safety/backup plan
+- Note that adequate staffing levels for safe care (a real CQC expectation) depend on assessed need, not a fixed ratio - this tool can help you build a compliant schedule but doesn't replace a proper staffing needs assessment
+
+CRITICAL - DO NOT SILENTLY COMPLY WITH A REQUEST THAT WOULD VIOLATE THESE RULES. If what's being asked for (e.g. "cover this shift pattern with only these 2 staff") cannot be done without breaching rest requirements or the 48-hour average, say so explicitly, explain which specific rule would be breached and why, and offer real alternatives (additional staff, adjusted coverage windows, an opt-out conversation with the affected employee) rather than producing a schedule that looks compliant but isn't.
+
+PREFER FIXED, PREDICTABLE WEEKLY PATTERNS over rolling cycles that drift against calendar weeks - a rolling pattern (e.g. "2 weeks on, 1 week off" that doesn't align to fixed weekly boundaries) makes it easy for both staff and managers to lose track of actual hours worked and entitlements owed over time, which is a real, documented source of unpaid-overtime disputes. If a rolling pattern is genuinely necessary, say so explicitly and recommend a clear tracking method.
+
+When you do have enough information, present the final rota as a clear markdown table (staff name, days, shift times, weekly total hours), followed by a brief compliance summary confirming what was checked, and end with: "This tool provides schedule planning support based on standard UK Working Time Regulations - it does not replace professional HR or employment law advice for your specific situation, especially for sector-specific pay questions like sleep-in shifts."`;
+
+        // FIXED (2026-08-30): confirmed real, universal gap - the
+        // generic template only ever said "give specific, actionable
+        // advice," which doesn't actually guard against generic output;
+        // an AI can produce platitudes while technically "giving
+        // advice." This applies to every VA that isn't the Rota
+        // Assistant, regardless of which specific ones exist - the
+        // actual VA catalog content wasn't available to review directly
+        // (no seed data or export exists in what I have access to), so
+        // this improves the shared logic every VA runs through rather
+        // than guess at content I've never seen.
+        const genericBasePrompt = va
+            ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''}
+
+Give specific, actionable advice grounded in exactly what the person shares - reference their actual words, examples, or details rather than generic principles that would apply to anyone. If they haven't given you enough to work with for a genuinely specific answer, ask a clarifying question rather than filling the gap with generic advice. Use markdown formatting for readability.`
+            : 'You are a professional career assistant. Give specific, actionable advice grounded in exactly what the person shares, rather than generic principles. If they haven\'t given enough detail for a specific answer, ask a clarifying question. Use markdown formatting for readability.';
+
+        const conversationalAddendum = executionType === 'conversational'
+            ? '\n\nThis is an ongoing conversation, not a one-off request - actually reference what the person told you earlier in this session where it\'s relevant, rather than treating each message as if it arrived with no context.'
+            : '';
+
+        const systemPrompt = va?.category === 'employer_ops' && va?.name?.toLowerCase().includes('rota')
+            ? ROTA_COMPLIANCE_PROMPT
+            : genericBasePrompt + conversationalAddendum;
 
         // NEW (2026-08-23): real behavioral branch on execution_type —
         // the actual mechanical difference between "hiring an assistant"
@@ -5584,9 +5966,20 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             const data = await callOpenAI(messages, 1500, 0.7);
             output = data.choices[0].message.content;
         } catch (err) {
-            console.warn(`VA OpenAI call failed for ${assistantId}, using fallback:`, err.message);
-            usedFallback = true;
-            output = va?.sample_output || `Thank you for using ${va?.name || 'this assistant'}. Based on your request:\n\n"${input.substring(0, 200)}"\n\nI've analyzed your request and prepared personalized recommendations. Would you like me to help with anything else?`;
+            // FIXED (2026-08-30): confirmed serious issue - this
+            // previously fabricated a fake "I've analyzed your request
+            // and prepared personalized recommendations" message when
+            // the real AI call failed, charging the user a credit for
+            // work that never happened, with no way for them to know
+            // anything went wrong. Now honest: refunds the credit and
+            // tells the user directly, rather than pretending to have
+            // done work it didn't do.
+            console.warn(`VA OpenAI call failed for ${assistantId}:`, err.message);
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck, cost);
+            return res.status(503).json({
+                success: false,
+                error: 'This assistant is temporarily unavailable. Your credit has not been charged - please try again in a moment.'
+            });
         }
         
         // FIXED (2026-08-21): credit/cap deduction already happened
