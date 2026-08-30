@@ -376,13 +376,21 @@ export async function saveAnswer(sessionId, questionId, answer, questionIndex) {
 
 async function scoreScenarioWithAI(question, answer) {
     const fallbackScore = 7;
-    const systemPrompt = 'Score the following answer from 1-10. Return ONLY a number.';
+    // FIXED (2026-08-30): confirmed real issue - "Score 1-10, return ONLY
+    // a number" gave the model no rubric at all, meaning identical
+    // answers could score differently run to run with zero way to
+    // audit why. Now grounds the score in explicit criteria and asks
+    // for brief reasoning alongside the number - the reasoning isn't
+    // discarded, it's real evidence the score wasn't just guessed.
+    const systemPrompt = `You are scoring a written response to an assessment question. Score from 1-10 using this rubric:
+1-3: Response is off-topic, extremely brief, or shows no real understanding of the question.
+4-5: Response addresses the question but is generic, vague, or lacks specific reasoning.
+6-7: Response shows solid understanding with some specific, relevant detail.
+8-10: Response is specific, well-reasoned, and demonstrates clear, applied understanding of the question.
+Respond in exactly this format on one line: SCORE|one-sentence reason`;
     const userMessage = `Question: ${question}\n\nAnswer: ${answer}`;
     
     try {
-        // FIXED: real 'chat' handler expects `message` (string) + `history`
-        // (array), not a `messages` array — this previously always failed
-        // and fell through to the fallback chain.
         const result = await callAIWithFallback(
             'chat',
             {
@@ -390,39 +398,61 @@ async function scoreScenarioWithAI(question, answer) {
                 systemPrompt,
                 history: [],
                 temperature: 0.3,
-                maxTokens: 10
+                maxTokens: 60
             },
             [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userMessage }
             ],
-            fallbackScore.toString()
+            `${fallbackScore}|Automated scoring was unavailable for this answer.`
         );
         
-        const score = parseInt(result);
-        return isNaN(score) ? fallbackScore : Math.min(10, Math.max(1, score));
+        const [scorePart, ...reasonParts] = String(result).split('|');
+        const score = parseInt(scorePart);
+        const reason = reasonParts.join('|').trim() || null;
+        const usedFallback = isNaN(score);
+        return {
+            score: usedFallback ? fallbackScore : Math.min(10, Math.max(1, score)),
+            reason,
+            usedFallback
+        };
     } catch (error) {
         console.error('Error scoring scenario answer:', error);
-        return fallbackScore;
+        return { score: fallbackScore, reason: 'Automated scoring was unavailable for this answer.', usedFallback: true };
     }
 }
 
 async function generateAIInsights(assessmentTitle, percentage, dimensionScores) {
+    // FIXED (2026-08-30): confirmed the same dishonest-fallback pattern
+    // already found and fixed in the VA execution and scenario-scoring
+    // paths - this fallback was 100% generic ("Self-awareness,"
+    // "Willingness to grow") regardless of the person's actual score or
+    // dimension breakdown, with zero indication to the caller that
+    // these weren't real, personalized insights. Now builds the
+    // fallback from the person's actual dimension scores where
+    // available, so even a failure case is grounded in their real
+    // performance rather than being pure boilerplate, and flags
+    // usedFallback explicitly rather than looking identical to a real
+    // AI-generated result.
+    const dimensionEntries = dimensionScores && typeof dimensionScores === 'object' ? Object.entries(dimensionScores) : [];
+    const sortedByScore = [...dimensionEntries].sort((a, b) => b[1] - a[1]);
+    const strongestDimension = sortedByScore[0]?.[0];
+    const weakestDimension = sortedByScore[sortedByScore.length - 1]?.[0];
+
     const fallbackInsights = {
-        summary: `You scored ${percentage}% on this assessment. ${percentage >= 70 ? 'Great work!' : 'Keep practicing to improve your scores.'}`,
-        strengths: ['Self-awareness', 'Willingness to grow', 'Engagement with material'],
-        improvements: ['Review areas with lower scores', 'Practice regularly', 'Seek additional resources'],
-        recommendations: ['Take relevant courses', 'Join study groups', 'Practice with real-world scenarios']
+        summary: `You scored ${percentage}% on ${assessmentTitle}. ${percentage >= 70 ? 'A solid result overall.' : 'There is real room to build on this.'}${strongestDimension ? ` Your strongest area was ${strongestDimension}.` : ''}`,
+        strengths: strongestDimension
+            ? [`Strongest performance in ${strongestDimension}`, 'Completed the full assessment']
+            : ['Completed the full assessment'],
+        improvements: weakestDimension && weakestDimension !== strongestDimension
+            ? [`${weakestDimension} scored lower than your other areas - worth revisiting`]
+            : ['Review the full breakdown below for areas to focus on'],
+        recommendations: ['Review your dimension breakdown for specific areas to focus on', 'Retake this assessment after some practice to track improvement'],
+        usedFallback: true
     };
     
-    // FIXED (2026-08-20): this used to gate on whether the client-side
-    // OPENAI_API_KEY was present — meaningless now that this function
-    // only ever calls the metered backend, which has its own key entirely
-    // server-side. Removed; the real backend call's own error handling
-    // (now falling straight to fallbackInsights on any failure) covers
-    // this correctly.
     const systemPrompt = 'You are a career coach. Provide personalized assessment insights as JSON. Return ONLY valid JSON.';
-    const userMessage = `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings)`;
+    const userMessage = `Assessment: ${assessmentTitle}\nScore: ${percentage}%\nDimension Scores: ${JSON.stringify(dimensionScores)}\n\nReturn JSON with: summary (string), strengths (array of 3-4 strings), improvements (array of 2-3 strings), recommendations (array of 3-4 strings). Reference the actual dimension scores given - which specific dimensions are strong or weak - rather than generic career advice.`;
     
     try {
         // FIXED: was calling a 'generate-insights' action that doesn't exist
@@ -449,7 +479,7 @@ async function generateAIInsights(assessmentTitle, percentage, dimensionScores) 
                 const cleanResponse = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
                 const parsed = JSON.parse(cleanResponse);
                 if (parsed.summary && parsed.strengths && parsed.recommendations) {
-                    return parsed;
+                    return { ...parsed, usedFallback: false };
                 }
             } catch (parseError) {
                 console.warn('Failed to parse AI insights response:', parseError);
@@ -457,7 +487,7 @@ async function generateAIInsights(assessmentTitle, percentage, dimensionScores) 
         }
         
         if (result && typeof result === 'object' && result.summary) {
-            return result;
+            return { ...result, usedFallback: false };
         }
         
         return fallbackInsights;
@@ -497,6 +527,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             let score = 0;
             let isCorrect = false;
             let userAnswerText = userAnswer;
+            let scoringNote = null;
             
             if (question.question_type === 'multiple_choice') {
                 const selectedOption = question.options?.find(opt => opt.id === userAnswer);
@@ -542,10 +573,13 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 // conceptually identical to 'scenario' (which already has
                 // real AI-based scoring built) — routed through the same
                 // scoring path rather than inventing a separate one.
-                const aiScore = await scoreScenarioWithAI(question.question_text, userAnswer);
-                score = aiScore * (maxPoints / 10);
+                const aiScoreResult = await scoreScenarioWithAI(question.question_text, userAnswer);
+                score = aiScoreResult.score * (maxPoints / 10);
                 isCorrect = score >= maxPoints * 0.7;
                 userAnswerText = userAnswer;
+                scoringNote = aiScoreResult.usedFallback
+                    ? 'Automated scoring was unavailable for this answer - a default score was applied.'
+                    : aiScoreResult.reason;
             }
             
             totalScore += score;
@@ -565,6 +599,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 user_answer_value: userAnswer,
                 score: Math.round(score * 100) / 100,
                 max_score: maxPoints,
+                scoring_note: scoringNote,
                 is_correct: isCorrect,
                 question_type: question.question_type
             });
