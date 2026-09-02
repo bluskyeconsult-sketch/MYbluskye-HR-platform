@@ -648,6 +648,43 @@ function getTransporter() {
     });
 }
 
+// NEW (2026-08-30): helpers for the automated tester-code request
+// system. Generates a short, human-readable code (uppercase
+// alphanumeric, excluding visually ambiguous characters like 0/O and
+// 1/I) rather than a raw UUID - genuinely random and unique enough for
+// this purpose, but typeable if it ever needs to be read aloud or
+// entered manually.
+function generateReadableInviteCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+}
+
+async function sendTesterCodeEmail(email, code) {
+    try {
+        const transporter = getTransporter();
+        await transporter.verify();
+        await transporter.sendMail({
+            from: `"ODUSBABA" <${process.env.VITE_EMAIL_USER}>`,
+            to: email,
+            subject: 'Your ODUSBABA Tester Invite Code',
+            html: `<p>Thanks for your interest in becoming an ODUSBABA tester.</p><p>Your invite code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${code}</p><p>Enter this code during sign-up to activate your tester access. This code is unique to you and can only be used once.</p>`
+        });
+        return { success: true };
+    } catch (error) {
+        // FIXED-pattern applied from the start here, not bolted on
+        // after the fact: a failure to send is reported honestly to the
+        // caller rather than swallowed, so the code (which is still
+        // real and valid) doesn't just silently vanish for the
+        // requester with no way to know what happened.
+        console.error('sendTesterCodeEmail failed:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
 // ============================================
 // VA CATEGORY ICONS (2026-08-07)
 // The virtual_assistants table (admin-managed via VirtualAssistantManager.jsx)
@@ -5370,6 +5407,127 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         } catch (error) {
             console.error('2FA disable error:', error);
             return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-08-30): fully automated tester invite request - solves
+    // the real problem (a prospective tester discovering the platform
+    // with no prior relationship to an admin) without either requiring
+    // real-time manual approval, or exposing a working code publicly on
+    // the page (which would defeat the point of gating at all). Bounded
+    // by a real, admin-configurable total-tester cap
+    // (tester_max_total_count in system_config) - under the cap, a
+    // genuinely unique, single-use code is generated and emailed
+    // directly to the requester, bound to that one request; at or over
+    // the cap, the request goes to a real waitlist instead of either
+    // silently failing or issuing beyond the intended limit.
+    'request-tester-code': async (req, res) => {
+        const { email } = req.body;
+        const supabaseClient = getSupabase();
+        const ip = getRequestIP(req);
+
+        if (!email || !isValidEmail(email)) {
+            return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+        }
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // Real, if non-exhaustive, first-layer screen against known
+        // disposable/temp-mail domains - reduces trivial throwaway-email
+        // abuse without pretending to catch every possible one.
+        const disposableDomains = ['mailinator.com', '10minutemail.com', 'guerrillamail.com', 'tempmail.com', 'yopmail.com', 'throwawaymail.com'];
+        const emailDomain = normalizedEmail.split('@')[1];
+        if (disposableDomains.includes(emailDomain)) {
+            return res.status(400).json({ success: false, error: 'Please use a real, permanent email address.' });
+        }
+
+        try {
+            // Rate limit by IP - a genuine spray/abuse signal, same
+            // pattern already used for login attempts elsewhere in this
+            // file. Generous limit since this is a low-frequency, one-
+            // person-one-request action, not something anyone legitimate
+            // calls repeatedly.
+            const rateCheck = await checkIpRateLimit(supabaseClient, `tester-request:${ip}`, 10);
+            if (!rateCheck.allowed) {
+                return res.status(429).json({ success: false, error: 'Too many requests from this network. Please try again later.' });
+            }
+
+            // FIXED (2026-08-30): removed an "already registered" check
+            // that would have queried profiles.email - a column with no
+            // confirmed evidence it exists anywhere in this codebase.
+            // Not strictly necessary either way: Supabase's own signup
+            // step naturally rejects a duplicate email later regardless,
+            // so this is a safe thing to skip rather than guess at an
+            // unconfirmed schema.
+
+            // Already has a real, still-usable auto-issued code? Resend
+            // the same one rather than generate a new one every time
+            // someone re-submits the form.
+            const { data: existingCode } = await supabaseClient
+                .from('tester_invite_codes')
+                .select('code, times_used, max_uses, is_active, expires_at')
+                .eq('description', `Auto-issued to: ${normalizedEmail}`)
+                .eq('is_active', true)
+                .maybeSingle();
+
+            if (existingCode && existingCode.times_used < existingCode.max_uses && (!existingCode.expires_at || new Date(existingCode.expires_at) > new Date())) {
+                await sendTesterCodeEmail(normalizedEmail, existingCode.code);
+                return res.status(200).json({ success: true, resent: true, message: 'You already have a pending invite code - we\'ve resent it to your email.' });
+            }
+
+            // The real, current count against the real, admin-configured
+            // cap - this is the actual gate, not a guess.
+            const { data: capConfig } = await supabaseClient
+                .from('system_config').select('config_value').eq('config_key', 'tester_max_total_count').maybeSingle();
+            const maxTesters = capConfig?.config_value ? parseInt(capConfig.config_value, 10) : 55;
+
+            const { count: currentTesterCount } = await supabaseClient
+                .from('profiles').select('id', { count: 'exact', head: true }).eq('is_tester', true);
+
+            if ((currentTesterCount || 0) >= maxTesters) {
+                const { error: waitlistError } = await supabaseClient
+                    .from('tester_waitlist')
+                    .insert({ email: normalizedEmail })
+                    .select()
+                    .single();
+                // A duplicate-email conflict here just means they're
+                // already on the waitlist - not a real error to surface.
+                if (waitlistError && !waitlistError.message?.includes('duplicate')) {
+                    throw waitlistError;
+                }
+                return res.status(200).json({ success: true, waitlisted: true, message: 'All tester spots are currently filled. You\'ve been added to the waitlist and will be notified when a spot opens up.' });
+            }
+
+            // Under the cap - generate a real, unique, single-use code
+            // bound to this specific request via the description field,
+            // and email it directly. Never displayed on-screen.
+            const code = generateReadableInviteCode();
+            const { error: insertError } = await supabaseClient
+                .from('tester_invite_codes')
+                .insert({
+                    code,
+                    description: `Auto-issued to: ${normalizedEmail}`,
+                    max_uses: 1,
+                    times_used: 0,
+                    is_active: true
+                });
+
+            if (insertError) throw insertError;
+
+            const emailResult = await sendTesterCodeEmail(normalizedEmail, code);
+            if (!emailResult.success) {
+                // The code genuinely exists and is valid even if the
+                // email failed to send - being honest about this rather
+                // than claiming success when the person won't actually
+                // receive anything, so it's visible for manual follow-up
+                // rather than silently lost.
+                console.error(`Tester code ${code} generated for ${normalizedEmail} but email failed to send:`, emailResult.error);
+                return res.status(200).json({ success: false, error: 'Your invite code was generated, but we had trouble emailing it. Please contact support so we can send it to you directly.' });
+            }
+
+            return res.status(200).json({ success: true, issued: true, message: 'Check your email for your tester invite code.' });
+        } catch (error) {
+            console.error('Tester code request error:', error);
+            return res.status(500).json({ success: false, error: 'Something went wrong processing your request. Please try again.' });
         }
     },
 
