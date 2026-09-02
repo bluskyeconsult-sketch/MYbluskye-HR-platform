@@ -46,6 +46,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
+// FIXED (2026-08-30): confirmed real, significant bug - article content
+// is written and stored as markdown (ArticleEditor.jsx's own textarea
+// says "Use markdown for formatting"), but was rendered here as raw,
+// unparsed text inside a plain div, meaning markdown syntax itself
+// (**bold**, --, #) showed up as literal characters instead of being
+// formatted. react-markdown is already a real, installed dependency -
+// ArticleEditor.jsx's own preview mode already uses it correctly. Reusing
+// that exact same proven pattern here rather than adding anything new.
+import ReactMarkdown from 'react-markdown';
 import { 
     Calendar, User, Eye, ArrowLeft, Share2, Send, Sparkles, Loader2,
     AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check,
@@ -402,8 +411,8 @@ export default function ArticleDetail() {
 
                 {/* Article Content */}
                 <div className="prose prose-invert prose-lg max-w-none">
-                    <div className="text-slate-300 leading-relaxed space-y-4 whitespace-pre-wrap">
-                        {article.content}
+                    <div className="text-slate-300 leading-relaxed space-y-4 markdown-content">
+                        <ReactMarkdown>{article.content}</ReactMarkdown>
                     </div>
                 </div>
 
