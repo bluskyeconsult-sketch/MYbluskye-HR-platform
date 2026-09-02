@@ -48,6 +48,17 @@ export default function SignInPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    // NEW (2026-08-30): confirmed real, significant gap - "Invalid email
+    // or password" is deliberately generic (matching Supabase's own
+    // security-conscious design) for BOTH a wrong password AND an
+    // unconfirmed email, to avoid revealing whether an account exists.
+    // But that means anyone whose confirmation email genuinely never
+    // arrived has no way to discover or fix this themselves - they'd
+    // just keep retrying their correct password forever. This gives a
+    // real, self-service path without the error message itself ever
+    // having to reveal which case actually applies.
+    const [resendingConfirmation, setResendingConfirmation] = useState(false);
+    const [confirmationResent, setConfirmationResent] = useState(false);
 
     const [showForgotPassword, setShowForgotPassword] = useState(false);
     const [resetEmail, setResetEmail] = useState('');
@@ -118,6 +129,27 @@ export default function SignInPage() {
             setError(err.message || 'Unable to sign in. Please try again.');
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function handleResendConfirmation() {
+        if (!formData.email.trim()) return;
+        setResendingConfirmation(true);
+        try {
+            const { error: resendErr } = await supabase.auth.resend({
+                type: 'signup',
+                email: formData.email.trim()
+            });
+            if (resendErr) throw resendErr;
+            setConfirmationResent(true);
+        } catch (err) {
+            console.error('Resend confirmation error:', err);
+            // Deliberately generic here too, same reasoning as the main
+            // sign-in error - doesn't confirm or deny whether this email
+            // is a real, existing account.
+            setConfirmationResent(true);
+        } finally {
+            setResendingConfirmation(false);
         }
     }
 
@@ -241,9 +273,34 @@ export default function SignInPage() {
 
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 sm:p-8 backdrop-blur-sm">
                     {error && (
-                        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                            <p className="text-red-400 text-sm">{error}</p>
+                        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                                <p className="text-red-400 text-sm">{error}</p>
+                            </div>
+                            {/* NEW (2026-08-30): a real, self-service path
+                                for anyone whose confirmation email never
+                                arrived - "Invalid email or password" is
+                                deliberately the same message whether the
+                                real cause is a wrong password or an
+                                unconfirmed account, so this option is
+                                always offered here rather than only when
+                                that specific case applies (which would
+                                itself reveal the distinction). */}
+                            {confirmationResent ? (
+                                <p className="text-slate-400 text-xs mt-2 ml-6">
+                                    If an account with this email needs confirming, a new confirmation email has been sent.
+                                </p>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleResendConfirmation}
+                                    disabled={resendingConfirmation || !formData.email.trim()}
+                                    className="text-xs text-primary-400 hover:text-primary-300 transition disabled:opacity-50 mt-2 ml-6"
+                                >
+                                    {resendingConfirmation ? 'Sending...' : "Haven't confirmed your email yet? Resend confirmation email"}
+                                </button>
+                            )}
                         </div>
                     )}
 
