@@ -641,20 +641,18 @@ export default function HireVirtualAssistant() {
                                         <div className="flex items-start justify-between mb-3 sm:mb-4">
                                             <div className="text-3xl sm:text-4xl group-hover:scale-110 transition">{va.icon}</div>
                                             <div className="text-right">
-                                                {/* FIXED (2026-08-23): va.price was labeled "credits"
-                                                    and gated the Execute button as if it were the real
-                                                    credit cost — but it's a dollar value (admin form
-                                                    label: "Price ($)"), and the real backend always
-                                                    deducts exactly 1 credit regardless of this number.
-                                                    A VA priced at 9.99 was disabling the button for
-                                                    anyone with under 10 credits, even though the real
-                                                    cost was 1. Now shown honestly as its own thing —
-                                                    equivalent value, not what's actually charged — and
-                                                    the real, execution-type-derived cost is stated
-                                                    separately below. */}
-                                                {va.price && (
-                                                    <p className="text-sm sm:text-base font-semibold text-slate-400">${Number(va.price).toFixed(2)} value</p>
-                                                )}
+                                                {/* FIXED (2026-08-30): confirmed directly by real
+                                                    tester feedback - even after the 2026-08-23 fix
+                                                    correctly relabeled this as "value" rather than an
+                                                    actual charge, showing two different numbers on one
+                                                    card (a dollar figure AND a credit count) still read
+                                                    as genuinely confusing: "why does it show $9.99 AND
+                                                    1 credit - which do I actually pay?" The real
+                                                    billing is purely credit-based, so the dollar figure
+                                                    added no real clarity, only two numbers where one
+                                                    would do. Removed entirely rather than relabeled
+                                                    again - the credit line alone is sufficient and
+                                                    unambiguous. */}
                                                 <p className="text-[10px] sm:text-xs text-primary-400 font-medium">
                                                     {realCost} credit{realCost > 1 ? 's' : ''} per {isConversationalVA ? 'message' : 'use'}
                                                 </p>
