@@ -546,6 +546,7 @@ const VerifiedEmployersPage = lazy(() => import('./pages/VerifiedEmployersPage')
 // admin-bulk-import-employer-sources, etc.) were built and working, but
 // there was no frontend to actually use them.
 const EmployerSourcesManager = lazy(() => import('./pages/admin/EmployerSourcesManager'));
+const AdminBannerMessages = lazy(() => import('./pages/admin/AdminBannerMessages'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
@@ -850,6 +851,7 @@ function AppContent() {
                             <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAudit /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/insight-engine" element={<ProtectedRoute requireAdmin><AdminLayout><InsightEngine /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/employer-sources" element={<ProtectedRoute requireAdmin><AdminLayout><EmployerSourcesManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/banner-messages" element={<ProtectedRoute requireAdmin><AdminLayout><AdminBannerMessages /></AdminLayout></ProtectedRoute>} />
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminLayout><AdminEmployerVerification /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminLayout><AdminOpportunityGaps /></AdminLayout></ProtectedRoute>} />
