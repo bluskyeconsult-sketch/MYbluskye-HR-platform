@@ -14,7 +14,7 @@ import {
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
     Activity, Shield, BarChart3, UserCheck, Lightbulb, DollarSign,
     FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
-    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope
+    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -44,6 +44,7 @@ const ADMIN_NAV = [
         { path: '/admin/jobs', label: 'Job Management', icon: Briefcase },
         { path: '/admin/external-jobs', label: 'External Jobs', icon: Globe },
         { path: '/admin/employer-sources', label: 'Employer Sources', icon: Building2 },
+        { path: '/admin/banner-messages', label: 'Banner Messages', icon: Megaphone },
         { path: '/admin/workforce', label: 'Workforce Marketplace', icon: Network },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
