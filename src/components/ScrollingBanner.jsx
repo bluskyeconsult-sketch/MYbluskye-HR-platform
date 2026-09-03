@@ -51,10 +51,44 @@ export default function ScrollingBanner() {
     const navigate = useNavigate();
     const [isVisible, setIsVisible] = useState(true);
     const [isPaused, setIsPaused] = useState(false);
-    const [messages] = useState(DEFAULT_MESSAGES);
+    const [messages, setMessages] = useState(DEFAULT_MESSAGES);
     const scrollRef = useRef(null);
     const animationRef = useRef(null);
     const scrollSpeed = useRef(0.8); // pixels per frame
+
+    // NEW (2026-08-30): a real, working version of dynamic banner
+    // content - the previous fetchBannerContent() called an action that
+    // never existed anywhere in the backend. This one is real
+    // (banner-content, backed by the new banner_messages table), and
+    // falls back to the same DEFAULT_MESSAGES on any failure, so
+    // nothing about the component's resilience changes - it just has a
+    // real, working admin-editable source now instead of none at all.
+    useEffect(() => {
+        let cancelled = false;
+        async function loadBannerContent() {
+            try {
+                const response = await fetch('/api/index?action=banner-content');
+                const data = await response.json();
+                if (!cancelled && data.success && Array.isArray(data.messages) && data.messages.length > 0) {
+                    const mapped = data.messages.map(m => ({
+                        id: m.id,
+                        text: m.text,
+                        link: m.link,
+                        linkText: m.link_text,
+                        icon: m.icon,
+                        priority: m.priority
+                    }));
+                    setMessages(mapped);
+                }
+                // On failure or empty result, messages simply stays as
+                // DEFAULT_MESSAGES - no error state, no visible failure.
+            } catch (err) {
+                console.warn('Banner content fetch failed, using defaults:', err.message);
+            }
+        }
+        loadBannerContent();
+        return () => { cancelled = true; };
+    }, []);
 
     // Optimized scroll animation using requestAnimationFrame
     useEffect(() => {
