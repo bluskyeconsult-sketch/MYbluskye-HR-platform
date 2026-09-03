@@ -750,7 +750,8 @@ export default function Navbar() {
                                     
                                     {/* FIXED (2026-08-27): same dead
                                         adminNavItems array, now actually
-                                        rendered - mobile has real scroll                                        room, so shows the complete list
+                                        rendered - mobile has real scroll
+                                        room, so shows the complete list
                                         rather than a slice. */}
                                     {isAdmin && (
                                         <>
