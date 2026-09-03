@@ -5837,6 +5837,34 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // (managed via VirtualAssistantManager.jsx) instead of returning a
     // hardcoded 6-item array. This was the architecture split flagged in
     // Phase 9 — admin-created VAs are now the actual public catalog.
+    // NEW (2026-08-30): the real, working version of what
+    // ScrollingBanner.jsx used to call before that dead code was
+    // removed - this time genuinely backed by a real table
+    // (banner_messages), not a call to nothing. Public, no auth
+    // required, matching the component's own always-visible nature.
+    'banner-content': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const { data, error } = await supabaseClient
+                .from('banner_messages')
+                .select('id, text, link, link_text, icon, priority')
+                .eq('is_active', true)
+                .lte('starts_at', new Date().toISOString())
+                .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`)
+                .order('priority', { ascending: true });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, messages: data || [] });
+        } catch (error) {
+            console.error('banner-content error:', error);
+            // Empty array, not an error response - the frontend already
+            // has a real, sensible fallback (its own default messages)
+            // for exactly this case, so a failure here should degrade
+            // gracefully rather than surface as a visible error.
+            return res.status(200).json({ success: false, messages: [] });
+        }
+    },
+
     'virtual-assistants': async (req, res) => {
         const supabaseClient = getSupabase();
         
