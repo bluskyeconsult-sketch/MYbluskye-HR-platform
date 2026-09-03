@@ -11,6 +11,15 @@ export default function TermsPopup() {
   const [isOpen, setIsOpen] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(true);
+  // NEW (2026-09-03): confirmed real bug - acceptTerms() never checked
+  // whether the database update actually succeeded before closing the
+  // popup. If the write failed (RLS policy, network issue), the popup
+  // still closed locally - giving the illusion of acceptance while
+  // nothing was saved. The next page load re-checks terms_accepted_at,
+  // finds it still null, and reopens the popup - exactly the reported
+  // symptom of the popup reappearing on every new page.
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   useEffect(() => {
     checkUserAndTerms();
@@ -39,12 +48,25 @@ export default function TermsPopup() {
       return;
     }
 
+    setSaveError(null);
+    setSaving(true);
+
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      await supabase
+      const { error } = await supabase
         .from('profiles')
         .update({ terms_accepted_at: new Date().toISOString() })
         .eq('id', user.id);
+
+      setSaving(false);
+
+      if (error) {
+        console.error('Failed to save terms acceptance:', error);
+        setSaveError('Something went wrong saving your acceptance. Please try again.');
+        return;
+      }
+    } else {
+      setSaving(false);
     }
 
     setIsOpen(false);
@@ -124,12 +146,16 @@ export default function TermsPopup() {
             </span>
           </label>
 
+          {saveError && (
+            <p className="text-red-400 text-sm mb-3">{saveError}</p>
+          )}
+
           <button
             onClick={acceptTerms}
-            disabled={!agreed}
+            disabled={!agreed || saving}
             className="w-full py-3 bg-primary-500 text-white rounded-xl font-semibold hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Accept & Continue
+            {saving ? 'Saving...' : 'Accept & Continue'}
           </button>
 
           <p className="text-xs text-slate-500 text-center mt-4">
