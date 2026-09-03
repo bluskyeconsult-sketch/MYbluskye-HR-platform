@@ -17,15 +17,44 @@
 // working code itself - only /sign-up (via the existing, real
 // invite-code + consume_invite_code() system) actually redeems one.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Loader2, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { Mail, Loader2, CheckCircle, Clock, AlertCircle, XCircle } from 'lucide-react';
 
 export default function TesterRegisterPage() {
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
+    // NEW (2026-08-30): confirmed via direct review of
+    // TesterVisibilitySettings.jsx that registration_mode is a real,
+    // saved setting (Hidden/Invite Only/Public) that nothing anywhere
+    // in the app actually read - including this page. An admin setting
+    // it to "Hidden" would have had zero effect here; this page would
+    // stay fully public regardless. Now genuinely checked before the
+    // form ever renders.
+    const [registrationMode, setRegistrationMode] = useState(null);
+    const [checkingMode, setCheckingMode] = useState(true);
+
+    useEffect(() => {
+        async function checkRegistrationMode() {
+            try {
+                const { data } = await supabase
+                    .from('system_config')
+                    .select('config_value')
+                    .eq('config_key', 'tester_visibility')
+                    .maybeSingle();
+                setRegistrationMode(data?.config_value?.registration_mode || 'invite_only');
+            } catch (err) {
+                console.warn('Could not check registration mode, defaulting to invite_only:', err.message);
+                setRegistrationMode('invite_only');
+            } finally {
+                setCheckingMode(false);
+            }
+        }
+        checkRegistrationMode();
+    }, []);
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -53,6 +82,31 @@ export default function TesterRegisterPage() {
         } finally {
             setLoading(false);
         }
+    }
+
+    // Genuinely respects registration_mode now - "hidden" means this
+    // page shows nothing but a plain, honest message, not the form.
+    if (checkingMode) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
+            </div>
+        );
+    }
+
+    if (registrationMode === 'hidden') {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
+                <div className="max-w-md w-full text-center">
+                    <XCircle className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+                    <h1 className="text-2xl font-bold text-white mb-2">Not Currently Available</h1>
+                    <p className="text-slate-400">
+                        The tester program isn't accepting new requests right now. Check back later, or if you already have an invite code, you can{' '}
+                        <Link to="/sign-up" className="text-primary-400 hover:text-primary-300">sign up directly</Link>.
+                    </p>
+                </div>
+            </div>
+        );
     }
 
     return (
