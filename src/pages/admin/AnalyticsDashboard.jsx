@@ -66,13 +66,17 @@ export default function AnalyticsDashboard() {
             supabase.from('analytics_page_views').select('*', { count: 'exact', head: true }).gte('created_at', cutoff)
         ]);
         
-        // Get unique visitors (by IP)
+        // FIXED (2026-09-04): confirmed via direct schema query that
+        // ip_address doesn't exist on analytics_page_views at all - this
+        // query was silently returning zero real rows. session_id is a
+        // real column and a reasonable proxy for a unique visitor, since
+        // each browser session corresponds to roughly one visitor.
         const { data: uniqueData } = await supabase
             .from('analytics_page_views')
-            .select('ip_address')
+            .select('session_id')
             .gte('created_at', cutoff);
         
-        const uniqueVisitors = new Set(uniqueData?.map(v => v.ip_address) || []).size;
+        const uniqueVisitors = new Set(uniqueData?.map(v => v.session_id) || []).size;
         
         // Get session stats
         const { data: sessions } = await supabase
@@ -108,14 +112,17 @@ export default function AnalyticsDashboard() {
     async function loadPageViews() {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
+        // FIXED: confirmed real columns are page_path and time_on_page,
+        // not page_url/view_duration_seconds - this was returning zero
+        // rows on every call.
         const { data: pages } = await supabase
             .from('analytics_page_views')
-            .select('page_url, view_duration_seconds')
+            .select('page_path, time_on_page')
             .gte('created_at', cutoff);
         
         const pageStats = {};
         (pages || []).forEach(p => {
-            pageStats[p.page_url] = (pageStats[p.page_url] || 0) + 1;
+            pageStats[p.page_path] = (pageStats[p.page_path] || 0) + 1;
         });
         
         setPageViews(Object.entries(pageStats).map(([path, views]) => ({ path, views })).sort((a,b) => b.views - a.views));
@@ -142,10 +149,18 @@ export default function AnalyticsDashboard() {
     async function loadLocationStats() {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
+        // FIXED (2026-09-04): country/city/ip_address don't exist on
+        // analytics_page_views at all (confirmed via direct schema
+        // query). The backend's track-page-view handler actually writes
+        // this geo data to analytics_sessions instead. Switched to query
+        // that table. NOTE: analytics_sessions' exact column names have
+        // NOT been directly confirmed via schema query the way
+        // analytics_page_views was - if this still returns empty,
+        // verifying that table's real schema is the next step.
         const { data: views } = await supabase
-            .from('analytics_page_views')
+            .from('analytics_sessions')
             .select('country, city, ip_address')
-            .gte('created_at', cutoff);
+            .gte('start_time', cutoff);
         
         const countryStats = {};
         (views || []).forEach(v => {
