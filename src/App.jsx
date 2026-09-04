@@ -578,6 +578,7 @@ const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
 const CourseDetail = lazy(() => import('./pages/CourseDetail'));
+const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage'));
 const CertificatePage = lazy(() => import('./pages/CertificatePage'));
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
@@ -874,6 +875,7 @@ function AppContent() {
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
                             <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
                             <Route path="/learning/:id" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
+                            <Route path="/courses/:id" element={<CourseDetailsPage />} />
                             <Route path="/certificate/:id" element={<AnimatedPage><CertificatePage /></AnimatedPage>} />
                             <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
                             <Route path="/workforce/dashboard" element={<ProtectedRoute><WorkforceDashboard /></ProtectedRoute>} />
