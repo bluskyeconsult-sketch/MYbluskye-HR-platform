@@ -42,6 +42,13 @@ export default function CourseDetail() {
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [updating, setUpdating] = useState(false);
+    // NEW (2026-09-04): confirmed real bug - clicking a lesson directly
+    // toggled completion, never showing the lesson's actual content.
+    // Real, substantive lesson content exists in the database for
+    // every lesson across every course, but was never displayed
+    // anywhere in this component. Tracks which lesson is currently
+    // expanded for reading.
+    const [expandedLessonId, setExpandedLessonId] = useState(null);
 
     useEffect(() => {
         loadCourse();
@@ -262,28 +269,59 @@ export default function CourseDetail() {
                         <div className="space-y-2">
                             {lessons.map((lesson, idx) => {
                                 const done = completedLessonIds.includes(lesson.id);
+                                const isExpanded = expandedLessonId === lesson.id;
                                 return (
-                                    <button
-                                        key={lesson.id}
-                                        onClick={() => toggleLessonComplete(lesson)}
-                                        disabled={updating}
-                                        className="w-full flex items-center gap-3 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition text-left disabled:opacity-50"
-                                    >
-                                        {done ? (
-                                            <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                                        ) : (
-                                            <Circle className="w-5 h-5 text-slate-600 flex-shrink-0" />
-                                        )}
-                                        <span className="text-slate-500 text-sm w-6">{idx + 1}.</span>
-                                        <span className={`flex-1 text-sm ${done ? 'text-slate-400 line-through' : 'text-white'}`}>
-                                            {lesson.title}
-                                        </span>
-                                        {lesson.duration_minutes && (
-                                            <span className="text-xs text-slate-500 flex items-center gap-1">
-                                                <Clock className="w-3 h-3" /> {lesson.duration_minutes}m
+                                    <div key={lesson.id} className="bg-slate-800/50 rounded-lg overflow-hidden">
+                                        <button
+                                            onClick={() => setExpandedLessonId(isExpanded ? null : lesson.id)}
+                                            className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 transition text-left"
+                                        >
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); toggleLessonComplete(lesson); }}
+                                                disabled={updating}
+                                                className="flex-shrink-0 disabled:opacity-50"
+                                                title={done ? 'Mark as not complete' : 'Mark as complete'}
+                                            >
+                                                {done ? (
+                                                    <CheckCircle className="w-5 h-5 text-emerald-400" />
+                                                ) : (
+                                                    <Circle className="w-5 h-5 text-slate-600" />
+                                                )}
+                                            </button>
+                                            <span className="text-slate-500 text-sm w-6">{idx + 1}.</span>
+                                            <span className={`flex-1 text-sm ${done ? 'text-slate-400' : 'text-white'}`}>
+                                                {lesson.title}
                                             </span>
+                                            {lesson.duration_minutes && (
+                                                <span className="text-xs text-slate-500 flex items-center gap-1 flex-shrink-0">
+                                                    <Clock className="w-3 h-3" /> {lesson.duration_minutes}m
+                                                </span>
+                                            )}
+                                        </button>
+                                        {isExpanded && (
+                                            <div className="px-4 pb-4 pt-1 border-t border-slate-700/50">
+                                                {lesson.content ? (
+                                                    <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed pt-3">
+                                                        {lesson.content}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-sm text-slate-500 pt-3">
+                                                        No written content for this lesson yet.
+                                                    </p>
+                                                )}
+                                                {!done && (
+                                                    <button
+                                                        onClick={() => toggleLessonComplete(lesson)}
+                                                        disabled={updating}
+                                                        className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
+                                                    >
+                                                        {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                        Mark Complete
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
-                                    </button>
+                                    </div>
                                 );
                             })}
                         </div>
