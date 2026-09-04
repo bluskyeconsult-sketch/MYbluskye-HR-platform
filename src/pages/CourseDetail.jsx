@@ -116,9 +116,19 @@ export default function CourseDetail() {
     async function updateProgress(newProgress, lessonId = null) {
         setUpdating(true);
         try {
+            // FIXED (2026-09-04): confirmed real, direct cause of a live
+            // 401 - this fetch never included an Authorization header at
+            // all, meaning the backend's verifyClaimedUserId check would
+            // always correctly reject it as unverified. Now fetches the
+            // real session token first, matching the same pattern used
+            // for every other authenticated action in this project.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=update-course-progress', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
                 body: JSON.stringify({ userId: user.id, courseId: id, progress: newProgress, lessonId })
             });
             const result = await response.json();
