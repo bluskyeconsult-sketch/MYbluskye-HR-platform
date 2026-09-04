@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { 
   TrendingUp, Users, Briefcase, DollarSign, Download,
   Calendar, RefreshCw, Loader2, AlertCircle,
@@ -7,9 +7,22 @@ import {
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIXED (2026-09-04): confirmed real, live bug via direct file review -
+// this created its own disconnected Supabase client via createClient(),
+// the exact same anti-pattern found and fixed repeatedly elsewhere this
+// project (ScrollingBanner.jsx, PremiumTermsPopup.jsx). Now uses the
+// shared singleton.
+//
+// ALSO FIXED: totalRevenue was fabricated (users * $29, a placeholder
+// with no real payment data behind it) and avgJobApplications was a
+// hardcoded 12.5, never computed from anything real - the exact same
+// "fabricated stats" pattern flagged in an earlier platform audit.
+// Neither is invented as a replacement fake number here either - both
+// are now honestly labeled as not yet available, since there's no real
+// payments/subscriptions table confirmed to exist to compute them from.
+// Also fixed: "Revenue by Country" was displaying user counts per
+// country, not revenue at all - relabeled to match what it actually
+// shows.
 
 const SUPPORTED_COUNTRIES = [
   { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
@@ -135,7 +148,11 @@ export default function AdminAnalytics() {
       // Metrics
       const totalUsers = profiles?.length || 0;
       const totalJobs = jobs?.length || 0;
-      const totalRevenue = totalUsers * 29; // Placeholder calculation
+      // FIXED: totalRevenue was users * 29, a placeholder with zero
+      // connection to any real payment data. Rather than invent a
+      // different fake number, this is honestly null until a real
+      // payments/subscriptions table is confirmed to exist and wired in.
+      const totalRevenue = null;
       
       setMetrics({
         totalUsers,
@@ -143,7 +160,8 @@ export default function AdminAnalytics() {
         totalRevenue,
         conversionRate: totalUsers > 0 ? ((totalJobs / totalUsers) * 100).toFixed(1) : 0,
         activeUsers: profiles?.filter(p => p.user_type !== 'free').length || 0,
-        avgJobApplications: 12.5
+        // FIXED: was hardcoded to 12.5 regardless of any real data.
+        avgJobApplications: null
       });
       
     } catch (err) {
@@ -162,7 +180,7 @@ export default function AdminAnalytics() {
       const rows = [
         ['Total Users', metrics.totalUsers, new Date().toLocaleDateString(), 'All time'],
         ['Total Jobs', metrics.totalJobs, new Date().toLocaleDateString(), 'All time'],
-        ['Total Revenue', `$${metrics.totalRevenue}`, new Date().toLocaleDateString(), 'Estimated'],
+        ['Total Revenue', metrics.totalRevenue === null ? 'N/A' : `$${metrics.totalRevenue}`, new Date().toLocaleDateString(), 'Estimated'],
         ['Conversion Rate', `${metrics.conversionRate}%`, new Date().toLocaleDateString(), 'Users to Jobs'],
         ['Active Users', metrics.activeUsers, new Date().toLocaleDateString(), 'Non-free users']
       ];
@@ -216,10 +234,10 @@ export default function AdminAnalytics() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Users className="w-4 h-4 text-blue-400" /><p className="text-slate-400 text-xs">Total Users</p></div><p className="text-2xl font-bold text-white">{metrics.totalUsers.toLocaleString()}</p></div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Briefcase className="w-4 h-4 text-emerald-400" /><p className="text-slate-400 text-xs">Total Jobs</p></div><p className="text-2xl font-bold text-white">{metrics.totalJobs.toLocaleString()}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><DollarSign className="w-4 h-4 text-yellow-400" /><p className="text-slate-400 text-xs">Total Revenue</p></div><p className="text-2xl font-bold text-white">${metrics.totalRevenue.toLocaleString()}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><DollarSign className="w-4 h-4 text-yellow-400" /><p className="text-slate-400 text-xs">Total Revenue</p></div><p className="text-2xl font-bold text-white">{metrics.totalRevenue === null ? 'N/A' : `$${metrics.totalRevenue.toLocaleString()}`}</p></div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><TrendingUp className="w-4 h-4 text-purple-400" /><p className="text-slate-400 text-xs">Conversion Rate</p></div><p className="text-2xl font-bold text-white">{metrics.conversionRate}%</p></div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Activity className="w-4 h-4 text-amber-400" /><p className="text-slate-400 text-xs">Active Users</p></div><p className="text-2xl font-bold text-white">{metrics.activeUsers.toLocaleString()}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Briefcase className="w-4 h-4 text-pink-400" /><p className="text-slate-400 text-xs">Avg Apps/Job</p></div><p className="text-2xl font-bold text-white">{metrics.avgJobApplications}</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-2 mb-1"><Briefcase className="w-4 h-4 text-pink-400" /><p className="text-slate-400 text-xs">Avg Apps/Job</p></div><p className="text-2xl font-bold text-white">{metrics.avgJobApplications === null ? 'N/A' : metrics.avgJobApplications}</p></div>
         </div>
 
         {loading ? (
@@ -244,9 +262,11 @@ export default function AdminAnalytics() {
                 )}
               </div>
 
-              {/* Revenue by Country */}
+              {/* Users by Country - FIXED: was labeled "Revenue by
+                  Country" but genuinely only ever displayed user counts
+                  per country, never any revenue figure. */}
               <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><DollarSign className="w-5 h-5 text-yellow-400" /> Revenue by Country</h2>
+                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Users className="w-5 h-5 text-yellow-400" /> Users by Country</h2>
                 <div className="space-y-3">
                   {revenueByCountry.sort((a, b) => b.users - a.users).map(country => (
                     <div key={country.code} className="flex items-center justify-between p-2 bg-slate-800/30 rounded-lg"><span className="flex items-center gap-2"><span className="text-xl">{country.flag}</span> <span className="text-white">{country.name}</span></span><span className="text-emerald-400 font-medium">{country.users} users</span></div>
