@@ -6570,15 +6570,23 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     });
             }
 
+            // FIXED (2026-09-04): confirmed via direct schema query that
+            // analytics_page_views has no page_url, ip_address, country,
+            // or city columns at all - the real columns are page_path,
+            // user_id, device_type, browser, created_at. This insert was
+            // failing on every single call, silently (by this handler's
+            // own by-design fail-silent behavior), meaning genuinely
+            // zero real page-view data has ever been stored here. Not
+            // touching the analytics_sessions insert/update above -
+            // that table's schema hasn't been confirmed broken, only
+            // this one has direct, confirmed evidence.
             await supabaseClient
                 .from('analytics_page_views')
                 .insert({
                     session_id: sessionId,
-                    page_url: pageUrl,
-                    ip_address: ip,
-                    country,
-                    city,
+                    page_path: pageUrl,
                     device_type: deviceType,
+                    browser,
                     user_id: verifiedUserId,
                     created_at: new Date().toISOString()
                 });
