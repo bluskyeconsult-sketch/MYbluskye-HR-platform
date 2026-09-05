@@ -12,7 +12,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, Users, Briefcase, BookOpen, FileText, ShieldAlert,
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
-    Activity, Shield, BarChart3, UserCheck, Lightbulb, DollarSign,
+    Activity, Shield, ShieldCheck, BarChart3, UserCheck, Lightbulb, DollarSign,
     FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
     Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone
 } from 'lucide-react';
@@ -25,6 +25,7 @@ const ADMIN_NAV = [
     { section: 'Overview', items: [
         { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/admin/health', label: 'System Health', icon: Activity },
+        { path: '/admin/readiness-check', label: 'Readiness Check', icon: ShieldCheck },
         { path: '/admin/diagnostics', label: 'Diagnostics', icon: Stethoscope },
         { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
         { path: '/admin/usage-meter', label: 'Usage Meter', icon: Gauge },
