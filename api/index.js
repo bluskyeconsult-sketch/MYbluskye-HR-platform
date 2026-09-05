@@ -632,6 +632,51 @@ async function callOpenAIAudio(text, voice = 'alloy') {
     return Buffer.from(arrayBuffer);
 }
 
+// FIXED (2026-09-04): confirmed this exact function was previously
+// misplaced as a bare declaration directly inside the handlers object
+// literal - invalid JavaScript that node --check alone did not catch,
+// only revealed by actually attempting to load the module as the real
+// ES module this project is (per package.json's "type": "module").
+// Moved here, its correct, valid location alongside the other
+// standalone helper functions. Logic itself is unchanged and was
+// already well-designed: real text chunking for book-length content,
+// since callOpenAIAudio() silently trims anything over 4000
+// characters - fine for a short course lesson, but a real book
+// chapter can easily be 10,000-50,000+ characters, meaning naive reuse
+// would produce an audiobook covering only the first paragraph of
+// each chapter. Splits on sentence boundaries where possible, rather
+// than cutting mid-word/mid-sentence, staying safely under the limit.
+function chunkTextForTTS(text, maxChars = 3800) {
+    const sentences = text.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [text];
+    const chunks = [];
+    let current = '';
+
+    for (const sentence of sentences) {
+        if ((current + sentence).length > maxChars && current.length > 0) {
+            chunks.push(current.trim());
+            current = sentence;
+        } else {
+            current += sentence;
+        }
+    }
+    if (current.trim().length > 0) chunks.push(current.trim());
+
+    // Defensive: a single sentence longer than maxChars on its own
+    // (rare, but possible) still needs hard splitting so it isn't
+    // silently dropped by callOpenAIAudio's own internal trim.
+    const safeChunks = [];
+    for (const chunk of chunks) {
+        if (chunk.length <= maxChars) {
+            safeChunks.push(chunk);
+        } else {
+            for (let i = 0; i < chunk.length; i += maxChars) {
+                safeChunks.push(chunk.substring(i, i + maxChars));
+            }
+        }
+    }
+    return safeChunks;
+}
+
 function getTransporter() {
     return nodemailer.createTransport({
         host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
@@ -3903,6 +3948,73 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
     },
 
+    // NEW (2026-09-04): real audiobook generation for book chapters.
+    // Chunks chapter content into multiple TTS-safe segments (see
+    // chunkTextForTTS above), generates real audio for each via the
+    // same proven callOpenAIAudio() already used for lesson audio, and
+    // stores all segment URLs on book_chapters.audio_segments for the
+    // frontend player to play through in sequence. Uses a dedicated
+    // 'book-audio' bucket, kept separate from 'course-audio' rather
+    // than mixing book and course content in the same bucket.
+    generateChapterAudio: async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { chapterId } = req.body;
+        if (!chapterId) return res.status(400).json({ error: 'chapterId is required' });
+
+        try {
+            const { data: chapter, error: chapterError } = await supabaseClient
+                .from('book_chapters')
+                .select('id, title, content')
+                .eq('id', chapterId)
+                .single();
+            if (chapterError) throw chapterError;
+            if (!chapter.content) throw new Error('This chapter has no content to convert.');
+
+            const textChunks = chunkTextForTTS(chapter.content);
+            const segments = [];
+
+            for (let i = 0; i < textChunks.length; i++) {
+                const audioBuffer = await callOpenAIAudio(textChunks[i], 'alloy');
+                const fileName = `audio/${chapterId}-part${i + 1}-${Date.now()}.mp3`;
+
+                const { error: uploadError } = await supabaseClient.storage
+                    .from('book-audio')
+                    .upload(fileName, audioBuffer, { contentType: 'audio/mpeg', upsert: true });
+
+                if (uploadError) {
+                    throw new Error(
+                        uploadError.message.includes('not found') || uploadError.message.includes('Bucket')
+                            ? "Storage bucket 'book-audio' doesn't exist yet — create it in your Supabase dashboard (Storage → New bucket → name it 'book-audio' → make it Public), then try again."
+                            : uploadError.message
+                    );
+                }
+
+                const { data: publicUrlData } = supabaseClient.storage
+                    .from('book-audio')
+                    .getPublicUrl(fileName);
+
+                const wordCount = textChunks[i].trim().split(/\s+/).length;
+                const estimatedDuration = Math.ceil((wordCount / 150) * 60);
+
+                segments.push({ part: i + 1, url: publicUrlData.publicUrl, duration: estimatedDuration });
+            }
+
+            const { error: updateError } = await supabaseClient
+                .from('book_chapters')
+                .update({ audio_segments: segments, audio_generated_at: new Date().toISOString() })
+                .eq('id', chapterId);
+            if (updateError) throw updateError;
+
+            return res.status(200).json({ success: true, segments, totalParts: segments.length });
+        } catch (error) {
+            console.error('Chapter audio generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     generateLessonAudio: async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
@@ -6561,6 +6673,89 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             console.error('system-config-health error:', error);
             return res.status(200).json({ success: false, openaiConfigured: false, emailConfigured: false });
         }
+    },
+
+    // NEW (2026-09-04): a real, programmatic readiness check -
+    // implementing the verification plan directly rather than leaving
+    // it as a manual checklist. Checks the specific, concrete items
+    // from the unconfirmed items register that can genuinely be
+    // verified from the backend: required storage buckets actually
+    // existing, the orphaned account's real current state, and the
+    // newsletter/job-reports tables genuinely being queryable.
+    'readiness-check': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const checks = [];
+
+        // Storage buckets - confirmed required by real, already-built
+        // features this session (article images, lesson audio, book audio).
+        try {
+            const { data: buckets, error } = await supabaseClient.storage.listBuckets();
+            if (error) throw error;
+            const bucketNames = (buckets || []).map(b => b.name);
+            for (const required of ['article-images', 'course-audio', 'book-audio']) {
+                checks.push({
+                    item: `Storage bucket: ${required}`,
+                    status: bucketNames.includes(required) ? 'pass' : 'fail',
+                    detail: bucketNames.includes(required) ? 'Exists' : 'Missing - required feature will fail without it'
+                });
+            }
+        } catch (error) {
+            checks.push({ item: 'Storage buckets', status: 'error', detail: error.message });
+        }
+
+        // The specific, confirmed orphaned account from earlier in this
+        // engagement - checks its real, current state rather than
+        // assuming either fix option was actually applied.
+        try {
+            const { data: authUser } = await supabaseClient.auth.admin.listUsers();
+            const orphan = authUser?.users?.find(u => u.email === 'jodugboye@gmail.com');
+            if (!orphan) {
+                checks.push({ item: 'Orphaned account (jodugboye@gmail.com)', status: 'pass', detail: 'Account no longer exists - likely deleted per Option A' });
+            } else {
+                const { data: profile } = await supabaseClient.from('profiles').select('id').eq('id', orphan.id).maybeSingle();
+                checks.push({
+                    item: 'Orphaned account (jodugboye@gmail.com)',
+                    status: profile ? 'pass' : 'fail',
+                    detail: profile ? 'Account exists and now has a matching profile' : 'Account still exists with no profile - neither fix option has been applied yet'
+                });
+            }
+        } catch (error) {
+            checks.push({ item: 'Orphaned account check', status: 'error', detail: error.message });
+        }
+
+        // Confirms the newsletter fixes and job_reports table from this
+        // session are genuinely queryable, not just "should work" in code.
+        try {
+            const { error: newsError } = await supabaseClient.from('newsletters').select('id').limit(1);
+            checks.push({ item: 'newsletters table query', status: newsError ? 'fail' : 'pass', detail: newsError?.message || 'Queryable' });
+        } catch (error) {
+            checks.push({ item: 'newsletters table query', status: 'error', detail: error.message });
+        }
+
+        try {
+            const { error: reportsError } = await supabaseClient.from('job_reports').select('id').limit(1);
+            checks.push({ item: 'job_reports table', status: reportsError ? 'fail' : 'pass', detail: reportsError?.message || 'Exists and queryable' });
+        } catch (error) {
+            checks.push({ item: 'job_reports table', status: 'error', detail: error.message });
+        }
+
+        try {
+            const { data: bookChapters } = await supabaseClient.from('book_chapters').select('id, content').limit(5);
+            const withContent = (bookChapters || []).filter(c => c.content && c.content.trim().length > 0).length;
+            checks.push({
+                item: 'book_chapters content',
+                status: withContent > 0 ? 'pass' : 'warn',
+                detail: withContent > 0 ? `${withContent} of ${bookChapters.length} sampled chapters have real content` : 'No chapters with content found in sample - audiobook feature has nothing to generate from yet'
+            });
+        } catch (error) {
+            checks.push({ item: 'book_chapters content', status: 'error', detail: error.message });
+        }
+
+        const allPassed = checks.every(c => c.status === 'pass');
+        return res.status(200).json({ success: true, allPassed, checks });
     },
 
     'track-page-view': async (req, res) => {
