@@ -30,7 +30,7 @@
 //    this session). Those 3 tabs could never match any real VA, always
 //    showing empty results. Removed to match what's actually possible.
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import PageEdgeBanner from '../components/PageEdgeBanner';
 import { 
@@ -97,6 +97,14 @@ export default function HireVirtualAssistant() {
     // doesn't mix up separate conversations. single_turn VAs (the
     // default, matching every VA's original behavior) never touch this.
     const [conversations, setConversations] = useState({}); // { [vaId]: [{role, content}] }
+    // NEW (2026-09-04): confirmed real, reported UX bug - the
+    // conversation/result area renders correctly, but sits inline
+    // below the VA selection and input form with no signal that a
+    // response arrived, easy to miss on a page with this much content
+    // above it. Auto-scrolls to the result whenever new content
+    // appears, rather than requiring the user to notice and scroll
+    // down manually.
+    const resultRef = useRef(null);
 
     // ============================================
     // LOAD VA CATALOG
@@ -105,6 +113,15 @@ export default function HireVirtualAssistant() {
     useEffect(() => {
         loadVirtualAssistants();
     }, []);
+
+    // Auto-scrolls to the result/conversation area whenever a new
+    // response arrives, fixing the confirmed UX bug where responses
+    // could go unnoticed further down the page.
+    useEffect(() => {
+        if (resultRef.current) {
+            resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [output, selectedVA ? conversations[selectedVA.id]?.length : 0]);
 
     async function loadVirtualAssistants() {
         setLoadingVAs(true);
@@ -813,7 +830,7 @@ export default function HireVirtualAssistant() {
                                     single_turn VAs keep the original single-box
                                     output view unchanged below. */}
                                 {selectedVA?.execution_type === 'conversational' && (conversations[selectedVA.id]?.length > 0) && (
-                                    <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700 space-y-3 max-h-96 overflow-y-auto">
+                                    <div ref={resultRef} className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700 space-y-3 max-h-96 overflow-y-auto">
                                         {conversations[selectedVA.id].map((msg, idx) => (
                                             <div
                                                 key={idx}
@@ -840,7 +857,7 @@ export default function HireVirtualAssistant() {
                                 {/* Result Output — single_turn VAs (the original,
                                     unchanged behavior) */}
                                 {output && selectedVA?.execution_type !== 'conversational' && (
-                                    <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                                    <div ref={resultRef} className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/50 rounded-xl border border-slate-700">
                                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                                             <h4 className="text-white font-semibold flex items-center gap-2 text-sm sm:text-base">
                                                 <CheckCircle className="w-4 h-4 text-emerald-400" />
