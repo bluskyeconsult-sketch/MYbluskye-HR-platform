@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase';
 // CONFIGURATION
 // ============================================
 
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const API_BASE = '/api/index';
 
 // ============================================
@@ -50,10 +49,6 @@ async function callVAExecutionAPI(vaId, input, userId) {
 // ============================================
 
 export async function generateVirtualAssistantWithAI(topic, specialization, tone = 'professional') {
-    if (!OPENAI_API_KEY) {
-        throw new Error('OpenAI API key not configured');
-    }
-    
     const prompt = `Create a complete Virtual Assistant profile for ODUSBABA platform.
 
 Topic/Specialization: ${topic}
@@ -78,26 +73,37 @@ Return as JSON with this exact structure:
 Make it practical, valuable, and engaging. Return ONLY valid JSON.`;
 
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        // FIXED (2026-09-04): confirmed critical, live security
+        // vulnerability - this called api.openai.com directly from this
+        // client-side service using import.meta.env.VITE_OPENAI_API_KEY,
+        // a VITE_-prefixed variable confirmed to genuinely exist in the
+        // real environment (the backend relies on it as a fallback).
+        // This meant the real, full OpenAI key was compiled directly
+        // into the public JS bundle and exposed to anyone who opened
+        // dev tools, every single time an admin used this AI-generate
+        // feature - same severity class as the SystemHealthDashboard.jsx
+        // and hardcoded tester invite-code vulnerabilities already found
+        // and fixed this session. Rewired to the same safe, metered
+        // ?action=chat backend action already proven correct in
+        // aiArticleService.js's generateArticle().
+        const response = await fetch('/api/index?action=chat', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: 'You are an expert at creating Virtual Assistant profiles for a career platform.' },
-                    { role: 'user', content: prompt }
-                ],
+                message: prompt,
+                systemPrompt: 'You are an expert at creating Virtual Assistant profiles for a career platform. Return ONLY valid JSON.',
+                history: [],
                 temperature: 0.7,
-                max_tokens: 2000,
-                response_format: { type: "json_object" }
+                maxTokens: 2000
             })
         });
 
         const data = await response.json();
-        const content = data.choices[0].message.content;
+        if (!data.success) {
+            throw new Error(data.error || 'VA generation failed');
+        }
+
+        const content = data.response;
         const cleanResponse = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         return JSON.parse(cleanResponse);
     } catch (error) {
