@@ -154,7 +154,15 @@ export default function VirtualAssistantManager() {
             setAiTopic('');
             setAiSpecialization('');
             loadAssistants();
-            alert('✅ Virtual Assistant created successfully! Note: this is only visible in this admin catalog, not on the live /hire-va page — see file header.');
+            // FIXED (2026-09-04): confirmed stale, incorrect message -
+            // directly contradicted this file's own header, which
+            // confirms VAs created here have been live on the public
+            // /hire-va page since the 2026-08-07 architecture fix
+            // (confirmed 2026-08-20). This alert was never updated when
+            // that fix landed, meaning it would actively mislead an
+            // admin into thinking a real, live VA hadn't actually gone
+            // live - a silent wrong instruction, not just outdated text.
+            alert('✅ Virtual Assistant created successfully and is now live on the public /hire-va page.');
         } else {
             alert('Error creating Virtual Assistant');
         }
