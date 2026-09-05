@@ -299,25 +299,43 @@ export default function SystemHealthDashboard() {
         // ============================================
         // 11. OpenAI API
         // ============================================
-        const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
+        // FIXED (2026-09-04): confirmed critical security issue - this
+        // used to read VITE_OPENAI_API_KEY and VITE_EMAIL_USER directly
+        // client-side. Any VITE_-prefixed env var is compiled as a
+        // literal value into the public JS bundle by Vite at build
+        // time - meaning the real, full OpenAI key was shipped to
+        // every visitor's browser and extractable from the bundle
+        // itself, regardless of the UI only displaying a masked
+        // prefix. Now calls a real backend action that checks the
+        // actual server-side env vars safely and returns only a
+        // boolean - the key value itself never leaves the server.
+        let configHealth = { openaiConfigured: false, emailConfigured: false };
+        try {
+            const configResponse = await fetch('/api/index?action=system-config-health');
+            const configData = await configResponse.json();
+            if (configData.success) configHealth = configData;
+        } catch (e) {
+            console.warn('Config health check failed:', e.message);
+        }
+
         checks.push({
             name: 'OpenAI API',
-            status: openaiKey ? 'healthy' : 'degraded',
+            status: configHealth.openaiConfigured ? 'healthy' : 'degraded',
             responseTime: 0,
-            details: openaiKey ? `Key configured (${openaiKey.slice(0, 8)}...)` : 'API key missing - AI features disabled',
+            details: configHealth.openaiConfigured ? 'Key configured' : 'API key missing - AI features disabled',
             icon: Brain,
-            metric: openaiKey ? 'configured' : 'missing'
+            metric: configHealth.openaiConfigured ? 'configured' : 'missing'
         });
 
         // ============================================
         // 12. Email Service
         // ============================================
-        const emailUser = import.meta.env.VITE_EMAIL_USER;
+        const emailUser = configHealth.emailConfigured;
         checks.push({
             name: 'Email Service',
             status: emailUser ? 'healthy' : 'degraded',
             responseTime: 0,
-            details: emailUser ? `${emailUser} via Hostinger SMTP` : 'Email credentials missing',
+            details: emailUser ? 'Configured via Hostinger SMTP' : 'Email credentials missing',
             icon: Mail,
             metric: emailUser ? 'configured' : 'missing'
         });
