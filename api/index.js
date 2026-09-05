@@ -5028,6 +5028,41 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // yet — returns null with a clear "not tracked yet" signal instead of
     // inventing a number, and the error fallback now honestly returns 0
     // rather than a fabricated count.
+    // NEW (2026-09-04): confirmed via direct search that
+    // NewsletterAdmin.jsx calls both of these, but neither existed
+    // anywhere in the backend - meaning the newsletter list and
+    // subscriber list have never actually been able to load, even
+    // after the separate is_sent/status column bug was fixed.
+    'newsletter-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const { data, error } = await supabaseClient
+                .from('newsletters')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+            return res.status(200).json({ success: true, newsletters: data || [] });
+        } catch (error) {
+            console.error('newsletter-list error:', error);
+            return res.status(200).json({ success: false, newsletters: [] });
+        }
+    },
+
+    'newsletter-subscribers': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const { data, error } = await supabaseClient
+                .from('newsletter_subscribers')
+                .select('*')
+                .order('subscribed_at', { ascending: false });
+            if (error) throw error;
+            return res.status(200).json({ success: true, subscribers: data || [] });
+        } catch (error) {
+            console.error('newsletter-subscribers error:', error);
+            return res.status(200).json({ success: false, subscribers: [] });
+        }
+    },
+
     'newsletter-stats': async (req, res) => {
         const supabaseClient = getSupabase();
         
