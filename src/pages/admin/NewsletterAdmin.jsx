@@ -207,6 +207,15 @@ export default function NewsletterAdmin() {
     // straight to Supabase instead of a dead API-first attempt. "Send now"
     // is no longer promised at creation time — newsletters are created as
     // draft/scheduled, then actually sent via the fixed handleSendNow below.
+    // FIXED (2026-09-04): confirmed via direct schema query - the real
+    // definitive cause of this entire, long-open bug. There is no
+    // status column on newsletters at all - the real column is
+    // is_sent (boolean, defaults to false). This insert was sending
+    // status: 'draft'/'scheduled' every single time, which Supabase
+    // rejects outright since the column doesn't exist - meaning this
+    // create action has never actually succeeded once. Removed the
+    // non-existent field entirely; is_sent's own default (false) is
+    // already exactly correct for a newly-created, unsent newsletter.
     async function handleCreateNewsletter(e) {
         e.preventDefault();
         setSending(true);
@@ -219,7 +228,6 @@ export default function NewsletterAdmin() {
                 subject: formData.subject,
                 content: formData.content,
                 content_html: formData.content,
-                status: formData.scheduled_for ? 'scheduled' : 'draft',
                 scheduled_for: formData.scheduled_for || null,
                 created_by: user?.id
             });
@@ -332,9 +340,18 @@ export default function NewsletterAdmin() {
                 }
             }
             
+            // FIXED (2026-09-04): same confirmed root cause as
+            // handleCreateNewsletter - status doesn't exist, real
+            // column is is_sent (boolean). This update was failing
+            // silently every time a newsletter was "sent," meaning
+            // is_sent never actually became true - which also broke
+            // the public "Anyone can view sent newsletters" policy,
+            // since it filters on exactly this column. Also now
+            // persists recipient_count, which was already computed
+            // (successCount) but never saved anywhere.
             await supabase
                 .from('newsletters')
-                .update({ status: 'sent', sent_at: new Date().toISOString() })
+                .update({ is_sent: true, sent_at: new Date().toISOString(), recipient_count: successCount })
                 .eq('id', newsletterId);
             
             alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers (${segmentLabels[sendSegment]}).`);
@@ -420,6 +437,17 @@ export default function NewsletterAdmin() {
         }
     }
 
+    // NEW (2026-09-04): confirmed the real schema has no status column
+    // at all - only is_sent (boolean) and scheduled_for (timestamp).
+    // The UI throughout this file was built assuming a 3-state string
+    // that never existed. Derives the equivalent status from the real
+    // columns instead of reading a field that was always undefined.
+    function getDerivedStatus(newsletter) {
+        if (newsletter.is_sent) return 'sent';
+        if (newsletter.scheduled_for && new Date(newsletter.scheduled_for) > new Date()) return 'scheduled';
+        return 'draft';
+    }
+
     function getStatusBadge(status) {
         const statusConfig = {
             draft: { label: 'Draft', color: 'bg-slate-500/20 text-slate-400', icon: Edit },
@@ -439,7 +467,7 @@ export default function NewsletterAdmin() {
     }
 
     const filteredNewsletters = newsletters.filter(n => {
-        const matchesStatus = filterStatus === 'all' || n.status === filterStatus;
+        const matchesStatus = filterStatus === 'all' || getDerivedStatus(n) === filterStatus;
         const matchesSearch = searchTerm === '' || 
             n.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             n.subject?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -622,7 +650,7 @@ export default function NewsletterAdmin() {
                                             <p className="text-slate-400 text-sm line-clamp-1">{newsletter.subject}</p>
                                         </td>
                                         <td className="px-4 py-3">
-                                            {getStatusBadge(newsletter.status)}
+                                            {getStatusBadge(getDerivedStatus(newsletter))}
                                             {newsletter.scheduled_for && (
                                                 <p className="text-xs text-slate-500 mt-1">
                                                     <Calendar className="w-3 h-3 inline mr-1" />
@@ -645,7 +673,7 @@ export default function NewsletterAdmin() {
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                 </button>
-                                                {newsletter.status === 'draft' && (
+                                                {getDerivedStatus(newsletter) === 'draft' && (
                                                     <>
                                                         <button
                                                             onClick={() => handleSendTest(newsletter)}
@@ -670,7 +698,7 @@ export default function NewsletterAdmin() {
                                                         </button>
                                                     </>
                                                 )}
-                                                {newsletter.status === 'scheduled' && (
+                                                {getDerivedStatus(newsletter) === 'scheduled' && (
                                                     <button
                                                         onClick={() => handleSendNow(newsletter.id)}
                                                         className="p-1.5 text-emerald-400 hover:text-emerald-300 transition"
