@@ -219,11 +219,10 @@ export default function JobDetailPage() {
     }
     const reason = prompt('Please explain why you are reporting this job:');
     if (reason) {
-      // NOTE: `job_reports` is not confirmed to exist in the real schema —
-      // the platform's fraud-reporting feature elsewhere is generally
-      // referred to as `fraud_reports`. Left as-is rather than guessed, since
-      // this may be a genuinely distinct table for job-specific reports.
-      // Worth confirming directly in Supabase before relying on this.
+      // CONFIRMED (2026-09-04): job_reports was checked directly against
+      // the real schema and didn't exist - see create-job-reports-table.sql,
+      // which creates it with real RLS policies. This insert is correct
+      // once that migration has been run.
       await supabase.from('job_reports').insert({ job_id: id, user_id: user.id, reason });
       toast.success('Thank you for reporting. We will review it.');
     }
