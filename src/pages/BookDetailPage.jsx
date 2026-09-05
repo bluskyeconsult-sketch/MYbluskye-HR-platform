@@ -13,6 +13,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { authenticatedFetch } from '../lib/authFetch';
 import BookReader from '../components/BookReader';
+import AudiobookListener from '../components/AudiobookListener';
 import {
     ArrowLeft, ExternalLink, Download, BookOpen, Loader2,
     AlertCircle, CheckCircle, ShoppingCart, Eye
@@ -31,6 +32,15 @@ export default function BookDetailPage() {
     const [readerMode, setReaderMode] = useState('preview'); // 'preview' | 'full'
     const [readerUrl, setReaderUrl] = useState(null);
     const [readerLoading, setReaderLoading] = useState(false);
+    // NEW (2026-09-04): real chapters + audio listening - a genuinely
+    // new, parallel way to experience a book's content, alongside the
+    // existing PDF-based reading above. This page previously had no
+    // concept of chapters at all.
+    const [chapters, setChapters] = useState([]);
+    const [expandedChapterId, setExpandedChapterId] = useState(null);
+    const [listeningChapterId, setListeningChapterId] = useState(null);
+    const [generatingAudioFor, setGeneratingAudioFor] = useState(null);
+    const [isAdmin, setIsAdmin] = useState(false);
 
     useEffect(() => {
         loadBook();
@@ -64,7 +74,25 @@ export default function BookDetailPage() {
                     .eq('book_id', id)
                     .maybeSingle();
                 setHasPurchased(!!purchase);
+
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('user_type')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+                setIsAdmin(profile?.user_type === 'admin' || profile?.user_type === 'super_admin');
             }
+
+            // Chapters are a genuinely separate, optional feature from
+            // the PDF-based reading above - not every book will have
+            // these populated, and that's fine; the section below
+            // simply won't render if there's nothing here.
+            const { data: chaptersData } = await supabase
+                .from('book_chapters')
+                .select('id, title, content, audio_segments, order_index')
+                .eq('book_id', id)
+                .order('order_index', { ascending: true });
+            setChapters(chaptersData || []);
         } catch (err) {
             console.error('Error loading book:', err);
             setError('Something went wrong loading this book.');
@@ -139,6 +167,20 @@ export default function BookDetailPage() {
             alert(err.message);
         } finally {
             setReaderLoading(false);
+        }
+    }
+
+    async function handleGenerateChapterAudio(chapterId) {
+        setGeneratingAudioFor(chapterId);
+        try {
+            const data = await authenticatedFetch('generateChapterAudio', { chapterId });
+            if (!data.success) throw new Error(data.error || 'Audio generation failed');
+            // Refresh this chapter's data so the new audio_segments show up
+            setChapters(prev => prev.map(c => c.id === chapterId ? { ...c, audio_segments: data.segments } : c));
+        } catch (err) {
+            alert('Failed to generate audio: ' + err.message);
+        } finally {
+            setGeneratingAudioFor(null);
         }
     }
 
@@ -263,6 +305,74 @@ export default function BookDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Chapters - a genuinely new, separate way to experience
+                this book's content, alongside the PDF reading above.
+                Only renders if chapters actually exist for this book. */}
+            {chapters.length > 0 && (
+                <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-8">
+                    <h2 className="text-xl font-bold text-white mb-4">Chapters</h2>
+                    <div className="space-y-2">
+                        {chapters.map((chapter, idx) => {
+                            const isExpanded = expandedChapterId === chapter.id;
+                            const isListening = listeningChapterId === chapter.id;
+                            const hasAudio = chapter.audio_segments && chapter.audio_segments.length > 0;
+                            const isGenerating = generatingAudioFor === chapter.id;
+
+                            return (
+                                <div key={chapter.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                                    <div className="flex items-center justify-between p-4">
+                                        <button
+                                            onClick={() => setExpandedChapterId(isExpanded ? null : chapter.id)}
+                                            className="flex-1 text-left flex items-center gap-3"
+                                        >
+                                            <span className="text-slate-500 text-sm">{idx + 1}.</span>
+                                            <span className="text-white font-medium">{chapter.title}</span>
+                                        </button>
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                            {hasAudio ? (
+                                                <button
+                                                    onClick={() => setListeningChapterId(isListening ? null : chapter.id)}
+                                                    className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 text-white text-sm rounded-lg transition"
+                                                >
+                                                    {isListening ? 'Hide Player' : 'Listen'}
+                                                </button>
+                                            ) : isAdmin ? (
+                                                <button
+                                                    onClick={() => handleGenerateChapterAudio(chapter.id)}
+                                                    disabled={isGenerating || !chapter.content}
+                                                    className="px-3 py-1.5 border border-slate-700 text-slate-300 text-sm rounded-lg hover:bg-slate-800 transition disabled:opacity-50"
+                                                    title={!chapter.content ? 'This chapter has no content to narrate' : ''}
+                                                >
+                                                    {isGenerating ? 'Generating...' : 'Generate Audio'}
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                    </div>
+
+                                    {isExpanded && chapter.content && (
+                                        <div className="px-4 pb-4 border-t border-slate-800 pt-3">
+                                            <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+                                                {chapter.content}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {isListening && hasAudio && (
+                                        <div className="px-4 pb-4">
+                                            <AudiobookListener
+                                                segments={chapter.audio_segments}
+                                                chapterTitle={chapter.title}
+                                                onClose={() => setListeningChapterId(null)}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {readerOpen && (
                 <BookReader
