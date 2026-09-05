@@ -136,14 +136,16 @@ export default function NewsletterAdmin() {
             console.warn('API fetch failed, falling back to Supabase:', err);
         }
         
-        // Fallback to direct Supabase query
-        let query = supabase.from('newsletters').select('*').order('created_at', { ascending: false });
-        
-        if (filterStatus !== 'all') {
-            query = query.eq('status', filterStatus);
-        }
-        
-        const { data: newsData } = await query;
+        // Fallback to direct Supabase query. FIXED (2026-09-04): removed
+        // a .eq('status', filterStatus) filter here - status doesn't
+        // exist on this table (see the create/send fixes above) and
+        // would have errored this query. The existing client-side
+        // filteredNewsletters logic already correctly filters using
+        // getDerivedStatus() regardless of which path fetched the data.
+        const { data: newsData } = await supabase
+            .from('newsletters')
+            .select('*')
+            .order('created_at', { ascending: false });
         setNewsletters(newsData || []);
         setLoading(false);
     }
