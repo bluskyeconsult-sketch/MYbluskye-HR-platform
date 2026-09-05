@@ -629,6 +629,7 @@ const AdminOpportunityGaps = lazy(() => import('./pages/admin/AdminOpportunityGa
 const AdminRefundRequests = lazy(() => import('./pages/admin/AdminRefundRequests'));
 const RequestRefundPage = lazy(() => import('./pages/RequestRefundPage'));
 const SystemHealthDashboard = lazy(() => import('./pages/admin/SystemHealthDashboard'));
+const ReadinessCheck = lazy(() => import('./pages/admin/ReadinessCheck'));
 const SecurityDashboard = lazy(() => import('./pages/admin/SecurityDashboard'));
 const AnalyticsDashboard = lazy(() => import('./pages/admin/AnalyticsDashboard'));
 const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
@@ -859,6 +860,7 @@ function AppContent() {
                             <Route path="/admin/refund-requests" element={<ProtectedRoute requireAdmin><AdminLayout><AdminRefundRequests /></AdminLayout></ProtectedRoute>} />
                             <Route path="/request-refund" element={<ProtectedRoute><RequestRefundPage /></ProtectedRoute>} />
                             <Route path="/admin/health" element={<ProtectedRoute requireAdmin><AdminLayout><SystemHealthDashboard /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/readiness-check" element={<ProtectedRoute requireAdmin><AdminLayout><ReadinessCheck /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/security" element={<ProtectedRoute requireAdmin><AdminLayout><SecurityDashboard /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AdminLayout><AnalyticsDashboard /></AdminLayout></ProtectedRoute>} />
                             
