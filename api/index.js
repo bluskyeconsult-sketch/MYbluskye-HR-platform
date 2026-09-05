@@ -6502,6 +6502,32 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     // page view. Called from a small tracking hook in App.jsx on every
     // route change. Designed to fail silently from the caller's
     // perspective — tracking should never be able to break the site.
+    // NEW (2026-09-04): confirmed critical security issue -
+    // SystemHealthDashboard.jsx was reading VITE_OPENAI_API_KEY and
+    // VITE_EMAIL_USER directly client-side. Any VITE_-prefixed env var
+    // gets compiled as a literal value into the public JS bundle by
+    // Vite at build time, regardless of what's actually displayed on
+    // screen - meaning the real, full OpenAI key was being shipped to
+    // every visitor's browser, extractable from the bundle itself even
+    // though the UI only showed a masked prefix. This action checks
+    // the real, server-side (non-VITE-prefixed) env vars safely and
+    // returns only a boolean - never the actual key value, not even
+    // a prefix, since the earlier design already proved a "just the
+    // prefix" approach isn't actually safe once you're this deep on a
+    // security fix.
+    'system-config-health': async (req, res) => {
+        try {
+            return res.status(200).json({
+                success: true,
+                openaiConfigured: !!process.env.OPENAI_API_KEY,
+                emailConfigured: !!process.env.EMAIL_USER
+            });
+        } catch (error) {
+            console.error('system-config-health error:', error);
+            return res.status(200).json({ success: false, openaiConfigured: false, emailConfigured: false });
+        }
+    },
+
     'track-page-view': async (req, res) => {
         const { sessionId, pageUrl, userId } = req.body;
 
