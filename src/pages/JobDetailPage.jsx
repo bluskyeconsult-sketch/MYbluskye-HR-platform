@@ -228,6 +228,9 @@ export default function JobDetailPage() {
     }
   }
 
+  const [cvFile, setCvFile] = useState(null);
+  const [uploadingCv, setUploadingCv] = useState(false);
+
   async function handleApply(e) {
     e.preventDefault();
     if (!user) {
@@ -238,6 +241,26 @@ export default function JobDetailPage() {
     
     setSubmitting(true);
     try {
+      // NEW: upload the CV to the private job-cvs bucket first, under
+      // the applicant's own user id folder - matches the folder-based
+      // ownership check the bucket's storage policies require.
+      let cvUrl = null;
+      if (cvFile) {
+        setUploadingCv(true);
+        const filePath = `${user.id}/${Date.now()}_${cvFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('job-cvs')
+          .upload(filePath, cvFile);
+        setUploadingCv(false);
+        if (uploadError) {
+          toast.error('Failed to upload CV: ' + uploadError.message);
+          setSubmitting(false);
+          return;
+        }
+        const { data: urlData } = supabase.storage.from('job-cvs').getPublicUrl(filePath);
+        cvUrl = urlData?.publicUrl || filePath;
+      }
+
       // FIXED: applicant_id (not user_id) to match the confirmed real
       // job_applications schema; status 'pending' (not 'submitted') to match
       // the status values the rest of the app filters on; removed the
@@ -246,11 +269,13 @@ export default function JobDetailPage() {
         job_id: id,
         applicant_id: user.id,
         cover_letter: coverLetter,
+        cv_url: cvUrl,
         status: 'pending'
       });
       toast.success('Application submitted successfully!');
       setShowApplyForm(false);
       setCoverLetter('');
+      setCvFile(null);
     } catch (err) {
       console.error('Error submitting application:', err);
       toast.error('Failed to submit application');
@@ -381,7 +406,21 @@ export default function JobDetailPage() {
           )}
 
           {/* Apply Button */}
-          {!showApplyForm ? (
+          {/* NEW: external jobs (sourced from another job board) should
+              submit through that source's own application process, not
+              this internal form - the internal form's cover letter and
+              CV upload only make sense for jobs posted directly on this
+              platform by a real employer account here. */}
+          {job.external_apply_url ? (
+            <a
+              href={job.external_apply_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
+            >
+              <ExternalLink className="w-5 h-5" /> Apply on {job.source_name || 'Original Site'}
+            </a>
+          ) : !showApplyForm ? (
             <button
               onClick={() => setShowApplyForm(true)}
               className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
@@ -401,9 +440,19 @@ export default function JobDetailPage() {
                   required
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">CV / Resume (optional)</label>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => setCvFile(e.target.files?.[0] || null)}
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-primary-600 file:text-white file:text-sm"
+                />
+                {cvFile && <p className="text-xs text-slate-400 mt-1">{cvFile.name}</p>}
+              </div>
               <div className="flex gap-3">
                 <button type="submit" disabled={submitting} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 disabled:opacity-50">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Submit Application'}
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : uploadingCv ? 'Uploading CV...' : 'Submit Application'}
                 </button>
                 <button type="button" onClick={() => setShowApplyForm(false)} className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
                   Cancel
