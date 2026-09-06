@@ -147,28 +147,20 @@ export default function AnalyticsDashboard() {
     }
 
     async function loadLocationStats() {
-        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-        
-        // FIXED (2026-09-04): country/city/ip_address don't exist on
-        // analytics_page_views at all (confirmed via direct schema
-        // query). The backend's track-page-view handler actually writes
-        // this geo data to analytics_sessions instead. Switched to query
-        // that table. NOTE: analytics_sessions' exact column names have
-        // NOT been directly confirmed via schema query the way
-        // analytics_page_views was - if this still returns empty,
-        // verifying that table's real schema is the next step.
-        const { data: views } = await supabase
-            .from('analytics_sessions')
-            .select('country, city, ip_address')
-            .gte('start_time', cutoff);
-        
-        const countryStats = {};
-        (views || []).forEach(v => {
-            const country = v.country || 'Unknown';
-            countryStats[country] = (countryStats[country] || 0) + 1;
-        });
-        
-        setLocationStats(Object.entries(countryStats).map(([country, count]) => ({ country, count })).sort((a,b) => b.count - a.count));
+        // FIXED (2026-09-05): confirmed via direct schema query this
+        // time, not an assumption - neither analytics_page_views nor
+        // analytics_sessions has any country/city/ip_address column at
+        // all. This platform genuinely doesn't capture geographic data
+        // anywhere yet, so the earlier fix (pointing this query at a
+        // different table) was based on an incorrect guess about that
+        // table's schema. Removed the query entirely rather than query
+        // columns that don't exist - setting an explicit empty state so
+        // the UI honestly reflects that this isn't tracked yet, instead
+        // of silently failing with a console error underneath a generic
+        // "no data" message. Adding real location tracking would need a
+        // genuine IP geolocation lookup added to the backend's
+        // track-page-view/session-start handlers first.
+        setLocationStats([]);
     }
 
     async function loadDeviceStats() {
@@ -204,15 +196,16 @@ export default function AnalyticsDashboard() {
             .order('start_time', { ascending: false })
             .limit(50);
         
+        // FIXED (2026-09-05): confirmed via direct schema query - city,
+        // country, and ip_address don't exist on analytics_sessions at
+        // all. Removed rather than left defaulting to 'Unknown' forever,
+        // which would have looked like real, working data.
         const visitors = (sessions || []).map(session => ({
             time: session.start_time,
-            city: session.city || 'Unknown',
-            country: session.country || 'Unknown',
             device: session.device_type || 'desktop',
             browser: session.browser || 'unknown',
             pages: session.page_count || 0,
-            duration: session.duration_seconds || 0,
-            ip: session.ip_address
+            duration: session.duration_seconds || 0
         }));
         
         setRecentVisitors(visitors);
@@ -247,10 +240,12 @@ export default function AnalyticsDashboard() {
         );
     }
 
+    // FIXED (2026-09-05): city/country removed from the filter - the
+    // visitor object no longer has them, since neither field exists on
+    // analytics_sessions.
     const filteredVisitors = recentVisitors.filter(v => 
-        v.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.country?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.device?.toLowerCase().includes(searchTerm.toLowerCase())
+        v.device?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        v.browser?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     return (
@@ -466,7 +461,7 @@ export default function AnalyticsDashboard() {
                                 <thead className="bg-slate-800/50 sticky top-0">
                                     <tr>
                                         <th className="px-3 py-2 text-left text-white">Time</th>
-                                        <th className="px-3 py-2 text-left text-white">Location</th>
+                                        <th className="px-3 py-2 text-left text-white">Browser</th>
                                         <th className="px-3 py-2 text-left text-white">Device</th>
                                         <th className="px-3 py-2 text-left text-white">Pages</th>
                                     </tr>
@@ -475,7 +470,11 @@ export default function AnalyticsDashboard() {
                                     {filteredVisitors.map((visitor, idx) => (
                                         <tr key={idx} className="border-b border-slate-800 hover:bg-slate-800/30">
                                             <td className="px-3 py-2 text-slate-400 text-xs">{new Date(visitor.time).toLocaleString()}</td>
-                                            <td className="px-3 py-2"><span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-primary-400" /> {visitor.city}, {visitor.country}</span></td>
+                                            {/* FIXED (2026-09-05): Location column removed - city/country/ip
+                                                don't exist anywhere in this system, confirmed via direct
+                                                schema query. Showing browser instead, a field that
+                                                genuinely exists on this table. */}
+                                            <td className="px-3 py-2 capitalize">{visitor.browser}</td>
                                             <td className="px-3 py-2 capitalize">{visitor.device}</td>
                                             <td className="px-3 py-2">{visitor.pages} pages</td>
                                         </tr>
