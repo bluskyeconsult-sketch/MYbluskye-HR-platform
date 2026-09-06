@@ -79,17 +79,33 @@ export function GateGuard({
         capabilities.isAdmin;
     
     // Async capability check
+    // FIXED: confirmed real race condition via live diagnostic data -
+    // syncAllowed was correctly true while asyncAllowed was stuck false.
+    // can() awaits a real network call before resolving, and this effect
+    // re-runs on every provider render (since check/can are recreated
+    // fresh each time, unmemoized). An early call - made while
+    // capabilities was still the default "everything false" state
+    // during initial load - could resolve AFTER a later, correct call,
+    // silently overwriting the right value with a stale one. Standard
+    // fix: track whether this specific effect invocation is still the
+    // current one before applying its result.
     useEffect(() => {
+        let isCurrent = true;
         if (useAsync && action) {
             setIsChecking(true);
             check(action, context).then(result => {
-                setAsyncAllowed(result.allowed);
-                setIsChecking(false);
+                if (isCurrent) {
+                    setAsyncAllowed(result.allowed);
+                    setIsChecking(false);
+                }
             }).catch(() => {
-                setAsyncAllowed(syncAllowed);
-                setIsChecking(false);
+                if (isCurrent) {
+                    setAsyncAllowed(syncAllowed);
+                    setIsChecking(false);
+                }
             });
         }
+        return () => { isCurrent = false; };
     }, [action, context, check, useAsync, syncAllowed]);
     
     const hasAccess = useAsync ? (asyncAllowed !== null ? asyncAllowed : syncAllowed) : syncAllowed;
@@ -111,30 +127,7 @@ export function GateGuard({
     
     // Custom fallback if provided
     if (fallback) {
-        return (
-            <>
-                {/* TEMPORARY DIAGNOSTIC - moved here after confirming the
-                    previous placement was dead code for any caller that
-                    passes a fallback prop (like HRToolsPage.jsx does) -
-                    the fallback check fires before the default UpgradeGate
-                    path ever runs, so the diagnostic never appeared. This
-                    is now on the actual path being hit. */}
-                <div style={{ background: '#3b0000', color: '#fff', padding: '12px', fontSize: '12px', fontFamily: 'monospace', marginBottom: '8px', borderRadius: '8px' }}>
-                    <strong>GateGuard diagnostic</strong> (action: {action})<br/>
-                    userTier: {String(userTier)}<br/>
-                    capabilities.isAdmin: {String(capabilities.isAdmin)}<br/>
-                    capabilities.tier: {String(capabilities.tier)}<br/>
-                    syncAllowed: {String(syncAllowed)}<br/>
-                    asyncAllowed: {String(asyncAllowed)}<br/>
-                    hasAccess: {String(hasAccess)}<br/>
-                    meetsTier: {String(meetsTier)}<br/>
-                    requiredTier: {String(requiredTier)}<br/>
-                    governanceLoading: {String(governanceLoading)}<br/>
-                    capabilities.user present: {String(!!capabilities.user)}
-                </div>
-                {fallback}
-            </>
-        );
+        return <>{fallback}</>;
     }
     
     // Check if visitor (not logged in)
