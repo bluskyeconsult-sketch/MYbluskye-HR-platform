@@ -1224,6 +1224,66 @@ async function findRelevantJobs(supabaseClient, userMessage) {
     }
 }
 
+// NEW (2026-09-06): mirrors findRelevantJobs' exact pattern - searches
+// published books' chapter content for passages relevant to the user's
+// message, so responses can cite and quote real, uploaded book content
+// with proper attribution rather than the AI's own generic knowledge.
+// Deliberately simple substring matching on chapter content for now,
+// not semantic/vector search - no embedding infrastructure has been
+// confirmed to exist in this project, and a real match on the user's
+// actual words is a defensible, honest starting point that doesn't
+// require new infrastructure to ship. The books table is currently
+// empty (confirmed via direct query), so this will safely return null
+// until real books with chapter content are uploaded - it does not
+// need to be re-visited once that happens, it will simply start
+// finding real matches.
+async function findRelevantBookPassages(supabaseClient, userMessage) {
+    // Keeps only meaningful words (4+ letters) as candidate search
+    // terms, filtering out common short connector words that would
+    // match almost every chapter and return noise instead of
+    // genuinely relevant passages.
+    const words = userMessage
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 4);
+
+    if (words.length === 0) return null;
+
+    try {
+        const orFilter = words.slice(0, 5).map(w => `content.ilike.%${w}%`).join(',');
+        const { data: chapters } = await supabaseClient
+            .from('book_chapters')
+            .select('title, content, book_id, books!inner(id, title, author, is_published)')
+            .eq('books.is_published', true)
+            .or(orFilter)
+            .limit(3);
+
+        if (!chapters || chapters.length === 0) return null;
+
+        // Trims each match down to a real, bounded excerpt around the
+        // first matching word, rather than handing the whole chapter's
+        // content to the AI - keeps the citation honest and specific
+        // rather than a vague reference to an entire chapter.
+        return chapters.map(ch => {
+            const lowerContent = ch.content.toLowerCase();
+            const matchWord = words.find(w => lowerContent.includes(w));
+            const matchIndex = matchWord ? lowerContent.indexOf(matchWord) : 0;
+            const start = Math.max(0, matchIndex - 200);
+            const excerpt = ch.content.slice(start, start + 500).trim();
+            return {
+                bookTitle: ch.books.title,
+                author: ch.books.author,
+                chapterTitle: ch.title,
+                excerpt
+            };
+        });
+    } catch (error) {
+        console.warn('Book passage search within chat failed, continuing without book context:', error);
+        return null;
+    }
+}
+
 // NEW (2026-08-27): real HR Tools catalog for the chat to proactively
 // reference alongside job matches - the "intelligent value angle"
 // connecting a job search directly to a concrete next action on this
@@ -1393,6 +1453,11 @@ const handlers = {
             // fabricated listings.
             const jobIntent = parseJobSearchIntent(message);
             const relevantJobs = await findRelevantJobs(supabaseClient, message);
+            // NEW (2026-09-06): book passage search runs alongside the
+            // existing job search - independent of job intent, since a
+            // question might relate to book content regardless of
+            // whether it's job-related at all.
+            const relevantBooks = await findRelevantBookPassages(supabaseClient, message);
 
             // NEW (2026-08-27): live, on-demand external search - a
             // genuinely different feature from the job board's batch
@@ -1450,13 +1515,34 @@ const handlers = {
                 }, ...messages];
             }
 
+            // NEW (2026-09-06): injects real book passages as a separate
+            // system message, independent of the jobs block above, since
+            // book relevance has nothing to do with job search intent.
+            // Instructions are deliberately strict about never fabricating
+            // a quote or citation - only ever quoting the exact excerpt
+            // text provided here, since a wrong or invented quote
+            // attributed to a real, named book is a much more serious
+            // credibility problem than simply having nothing relevant to
+            // cite.
+            if (relevantBooks && relevantBooks.length > 0) {
+                const bookContext = relevantBooks.map(b =>
+                    `- From "${b.bookTitle}" by ${b.author}${b.chapterTitle ? `, chapter "${b.chapterTitle}"` : ''}:\n  "${b.excerpt}"`
+                ).join('\n\n');
+
+                messages = [{
+                    role: 'system',
+                    content: `The following real excerpts from books on this platform may be relevant to the user's question:\n\n${bookContext}\n\nIf genuinely relevant, you may quote directly from these excerpts (using quotation marks) and cite the book title and author. Only ever quote the exact text shown above, word for word - never paraphrase an excerpt and present it as a direct quote, and never invent a quote or attribute one to a book that isn't listed here. If none of these excerpts are actually relevant to what the user asked, don't mention them or force a citation - answer normally instead.`
+                }, ...messages];
+            }
+
             const data = await callOpenAI(messages, maxTokens, temperature);
             return res.status(200).json({
                 success: true,
                 response: data.choices[0].message.content,
                 usage: data.usage,
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining,
-                jobsReferenced: relevantJobs ? relevantJobs.length : 0
+                jobsReferenced: relevantJobs ? relevantJobs.length : 0,
+                booksReferenced: relevantBooks ? relevantBooks.length : 0
             });
         } catch (error) {
             // FIXED (2026-08-27): confirmed real leakage — a credit was
