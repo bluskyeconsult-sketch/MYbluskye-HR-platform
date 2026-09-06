@@ -531,13 +531,22 @@ export default function SignUpPage() {
             // signups — a tester testing the employer tier needs a company
             // profile to actually exercise that tier's features).
             if (formData.selectedTier === 'employer' || formData.selectedTier === 'business') {
-                await supabase.from('company_profiles').upsert({
+                // FIXED (2026-09-06): confirmed via direct schema query -
+                // the real column is company_size, not size. This upsert
+                // had zero error checking at all, meaning it was silently
+                // failing for every single employer/business signup,
+                // leaving them without a company profile with no
+                // indication anything had gone wrong.
+                const { error: companyError } = await supabase.from('company_profiles').upsert({
                     user_id: authData.user.id,
                     company_name: formData.company_name || 'My Company',
                     industry: null,
-                    size: null,
+                    company_size: null,
                     created_at: new Date().toISOString()
                 });
+                if (companyError) {
+                    console.warn('Company profile creation warning:', companyError);
+                }
             }
 
             // FIXED (2026-08-21): tester_allocations genuinely has both an
@@ -571,36 +580,59 @@ export default function SignUpPage() {
                     pendingAllocation && new Date(pendingAllocation.expires_at) > new Date();
 
                 if (hasValidPendingAllocation) {
-                    // Reconcile: attach this new account to the admin's
-                    // existing pre-allocation instead of creating a
-                    // separate, disconnected row.
-                    await supabase
+                    const { error: reconcileError } = await supabase
                         .from('tester_allocations')
                         .update({ user_id: authData.user.id, updated_at: new Date().toISOString() })
                         .eq('id', pendingAllocation.id);
+                    if (reconcileError) {
+                        console.warn('Tester allocation reconciliation warning:', reconcileError);
+                    }
                 } else {
-                    // No valid pending pre-allocation (none exists, or the
-                    // one that did has already expired) — create a fresh
-                    // allocation via the standard code-gated flow, same as
-                    // before.
                     const testerExpiry = new Date();
                     testerExpiry.setDate(testerExpiry.getDate() + testingConfig.accessDays);
 
-                    await supabase
+                    // FIXED (2026-09-06): confirmed via direct schema query
+                    // - used_uses does not exist on tester_allocations at
+                    // all. This upsert had zero error checking, meaning
+                    // every tester signing up without a pre-existing
+                    // admin allocation would silently fail to get any
+                    // tester_allocations row created at all - leaving them
+                    // with a "successful" signup but no actual AI call
+                    // allowance, unable to use any AI feature with no
+                    // indication why.
+                    const { error: allocationError } = await supabase
                         .from('tester_allocations')
                         .upsert({
                             user_id: authData.user.id,
+                            email: formData.email,
                             allocated_uses: testingConfig.aiCallCap,
-                            used_uses: 0,
                             remaining_uses: testingConfig.aiCallCap,
                             expires_at: testerExpiry.toISOString(),
                             status: 'active'
                         });
+                    if (allocationError) {
+                        console.warn('Tester allocation creation warning:', allocationError);
+                    }
                 }
             }
 
-            // Send welcome email (non-blocking)
-            sendWelcomeEmail(formData.email, formData.full_name, userType, isTestingMode);
+            // Send welcome email (non-blocking) - added .catch() since this
+            // had none at all, risking an unhandled promise rejection in
+            // the console if it fails (which it currently would, given
+            // the confirmed, still-broken Hostinger SMTP credentials).
+            // IMPORTANT: this is NOT the source of the "Error sending
+            // confirmation email" banner seen on the live signup page -
+            // that message doesn't exist anywhere in this file's own UI at
+            // all. That banner is almost certainly coming from Supabase
+            // Auth's own built-in confirmation email, triggered
+            // automatically inside auth.signUp() itself, which is
+            // configured at the Supabase project level (Authentication >
+            // Email Templates / SMTP Settings) to use the same broken
+            // Hostinger credentials - a dashboard configuration issue, not
+            // something fixable in this frontend file.
+            sendWelcomeEmail(formData.email, formData.full_name, userType, isTestingMode).catch(err => {
+                console.warn('Welcome email failed to send:', err);
+            });
 
             setSuccess(true);
             
@@ -672,7 +704,7 @@ export default function SignUpPage() {
 
     return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
-            <div className="max-w-2xl w-full">
+            <div className="max-2xl w-full">
                 {/* Back to Home Link */}
                 <div className="mb-6">
                     <Link 
