@@ -121,15 +121,37 @@ export function GateGuard({
     
     // Default gated UI for logged-in users
     return (
-        <UpgradeGate 
-            action={action} 
-            message={customMessage || upgradeMessage} 
-            requiredTier={requiredTier}
-            userTier={userTier}
-            showUpgrade={showUpgrade}
-            upgradeCTA={upgradeCTA}
-            isAdmin={capabilities.isAdmin}
-        />
+        <>
+            {/* TEMPORARY DIAGNOSTIC - remove once the root cause is
+                confirmed. Static tracing through GateGuard, useCapability,
+                and GovernanceContext has repeatedly shown correct logic for
+                a super_admin account, yet the block still fires live - this
+                surfaces the actual runtime values so the real mismatch is
+                visible directly, instead of guessing at another
+                theoretical cause. */}
+            <div style={{ background: '#3b0000', color: '#fff', padding: '12px', fontSize: '12px', fontFamily: 'monospace', marginBottom: '8px', borderRadius: '8px' }}>
+                <strong>GateGuard diagnostic</strong> (action: {action})<br/>
+                userTier: {String(userTier)}<br/>
+                capabilities.isAdmin: {String(capabilities.isAdmin)}<br/>
+                capabilities.tier: {String(capabilities.tier)}<br/>
+                syncAllowed: {String(syncAllowed)}<br/>
+                asyncAllowed: {String(asyncAllowed)}<br/>
+                hasAccess: {String(hasAccess)}<br/>
+                meetsTier: {String(meetsTier)}<br/>
+                requiredTier: {String(requiredTier)}<br/>
+                governanceLoading: {String(governanceLoading)}<br/>
+                capabilities.user present: {String(!!capabilities.user)}
+            </div>
+            <UpgradeGate 
+                action={action} 
+                message={customMessage || upgradeMessage} 
+                requiredTier={requiredTier}
+                userTier={userTier}
+                showUpgrade={showUpgrade}
+                upgradeCTA={upgradeCTA}
+                isAdmin={capabilities.isAdmin}
+            />
+        </>
     );
 }
 
