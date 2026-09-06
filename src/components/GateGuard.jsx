@@ -91,14 +91,18 @@ export function GateGuard({
     // current one before applying its result.
     useEffect(() => {
         let isCurrent = true;
+        const callId = Math.random().toString(36).slice(2, 8);
         if (useAsync && action) {
             setIsChecking(true);
+            console.log(`[GateGuard ${callId}] calling check('${action}')`);
             check(action, context).then(result => {
+                console.log(`[GateGuard ${callId}] resolved:`, result, 'isCurrent:', isCurrent);
                 if (isCurrent) {
                     setAsyncAllowed(result.allowed);
                     setIsChecking(false);
                 }
-            }).catch(() => {
+            }).catch((err) => {
+                console.log(`[GateGuard ${callId}] REJECTED:`, err, 'isCurrent:', isCurrent);
                 if (isCurrent) {
                     setAsyncAllowed(syncAllowed);
                     setIsChecking(false);
@@ -127,7 +131,29 @@ export function GateGuard({
     
     // Custom fallback if provided
     if (fallback) {
-        return <>{fallback}</>;
+        return (
+            <>
+                {/* TEMPORARY DIAGNOSTIC - re-added since the race-condition
+                    fix alone didn't resolve the issue on retest. This will
+                    show whether asyncAllowed is still landing on false
+                    despite the isCurrent guard, which would mean check()
+                    itself is consistently returning false rather than the
+                    earlier theory of a stale overwrite. */}
+                <div style={{ background: '#3b0000', color: '#fff', padding: '12px', fontSize: '12px', fontFamily: 'monospace', marginBottom: '8px', borderRadius: '8px' }}>
+                    <strong>GateGuard diagnostic v2</strong> (action: {action})<br/>
+                    userTier: {String(userTier)}<br/>
+                    capabilities.isAdmin: {String(capabilities.isAdmin)}<br/>
+                    capabilities.tier: {String(capabilities.tier)}<br/>
+                    syncAllowed: {String(syncAllowed)}<br/>
+                    asyncAllowed: {String(asyncAllowed)}<br/>
+                    hasAccess: {String(hasAccess)}<br/>
+                    meetsTier: {String(meetsTier)}<br/>
+                    isChecking: {String(isChecking)}<br/>
+                    check function present: {String(typeof check === 'function')}
+                </div>
+                {fallback}
+            </>
+        );
     }
     
     // Check if visitor (not logged in)
