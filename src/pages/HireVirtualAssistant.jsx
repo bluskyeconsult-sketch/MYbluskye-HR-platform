@@ -105,6 +105,20 @@ export default function HireVirtualAssistant() {
     // appears, rather than requiring the user to notice and scroll
     // down manually.
     const resultRef = useRef(null);
+    // NEW (2026-09-06): confirmed real root cause of the continued "chat
+    // feels like it's at the bottom" complaint - a full VA catalog grid
+    // renders above the selected-VA panel, so selecting a VA drops the
+    // user's active area far down the page. The existing auto-scroll only
+    // fired once a response arrived, not at the moment of selection
+    // itself - meaning the user had to manually scroll past the catalog
+    // just to see the form they just opened.
+    const selectedPanelRef = useRef(null);
+
+    useEffect(() => {
+        if (selectedVA && selectedPanelRef.current) {
+            selectedPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, [selectedVA]);
 
     // ============================================
     // LOAD VA CATALOG
@@ -741,7 +755,7 @@ export default function HireVirtualAssistant() {
 
                         {/* Task Execution Form */}
                         {selectedVA && (
-                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6 mt-6">
+                            <div ref={selectedPanelRef} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6 mt-6">
                                 <div className="flex flex-col sm:flex-row justify-between items-start gap-3 sm:gap-0 mb-4">
                                     <div>
                                         <div className="flex items-center gap-2">
