@@ -114,7 +114,7 @@ export default function ArticleEditor() {
         content: '',
         category: '',
         tags: [],
-        featured_image: '',
+        image_url: '',
         author: DEFAULT_AUTHOR,
         is_published: false,
         send_notification: false,
@@ -382,7 +382,7 @@ export default function ArticleEditor() {
             const data = await response.json();
             if (!data.success) throw new Error(data.error || 'Image generation failed');
 
-            setArticle({ ...article, featured_image: data.imageUrl });
+            setArticle({ ...article, image_url: data.imageUrl });
         } catch (error) {
             console.error('Article image generation error:', error);
             alert(`Unable to generate an image: ${error.message}`);
@@ -616,9 +616,9 @@ export default function ArticleEditor() {
                         <div>
                             <label className="block text-sm font-medium text-slate-300 mb-1">Featured Image URL</label>
                             <div className="flex gap-2">
-                                <input type="text" value={article.featured_image} onChange={(e) => setArticle({ ...article, featured_image: e.target.value })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="https://example.com/image.jpg, or generate one below" />
-                                {article.featured_image && (
-                                    <button onClick={() => window.open(article.featured_image, '_blank')} className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition" title="Preview image"><ImageIcon className="w-4 h-4" /></button>
+                                <input type="text" value={article.image_url} onChange={(e) => setArticle({ ...article, image_url: e.target.value })} className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="https://example.com/image.jpg, or generate one below" />
+                                {article.image_url && (
+                                    <button onClick={() => window.open(article.image_url, '_blank')} className="px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition" title="Preview image"><ImageIcon className="w-4 h-4" /></button>
                                 )}
                             </div>
                             {/* NEW (2026-08-30): AI image generation as an
@@ -654,7 +654,7 @@ export default function ArticleEditor() {
                     </div>
                 ) : (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 prose prose-invert prose-lg max-w-none">
-                        {article.featured_image && <img src={article.featured_image} alt={article.title} className="rounded-xl mb-8 w-full" />}
+                        {article.image_url && <img src={article.image_url} alt={article.title} className="rounded-xl mb-8 w-full" />}
                         <h1 className="text-4xl font-bold mb-4">{article.title}</h1>
                         <div className="flex flex-wrap items-center gap-6 text-sm text-slate-400 mb-8 pb-6 border-b border-slate-800">
                             <span className="flex items-center gap-2"><User className="w-4 h-4" /> {article.author}</span>
