@@ -1,25 +1,12 @@
 // src/components/ODUSBABAChat.jsx
-// ODUSBABA AI CHAT v7.1 - PRODUCTION READY
+// ODUSBABA AI CHAT v7.2 - PRODUCTION READY
 // ✅ Intent detection and intelligent routing via Unified API
 // ✅ Role-based access, tier-gated features
-// ✅ Job search handler restored
+// ✅ Job search with sponsorship, PR, and skill matching
 // ✅ Legal information fetching for 9 countries
 // ✅ Conversation history, typing indicators
 // ✅ Guest mode support with limit tracking
-//
-// FIXED (2026-08-08): the biggest bug found in this whole project review —
-// sendMessage() sent {messages: [...], userId, conversationId, userTier} to
-// the real chat handler, which requires a single `message` string field and
-// rejects with a 400 if it's missing. Since this payload never included
-// that field, every single chat message sent through this widget — present
-// on every page of the site — has hit the generic "having trouble
-// connecting" error, never a real AI response. Fixed to match the real
-// handler's actual shape (message + history + systemPrompt).
-//
-// FIXED (2026-08-16): the chat handler now actually deducts credits and
-// returns a real `remaining` value — this was previously flagged as a gap
-// (the field existed here waiting for a value that never came). No other
-// change needed here; this component was already built correctly for it.
+// ✅ Admin-approved URL scraping
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
@@ -27,7 +14,7 @@ import {
     MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
     FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
     CreditCard, ChevronDown, Copy, Check, AlertCircle, Scale,
-    Globe, BookOpen, Brain
+    Globe, BookOpen, Brain, Search
 } from 'lucide-react';
 
 // ============================================
@@ -60,16 +47,6 @@ const LEGAL_SOURCES = {
 // ============================================
 // INTENT DETECTION HELPERS
 // ============================================
-//
-// REMOVED (2026-08-16): detectIntent() and its job_search branch (along
-// with handleJobSearch()/searchLiveJobs() further below) — these called
-// ?action=jobs, which doesn't exist anywhere in the backend, and
-// completely bypassed the metered chat path. See the note at the removed
-// call site for the full explanation. The other intent types this
-// function detected (hr_advice, cv_optimization, workforce_listing,
-// hire_workers, virtual_assistant) were never actually checked or used
-// anywhere else in this file — confirmed via a full search before
-// removal — so nothing else depended on this function.
 
 function detectCountry(message) {
     const lowerMsg = message.toLowerCase();
@@ -85,6 +62,29 @@ function detectCountry(message) {
     return { country: 'United Kingdom', code: 'UK' };
 }
 
+function detectJobIntent(message) {
+    const lowerMsg = message.toLowerCase();
+    
+    const isJobSearch = /(?:find|search|look for|show me|get me|i want|need)\s*(?:jobs?|positions?|roles?|opportunities?|work|vacancies?)/i.test(lowerMsg);
+    const wantsSponsorship = /sponsor|visa|work permit|tier 2|skilled worker/i.test(lowerMsg);
+    const wantsPR = /\bpr\b|permanent residency|settlement/i.test(lowerMsg);
+    const wantsSkillMatch = /match(?:ing)?\s*(?:my)?\s*skills?|skills?\s*match|jobs?\s*(?:for|with)\s*(?:my)?\s*skills?/i.test(lowerMsg);
+    
+    return { isJobSearch, wantsSponsorship, wantsPR, wantsSkillMatch };
+}
+
+function looksLikeCVOrSkills(text) {
+    if (!text || text.length < 150) return false;
+    const cvKeywords = /\b(experience|skills|education|qualifications|work history|employment history|proficient in|responsibilities|achievements|certifications)\b/i;
+    const matches = (text.match(cvKeywords) || []).length;
+    return matches >= 2;
+}
+
+function detectLegalIntent(message) {
+    const legalKeywords = ['legal', 'rights', 'law', 'employment law', 'workplace rights', 'labor law', 'discrimination', 'harassment', 'unfair dismissal', 'minimum wage', 'working hours', 'holiday pay', 'sick pay', 'maternity leave', 'paternity leave', 'redundancy', 'contract'];
+    return legalKeywords.some(keyword => message.toLowerCase().includes(keyword));
+}
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
@@ -94,9 +94,7 @@ export default function ODUSBABAChat() {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
 
-    // NEW (2026-08-16): listens for a real, stable custom event to open
-    // chat from other pages — replaces the fragile CSS-class-guessing
-    // trigger that used to live in ProductsPage.jsx.
+    // Listen for custom event to open chat
     useEffect(() => {
         function handleOpenChatEvent() {
             setIsOpen(true);
@@ -117,6 +115,8 @@ export default function ODUSBABAChat() {
     const [error, setError] = useState(null);
     const [unreadCount, setUnreadCount] = useState(0);
     const [copiedMessageId, setCopiedMessageId] = useState(null);
+    const [extractingSkillsFor, setExtractingSkillsFor] = useState(null);
+    const [skillsSavedFor, setSkillsSavedFor] = useState(new Set());
     
     // Refs
     const messagesEndRef = useRef(null);
@@ -173,14 +173,6 @@ export default function ODUSBABAChat() {
         setUser(user);
         
         if (user) {
-            // FIXED (2026-08-28): loadUserProfile() and loadConversation()
-            // previously read `user` from this component's closure/state
-            // rather than a passed argument - relying on setUser(user)
-            // above having already been flushed to a re-render by the
-            // time these run. That isn't a guaranteed ordering, just
-            // something that may happen to work depending on exact React
-            // scheduling - a fragile pattern regardless. Now passed
-            // explicitly, removing any dependency on that timing.
             await loadUserProfile(user);
             await Promise.all([loadConversation(user), loadCredits(user)]);
         } else {
@@ -192,13 +184,7 @@ export default function ODUSBABAChat() {
         return {
             id: `welcome_${Date.now()}`,
             sender: 'odusbaba',
-            // NEW (2026-08-27): added a real, specific hint about a
-            // genuinely working capability (live job search + real board
-            // integration) rather than leave this as generic "how can I
-            // help" copy - a chat widget has no page header to attach a
-            // value-edge banner to, so this welcome message is the
-            // natural place for it.
-            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTry asking something specific, like \"sponsorship jobs in UK for HR\" — I'll pull real, current results from our job board and live external sources, not generic advice.\n\nWhat brings you here today?",
+            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTry asking something specific, like:\n• \"Find HR jobs with sponsorship in UK\"\n• \"Match my skills to jobs\"\n• \"Jobs with PR support\"\n\nWhat brings you here today?",
             created_at: new Date().toISOString()
         };
     }
@@ -206,14 +192,6 @@ export default function ODUSBABAChat() {
     async function loadUserProfile(explicitUser) {
         const activeUser = explicitUser || user;
         if (!activeUser) return;
-        // FIXED (2026-08-27): selected ai_credits_remaining - the exact
-        // same confirmed-dead column already found and fixed in
-        // loadCredits() further down this same file, missed here in its
-        // sibling function. Since this dead column doesn't exist,
-        // selecting it caused the entire query to fail - meaning profile
-        // was always null here, and the "Welcome back, {name}" message
-        // below always silently fell back to the email prefix instead
-        // of ever showing a real full_name.
         const { data: profile } = await supabase.from('profiles').select('user_type, tier, full_name, job_title, years_experience').eq('id', activeUser.id).single();
         setUserProfile(profile);
         return profile;
@@ -238,7 +216,7 @@ export default function ODUSBABAChat() {
                 setMessages([{
                     id: 'welcome',
                     sender: 'odusbaba',
-                    message: `👋 Welcome back, ${profile?.full_name || activeUser.email?.split('@')[0]}! I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nWhat would you like help with today?`,
+                    message: `👋 Welcome back, ${profile?.full_name || activeUser.email?.split('@')[0]}! I'm ODUSBABA.\n\nI can help you find jobs, save your skills, and provide career advice.\n\nWhat would you like help with today?`,
                     created_at: new Date().toISOString()
                 }]);
             }
@@ -248,22 +226,6 @@ export default function ODUSBABAChat() {
     async function loadCredits(explicitUser) {
         const activeUser = explicitUser || user;
         if (!activeUser) return;
-        // FIXED (2026-08-23): two real issues found in this one function
-        // during a project-wide pricing/cost harmony pass:
-        // 1. Read profiles.ai_credits_remaining — a confirmed-dead column
-        //    (the real credit system lives in a separate va_credits
-        //    table, found and fixed in SignUpPage.jsx/TesterRegisterPage.jsx
-        //    earlier this session). This widget always showed either 999999
-        //    or a hardcoded fallback of 5 on initial load, completely
-        //    disconnected from the real balance — self-corrected only
-        //    after the first message actually completed, since the real
-        //    chat action correctly returns the true remaining value.
-        // 2. isUnlimited included tier === 'business' — the same stale
-        //    assumption already found and corrected in the backend
-        //    (checkAndDeductCredit, va-credits) and in
-        //    HireVirtualAssistant.jsx's fallback path, after the explicit
-        //    decision that business tier gets a real 200/month cap, not
-        //    unlimited. This file never got that fix.
         const { data: profile } = await supabase.from('profiles').select('tier, user_type').eq('id', activeUser.id).single();
         const isUnlimited = profile?.user_type === 'super_admin' || profile?.user_type === 'admin';
         if (isUnlimited) {
@@ -275,30 +237,99 @@ export default function ODUSBABAChat() {
     }
 
     // ============================================
-    // JOB SEARCH — REMOVED (2026-08-16)
-    // searchLiveJobs()/handleJobSearch() called ?action=jobs, which
-    // doesn't exist in the backend, and bypassed credit metering entirely.
-    // Job-related messages now flow through the normal chat path, where
-    // the backend's findRelevantJobs() detects intent, injects real
-    // listings into the AI's context, and applies proper metering.
+    // JOB SEARCH VIA CHAT
     // ============================================
 
-    // ============================================
-    // LEGAL INFORMATION FETCHING (Client-side)
-    // ============================================
+    async function handleJobSearch(query, filters = {}) {
+        try {
+            const { data: { session: jobSession } } = await supabase.auth.getSession();
+            
+            // Get user skills for matching if requested
+            let userSkills = [];
+            if (filters.skillMatch && user) {
+                const { data } = await supabase.from('user_skills').select('skill_name').eq('user_id', user.id);
+                userSkills = data?.map(s => s.skill_name) || [];
+            }
+            
+            const response = await fetch(`${API_BASE}?action=chat-find-jobs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(jobSession?.access_token ? { 'Authorization': `Bearer ${jobSession.access_token}` } : {})
+                },
+                body: JSON.stringify({
+                    userId: user?.id,
+                    query: query,
+                    filters: {
+                        keywords: filters.keywords,
+                        sponsorship: filters.sponsorship,
+                        pr: filters.pr,
+                        country: filters.country,
+                        skills: userSkills.length > 0 ? userSkills : undefined
+                    }
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                throw new Error(data.error || 'Job search failed');
+            }
+            
+            let reply;
+            if (data.jobs && data.jobs.length > 0) {
+                const jobList = data.jobs.map(job => {
+                    const matchBadge = job.match_score > 0 ? `🏆 ${job.match_score}% match` : '';
+                    const sponsorshipBadge = job.visa_sponsorship ? '🛂 Sponsorship Available' : '';
+                    return `• **${job.title}** at ${job.company || 'N/A'}\n  📍 ${job.location || 'Remote'}\n  ${job.salary_range ? `💰 ${job.salary_range}\n  ` : ''}  ${sponsorshipBadge ? ` ${sponsorshipBadge}` : ''} ${matchBadge ? `\n  ${matchBadge}` : ''}\n  🔗 [Apply](${job.external_apply_url || `/jobs/${job.id}`})`;
+                }).join('\n\n');
+                
+                let filterText = '';
+                if (filters.sponsorship) filterText += ' with sponsorship';
+                if (filters.pr) filterText += ' with PR support';
+                if (filters.country) filterText += ` in ${filters.country}`;
+                
+                reply = `🔍 Found **${data.jobs.length}** jobs matching your search${filterText}:\n\n${jobList}\n\n💡 Tip: View all jobs on the [Job Board](/jobs)`;
+                
+                if (filters.skillMatch && userSkills.length === 0) {
+                    reply += '\n\n📌 You haven\'t saved any skills yet. Share your CV or list your skills and I\'ll save them for better matching!';
+                }
+            } else {
+                reply = `🔍 I couldn't find jobs matching your search. Try:\n• Different keywords\n• Removing filters\n• Checking the [Job Board](/jobs) directly`;
+            }
+            
+            setMessages(prev => [...prev, {
+                id: `msg_jobs_${Date.now()}`,
+                sender: 'odusbaba',
+                message: reply,
+                created_at: new Date().toISOString()
+            }]);
+            
+            if (data.remaining !== undefined) {
+                setRemainingCredits(data.remaining);
+            }
+            
+            return data;
+        } catch (error) {
+            console.error('Job search error:', error);
+            setMessages(prev => [...prev, {
+                id: `msg_job_error_${Date.now()}`,
+                sender: 'odusbaba',
+                message: "I'm having trouble searching for jobs right now. Please try again in a moment, or browse our [Job Board](/jobs) directly.",
+                created_at: new Date().toISOString()
+            }]);
+            return null;
+        }
+    }
 
-    // NEW (2026-08-16): calls extract-skills-from-chat, then offers to
-    // show matching jobs immediately — same credit-metered path as any
-    // other AI chat action.
-    const [extractingSkillsFor, setExtractingSkillsFor] = useState(null);
-    const [skillsSavedFor, setSkillsSavedFor] = useState(new Set());
+    // ============================================
+    // SKILL EXTRACTION & SAVING
+    // ============================================
 
     async function handleSaveSkills(messageId, text) {
         if (!user) return;
         setExtractingSkillsFor(messageId);
         try {
-            // FIXED (2026-08-28): same confirmed bug as the main chat call
-            // above - sent userId with no Authorization header.
             const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch(`${API_BASE}?action=extract-skills-from-chat`, {
                 method: 'POST',
@@ -344,6 +375,10 @@ export default function ODUSBABAChat() {
         }
     }
 
+    // ============================================
+    // LEGAL INFORMATION
+    // ============================================
+
     async function fetchLegalInfo(countryCode, topic) {
         const source = LEGAL_SOURCES[countryCode] || LEGAL_SOURCES['UK'];
         return `📚 **Legal & Workplace Rights Information for ${source.name} ${source.flag}**\n\n` +
@@ -356,25 +391,8 @@ export default function ODUSBABAChat() {
             `Would you like me to help you find more specific information about your situation?`;
     }
 
-    function detectLegalIntent(message) {
-        const legalKeywords = ['legal', 'rights', 'law', 'employment law', 'workplace rights', 'labor law', 'discrimination', 'harassment', 'unfair dismissal', 'minimum wage', 'working hours', 'holiday pay', 'sick pay', 'maternity leave', 'paternity leave', 'redundancy', 'contract'];
-        return legalKeywords.some(keyword => message.toLowerCase().includes(keyword));
-    }
-
-    // NEW (2026-08-16): CV/skills content detection — flags messages that
-    // look like a pasted CV or skills list, so a "save these skills"
-    // affordance can be shown for them specifically, rather than
-    // triggering extraction automatically on every message (which would
-    // spend credits unnecessarily on ordinary conversation).
-    function looksLikeCVOrSkills(text) {
-        if (!text || text.length < 150) return false;
-        const cvKeywords = /\b(experience|skills|education|qualifications|work history|employment history|proficient in|responsibilities|achievements|certifications)\b/i;
-        const matches = (text.match(cvKeywords) || []).length;
-        return matches >= 2;
-    }
-
     // ============================================
-    // SEND MESSAGE (Unified API)
+    // SEND MESSAGE
     // ============================================
 
     const sendMessage = async () => {
@@ -407,7 +425,7 @@ export default function ODUSBABAChat() {
                 });
             }
 
-            // Check for legal intent first (handled client-side for instant response)
+            // Check for legal intent first
             const isLegalQuery = detectLegalIntent(currentInput);
             
             if (isLegalQuery) {
@@ -434,32 +452,40 @@ export default function ODUSBABAChat() {
                 return;
             }
 
-            // FIXED (2026-08-16): the old job_search intent branch here
-            // called searchLiveJobs()/handleJobSearch(), which fetched
-            // ?action=jobs — an action that doesn't exist anywhere in the
-            // backend — meaning this always silently returned "couldn't
-            // find any jobs", regardless of what's actually on the board.
-            // It also completely bypassed CHAT_ENDPOINT, meaning job
-            // searches via chat were entirely unmetered, unlike every
-            // other chat interaction. Removed — job-related messages now
-            // flow through the normal chat path below, where the backend
-            // detects job-search intent itself, injects real current
-            // listings into the AI's context, and applies the same
-            // credit metering as any other chat message.
+            // Check for job search intent
+            const jobIntent = detectJobIntent(currentInput);
+            
+            if (jobIntent.isJobSearch) {
+                clearTimeout(typingTimer);
+                setIsTyping(false);
+                
+                // Extract keywords
+                const keywords = currentInput
+                    .replace(/(?:find|search|look for|show me|get me|i want|need)\s*(?:jobs?|positions?|roles?|opportunities?|work|vacancies?)\s*(?:in|for|with)?\s*/i, '')
+                    .replace(/\b(sponsor|visa|work permit|pr|permanent residency|settlement|match|skills)\b/gi, '')
+                    .trim();
+                
+                // Detect country
+                const countryData = detectCountry(currentInput);
+                
+                // Execute job search
+                const result = await handleJobSearch(keywords || currentInput, {
+                    keywords: keywords || undefined,
+                    sponsorship: jobIntent.wantsSponsorship,
+                    pr: jobIntent.wantsPR,
+                    country: countryData.code !== 'UK' ? countryData.country : undefined,
+                    skillMatch: jobIntent.wantsSkillMatch
+                });
+                
+                setLoading(false);
+                return;
+            }
 
-            // NEW (2026-08-16): "find jobs matching my skills" shortcut —
-            // calls match-jobs-to-skills directly rather than going
-            // through the AI. This is a plain database query (no OpenAI
-            // call), so it's correctly free, unlike everything else here.
-            if (user && /match.*(my )?skills|skills.*match|jobs.*for (my )?skills/i.test(currentInput)) {
+            // Check for skill match shortcut
+            if (user && /match(?:ing)?\s*(?:my)?\s*skills?|skills?\s*match|jobs?\s*(?:for|with)\s*(?:my)?\s*skills?/i.test(currentInput)) {
                 clearTimeout(typingTimer);
                 setIsTyping(false);
                 try {
-                    // FIXED (2026-08-28): confirmed regression found during
-                    // a complete, line-by-line re-read of this file -
-                    // match-jobs-to-skills is one of the 21 handlers now
-                    // requiring a verified auth token, and this call never
-                    // sent one.
                     const { data: { session: matchSession } } = await supabase.auth.getSession();
                     const matchResponse = await fetch(`${API_BASE}?action=match-jobs-to-skills`, {
                         method: 'POST',
@@ -496,13 +522,7 @@ export default function ODUSBABAChat() {
                 return;
             }
 
-            // NEW (2026-08-16): logs this chat message as an activity
-            // signal — feeds the "Latest Trend Corner", opportunity-gap
-            // analysis, and newsletter content pool. Fire-and-forget:
-            // never blocks or fails the actual chat response.
-            // FIXED (2026-08-28): same confirmed missing-Authorization-
-            // header bug as the main chat call below - fetched once here
-            // and reused for both calls in this function.
+            // Log activity signal
             const { data: { session: currentSession } } = await supabase.auth.getSession();
             fetch(`${API_BASE}?action=log-activity-signal`, {
                 method: 'POST',
@@ -514,17 +534,6 @@ export default function ODUSBABAChat() {
             }).catch(() => {});
 
             // Prepare conversation history for API
-            // FIXED (2026-08-08): the real chat handler in api/index.js
-            // requires a separate `message` string field (req.body.message)
-            // and appends it to history itself server-side — this was
-            // instead sending everything bundled into a `messages` array
-            // with no `message` field at all, so the handler's
-            // `if (!message) return res.status(400)...` check failed on
-            // every single message ever sent. This is the core AI chat
-            // widget, present on every page — it has very likely never
-            // returned a real AI response for any user. Also added a
-            // systemPrompt so the AI actually responds in ODUSBABA's
-            // established persona instead of a bare generic assistant.
             const history = messages.slice(-MAX_HISTORY_MESSAGES).map(m => ({
                 role: m.sender === 'user' ? 'user' : 'assistant',
                 content: m.message
@@ -532,16 +541,6 @@ export default function ODUSBABAChat() {
 
             const systemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The user's current tier is: ${userProfile?.tier || (user ? 'free' : 'visitor')}.`;
 
-            // ✅ Call unified API endpoint
-            // FIXED (2026-08-28): confirmed live, reported bug - sent
-            // userId in the body with no Authorization header at all.
-            // A backend security fix (closing a real userId-impersonation
-            // gap) now correctly requires a matching, real auth token
-            // whenever a userId is claimed - this call never sent one,
-            // so every logged-in user's real chat request was being
-            // rejected with 401, exactly matching the reported error.
-            // Reuses currentSession fetched just above for the activity
-            // signal log, rather than fetching it twice.
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: {
@@ -649,12 +648,12 @@ export default function ODUSBABAChat() {
     };
 
     const suggestedActions = [
-        { icon: Briefcase, text: "Find Jobs", action: "Find me jobs in", isJobSearch: true },
+        { icon: Briefcase, text: "Find Jobs", action: "Find me jobs", isJobSearch: true },
+        { icon: Briefcase, text: "Sponsorship Jobs", action: "Find jobs with visa sponsorship", isSponsorship: true },
+        { icon: Briefcase, text: "PR Jobs", action: "Find jobs with PR support", isPR: true },
+        { icon: Briefcase, text: "Match Skills", action: "Find jobs matching my skills", isSkillMatch: true },
         { icon: Scale, text: "Dismissal Rights", action: "My employer wants to dismiss me. What are my rights?" },
         { icon: FileText, text: "CV Review", action: "Can you review my CV and provide suggestions?" },
-        { icon: Award, text: "Skill Analysis", action: "Analyze my skills and suggest improvements" },
-        { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
-        { icon: Users, text: "Interview Prep", action: "Help me prepare for an interview" }
     ];
 
     const showSuggestedActions = messages.filter(m => m.sender === 'user').length === 0 && !loading && messages.length <= 1;
@@ -729,7 +728,6 @@ export default function ODUSBABAChat() {
 
                     {!isMinimized && (
                         <>
-                            {/* Warning banner for near-limit guests */}
                             {isNearLimit && !hasReachedLimit && (
                                 <div className="mx-4 mt-3 p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                                     <p className="text-amber-400 text-xs text-center">
@@ -738,7 +736,6 @@ export default function ODUSBABAChat() {
                                 </div>
                             )}
 
-                            {/* Messages Container */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-900 to-slate-950 scrollbar-thin scrollbar-thumb-slate-700">
                                 {messages.map((msg, idx) => (
                                     <div
@@ -760,10 +757,6 @@ export default function ODUSBABAChat() {
                                             <p className="text-[10px] opacity-40 mt-1 text-right">
                                                 {formatTimestamp(msg.created_at)}
                                             </p>
-                                            {/* NEW (2026-08-16): shown only for user messages flagged as
-                                                looking like a CV/skills paste. Extracts and saves skills
-                                                to the profile for job matching — metered like any other
-                                                AI action. */}
                                             {msg.sender === 'user' && msg.looksLikeCV && (
                                                 skillsSavedFor.has(msg.id) ? (
                                                     <p className="text-[11px] mt-1.5 text-emerald-300 flex items-center gap-1">
@@ -796,7 +789,6 @@ export default function ODUSBABAChat() {
                                     </div>
                                 ))}
                                 
-                                {/* Typing indicator */}
                                 {isTyping && (
                                     <div className="flex justify-start animate-fade-in">
                                         <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
@@ -809,7 +801,6 @@ export default function ODUSBABAChat() {
                                     </div>
                                 )}
                                 
-                                {/* Error message */}
                                 {error && (
                                     <div className="flex justify-center">
                                         <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
@@ -824,7 +815,6 @@ export default function ODUSBABAChat() {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* Suggested Actions */}
                             {showSuggestedActions && (
                                 <div className="p-3 border-t border-slate-700 bg-slate-900/80">
                                     <p className="text-xs text-slate-500 mb-2 flex items-center gap-1">
@@ -836,12 +826,13 @@ export default function ODUSBABAChat() {
                                             <button
                                                 key={idx}
                                                 onClick={() => {
-                                                    if (action.isJobSearch) {
-                                                        const query = prompt("What job title or keywords are you looking for?");
-                                                        if (query && query.trim()) {
-                                                            setInput(query);
-                                                            setTimeout(() => sendMessage(), 100);
-                                                        }
+                                                    if (action.isJobSearch || action.isSponsorship || action.isPR || action.isSkillMatch) {
+                                                        const type = action.isSponsorship ? 'sponsorship' : action.isPR ? 'PR' : action.isSkillMatch ? 'matching my skills' : '';
+                                                        const promptText = action.isSkillMatch 
+                                                            ? "Find jobs matching my skills" 
+                                                            : `Find ${action.text.toLowerCase()}${type ? ` with ${type}` : ''}${!action.isJobSearch ? ' in' : ''}`;
+                                                        setInput(promptText);
+                                                        setTimeout(() => sendMessage(), 100);
                                                     } else {
                                                         setInput(action.action);
                                                         setTimeout(() => sendMessage(), 100);
@@ -858,7 +849,6 @@ export default function ODUSBABAChat() {
                                 </div>
                             )}
 
-                            {/* Input Area */}
                             <div className="p-3 border-t border-slate-700 bg-slate-900">
                                 <div className="flex gap-2">
                                     <textarea
@@ -882,7 +872,6 @@ export default function ODUSBABAChat() {
                                     </button>
                                 </div>
                                 
-                                {/* Credit/Usage Info */}
                                 {!user && !hasReachedLimit && (
                                     <p className="text-xs text-slate-500 text-center mt-2">
                                         ✨ {GUEST_LIMIT - guestMessageCount} free {GUEST_LIMIT - guestMessageCount === 1 ? 'message' : 'messages'} remaining. <a href="/sign-up" className="text-primary-400 hover:underline">Sign up</a> for full access
@@ -904,7 +893,6 @@ export default function ODUSBABAChat() {
                                     </p>
                                 )}
                                 
-                                {/* Security Notice */}
                                 <p className="text-[10px] text-slate-600 text-center mt-2">
                                     🔒 Secure conversation • Your data is protected
                                 </p>
