@@ -1413,6 +1413,138 @@ const handlers = {
         }
     },
 
+    // ========== CHAT: FIND JOBS (live + internal, with skill matching) ==========
+    // NEW (2026-09-09): the frontend chat component was updated (in a
+    // separate session) to call this exact action for job-search intent,
+    // sponsorship/PR filtering, and skill matching - but this handler
+    // never actually existed here, meaning every such search has been
+    // failing since that frontend change shipped. Built now to genuinely
+    // match what the frontend already expects.
+    //
+    // Searches two sources: your own internal `jobs` table first (real,
+    // already-vetted listings), then Jobicy's live API for additional,
+    // genuinely current remote vacancies - confirmed working via a
+    // direct test this session, unlike the untested government URL list
+    // from that other conversation. Two of two government URLs
+    // spot-checked were confirmed broken (USAJobs: 404, NHS Jobs:
+    // bot-blocked), so this deliberately does not seed unverified
+    // sources into a live user-facing feature.
+    'chat-find-jobs': async (req, res) => {
+        const { userId, query, filters } = req.body;
+        const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req, 1);
+        if (!creditCheck.allowed) {
+            return res.status(429).json({
+                success: false,
+                error: creditCheck.rateLimited
+                    ? 'Too many requests — please slow down and try again in a few minutes.'
+                    : 'Insufficient credits. Please upgrade your plan or purchase more credits.'
+            });
+        }
+
+        try {
+            // 1. Internal jobs table first - real, already-vetted listings
+            // this platform's own employers have posted.
+            let internalQuery = supabaseClient
+                .from('jobs')
+                .select('id, title, company, location, visa_sponsorship, skills_required, external_apply_url, source_name')
+                .eq('is_active', true)
+                .eq('compliance_status', 'approved')
+                .limit(15);
+
+            if (filters?.sponsorship) {
+                internalQuery = internalQuery.eq('visa_sponsorship', true);
+            }
+            if (filters?.country) {
+                internalQuery = internalQuery.ilike('location', `%${filters.country}%`);
+            }
+            if (filters?.keywords) {
+                internalQuery = internalQuery.or(`title.ilike.%${filters.keywords}%`);
+            }
+
+            const { data: internalJobs } = await internalQuery;
+
+            // 2. Live external search via Jobicy - genuinely confirmed
+            // working, real, current listings. Filters client-side since
+            // Jobicy's API doesn't support server-side keyword filtering
+            // for this endpoint.
+            let liveJobs = [];
+            try {
+                const jobicyResponse = await fetch('https://jobicy.com/api/v2/remote-jobs?count=50');
+                if (jobicyResponse.ok) {
+                    const jobicyData = await jobicyResponse.json();
+                    const rawJobs = jobicyData.jobs || [];
+                    const keyword = (filters?.keywords || query || '').toLowerCase();
+
+                    liveJobs = rawJobs
+                        .filter(j => {
+                            if (!keyword) return true;
+                            return j.jobTitle?.toLowerCase().includes(keyword) ||
+                                   (j.jobIndustry || []).some(i => i.toLowerCase().includes(keyword));
+                        })
+                        .slice(0, 10)
+                        .map(j => ({
+                            id: `jobicy_${j.id}`,
+                            title: j.jobTitle,
+                            company: j.companyName,
+                            location: j.jobGeo || 'Remote',
+                            visa_sponsorship: false,
+                            skills_required: j.jobIndustry || [],
+                            external_apply_url: j.url,
+                            source_name: 'Jobicy (live)'
+                        }));
+                }
+            } catch (liveSearchError) {
+                // Live source failing should never break the whole
+                // search - internal results still return normally.
+                console.warn('Live job search (Jobicy) failed, continuing with internal results only:', liveSearchError);
+            }
+
+            const allJobs = [...(internalJobs || []), ...liveJobs];
+
+            // 3. Real skill matching against the user's actual saved
+            // skills, not a placeholder.
+            let userSkills = [];
+            if (userId) {
+                const { data: skillRows } = await supabaseClient
+                    .from('user_skills')
+                    .select('skill_name')
+                    .eq('user_id', userId);
+                userSkills = (skillRows || []).map(s => s.skill_name);
+            }
+
+            const matchedJobs = allJobs.map(job => {
+                const jobSkills = job.skills_required || [];
+                let matchScore = 0;
+                if (userSkills.length > 0 && jobSkills.length > 0) {
+                    const matchCount = userSkills.filter(skill =>
+                        jobSkills.some(js => js.toLowerCase().includes(skill.toLowerCase()) || skill.toLowerCase().includes(js.toLowerCase()))
+                    ).length;
+                    matchScore = Math.round((matchCount / Math.max(userSkills.length, jobSkills.length)) * 100);
+                }
+                return { ...job, match_score: matchScore };
+            });
+
+            matchedJobs.sort((a, b) => b.match_score - a.match_score);
+
+            return res.status(200).json({
+                success: true,
+                jobs: matchedJobs.slice(0, 15),
+                total: matchedJobs.length,
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+            });
+
+        } catch (error) {
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck, 1);
+            console.error('chat-find-jobs error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== AI CHAT ==========
     // findRelevantJobs() moved to a top-level function above handlers —
     // see it there. This comment marks where the chat handler begins.
