@@ -719,7 +719,17 @@ async function sendTesterCodeEmail(email, code) {
         const transporter = getTransporter();
         await transporter.verify();
         await transporter.sendMail({
-            from: `"ODUSBABA" <${process.env.VITE_EMAIL_USER}>`,
+            // FIXED (2026-09-09): was reusing VITE_EMAIL_USER (the real
+            // mailbox that authenticates with Hostinger) as the visible
+            // "from" address too - meaning the founder's real, personal
+            // email was showing as the sender on every email, not the
+            // noreply alias intended for this. Hostinger genuinely
+            // requires a real mailbox to authenticate SMTP, but the
+            // "from" header itself can legitimately be set to any
+            // verified alias on the same domain - which is exactly what
+            // this now does, with a safe fallback if the new variable
+            // isn't set yet.
+            from: `"ODUSBABA" <${process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
             to: email,
             subject: 'Your ODUSBABA Tester Invite Code',
             html: `<p>Thanks for your interest in becoming an ODUSBABA tester.</p><p>Your invite code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${code}</p><p>Enter this code during sign-up to activate your tester access. This code is unique to you and can only be used once.</p>`
@@ -5299,7 +5309,12 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             await transporter.verify();
 
             const info = await transporter.sendMail({
-                from: `"ODUSBABA" <${process.env.VITE_EMAIL_USER}>`,
+                // FIXED (2026-09-09): same sender-address fix as
+                // sendTesterCodeEmail above - this is the main, generic
+                // email handler used for most platform-to-user emails,
+                // so this was the single biggest source of the personal
+                // email address being exposed to real users.
+                from: `"ODUSBABA" <${process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
                 to,
                 subject: emailSubject,
                 html: emailHtml
@@ -6891,7 +6906,15 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             return res.status(200).json({
                 success: true,
                 openaiConfigured: !!process.env.OPENAI_API_KEY,
-                emailConfigured: !!process.env.EMAIL_USER
+                // FIXED (2026-09-09): confirmed this was checking
+                // EMAIL_USER (no VITE_ prefix), a variable never
+                // actually used anywhere in this file - every real
+                // transporter/sendMail call reads VITE_EMAIL_USER. This
+                // is exactly why System Health has been showing "Email
+                // credentials missing" / degraded despite email
+                // genuinely, confirmedly delivering - the check was
+                // simply looking at the wrong name the entire time.
+                emailConfigured: !!(process.env.VITE_EMAIL_USER || process.env.EMAIL_USER)
             });
         } catch (error) {
             console.error('system-config-health error:', error);
