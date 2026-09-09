@@ -584,15 +584,21 @@ async function callOpenAIImage(prompt) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
+    // FIXED (2026-09-08): confirmed real, live error - "the model
+    // 'dall-e-3' does not exist" - meaning the configured OpenAI account
+    // genuinely doesn't have DALL-E 3 access. Switched to dall-e-2,
+    // which is far more widely available. Also removed the `quality`
+    // parameter, since dall-e-2's API doesn't accept it at all - leaving
+    // it in would have caused a new, different error immediately after
+    // this fix.
     const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            model: 'dall-e-3',
+            model: 'dall-e-2',
             prompt,
             n: 1,
-            size: '1024x1024',
-            quality: 'standard'
+            size: '1024x1024'
         })
     });
 
