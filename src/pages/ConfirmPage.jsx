@@ -33,9 +33,18 @@ export default function ConfirmPage() {
         }
 
         try {
-            // The real, correct way to complete a PKCE-flow confirmation -
-            // exchanges the token in the URL for an actual session.
-            const { error } = await supabase.auth.exchangeCodeForSession(token);
+            // FIXED (2026-09-09): confirmed via a real, live test that
+            // exchangeCodeForSession was the wrong method entirely - that
+            // API expects a `code` parameter from an OAuth-style redirect.
+            // A `token=pkce_...` value in a `token` query parameter is
+            // actually Supabase's signup verification flow, which
+            // requires verifyOtp with token_hash - a genuinely different
+            // method. This was a real bug in the first version of this
+            // fix, not a deployment issue.
+            const { error } = await supabase.auth.verifyOtp({
+                token_hash: token,
+                type: 'signup'
+            });
 
             if (error) throw error;
 
@@ -90,4 +99,3 @@ export default function ConfirmPage() {
         </div>
     );
 }
-
