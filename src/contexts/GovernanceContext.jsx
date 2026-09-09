@@ -437,9 +437,18 @@ export function GovernanceProvider({ children }) {
         await audit('enforcement_changed', { newMode: action });
         
         // Update system config
+        // FIXED (2026-09-09): confirmed real, root cause of the
+        // persistent system_config 409 error - without onConflict
+        // specified, PostgREST defaults to the table's primary key (a
+        // fresh random UUID every time) for conflict detection, so this
+        // never actually matched the existing config_key row. It then
+        // attempted a plain insert, which the real unique constraint on
+        // config_key correctly rejected at the database level -
+        // surfacing as this exact 409, on every single page load, since
+        // this file runs app-wide.
         await supabase
             .from('system_config')
-            .upsert({ config_key: 'enforcement_mode', config_value: action })
+            .upsert({ config_key: 'enforcement_mode', config_value: action }, { onConflict: 'config_key' })
             .catch(console.error);
     }
 
