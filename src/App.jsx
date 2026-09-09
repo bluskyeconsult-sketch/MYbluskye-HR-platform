@@ -558,6 +558,10 @@ const AboutPage = lazy(() => import('./pages/AboutPage'));
 const ContactPage = lazy(() => import('./pages/ContactPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
+// NEW (2026-09-09): the genuinely missing page Supabase's own email
+// template links to - confirmed the real, live confirmation link uses
+// this exact path and was 404ing every single time.
+const ConfirmPage = lazy(() => import('./pages/ConfirmPage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
@@ -792,6 +796,7 @@ function AppContent() {
                             <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
                             <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                             <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
+                            <Route path="/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
                             <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                             <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                             <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
