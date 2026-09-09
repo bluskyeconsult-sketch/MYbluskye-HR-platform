@@ -1439,6 +1439,80 @@ const handlers = {
     // spot-checked were confirmed broken (USAJobs: 404, NHS Jobs:
     // bot-blocked), so this deliberately does not seed unverified
     // sources into a live user-facing feature.
+    // ========== FETCH LIVE GOVERNMENT LEGAL INFO ==========
+    // NEW (2026-09-09): the existing legal-info feature in
+    // ODUSBABAChat.jsx only ever returned a fixed list of government
+    // links, never actual content - confirmed directly this session
+    // that government guidance pages (unlike job board feeds) are
+    // genuinely, currently fetchable with no bot-blocking at all. This
+    // pulls the real, current page and has the AI summarize it plainly,
+    // rather than making the user leave the chat to read the source
+    // themselves.
+    'fetch-live-legal-info': async (req, res) => {
+        const { userId, url, topic } = req.body;
+        const supabaseClient = getSupabase();
+
+        if (!url || !url.startsWith('https://')) {
+            return res.status(400).json({ success: false, error: 'A valid https government URL is required' });
+        }
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req, 1);
+        if (!creditCheck.allowed) {
+            return res.status(429).json({
+                success: false,
+                error: creditCheck.rateLimited
+                    ? 'Too many requests — please slow down and try again in a few minutes.'
+                    : 'Insufficient credits. Please upgrade your plan or purchase more credits.'
+            });
+        }
+
+        try {
+            const pageResponse = await fetch(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ODUSBABA/1.0; +https://bluskyeconsult.com)' }
+            });
+            if (!pageResponse.ok) {
+                throw new Error(`Source page returned ${pageResponse.status}`);
+            }
+            const html = await pageResponse.text();
+            // Strips tags to plain text - genuinely rough, but sufficient
+            // context for the model to summarize accurately, and avoids
+            // pulling in a full HTML-parsing dependency for this one use.
+            const plainText = html
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 8000);
+
+            const summary = await callOpenAICached(
+                `legal-info:${url}`,
+                [
+                    { role: 'system', content: 'You summarize official government guidance pages plainly and accurately for a general audience. Never invent details not present in the source text. If the page does not actually cover the requested topic, say so honestly rather than guessing.' },
+                    { role: 'user', content: `Source URL: ${url}\n\nTopic of interest: ${topic || 'general overview'}\n\nPage content:\n${plainText}\n\nSummarize the genuinely relevant guidance in plain language, in 150-250 words.` }
+                ],
+                500, 0.3, 168
+            );
+
+            return res.status(200).json({
+                success: true,
+                summary: summary.choices[0].message.content,
+                sourceUrl: url,
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+            });
+        } catch (error) {
+            await refundCreditIfDeducted(supabaseClient, userId, creditCheck, 1);
+            console.error('fetch-live-legal-info error:', error);
+            return res.status(500).json({
+                success: false,
+                error: `Could not fetch live content from this source (${error.message}). The direct link is still available as a fallback.`
+            });
+        }
+    },
+
     'chat-find-jobs': async (req, res) => {
         const { userId, query, filters } = req.body;
         const supabaseClient = getSupabase();
@@ -1477,6 +1551,22 @@ const handlers = {
             }
 
             const { data: internalJobs } = await internalQuery;
+
+            // NEW (2026-09-09): confirmed real gap - the verified sponsor
+            // register (verified_employer_sources) already existed,
+            // admin-managed and publicly viewable as a directory, but
+            // was never actually cross-referenced by job search at all.
+            // Fetches the list of verified sponsor company names once,
+            // then tags any matching job below - genuinely surfacing
+            // this already-curated data rather than leaving it siloed
+            // in its own admin page.
+            const { data: verifiedSponsors } = await supabaseClient
+                .from('verified_employer_sources')
+                .select('company_name')
+                .eq('is_verified_sponsor', true);
+            const verifiedSponsorNames = new Set(
+                (verifiedSponsors || []).map(s => s.company_name.toLowerCase().trim())
+            );
 
             // 2. Live external search via Jobicy - genuinely confirmed
             // working, real, current listings. Filters client-side since
@@ -1536,10 +1626,21 @@ const handlers = {
                     ).length;
                     matchScore = Math.round((matchCount / Math.max(userSkills.length, jobSkills.length)) * 100);
                 }
-                return { ...job, match_score: matchScore };
+                const isVerifiedSponsor = job.company && verifiedSponsorNames.has(job.company.toLowerCase().trim());
+                return { ...job, match_score: matchScore, is_verified_sponsor: isVerifiedSponsor };
             });
 
-            matchedJobs.sort((a, b) => b.match_score - a.match_score);
+            // Verified sponsor status now factors into ranking too, not
+            // just skill match - a genuinely verified employer is a
+            // meaningfully stronger signal than match score alone,
+            // especially for anyone specifically searching with
+            // sponsorship in mind.
+            matchedJobs.sort((a, b) => {
+                if (a.is_verified_sponsor !== b.is_verified_sponsor) {
+                    return a.is_verified_sponsor ? -1 : 1;
+                }
+                return b.match_score - a.match_score;
+            });
 
             return res.status(200).json({
                 success: true,
