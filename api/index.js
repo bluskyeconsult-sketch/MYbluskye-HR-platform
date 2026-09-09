@@ -5005,7 +5005,14 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     'admin-list-employer-sources': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        // FIXED (2026-09-09): confirmed this used getAuthenticatedUser
+        // (any logged-in user) rather than requireAdmin, despite being
+        // an admin-only action selecting every internal field via
+        // select('*') on the verified sponsor register - a real,
+        // separate gap from the 500 error this was originally
+        // investigated for, found while confirming the table itself
+        // genuinely exists (it does).
+        const auth = await requireAdmin(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
@@ -5017,6 +5024,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             if (error) throw error;
             return res.status(200).json({ success: true, sources: data || [] });
         } catch (error) {
+            console.error('admin-list-employer-sources error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
