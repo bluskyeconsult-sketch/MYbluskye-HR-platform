@@ -251,14 +251,33 @@ export default function SystemHealthDashboard() {
         // ============================================
         try {
             const storageStart = Date.now();
-            const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
+            // FIXED (2026-09-09): listBuckets() requires broader
+            // permissions Supabase typically doesn't grant to the anon
+            // key even when individual buckets have working public
+            // policies - confirmed real via the Readiness Check page,
+            // which independently proves article-images and
+            // course-audio genuinely exist using the service role. This
+            // checks each known, expected bucket directly instead of
+            // listing all buckets globally, matching what actually
+            // works in practice.
+            const expectedBuckets = ['article-images', 'course-audio', 'book-audio'];
+            const bucketResults = await Promise.all(
+                expectedBuckets.map(async (name) => {
+                    const { error } = await supabase.storage.from(name).list('', { limit: 1 });
+                    return { name, exists: !error };
+                })
+            );
+            const workingBuckets = bucketResults.filter(b => b.exists);
+            const missingBuckets = bucketResults.filter(b => !b.exists);
             checks.push({
                 name: 'Storage Service',
-                status: storageError ? 'degraded' : 'healthy',
+                status: missingBuckets.length > 0 ? 'degraded' : 'healthy',
                 responseTime: Date.now() - storageStart,
-                details: storageError ? storageError.message : `${buckets?.length || 0} buckets available`,
+                details: missingBuckets.length > 0
+                    ? `${workingBuckets.length}/${expectedBuckets.length} buckets confirmed - missing: ${missingBuckets.map(b => b.name).join(', ')}`
+                    : `${workingBuckets.length}/${expectedBuckets.length} required buckets confirmed`,
                 icon: HardDrive,
-                metric: `${buckets?.length || 0} buckets`
+                metric: `${workingBuckets.length}/${expectedBuckets.length} buckets`
             });
         } catch (err) {
             checks.push({ 
