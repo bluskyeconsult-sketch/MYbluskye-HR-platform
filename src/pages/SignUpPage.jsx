@@ -466,7 +466,21 @@ export default function SignUpPage() {
                         company_name: formData.company_name,
                         is_tester: isTestingMode || false,
                         registered_at: new Date().toISOString()
-                    }
+                    },
+                    // FIXED (2026-09-09): confirmed this was never set,
+                    // meaning the confirmation link's domain depended
+                    // entirely on Supabase's dashboard "Site URL"
+                    // setting with no code-level fallback - if that
+                    // setting is ever stale (e.g. pointing at an old
+                    // domain from before a migration), every
+                    // confirmation email inherits the wrong link with
+                    // no way to catch it here. Points to /sign-in -
+                    // confirmed as a genuinely real, existing route -
+                    // rather than a dedicated callback page, since this
+                    // app has no such route and introducing one that
+                    // doesn't exist would just trade one broken
+                    // destination for another.
+                    emailRedirectTo: 'https://www.bluskyeconsult.com/sign-in'
                 }
             });
 
@@ -704,7 +718,7 @@ export default function SignUpPage() {
 
     return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12">
-            <div className="max-2xl w-full">
+            <div className="max-w-2xl w-full">
                 {/* Back to Home Link */}
                 <div className="mb-6">
                     <Link 
