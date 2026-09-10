@@ -684,8 +684,17 @@ function chunkTextForTTS(text, maxChars = 3800) {
 }
 
 function getTransporter() {
+    // FIXED (2026-09-10): removed the hardcoded 'smtp.hostinger.com'
+    // fallback as part of exiting Hostinger entirely - a silent
+    // default here would mean any future missing env var quietly sends
+    // mail through a provider no longer in use, rather than failing
+    // loudly and obviously. Set VITE_SMTP_HOST explicitly in Vercel to
+    // QServers' real SMTP hostname once that migration is complete.
+    if (!process.env.VITE_SMTP_HOST && !process.env.SMTP_HOST) {
+        throw new Error('SMTP host is not configured. Set VITE_SMTP_HOST in environment variables.');
+    }
     return nodemailer.createTransport({
-        host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
+        host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST,
         port: parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465'),
         secure: true,
         auth: {
