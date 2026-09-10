@@ -354,7 +354,7 @@ export default function SystemHealthDashboard() {
             name: 'Email Service',
             status: emailUser ? 'healthy' : 'degraded',
             responseTime: 0,
-            details: emailUser ? 'Configured via Hostinger SMTP' : 'Email credentials missing',
+            details: emailUser ? 'Email service configured' : 'Email credentials missing',
             icon: Mail,
             metric: emailUser ? 'configured' : 'missing'
         });
