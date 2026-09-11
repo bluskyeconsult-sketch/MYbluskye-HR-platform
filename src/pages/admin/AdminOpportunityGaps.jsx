@@ -34,11 +34,23 @@ export default function AdminOpportunityGaps() {
         setLoading(true);
         setMessage(null);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            // FIXED (2026-09-11): confirmed real, exact cause of the
+            // persistent "Authentication required" error - this call
+            // never actually sent an Authorization header at all, only
+            // userId in the body. requireAdmin (via
+            // getAuthenticatedUser) specifically checks
+            // req.headers.authorization and has no fallback to trust a
+            // body-supplied userId alone - so this request always
+            // failed at the very first auth check, before even
+            // reaching the admin-role check.
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=analyze-opportunity-gaps', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user?.id })
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({ userId: session?.user?.id })
             });
             const data = await response.json();
 
