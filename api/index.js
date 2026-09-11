@@ -1613,6 +1613,48 @@ const handlers = {
                 console.warn('Live job search (Jobicy) failed, continuing with internal results only:', liveSearchError);
             }
 
+            // NEW (2026-09-11): RemoteOK - directly tested and confirmed
+            // genuinely working, a real public API (no auth/key) with
+            // its own explicit terms requiring attribution back to
+            // RemoteOK as a source, honored via source_name below. A
+            // second, legitimately-accessible source rather than
+            // attempting to bypass the sites already confirmed to
+            // actively block automated access (USAJobs, NHS Jobs,
+            // Remotive) - this expands real coverage without crossing
+            // into evading protections sites have deliberately put up.
+            try {
+                const remoteOkResponse = await fetch('https://remoteok.com/api');
+                if (remoteOkResponse.ok) {
+                    const remoteOkData = await remoteOkResponse.json();
+                    // First element is always RemoteOK's own legal/terms
+                    // notice, not a real job - skip it.
+                    const rawJobs = Array.isArray(remoteOkData) ? remoteOkData.slice(1) : [];
+                    const keyword = (filters?.keywords || query || '').toLowerCase();
+
+                    const remoteOkJobs = rawJobs
+                        .filter(j => {
+                            if (!keyword) return true;
+                            return j.position?.toLowerCase().includes(keyword) ||
+                                   (j.tags || []).some(t => t.toLowerCase().includes(keyword));
+                        })
+                        .slice(0, 10)
+                        .map(j => ({
+                            id: `remoteok_${j.id}`,
+                            title: j.position,
+                            company: j.company,
+                            location: j.location || 'Remote',
+                            visa_sponsorship: false,
+                            skills_required: j.tags || [],
+                            external_apply_url: j.url,
+                            source_name: 'RemoteOK (live)'
+                        }));
+
+                    liveJobs = [...liveJobs, ...remoteOkJobs];
+                }
+            } catch (remoteOkError) {
+                console.warn('Live job search (RemoteOK) failed, continuing without it:', remoteOkError);
+            }
+
             const allJobs = [...(internalJobs || []), ...liveJobs];
 
             // 3. Real skill matching against the user's actual saved
