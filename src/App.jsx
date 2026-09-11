@@ -44,6 +44,7 @@ import { supabase } from './lib/supabase';
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import ScrollingBanner from './components/ScrollingBanner';
+import WorkforceConsentPrompt from './components/WorkforceConsentPrompt';
 import TermsPopup from './components/TermsPopup';
 import BrainstormPartner from './components/BrainstormPartner';
 import { useCapability } from './hooks/useCapability';
@@ -773,6 +774,11 @@ function AppContent() {
             {/* NEW (2026-08-16): ScrollingBanner and TermsPopup were both
                 built but never actually mounted anywhere — wired in here. */}
             <ScrollingBanner />
+            {/* NEW (2026-09-11): asks new users, once, about joining the
+                Workforce Marketplace - checks its own auth/consent state
+                internally and renders nothing if there's no signed-in
+                user or nothing to show, so it's safe to always mount. */}
+            <WorkforceConsentPrompt />
             <FraudSafetyBanner />
             
             {/* ✅ Mobile-optimized main container */}
