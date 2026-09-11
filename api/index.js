@@ -738,7 +738,7 @@ async function sendTesterCodeEmail(email, code) {
             // verified alias on the same domain - which is exactly what
             // this now does, with a safe fallback if the new variable
             // isn't set yet.
-            from: `"ODUSBABA" <${process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
+            from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
             to: email,
             subject: 'Your ODUSBABA Tester Invite Code',
             html: `<p>Thanks for your interest in becoming an ODUSBABA tester.</p><p>Your invite code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${code}</p><p>Enter this code during sign-up to activate your tester access. This code is unique to you and can only be used once.</p>`
@@ -5432,7 +5432,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 // email handler used for most platform-to-user emails,
                 // so this was the single biggest source of the personal
                 // email address being exposed to real users.
-                from: `"ODUSBABA" <${process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
+                from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
                 to,
                 subject: emailSubject,
                 html: emailHtml
