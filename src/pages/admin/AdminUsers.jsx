@@ -762,4 +762,15 @@ export default function AdminUsers() {
                             >
                                 {savingManage ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save Changes'}
                             </button>
-                            <button
+                            <button                                onClick={() => { setShowManageModal(false); setManageForm(null); }}
+                                className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
