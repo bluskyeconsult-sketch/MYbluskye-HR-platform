@@ -36,6 +36,15 @@ export default function AdminUsers() {
     const [selectedUser, setSelectedUser] = useState(null);
     const [showRoleModal, setShowRoleModal] = useState(false);
     const [updatingRole, setUpdatingRole] = useState(false);
+    // NEW (2026-09-11): confirmed real gap - the only prior "management"
+    // available was changing a role, suspending, or ending tester
+    // status. There was no way to actually view or manage the rest of
+    // a user's real profile - name, bio, location, tier, credits. This
+    // adds that, reusing the already-fetched select('*') data rather
+    // than a separate query.
+    const [showManageModal, setShowManageModal] = useState(false);
+    const [manageForm, setManageForm] = useState(null);
+    const [savingManage, setSavingManage] = useState(false);
     const [stats, setStats] = useState({
         total: 0,
         active: 0,
@@ -183,6 +192,38 @@ export default function AdminUsers() {
             console.error('Error updating role:', err);
         } finally {
             setUpdatingRole(false);
+        }
+    }
+
+    // NEW (2026-09-11): saves the full set of admin-manageable profile
+    // fields in one update, matching the same simple, direct-to-Supabase
+    // pattern already proven correct for updateUserRole above (rather
+    // than the previously-broken /api/index?action=admin-* pattern this
+    // file's own comment documents as dead).
+    async function saveManagedProfile() {
+        if (!manageForm) return;
+        setSavingManage(true);
+        try {
+            await supabase
+                .from('profiles')
+                .update({
+                    full_name: manageForm.full_name,
+                    bio: manageForm.bio,
+                    location: manageForm.location,
+                    country_code: manageForm.country_code,
+                    tier: manageForm.tier,
+                    is_active: manageForm.is_active,
+                    ai_credits_remaining: manageForm.ai_credits_remaining,
+                    va_credits_balance: manageForm.va_credits_balance
+                })
+                .eq('id', manageForm.id);
+            await loadUsers();
+            setShowManageModal(false);
+            setManageForm(null);
+        } catch (err) {
+            console.error('Error saving managed profile:', err);
+        } finally {
+            setSavingManage(false);
         }
     }
 
@@ -359,6 +400,15 @@ export default function AdminUsers() {
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => {
+                                        setManageForm({ ...user });
+                                        setShowManageModal(true);
+                                    }}
+                                    className="flex-1 py-2 text-slate-300 border border-slate-700 rounded-lg text-sm flex items-center justify-center gap-1.5"
+                                >
+                                    <Eye className="w-4 h-4" /> Manage
+                                </button>
+                                <button
+                                    onClick={() => {
                                         setSelectedUser(user);
                                         setShowRoleModal(true);
                                     }}
@@ -458,6 +508,16 @@ export default function AdminUsers() {
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    setManageForm({ ...user });
+                                                    setShowManageModal(true);
+                                                }}
+                                                className="p-1.5 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-700"
+                                                title="Manage profile"
+                                            >
+                                                <Eye className="w-4 h-4" />
+                                            </button>
                                             <button
                                                 onClick={() => {
                                                     setSelectedUser(user);
@@ -579,6 +639,127 @@ export default function AdminUsers() {
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
+
+            {/* NEW (2026-09-11): Manage Profile Modal - the actual
+                full-profile view/edit that was genuinely missing.
+                Shows and lets an admin edit the real fields that make
+                up a user's profile, not just role/suspend toggles. */}
+            {showManageModal && manageForm && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-white">Manage Profile</h2>
+                            <button onClick={() => { setShowManageModal(false); setManageForm(null); }} className="text-slate-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="mb-4">
+                            <p className="text-slate-400 text-sm mb-1">Email (read-only)</p>
+                            <p className="text-white font-medium">{manageForm.email}</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                                <input
+                                    type="text"
+                                    value={manageForm.full_name || ''}
+                                    onChange={(e) => setManageForm({ ...manageForm, full_name: e.target.value })}
+                                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Bio</label>
+                                <textarea
+                                    value={manageForm.bio || ''}
+                                    onChange={(e) => setManageForm({ ...manageForm, bio: e.target.value })}
+                                    rows={3}
+                                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Location</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.location || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, location: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Country Code</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.country_code || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, country_code: e.target.value })}
+                                        maxLength={2}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Tier</label>
+                                    <select
+                                        value={manageForm.tier || 'free'}
+                                        onChange={(e) => setManageForm({ ...manageForm, tier: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    >
+                                        <option value="free">Free</option>
+                                        <option value="registered">Registered</option>
+                                        <option value="professional">Professional</option>
+                                        <option value="employer">Employer</option>
+                                        <option value="business">Business</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Account Status</label>
+                                    <select
+                                        value={manageForm.is_active ? 'active' : 'inactive'}
+                                        onChange={(e) => setManageForm({ ...manageForm, is_active: e.target.value === 'active' })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    >
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">AI Credits Remaining</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={manageForm.ai_credits_remaining ?? 0}
+                                        onChange={(e) => setManageForm({ ...manageForm, ai_credits_remaining: parseInt(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">VA Credits Balance</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={manageForm.va_credits_balance ?? 0}
+                                        onChange={(e) => setManageForm({ ...manageForm, va_credits_balance: parseInt(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={saveManagedProfile}
+                                disabled={savingManage}
+                                className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
+                            >
+                                {savingManage ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save Changes'}
+                            </button>
+                            <button
