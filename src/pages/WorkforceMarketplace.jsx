@@ -71,6 +71,28 @@ export default function WorkforceMarketplace() {
         getCurrentUser();
     }, [listingCategory]);
 
+    // NEW (2026-09-11): wires up profile_views, which existed as a table
+    // with correct RLS but had nothing calling .insert() into it - the
+    // count always showed 0 regardless of real activity. Logs a view
+    // specifically when a viewer clicks "Contact Professional" - a much
+    // clearer, more meaningful signal of genuine interest than logging
+    // every card that happens to scroll into view, which would inflate
+    // counts for casual browsing. Never logs a self-view, and never
+    // blocks the UI or surfaces an error if logging itself fails - this
+    // is a secondary metric, not something that should ever interrupt
+    // the actual contact flow.
+    async function logProfileView(professional) {
+        if (!user || !professional?.user_id || user.id === professional.user_id) return;
+        try {
+            await supabase.from('profile_views').insert({
+                profile_id: professional.user_id,
+                viewed_by: user.id
+            });
+        } catch (err) {
+            console.warn('Could not log profile view (non-critical):', err.message);
+        }
+    }
+
     useEffect(() => {
         filterAndSortProfessionals();
     }, [professionals, searchQuery, selectedCategory, sortBy]);
@@ -527,7 +549,11 @@ export default function WorkforceMarketplace() {
                                         }
                                     >
                                         <button
-                                            onClick={() => setSelectedProfessional(selectedProfessional?.id === professional.id ? null : professional)}
+                                            onClick={() => {
+                                                const opening = selectedProfessional?.id !== professional.id;
+                                                setSelectedProfessional(opening ? professional : null);
+                                                if (opening) logProfileView(professional);
+                                            }}
                                             className="w-full py-2 border border-primary-500 text-primary-500 rounded-lg hover:bg-primary-500/10 transition text-sm flex items-center justify-center gap-2"
                                         >
                                             {selectedProfessional?.id === professional.id ? (
