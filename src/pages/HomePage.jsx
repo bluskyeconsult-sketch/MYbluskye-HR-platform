@@ -217,10 +217,14 @@ export default function HomePage() {
             const countryData = await Promise.all(
                 countries.map(async (country) => {
                     try {
+                        // CORRECTED (2026-09-12): confirmed via direct
+                        // schema query and matching live console 400
+                        // errors that country_code is the real column -
+                        // source_country doesn't exist on the jobs table.
                         const { count, error } = await supabase
                             .from('jobs')
                             .select('id', { count: 'exact', head: true })
-                            .eq('source_country', country.code)
+                            .eq('country_code', country.code)
                             .eq('is_active', true)
                             .eq('compliance_status', 'approved');
                         
