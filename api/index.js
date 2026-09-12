@@ -4739,7 +4739,28 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                 });
             }
 
-            const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
+            // FIXED (2026-09-12): confirmed critical, real bug - this was
+            // calling signInWithPassword() on the shared, module-level
+            // supabaseClient from getSupabase(), which is cached and
+            // reused across serverless invocations on a warm Vercel
+            // instance (normal, expected behavior for avoiding cold
+            // starts). signInWithPassword() mutates that shared client's
+            // internal session state - meaning a different user's
+            // request landing on the same warm instance shortly after
+            // could find this client operating under the wrong session
+            // context instead of genuine service-role privileges,
+            // exactly the kind of bug that produces intermittent,
+            // hard-to-reproduce failures that resolve on retry/refresh.
+            // Using a fresh, dedicated anon-key client here instead -
+            // never cached, never shared, and the correct key for a
+            // genuine user-context auth operation regardless (not
+            // service role, which this handler's shared client
+            // otherwise defaults to).
+            const freshAuthClient = createClient(
+                process.env.VITE_SUPABASE_URL,
+                process.env.VITE_SUPABASE_ANON_KEY
+            );
+            const { data: authData, error: signInError } = await freshAuthClient.auth.signInWithPassword({
                 email: normalizedEmail,
                 password
             });
