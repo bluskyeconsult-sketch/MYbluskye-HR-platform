@@ -29,6 +29,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useGovernance } from '../contexts/GovernanceContext';
+import PlatformCapacityWidget from '../components/admin/PlatformCapacityWidget';
 import { 
     Users, Briefcase, BookOpen, ClipboardList, Bot, Mail, 
     Database, Sparkles, BarChart3, Shield, Settings, TrendingUp,
@@ -195,6 +196,14 @@ export default function AdminDashboard() {
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
                     <p className="text-slate-400">Welcome back, {user?.email}</p>
+                </div>
+
+                {/* NEW (2026-09-11): platform capacity tracking - shows
+                    real usage against Supabase's actual free-tier
+                    limits, prompting an upgrade recommendation at a
+                    safe 70% threshold. */}
+                <div className="mb-8">
+                    <PlatformCapacityWidget />
                 </div>
 
                 {/* Enforcement Mode Toggle */}
