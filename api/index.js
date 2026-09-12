@@ -5054,6 +5054,91 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         return res.status(200).json({ success: true, added, skipped, errors });
     },
 
+    // ========== PLATFORM CAPACITY TRACKING ==========
+    // NEW (2026-09-11): tracks real usage against Supabase's actual
+    // free-tier limits (confirmed current as of this session: 500MB
+    // database, 1GB file storage, 50,000 MAU), surfacing a recommended
+    // upgrade prompt at 70% of any limit - a safe margin before the
+    // hard cap, not waiting until something breaks.
+    //
+    // Honest scope note: this measures what's genuinely queryable from
+    // inside the database itself (size, storage, active users).
+    // Vercel's bandwidth/function-invocation usage and Supabase's own
+    // egress bandwidth are platform-level metrics tracked by their own
+    // infrastructure, not visible via SQL from inside the app - those
+    // still need to be checked directly on each platform's own
+    // dashboard, or would need a separate integration with their
+    // management APIs to automate here too.
+    'admin-platform-capacity': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const SUPABASE_FREE_LIMITS = {
+                database_bytes: 500 * 1024 * 1024, // 500 MB
+                storage_bytes: 1024 * 1024 * 1024, // 1 GB
+                mau: 50000
+            };
+            const UPGRADE_THRESHOLD_PCT = 70;
+
+            const { data: dbSizeData, error: dbSizeError } = await supabaseClient
+                .rpc('get_database_size_bytes');
+            if (dbSizeError) throw dbSizeError;
+            const databaseBytes = dbSizeData || 0;
+
+            const { data: storageObjects, error: storageError } = await supabaseClient
+                .from('objects_size_view')
+                .select('total_bytes')
+                .maybeSingle();
+            const storageBytes = storageObjects?.total_bytes || 0;
+
+            const { data: mauCount, error: mauError } = await supabaseClient
+                .rpc('get_monthly_active_user_count');
+            if (mauError) throw mauError;
+
+            const metrics = [
+                {
+                    name: 'Database Size',
+                    used: databaseBytes,
+                    limit: SUPABASE_FREE_LIMITS.database_bytes,
+                    percentage: Math.round((databaseBytes / SUPABASE_FREE_LIMITS.database_bytes) * 100),
+                    unit: 'bytes'
+                },
+                {
+                    name: 'File Storage',
+                    used: storageBytes,
+                    limit: SUPABASE_FREE_LIMITS.storage_bytes,
+                    percentage: Math.round((storageBytes / SUPABASE_FREE_LIMITS.storage_bytes) * 100),
+                    unit: 'bytes'
+                },
+                {
+                    name: 'Monthly Active Users',
+                    used: mauCount || 0,
+                    limit: SUPABASE_FREE_LIMITS.mau,
+                    percentage: Math.round(((mauCount || 0) / SUPABASE_FREE_LIMITS.mau) * 100),
+                    unit: 'count'
+                }
+            ];
+
+            const shouldRecommendUpgrade = metrics.some(m => m.percentage >= UPGRADE_THRESHOLD_PCT);
+            const highestMetric = metrics.reduce((max, m) => m.percentage > max.percentage ? m : max, metrics[0]);
+
+            return res.status(200).json({
+                success: true,
+                metrics,
+                shouldRecommendUpgrade,
+                highestMetric: highestMetric.name,
+                highestPercentage: highestMetric.percentage,
+                threshold: UPGRADE_THRESHOLD_PCT,
+                note: 'Vercel bandwidth/function usage and Supabase egress are platform-level metrics not queryable from the database - check those directly on each platform dashboard.'
+            });
+        } catch (error) {
+            console.error('admin-platform-capacity error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-list-employer-sources': async (req, res) => {
         const supabaseClient = getSupabase();
         // FIXED (2026-09-09): confirmed this used getAuthenticatedUser
