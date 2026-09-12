@@ -171,16 +171,16 @@ export default function JobsPage() {
                 query = query.ilike('title', `%${searchQuery}%`);
             }
             
-            // FIXED (2026-08-16): filtered on 'country_code', which
-            // doesn't exist on the real jobs table — confirmed via
-            // multiple other places this session that use the real column
-            // (fraud detection trigger, chat job-search injection, the
-            // original job-insert logic all use source_country). Filtering
-            // on a nonexistent column returns a PostgREST error, not just
-            // empty results — meaning selecting any specific country
-            // likely broke the whole page with a visible error.
+            // CORRECTED (2026-09-12): the 2026-08-16 fix above changed
+            // this to source_country based on a claim that other places
+            // used that column. Confirmed via a direct, current schema
+            // query against the real jobs table (run this session,
+            // triggered by live 400 Bad Request errors on this exact
+            // query in production) that country_code is the real column
+            // and source_country does not exist on this table at all.
+            // Reverting to the column actually confirmed to exist.
             if (selectedCountry && selectedCountry !== 'all') {
-                query = query.eq('source_country', selectedCountry);
+                query = query.eq('country_code', selectedCountry);
             }
             
             // Apply job type filter
@@ -270,7 +270,7 @@ export default function JobsPage() {
         // Country filter (additional client-side)
         if (selectedCountry !== 'all') {
             filtered = filtered.filter(job => 
-                job.source_country === selectedCountry ||
+                job.country_code === selectedCountry ||
                 job.location?.includes(selectedCountry)
             );
         }
@@ -664,7 +664,7 @@ export default function JobsPage() {
                                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 sm:gap-4">
                                     <div className="flex-1">
                                         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
-                                            <span className="text-xl sm:text-2xl">{getCountryFlag(job.source_country)}</span>
+                                            <span className="text-xl sm:text-2xl">{getCountryFlag(job.country_code)}</span>
                                             <h3 className="text-base sm:text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
                                             {job.sponsorship_eligible && (
@@ -690,7 +690,7 @@ export default function JobsPage() {
                                         </p>
                                         
                                         <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-slate-400 mb-2 sm:mb-3">
-                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || getCountryName(job.source_country)}</span>
+                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || getCountryName(job.country_code)}</span>
                                             <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {formatSalary(job)}</span>
                                             <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(job.posted_at).toLocaleDateString()}</span>
                                         </div>
