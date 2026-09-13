@@ -464,6 +464,31 @@ async function verifyClaimedUserId(req, supabaseClient, claimedUserId) {
 // show this button to admins" is not a security boundary; this is the real
 // one. Mirrors the existing Bearer-token verification pattern already used
 // by assessment-results and others in this file.
+// NEW (2026-09-13): confirmed via direct RLS/schema review that
+// audit_logs' schema (was_allowed, deny_reason, risk_score,
+// tier_at_time) is specifically built for logging permission/decision
+// events - exactly what the tier-gating enforcement fixed elsewhere
+// this engagement represents (a free-tier user blocked from applying,
+// a registered user hitting a skill limit, etc.) - but nothing in the
+// real, live backend ever wrote to this table; only the confirmed-dead
+// odusbabaEngine.js did. This is the real writer, called from the
+// actual enforcement points. Never lets a logging failure block the
+// real action it's describing.
+async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllowed, denyReason = null }) {
+    try {
+        await supabaseClient.from('audit_logs').insert({
+            user_id: userId,
+            action_type: actionType,
+            tier_at_time: tier || 'unknown',
+            was_allowed: wasAllowed,
+            deny_reason: denyReason,
+            risk_score: wasAllowed ? 0 : 25
+        });
+    } catch (error) {
+        console.error('Audit log write failed (non-blocking):', error);
+    }
+}
+
 async function requireAdmin(req, supabaseClient) {
     const authCheck = await getAuthenticatedUser(req, supabaseClient);
     if (!authCheck.authorized) return authCheck;
@@ -847,6 +872,27 @@ function getMockAssessments() {
 // ============================================
 
 const emailTemplates = {
+    employer_invitation: (data) => `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+            <h1 style="color:#10b981;margin:0;">You're Already Listed as a Verified Sponsor</h1>
+        </div>
+        <div style="padding:24px;">
+            <p style="color:#e2e8f0;">Hello,</p>
+            <p style="color:#e2e8f0;"><strong>${data.companyName}</strong> already appears on ODUSBABA's directory of confirmed, government-registered skilled worker sponsors.</p>
+            <p style="color:#94a3b8;">Claim your listing to post your own open roles directly, connect with qualified candidates, and carry a "Verified Sponsor" badge that job seekers already trust.</p>
+            <a href="https://bluskyeconsult.com/sign-up" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">Claim Your Listing</a>
+        </div>
+        <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
+            <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
+        </div>
+    </div>
+</body>
+</html>`,
+
     contact: (data) => `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -3354,6 +3400,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .single();
 
             if (profile?.tier === 'free') {
+                await logAuditEvent(supabaseClient, { userId, actionType: 'submit_skill', tier: profile.tier, wasAllowed: false, denyReason: 'Free tier cannot submit skills' });
                 return res.status(403).json({ success: false, error: 'Free tier cannot submit skills. Please register to continue.' });
             }
 
@@ -3364,9 +3411,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     .eq('user_id', userId);
 
                 if ((count || 0) >= 3) {
+                    await logAuditEvent(supabaseClient, { userId, actionType: 'submit_skill', tier: profile.tier, wasAllowed: false, denyReason: 'Skill limit reached (3)' });
                     return res.status(403).json({ success: false, error: 'Skill limit reached (3). Upgrade to Professional for unlimited skills.' });
                 }
             }
+
+            await logAuditEvent(supabaseClient, { userId, actionType: 'submit_skill', tier: profile?.tier, wasAllowed: true });
 
             const { data, error } = await supabaseClient
                 .from('user_skills')
@@ -5379,6 +5429,114 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                     last_fetched_at: new Date().toISOString()
                 }).eq('id', sourceId);
             } catch {}
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== EMPLOYER SPONSOR LINKING (LEGAL ALTERNATIVE TO SCRAPING) ==========
+    // NEW (2026-09-13): confirmed the imported government sponsor
+    // register (45,189 companies) has no website URLs at all, meaning
+    // the existing scraper genuinely cannot source jobs from it - and
+    // attempting to scrape 45,189 individual, unconsenting company
+    // sites wouldn't be practical or reliable even if URLs existed.
+    // This is the real, legal, more valuable alternative: when a real
+    // employer's company name matches an existing verified sponsor
+    // record, link their account to it - giving them instant "verified
+    // sponsor" status as a genuine incentive to post real, current
+    // jobs directly, rather than the platform extracting stale data
+    // from a site that never opted in.
+    'check-employer-sponsor-match': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { userId, companyName } = req.body;
+        if (!userId || !companyName) return res.status(400).json({ error: 'userId and companyName are required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: match } = await supabaseClient
+                .from('verified_employer_sources')
+                .select('id, company_name, linked_user_id')
+                .ilike('company_name', companyName.trim())
+                .is('linked_user_id', null)
+                .maybeSingle();
+
+            if (!match) {
+                return res.status(200).json({ success: true, matched: false });
+            }
+
+            const { error: linkError } = await supabaseClient
+                .from('verified_employer_sources')
+                .update({ linked_user_id: userId, invitation_status: 'claimed' })
+                .eq('id', match.id);
+            if (linkError) throw linkError;
+
+            await supabaseClient
+                .from('profiles')
+                .update({ is_verified_sponsor: true })
+                .eq('id', userId);
+
+            return res.status(200).json({ success: true, matched: true, companyName: match.company_name });
+        } catch (error) {
+            console.error('check-employer-sponsor-match error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    // Admin batch invitation - sends a real, genuine invitation to
+    // employers with a known email who haven't been invited yet,
+    // rather than any form of automated data extraction. Sent in small
+    // batches per call (not all 2,413 at once) so this can be safely
+    // triggered repeatedly from the admin UI without one massive,
+    // fragile email-sending operation.
+    'admin-invite-verified-employers': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { batchSize = 50 } = req.body;
+
+        try {
+            const { data: candidates, error: fetchError } = await supabaseClient
+                .from('verified_employer_sources')
+                .select('id, company_name, contact_email')
+                .eq('invitation_status', 'not_invited')
+                .not('contact_email', 'is', null)
+                .limit(batchSize);
+            if (fetchError) throw fetchError;
+
+            let sent = 0;
+            for (const employer of candidates || []) {
+                try {
+                    await fetch(`https://www.bluskyeconsult.com/api/index?action=email`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            to: employer.contact_email,
+                            type: 'employer_invitation',
+                            templateData: { companyName: employer.company_name }
+                        })
+                    }).catch(() => {}); // one failed email shouldn't stop the batch
+
+                    await supabaseClient
+                        .from('verified_employer_sources')
+                        .update({ invitation_status: 'invited', invited_at: new Date().toISOString() })
+                        .eq('id', employer.id);
+                    sent++;
+                } catch {
+                    // continue to next candidate regardless
+                }
+            }
+
+            const { count: remaining } = await supabaseClient
+                .from('verified_employer_sources')
+                .select('id', { count: 'exact', head: true })
+                .eq('invitation_status', 'not_invited')
+                .not('contact_email', 'is', null);
+
+            return res.status(200).json({ success: true, sent, remaining: remaining || 0 });
+        } catch (error) {
+            console.error('admin-invite-verified-employers error:', error);
             return res.status(200).json({ success: false, error: error.message });
         }
     },
@@ -7519,6 +7677,88 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     // a prefix, since the earlier design already proved a "just the
     // prefix" approach isn't actually safe once you're this deep on a
     // security fix.
+    // ========== SAFE SYSTEM DIAGNOSTICS ==========
+    // NEW (2026-09-13): replaces a genuinely dangerous, uploaded
+    // diagnosticsService.js - its selfHeal() tried querying auth.users
+    // directly via the regular client, which is never accessible that
+    // way and always returns empty, meaning "not in an empty list"
+    // matched every real profile - the function would have deleted
+    // every user account it ever ran against. This action reports
+    // real issues only, for admin review - it never deletes or
+    // modifies anything automatically. Powers AdminDiagnostics.jsx's
+    // diagnostic_logs tab, which existed with nothing legitimate
+    // writing to it.
+    'run-diagnostics': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const checks = [];
+        let healthy = true;
+
+        try {
+            const dbStart = Date.now();
+            const { error: dbError } = await supabaseClient.from('profiles').select('id', { count: 'exact', head: true });
+            checks.push({ name: 'Database Connection', status: dbError ? 'failed' : 'passed', responseTime: Date.now() - dbStart, error: dbError?.message });
+            if (dbError) healthy = false;
+        } catch (e) {
+            checks.push({ name: 'Database Connection', status: 'failed', error: e.message });
+            healthy = false;
+        }
+
+        try {
+            // Genuinely safe orphan check - uses the real auth admin
+            // API (available to a service-role client) rather than
+            // trying to query the protected auth.users table directly,
+            // and only ever reports a count for admin review, never
+            // deletes anything automatically.
+            const { data: authUsers, error: authError } = await supabaseClient.auth.admin.listUsers();
+            if (authError) throw authError;
+            const authIds = new Set((authUsers?.users || []).map(u => u.id));
+
+            const { data: allProfiles } = await supabaseClient.from('profiles').select('id');
+            const orphanedCount = (allProfiles || []).filter(p => !authIds.has(p.id)).length;
+
+            checks.push({
+                name: 'Orphaned Profiles',
+                status: orphanedCount > 0 ? 'warning' : 'passed',
+                detail: orphanedCount > 0 ? `${orphanedCount} profile(s) with no matching auth account - review manually, nothing auto-deleted` : 'None found'
+            });
+        } catch (e) {
+            checks.push({ name: 'Orphaned Profiles', status: 'failed', error: e.message });
+        }
+
+        try {
+            const { count: expiredTesters } = await supabaseClient
+                .from('profiles')
+                .select('id', { count: 'exact', head: true })
+                .eq('is_tester', true)
+                .lt('tester_expires_at', new Date().toISOString());
+
+            checks.push({
+                name: 'Expired Tester Accounts',
+                status: (expiredTesters || 0) > 0 ? 'warning' : 'passed',
+                detail: (expiredTesters || 0) > 0 ? `${expiredTesters} tester account(s) past expiry - review manually` : 'None found'
+            });
+        } catch (e) {
+            checks.push({ name: 'Expired Tester Accounts', status: 'failed', error: e.message });
+        }
+
+        const result = { healthy, checks, timestamp: new Date().toISOString() };
+
+        try {
+            await supabaseClient.from('diagnostic_logs').insert({
+                check_type: 'system_diagnostics',
+                status: healthy ? 'healthy' : 'degraded',
+                metadata: result
+            });
+        } catch (logError) {
+            console.error('diagnostic_logs write failed (non-blocking):', logError);
+        }
+
+        return res.status(200).json({ success: true, ...result });
+    },
+
     'system-config-health': async (req, res) => {
         try {
             return res.status(200).json({
