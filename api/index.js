@@ -5099,17 +5099,30 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
         let added = 0, skipped = 0, errors = [];
         for (const c of companies) {
-            if (!c.companyName || !c.websiteUrl) { skipped++; continue; }
+            // FIXED (2026-09-13): confirmed real cause of a genuine
+            // bulk-import CSV (compiled from official government
+            // sponsor register data) showing "0 valid rows" - website
+            // URLs simply weren't available for that data at compile
+            // time. Relaxed to only require a company name, matching
+            // the same fix made in the frontend's parseCSV(). Multiple
+            // rows with a null website_url don't violate the unique
+            // constraint on that column - NULL is never considered
+            // equal to another NULL under standard SQL uniqueness
+            // semantics.
+            if (!c.companyName) { skipped++; continue; }
 
             // SECURITY: every URL in a bulk import is validated
             // individually - one unsafe entry in a large pasted register
             // is rejected on its own, it doesn't block or corrupt the
-            // rest of the batch.
+            // rest of the batch. Skipped entirely when there's no URL
+            // to check at all.
             const urlToCheck = c.careersPageUrl || c.websiteUrl;
-            const safetyCheck = isSafeExternalUrl(urlToCheck);
-            if (!safetyCheck.safe) {
-                errors.push({ company: c.companyName, error: `Rejected for safety: ${safetyCheck.reason}` });
-                continue;
+            if (urlToCheck) {
+                const safetyCheck = isSafeExternalUrl(urlToCheck);
+                if (!safetyCheck.safe) {
+                    errors.push({ company: c.companyName, error: `Rejected for safety: ${safetyCheck.reason}` });
+                    continue;
+                }
             }
 
             try {
@@ -5117,7 +5130,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
                     .from('verified_employer_sources')
                     .insert({
                         company_name: c.companyName,
-                        website_url: c.websiteUrl,
+                        website_url: c.websiteUrl || null,
                         careers_page_url: c.careersPageUrl || null,
                         is_verified_sponsor: true, // bulk import is specifically for the sponsor register use case
                         sponsor_license_type: c.sponsorLicenseType || null,
