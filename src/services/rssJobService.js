@@ -823,6 +823,15 @@ async function saveJobToDatabase(job, sponsorship) {
             return { status: 'exists', id: existing.id };
         }
         
+        // FIXED (2026-09-13): confirmed via direct schema query that
+        // this insert had multiple genuine column mismatches, meaning
+        // it failed on literally every attempt - the real cause of
+        // "found: 25, added: 0" with no visible error (the error itself
+        // was also being silently swallowed - fixed separately above).
+        // salary_min/salary_max and sponsorship_eligible don't exist on
+        // this table at all; source_country doesn't exist (only
+        // 'source' does); external_apply_url should be external_url;
+        // published_at should be posted_date.
         const { data, error } = await supabase
             .from('external_jobs')
             .insert({
@@ -831,16 +840,14 @@ async function saveJobToDatabase(job, sponsorship) {
                 location: job.location || job.source_country,
                 description: job.description,
                 salary_range: job.salary_range,
-                salary_min: job.salary_min,
-                salary_max: job.salary_max,
                 job_type: job.job_type,
-                external_apply_url: job.external_url,
-                source_country: job.source_country,
+                external_url: job.external_url,
+                source: job.source_country,
                 source_name: job.source_name,
-                sponsorship_eligible: sponsorship.eligible,
                 status: 'pending_approval',
+                is_active: true,
                 created_at: new Date().toISOString(),
-                published_at: job.posted_date
+                posted_date: job.posted_date
             })
             .select()
             .single();
