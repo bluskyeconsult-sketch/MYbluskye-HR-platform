@@ -3,16 +3,17 @@
 //
 // FIXED (2026-08-07): checkAdminAccess() only checked
 // user.email === 'bluskyeconsult@gmail.com' — no user_type check at all,
-// despite the file being explicitly commented "SUPER ADMIN ONLY". This is
-// the 7th confirmed instance of the hardcoded admin-email pattern across
-// this codebase, and the most exposed one yet — this page had zero
-// database-driven access control. Fixed to check profiles.user_type,
-// consistent with every other admin page.
+// despite the file being explicitly commented "SUPER ADMIN ONLY". Fixed
+// to check profiles.user_type, consistent with every other admin page.
 //
-// FIXED (2026-08-16): handleRefresh() posted to /api/refresh-knowledge,
-// which didn't exist anywhere in this project. Now calls a real
-// refresh-knowledge action that actually fetches the source URL, strips it
-// to plain text, and stores it in the new ai_knowledge_base table.
+// FIXED (2026-09-13): handleRefresh() previously posted to
+// /api/refresh-knowledge, which genuinely didn't exist anywhere in this
+// project - honestly flagged back on 2026-08-07 as unbuilt, not a bug.
+// Now calls the real, built refresh-knowledge-source action, which
+// actually fetches the source URL (respecting robots.txt, identifying
+// honestly, not disguising as a browser), extracts readable text, and
+// caches it for odusbaba-chat to reference when answering
+// law/immigration/jobs questions.
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -44,8 +45,6 @@ export default function KnowledgeSourceManager() {
             return;
         }
 
-        // FIXED: real database check instead of a hardcoded email with no
-        // fallback at all.
         const { data: profile } = await supabase
             .from('profiles')
             .select('user_type')
@@ -96,24 +95,25 @@ export default function KnowledgeSourceManager() {
         fetchSources();
     }
 
-    // FIXED (2026-08-16): now calls the real refresh-knowledge action
-    // built alongside this fix (previously /api/refresh-knowledge didn't
-    // exist anywhere — this always failed with the fallback message).
     async function handleRefresh(sourceId) {
         setRefreshingId(sourceId);
         
         try {
-            const response = await fetch('/api/index?action=refresh-knowledge', {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=refresh-knowledge-source', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
                 body: JSON.stringify({ sourceId })
             });
             
             const result = await response.json();
             if (result.success) {
-                alert(`Knowledge base refreshed successfully (${result.contentLength} characters fetched)`);
+                alert(`Knowledge source refreshed successfully (${result.contentLength} characters cached)`);
             } else {
-                alert('Failed to refresh: ' + (result.error || 'Unknown error'));
+                alert('Failed to refresh: ' + result.error);
             }
         } catch (error) {
             alert('Failed to refresh: ' + error.message);
@@ -188,6 +188,9 @@ export default function KnowledgeSourceManager() {
                                     {source.last_fetched_at ? new Date(source.last_fetched_at).toLocaleDateString() : 'Never fetched'}
                                 </span>
                             </div>
+                            {source.last_fetch_status === 'failed' && (
+                                <p className="text-red-400 text-xs mb-2">⚠️ {source.last_fetch_error}</p>
+                            )}
                             <div className="flex gap-2">
                                 <button onClick={() => handleRefresh(source.id)} disabled={refreshingId === source.id} className="flex-1 py-2 bg-slate-800 rounded-lg text-slate-300 text-sm flex items-center justify-center gap-1.5">
                                     {refreshingId === source.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
@@ -234,7 +237,9 @@ export default function KnowledgeSourceManager() {
                                         {source.last_fetched_at ? new Date(source.last_fetched_at).toLocaleDateString() : 'Never'}
                                     </td>
                                     <td className="px-4 py-3">
-                                        {source.is_active ? (
+                                        {source.last_fetch_status === 'failed' ? (
+                                            <span className="flex items-center gap-1 text-red-400 text-sm" title={source.last_fetch_error}><XCircle className="w-3 h-3" /> Failed</span>
+                                        ) : source.is_active ? (
                                             <span className="flex items-center gap-1 text-green-400 text-sm"><CheckCircle className="w-3 h-3" /> Active</span>
                                         ) : (
                                             <span className="flex items-center gap-1 text-red-400 text-sm"><XCircle className="w-3 h-3" /> Inactive</span>
