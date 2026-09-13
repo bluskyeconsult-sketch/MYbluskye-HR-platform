@@ -33,17 +33,17 @@ export default function ConfirmPage() {
         }
 
         try {
-            // FIXED (2026-09-09): confirmed via a real, live test that
-            // exchangeCodeForSession was the wrong method entirely - that
-            // API expects a `code` parameter from an OAuth-style redirect.
-            // A `token=pkce_...` value in a `token` query parameter is
-            // actually Supabase's signup verification flow, which
-            // requires verifyOtp with token_hash - a genuinely different
-            // method. This was a real bug in the first version of this
-            // fix, not a deployment issue.
+            // FIXED (2026-09-12): confirmed exact, definitive root cause
+            // directly from Supabase's own current documentation - for
+            // email-based verifyOtp calls, valid types are 'email',
+            // 'recovery', 'invite', or 'email_change'. 'signup' is
+            // explicitly deprecated. This is why every real account
+            // never actually got email_confirmed_at set despite this
+            // flow appearing to complete - confirmed via direct query
+            // showing every recent signup's email_confirmed_at as null.
             const { error } = await supabase.auth.verifyOtp({
                 token_hash: token,
-                type: 'signup'
+                type: 'email'
             });
 
             if (error) throw error;
