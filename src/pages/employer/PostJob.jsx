@@ -108,6 +108,17 @@ export default function PostJob() {
 
                 if ((count || 0) >= 20) {
                     alert('Monthly job posting limit reached (20). Upgrade to Business for unlimited job postings.');
+                    // NEW (2026-09-13): continuing the audit-logging
+                    // rollout - same direct-insert pattern as
+                    // JobDetailPage.jsx's apply_job denial.
+                    supabase.from('audit_logs').insert({
+                        user_id: user.id,
+                        action_type: 'post_job',
+                        tier_at_time: profile.tier,
+                        was_allowed: false,
+                        deny_reason: 'Monthly job posting limit reached (20)',
+                        risk_score: 25
+                    }).then(() => {}, () => {});
                     setLoading(false);
                     return;
                 }
@@ -131,6 +142,28 @@ export default function PostJob() {
                 .select();
 
             if (error) throw error;
+
+            // NEW (2026-09-13): checks whether this employer's company
+            // name matches an existing, government-verified sponsor
+            // record - if so, links their account and marks them
+            // verified automatically. This is deliberately silent and
+            // best-effort here (no alert either way) - a genuine bonus
+            // for a real match, never a blocker if it doesn't match or
+            // the check itself fails.
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                await fetch('/api/index?action=check-employer-sponsor-match', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`
+                    },
+                    body: JSON.stringify({ userId: user.id, companyName: formData.company })
+                });
+            } catch {
+                // silently ignored - this is a bonus check, not a
+                // required part of posting a job
+            }
 
             // FIXED: honest messaging — this was "Job posted successfully!"
             // implying it was immediately live, which wasn't true.
