@@ -336,27 +336,10 @@ export default function SignUpPage() {
         }
     }
 
-    // Send welcome email via unified API
-    async function sendWelcomeEmail(email, fullName, userType, isTestingMode) {
-        try {
-            await fetch(`${API_BASE}?action=email`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    to: email,
-                    type: isTestingMode ? 'tester_welcome' : 'welcome',
-                    templateData: { 
-                        name: fullName, 
-                        userType,
-                        uses: testingConfig.aiCallCap,
-                        days: testingConfig.accessDays
-                    }
-                })
-            });
-        } catch (err) {
-            console.warn('Email notification failed:', err);
-        }
-    }
+    // REMOVED (2026-09-13): sendWelcomeEmail() previously lived here,
+    // fired immediately at signup. Moved to ConfirmPage.jsx, where it
+    // now fires only after genuine email confirmation succeeds - see
+    // that file for the corrected version and the reasoning.
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -644,9 +627,19 @@ export default function SignUpPage() {
             // Email Templates / SMTP Settings) to use the same broken
             // Hostinger credentials - a dashboard configuration issue, not
             // something fixable in this frontend file.
-            sendWelcomeEmail(formData.email, formData.full_name, userType, isTestingMode).catch(err => {
-                console.warn('Welcome email failed to send:', err);
-            });
+            // FIXED (2026-09-13): confirmed real, structural bug - this
+            // "Welcome, go to your dashboard" email was firing
+            // immediately at signup, before the user had even clicked
+            // their separate confirmation email. A new user receiving
+            // both emails nearly simultaneously would naturally click
+            // this one first (it says "go to dashboard"), get
+            // redirected to sign-in if not already logged in, and be
+            // correctly rejected by Supabase since their account isn't
+            // confirmed yet - producing exactly the "invalid email or
+            // password" confusion multiple real users hit. Moved to
+            // fire only after genuine confirmation succeeds, in
+            // ConfirmPage.jsx, when going to the dashboard is actually,
+            // truthfully possible.
 
             setSuccess(true);
             
