@@ -1,3 +1,39 @@
+// ============================================================
+// ⚠️ DEPRECATED - NOT USED ANYWHERE IN THE REAL APP (2026-09-13)
+// ============================================================
+// Confirmed via direct search: this file is never imported by any
+// real frontend page or component. checkPermission() defines correct,
+// sensible business rules, but nothing in the live app ever actually
+// calls it - a systematic access-tier audit this session found real,
+// live actions bypassing every one of these rules entirely:
+//
+// - post_job: enforced separately and correctly in PostJob.jsx
+//   directly (an explicit tier check added there earlier), never via
+//   this file.
+// - apply_job: was completely unenforced - JobDetailPage.jsx's
+//   handleApply() inserted directly with zero tier check. Fixed
+//   2026-09-13 by enforcing the same rule directly in that handler,
+//   not by wiring this file in.
+// - submit_skill: was completely unenforced - the real user-skill-add
+//   backend action (api/index.js) only verified identity, never tier.
+//   Fixed 2026-09-13 the same way, directly in that handler. Note this
+//   file's own check also queries the wrong table ('skills' - the real,
+//   confirmed table used everywhere else is 'user_skills').
+// - ai_chat: superseded entirely - the real chat handler
+//   (api/index.js) uses a different, newer, unified va_credits.balance
+//   system across every AI feature, not the separate monthly
+//   ai_usage_tracking count this file checks.
+//
+// This file is left in place rather than deleted in case something
+// not yet found still references it, but it should not be treated as
+// an active part of this app's access control. Real tier/permission
+// enforcement for any new feature should be written directly into the
+// backend action or component that performs it - a client-side-only
+// permission check like this one can always be bypassed by calling
+// the backend directly, so it was never a safe enforcement layer
+// regardless of whether it had been wired in.
+// ============================================================
+
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
