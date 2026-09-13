@@ -238,6 +238,49 @@ export default function JobDetailPage() {
       navigate('/sign-in');
       return;
     }
+
+    // NEW (2026-09-13): confirmed via a systematic access-tier audit
+    // that this stated business rule - free tier cannot apply,
+    // registered tier limited to 10/month - was completely unenforced
+    // anywhere in the real, live code path. Two separate systems
+    // (GovernanceContext.jsx's hardcoded matrix, odusbabaEngine.js's
+    // checkPermission) both existed but neither was actually called
+    // here - this insert ran directly, bypassing both. Enforced
+    // directly at the point of action instead of relying on either
+    // system, matching the exact rule odusbabaEngine.js already stated
+    // but never applied.
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('tier')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.tier === 'free') {
+        toast.error('Free tier cannot apply for jobs. Please register to continue.');
+        return;
+      }
+
+      if (profile?.tier === 'registered') {
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        const { count } = await supabase
+          .from('job_applications')
+          .select('id', { count: 'exact', head: true })
+          .eq('applicant_id', user.id)
+          .gte('created_at', startOfMonth.toISOString());
+
+        if ((count || 0) >= 10) {
+          toast.error('Monthly application limit reached (10). Upgrade to Professional for unlimited applications.');
+          return;
+        }
+      }
+    } catch (tierCheckErr) {
+      console.error('Tier check failed:', tierCheckErr);
+      toast.error('Could not verify your account status. Please try again.');
+      return;
+    }
     
     setSubmitting(true);
     try {
