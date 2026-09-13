@@ -269,7 +269,7 @@ export default function JobDetailPage() {
           .from('job_applications')
           .select('id', { count: 'exact', head: true })
           .eq('applicant_id', user.id)
-          .gte('created_at', startOfMonth.toISOString());
+          .gte('applied_at', startOfMonth.toISOString());
 
         if ((count || 0) >= 10) {
           toast.error('Monthly application limit reached (10). Upgrade to Professional for unlimited applications.');
@@ -313,7 +313,13 @@ export default function JobDetailPage() {
         applicant_id: user.id,
         cover_letter: coverLetter,
         cv_url: cvUrl,
-        status: 'pending'
+        status: 'pending',
+        // NEW (2026-09-13): a prior fix removed this as "speculative"
+        // before its existence was confirmed. Now directly confirmed
+        // via schema query to genuinely exist - setting it explicitly
+        // rather than assuming an unconfirmed default, since the new
+        // monthly-limit check above depends on this being accurate.
+        applied_at: new Date().toISOString()
       });
       toast.success('Application submitted successfully!');
       setShowApplyForm(false);
