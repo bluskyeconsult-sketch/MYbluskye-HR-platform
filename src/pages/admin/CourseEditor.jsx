@@ -274,6 +274,35 @@ export default function CourseEditor() {
         }
     }
 
+    // NEW (2026-09-13): a direct, immediate publish/unpublish action -
+    // deliberately not just setCourse() followed by saveCourse(), since
+    // React state updates are asynchronous and saveCourse() reading
+    // course.is_published right after a setCourse() call in the same
+    // function would still see the OLD value, not the just-toggled one.
+    // For an existing, already-saved course, this updates the database
+    // directly with the new value. For a brand-new, unsaved course
+    // (id === 'new'), just flips local state, since there's no course
+    // row to update yet - saveCourse() will pick up the new value
+    // normally when the user does save.
+    async function togglePublish() {
+        const newValue = !course.is_published;
+        if (id === 'new') {
+            setCourse({ ...course, is_published: newValue });
+            return;
+        }
+        try {
+            const { error } = await supabase
+                .from('courses')
+                .update({ is_published: newValue })
+                .eq('id', id);
+            if (error) throw error;
+            setCourse({ ...course, is_published: newValue });
+        } catch (error) {
+            console.error('Error toggling publish status:', error);
+            alert('Failed to update publish status: ' + error.message);
+        }
+    }
+
     async function saveCourse() {
         if (!course.title) {
             alert('Please enter a course title');
@@ -372,15 +401,22 @@ export default function CourseEditor() {
                         {id === 'new' ? 'Create Course' : 'Edit Course'}
                     </h1>
                     <div className="flex gap-3 flex-wrap">
+                        {/* FIXED (2026-09-13): confirmed this control
+                            genuinely existed already, but as an
+                            ambiguous status-looking badge rather than a
+                            clear, obvious action - easy to mistake for
+                            a read-only label rather than something
+                            clickable. Made explicit. */}
                         <button
-                            onClick={() => setCourse({ ...course, is_published: !course.is_published })}
-                            className={`px-4 py-2 rounded-lg transition ${
+                            onClick={togglePublish}
+                            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
                                 course.is_published 
-                                    ? 'bg-emerald-600 text-white' 
-                                    : 'bg-slate-700 text-slate-300'
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
+                                    : 'bg-amber-600 text-white hover:bg-amber-500'
                             }`}
                         >
-                            {course.is_published ? 'Published' : 'Draft'}
+                            <Eye className="w-4 h-4" />
+                            {course.is_published ? 'Published — Click to Unpublish' : 'Draft — Click to Publish'}
                         </button>
                         <button
                             onClick={saveCourse}
@@ -440,6 +476,40 @@ export default function CourseEditor() {
                                 onChange={(e) => setCourse({ ...course, duration_hours: parseInt(e.target.value) })}
                                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                             />
+                        </div>
+                        {/* NEW (2026-09-13): confirmed real, complete gap -
+                            price and is_free were already saved to the
+                            database by saveCourse(), but there was
+                            genuinely no input anywhere in this editor to
+                            actually set them - price could only ever be
+                            whatever the state's default (0) was. */}
+                        <div>
+                            <label className="block text-sm text-slate-400 mb-1">Pricing</label>
+                            <div className="flex items-center gap-3 mb-2">
+                                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={course.is_free}
+                                        onChange={(e) => setCourse({ ...course, is_free: e.target.checked, price: e.target.checked ? 0 : course.price })}
+                                        className="w-4 h-4"
+                                    />
+                                    Free course
+                                </label>
+                            </div>
+                            {!course.is_free && (
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={course.price || ''}
+                                        onChange={(e) => setCourse({ ...course, price: parseFloat(e.target.value) || 0 })}
+                                        className="w-full pl-7 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            )}
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm text-slate-400 mb-1">Description</label>
