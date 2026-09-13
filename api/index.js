@@ -584,23 +584,24 @@ async function callOpenAIImage(prompt) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
-    // FIXED (2026-09-13): confirmed directly from OpenAI's own current
-    // documentation - both dall-e-3 (retired March 2026) and dall-e-2
-    // (discontinued May 2026) have been permanently removed from the
-    // API. This isn't a code bug, it's an external model deprecation.
-    // gpt-image-2.5-flare is OpenAI's current recommended model for
-    // fast, everyday image generation. Critically, GPT-Image models
-    // return base64-encoded data (b64_json), not a URL like DALL-E did
-    // - this function now returns a real Buffer of the actual image
-    // bytes instead of a URL, since there's no URL to return anymore.
+    // UPDATED (2026-09-13): confirmed via direct research on OpenAI's
+    // current pricing - gpt-image-1-mini is explicitly their cheapest
+    // image model tier ($0.005-$0.052/image), versus gpt-image-2.5-flare
+    // used previously ($0.006-$0.211/image - both 2.5 models cost
+    // identically to each other, so that switch alone saved nothing).
+    // The quality setting is the single biggest cost lever of all - up
+    // to a 35x difference between low and high - so explicitly setting
+    // quality: 'low' here, appropriate for course/article illustration
+    // use where photorealistic perfection isn't the goal.
     const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            model: 'gpt-image-2.5-flare',
+            model: 'gpt-image-1-mini',
             prompt,
             n: 1,
-            size: '1024x1024'
+            size: '1024x1024',
+            quality: 'low'
         })
     });
 
