@@ -32,6 +32,7 @@ export default function EmployerSourcesManager() {
     const [csvText, setCsvText] = useState('');
     const [importing, setImporting] = useState(false);
     const [importResult, setImportResult] = useState(null);
+    const [importProgress, setImportProgress] = useState(null);
     const fileInputRef = useRef(null);
 
     const [scraping, setScraping] = useState(false);
@@ -153,17 +154,45 @@ export default function EmployerSourcesManager() {
         setImporting(true);
         setError(null);
         setImportResult(null);
-        try {
-            const result = await authenticatedFetch('admin-bulk-import-employer-sources', { companies });
-            setImportResult(result);
-            setCsvText('');
-            if (fileInputRef.current) fileInputRef.current.value = '';
-            await loadSources();
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setImporting(false);
+
+        // FIXED (2026-09-13): confirmed real, live bug - a genuine
+        // 45,189-row CSV exceeded Vercel's hard 4.5MB request body
+        // limit, returning a plain-text 413 the backend never turns
+        // into JSON, which authenticatedFetch then failed to parse
+        // ("Unexpected token 'R'... Request Entity Too Large").
+        // Chunking into safe-sized batches well under that limit, and
+        // continuing through remaining batches even if one fails,
+        // rather than aborting the entire import on one bad chunk.
+        const CHUNK_SIZE = 1000;
+        const chunks = [];
+        for (let i = 0; i < companies.length; i += CHUNK_SIZE) {
+            chunks.push(companies.slice(i, i + CHUNK_SIZE));
         }
+
+        const aggregate = { added: 0, skipped: 0, errors: [] };
+        setImportProgress({ current: 0, total: chunks.length });
+
+        for (let i = 0; i < chunks.length; i++) {
+            try {
+                const result = await authenticatedFetch('admin-bulk-import-employer-sources', { companies: chunks[i] });
+                aggregate.added += result.added || 0;
+                aggregate.skipped += result.skipped || 0;
+                if (result.errors?.length) aggregate.errors.push(...result.errors);
+            } catch (err) {
+                // A whole batch failing (e.g. a transient network error)
+                // doesn't stop the remaining batches - it's recorded as
+                // an honest, visible failure instead.
+                aggregate.errors.push({ company: `Batch ${i + 1} (${chunks[i].length} rows)`, error: err.message });
+            }
+            setImportProgress({ current: i + 1, total: chunks.length });
+        }
+
+        setImportResult(aggregate);
+        setImportProgress(null);
+        setCsvText('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        await loadSources();
+        setImporting(false);
     }
 
     return (
@@ -298,6 +327,20 @@ export default function EmployerSourcesManager() {
                     {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     Import {csvText.trim() ? `${parseCSV(csvText).length} Companies` : ''}
                 </button>
+
+                {importProgress && (
+                    <div className="mt-3">
+                        <p className="text-sm text-slate-400 mb-1">
+                            Importing batch {importProgress.current} of {importProgress.total}...
+                        </p>
+                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-primary-500 transition-all"
+                                style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
 
                 {importResult && (
                     <div className="mt-3 p-3 bg-slate-800/50 rounded-lg text-sm">
