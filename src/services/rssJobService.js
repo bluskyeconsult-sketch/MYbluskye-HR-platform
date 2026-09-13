@@ -240,10 +240,23 @@ const API_SOURCES = {
     // API key header - no signup or registration needed. Moved here
     // from RSS_FEEDS since it needs custom headers and JSON parsing,
     // not RSS/XML.
+    // FIXED (2026-09-13): confirmed via the official OpenAPI spec
+    // (github.com/bundesAPI/jobsuche-api) that /pc/v4/jobs, used here
+    // previously, now returns a genuine, live 403 - the API has moved
+    // on to /pc/v6/jobs as its current, documented search endpoint.
+    // Also corrected: the search response's real title field is
+    // 'beruf', not 'titel', and critically, the search response has NO
+    // description field at all ('stellenbeschreibung' only exists on
+    // the separate, per-job jobdetails endpoint) - the earlier
+    // fallback to job.titel for description was masking this gap, not
+    // fixing it. And the job-viewing URL was a guessed pattern with no
+    // confirmed public format - now uses the real externeUrl field
+    // when the API provides one, falling back to a genuine search link
+    // that will actually work rather than a link that may 404.
     GERMANY_BUND: {
         name: 'Bundesagentur für Arbeit - German Government Jobs',
         country: 'DE',
-        url: 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs?size=50',
+        url: 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs?size=50',
         type: 'api',
         is_active: true,
         priority: 3,
@@ -253,11 +266,11 @@ const API_SOURCES = {
             const jobs = [];
             for (const job of data.stellenangebote || []) {
                 jobs.push({
-                    title: job.titel,
+                    title: job.beruf,
                     company: job.arbeitgeber,
                     location: job.arbeitsort?.ort || 'Germany',
-                    description: job.stellenbeschreibung || job.titel,
-                    link: `https://www.arbeitsagentur.de/jobsuche/jobdetail/${job.refnr}`,
+                    description: `${job.beruf} at ${job.arbeitgeber}, ${job.arbeitsort?.ort || 'Germany'}. Posted ${job.aktuelleVeroeffentlichungsdatum || 'recently'} via Bundesagentur für Arbeit.`,
+                    link: job.externeUrl || `https://www.arbeitsagentur.de/jobsuche/suche?was=${encodeURIComponent(job.beruf || '')}&wo=${encodeURIComponent(job.arbeitsort?.ort || '')}`,
                     source_name: 'Bundesagentur für Arbeit',
                     source_country: 'DE',
                     job_type: 'Full-time'
