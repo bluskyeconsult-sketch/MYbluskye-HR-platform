@@ -120,7 +120,17 @@ export default function EmployerSourcesManager() {
                 sponsorLicenseType: cols[3] || undefined,
                 countryCode: cols[4] || 'GB'
             };
-        }).filter(c => c.companyName && c.websiteUrl);
+        // FIXED (2026-09-13): confirmed real, exact cause of "0 valid
+        // rows detected" - this required BOTH companyName AND
+        // websiteUrl to be non-empty. A real, genuine bulk-import CSV
+        // (compiled from official UK government sponsor register data)
+        // had company names but no website URLs at all, since that
+        // data simply wasn't available at compile time - every single
+        // row was silently filtered out, not because of any extra
+        // columns (those were already correctly ignored, read only by
+        // position 0-4). Relaxed to only require a company name -
+        // website URLs can genuinely be added to a record later.
+        }).filter(c => c.companyName);
     }
 
     function handleFileSelect(e) {
