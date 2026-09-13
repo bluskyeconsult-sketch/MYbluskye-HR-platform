@@ -34,13 +34,13 @@ const TIER_LIMITS = {
     professional: { assessments_per_month: 50, can_download_report: true, can_retake: true, ai_insights: true },
     employer: { assessments_per_month: 30, can_download_report: true, can_retake: true, ai_insights: true },
     // FIXED (2026-09-13): confirmed via a full pricing/tier
-    // reconciliation pass a genuine drift - this said 999999
-    // (effectively unlimited), directly contradicting PricingPage.jsx's
-    // explicit, documented business decision: "business tier gets a
-    // high-but-finite cap, not true unlimited" - the same
-    // cost-protection principle already established for AI credits
-    // (200/month cap, not unlimited) applies here too, since assessment
-    // scoring also consumes real AI resources per question.
+    // reconciliation pass that this said 999999 (genuinely unlimited)
+    // here - the actual gate in startAssessment() below - while both
+    // the backend's user-eligibility action (what the UI displays)
+    // and PricingPage.jsx's own reconciled numbers correctly cap
+    // Business tier at 100/month. This meant the UI honestly showed
+    // "100/month remaining" while the real gate silently let a
+    // Business-tier user take unlimited assessments regardless.
     business: { assessments_per_month: 100, can_download_report: true, can_retake: true, ai_insights: true },
     admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true, ai_insights: true },
     super_admin: { assessments_per_month: 999999, can_download_report: true, can_retake: true, ai_insights: true },
@@ -53,12 +53,13 @@ const PERFORMANCE_THRESHOLDS = {
     average: 40
 };
 
-// FIXED (2026-09-13): removed 'business' from this unlimited check -
-// confirmed via reconciliation that business tier is meant to have a
-// finite 100/month cap (see TIER_LIMITS above), not true unlimited.
-// This check would have completely bypassed that cap otherwise,
-// routing business tier through TIER_LIMITS.super_admin instead of its
-// own real, intended limit.
+// FIXED (2026-09-13): confirmed real, deeper bug - this explicitly
+// treated 'business' as unlimited, which would have overridden the
+// TIER_LIMITS.business fix above entirely (this function short-
+// circuits straight to super_admin's limits regardless of what
+// TIER_LIMITS.business itself says). Business tier has a real, finite
+// cap (100/month) per PricingPage.jsx's own reconciled numbers -
+// only admin/super_admin are genuinely unlimited.
 const isUnlimitedTier = (tier, userType) => {
     return tier === 'super_admin' || tier === 'admin' || userType === 'super_admin';
 };
