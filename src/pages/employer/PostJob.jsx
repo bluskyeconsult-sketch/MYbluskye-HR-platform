@@ -83,6 +83,36 @@ export default function PostJob() {
                 return;
             }
 
+            // NEW (2026-09-13): confirmed via a full pricing/tier
+            // reconciliation pass that PricingPage.jsx promises
+            // Employer tier "20 jobs/month" (vs. Business tier's true
+            // Unlimited) but nothing anywhere actually enforced this
+            // distinction - checkAccess() above only verifies a tier
+            // can post at all, never how many. Enforced directly here,
+            // at the point of action.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('tier')
+                .eq('id', user.id)
+                .single();
+
+            if (profile?.tier === 'employer') {
+                const startOfMonth = new Date();
+                startOfMonth.setDate(1);
+                startOfMonth.setHours(0, 0, 0, 0);
+                const { count } = await supabase
+                    .from('jobs')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('user_id', user.id)
+                    .gte('created_at', startOfMonth.toISOString());
+
+                if ((count || 0) >= 20) {
+                    alert('Monthly job posting limit reached (20). Upgrade to Business for unlimited job postings.');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const { data, error } = await supabase
                 .from('jobs')
                 .insert({
