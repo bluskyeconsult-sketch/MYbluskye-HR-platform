@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { authenticatedFetch } from '../../lib/authFetch';
 import {
     Building2, Upload, Plus, Loader2, AlertCircle, CheckCircle,
-    Trash2, RefreshCw, FileText, X, ShieldCheck
+    Trash2, RefreshCw, FileText, X, ShieldCheck, Mail
 } from 'lucide-react';
 
 export default function EmployerSourcesManager() {
@@ -36,6 +36,8 @@ export default function EmployerSourcesManager() {
     const fileInputRef = useRef(null);
 
     const [scraping, setScraping] = useState(false);
+    const [inviting, setInviting] = useState(false);
+    const [inviteResult, setInviteResult] = useState(null);
 
     useEffect(() => { loadSources(); }, []);
 
@@ -81,6 +83,23 @@ export default function EmployerSourcesManager() {
         } catch (err) {
             alert('Failed to deactivate: ' + err.message);
         }
+    }
+
+    // NEW (2026-09-13): the genuine, legal alternative to scraping -
+    // sends a real invitation to employers with a known email who
+    // haven't been invited yet, one batch of 50 at a time (out of
+    // 2,413 total with a real email), so this can be safely re-run
+    // from the UI rather than one massive, fragile operation.
+    async function handleInviteEmployers() {
+        setInviting(true);
+        setInviteResult(null);
+        try {
+            const result = await authenticatedFetch('admin-invite-verified-employers', { batchSize: 50 });
+            setInviteResult(result);
+        } catch (err) {
+            setInviteResult({ success: false, error: err.message });
+        }
+        setInviting(false);
     }
 
     async function handleForceScrape() {
@@ -216,6 +235,15 @@ export default function EmployerSourcesManager() {
                         Scrape All Now
                     </button>
                     <button
+                        onClick={handleInviteEmployers}
+                        disabled={inviting}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 flex items-center gap-2"
+                        title="Invite employers with a known email to claim their listing and post real jobs directly - the legal alternative to scraping companies with no known URL"
+                    >
+                        {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                        Invite Employers
+                    </button>
+                    <button
                         onClick={() => setShowAddForm(!showAddForm)}
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
                     >
@@ -223,6 +251,14 @@ export default function EmployerSourcesManager() {
                     </button>
                 </div>
             </div>
+
+            {inviteResult && (
+                <div className={`mb-6 p-3 rounded-lg text-sm ${inviteResult.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                    {inviteResult.success
+                        ? `✓ Sent ${inviteResult.sent} invitations. ${inviteResult.remaining} more remaining with a known email - click again to continue.`
+                        : `Failed: ${inviteResult.error}`}
+                </div>
+            )}
 
             {error && (
                 <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
