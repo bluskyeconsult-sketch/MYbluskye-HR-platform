@@ -552,12 +552,26 @@ export default function ExternalJobsManager() {
                     {syncResult.results && syncResult.results.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-slate-800/50 space-y-1">
                             {syncResult.results.map((r, idx) => (
-                                <p key={idx} className="text-xs text-slate-400 flex items-center justify-between">
-                                    <span>{r.source}</span>
-                                    <span className={r.status === 'failed' ? 'text-red-400' : 'text-slate-500'}>
-                                        {r.status === 'failed' ? `Failed: ${r.error}` : `${r.found ?? 0} found, ${r.added ?? 0} new`}
-                                    </span>
-                                </p>
+                                <div key={idx}>
+                                    <p className="text-xs text-slate-400 flex items-center justify-between">
+                                        <span>{r.source}</span>
+                                        <span className={r.status === 'failed' ? 'text-red-400' : 'text-slate-500'}>
+                                            {r.status === 'failed' ? `Failed: ${r.error}` : `${r.found ?? 0} found, ${r.added ?? 0} new`}
+                                        </span>
+                                    </p>
+                                    {/* NEW (2026-09-13): confirmed real bug -
+                                        jobs that genuinely failed to save
+                                        (a real database/insertion error, not
+                                        just "already exists") were
+                                        completely invisible before - this
+                                        surfaces exactly why "found: X,
+                                        added: 0" can happen. */}
+                                    {r.errorCount > 0 && (
+                                        <p className="text-xs text-amber-400 pl-2">
+                                            ⚠️ {r.errorCount} job{r.errorCount === 1 ? '' : 's'} failed to save: {r.lastError}
+                                        </p>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     )}
