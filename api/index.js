@@ -3339,6 +3339,35 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const supabaseClient = getSupabase();
             const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
             if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+            // NEW (2026-09-13): confirmed via a systematic access-tier
+            // audit that this stated rule (free tier cannot submit
+            // skills, registered limited to 3) existed in
+            // odusbabaEngine.js's checkPermission() but was never
+            // actually called by this real, live handler - the exact
+            // same pattern as the equally-unenforced job-application
+            // limit found and fixed earlier this session.
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('tier')
+                .eq('id', userId)
+                .single();
+
+            if (profile?.tier === 'free') {
+                return res.status(403).json({ success: false, error: 'Free tier cannot submit skills. Please register to continue.' });
+            }
+
+            if (profile?.tier === 'registered') {
+                const { count } = await supabaseClient
+                    .from('user_skills')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('user_id', userId);
+
+                if ((count || 0) >= 3) {
+                    return res.status(403).json({ success: false, error: 'Skill limit reached (3). Upgrade to Professional for unlimited skills.' });
+                }
+            }
+
             const { data, error } = await supabaseClient
                 .from('user_skills')
                 .insert({
