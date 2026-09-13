@@ -49,6 +49,45 @@ export default function ConfirmPage() {
             if (error) throw error;
 
             setStatus('success');
+
+            // NEW (2026-09-13): confirmed real, structural bug - this
+            // "go to your dashboard" welcome email previously fired
+            // immediately at signup, before confirmation. A new user
+            // clicking it first (before the separate confirmation
+            // email) would be told to go to their dashboard while
+            // their account genuinely couldn't sign in yet - a direct
+            // contributor to the "invalid email or password" confusion
+            // multiple real users hit. Moved here, where it's now
+            // truthfully accurate: the user really can go to their
+            // dashboard at this exact moment.
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user) {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('full_name, user_type, is_tester')
+                        .eq('id', session.user.id)
+                        .single();
+
+                    await fetch('/api/index?action=email', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            to: session.user.email,
+                            type: profile?.is_tester ? 'tester_welcome' : 'welcome',
+                            templateData: {
+                                name: profile?.full_name || 'there',
+                                userType: profile?.user_type
+                            }
+                        })
+                    });
+                }
+            } catch (emailErr) {
+                // Never let a welcome-email failure block the actual
+                // confirmation success the user is already seeing.
+                console.warn('Welcome email failed to send:', emailErr);
+            }
+
             // Brief pause so the success state is genuinely visible
             // before moving on, rather than an instant, jarring redirect.
             setTimeout(() => navigate('/dashboard', { replace: true }), 1500);
