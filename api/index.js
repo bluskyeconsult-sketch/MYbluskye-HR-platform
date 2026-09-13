@@ -5128,6 +5128,60 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // still need to be checked directly on each platform's own
     // dashboard, or would need a separate integration with their
     // management APIs to automate here too.
+    // ========== ARTICLE NOTIFICATIONS ==========
+    // NEW (2026-09-13): confirmed via direct Supabase dashboard check
+    // that send-article-notification (an Edge Function the frontend was
+    // apparently expected to call, likely via a database webhook
+    // configured directly in the dashboard) genuinely does not exist -
+    // "0 of 37 functions" matched that name. Rather than build and
+    // maintain a separate Deno edge function, this uses the same
+    // Vercel backend already handling every other notification/email
+    // in this app. Creates a real, in-app notification (via the
+    // notifications table NotificationBell.jsx already expected but
+    // nothing ever wrote to) for every active user - deliberately
+    // in-app only, not email, since emailing every registered user for
+    // every single article would be excessive; the existing, separate
+    // "Send Newsletter" button already covers the opt-in email case.
+    'notify-article-subscribers': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { articleId, articleTitle, articleSlug } = req.body;
+        if (!articleId || !articleTitle) {
+            return res.status(400).json({ error: 'articleId and articleTitle are required' });
+        }
+
+        try {
+            const { data: users, error: usersError } = await supabaseClient
+                .from('profiles')
+                .select('id')
+                .eq('is_active', true);
+
+            if (usersError) throw usersError;
+
+            const notifications = (users || []).map(u => ({
+                user_id: u.id,
+                type: 'article',
+                title: 'New article published',
+                message: articleTitle,
+                link: `/articles/${articleSlug || articleId}`
+            }));
+
+            if (notifications.length > 0) {
+                const { error: insertError } = await supabaseClient
+                    .from('notifications')
+                    .insert(notifications);
+                if (insertError) throw insertError;
+            }
+
+            return res.status(200).json({ success: true, notifiedCount: notifications.length });
+        } catch (error) {
+            console.error('notify-article-subscribers error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-platform-capacity': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
