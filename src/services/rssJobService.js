@@ -174,17 +174,12 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship']
     },
     
-    // Germany - Government (Priority 3)
-    GERMANY_BUND: {
-        name: 'Bund.de - German Government Jobs',
-        country: 'DE',
-        url: 'https://www.bund.de/rss/jobs',
-        type: 'rss',
-        is_active: true,
-        priority: 3,
-        sponsorship_keywords: ['Work Visa', 'Blue Card', 'Sponsorship']
-    },
-    
+    // FIXED (2026-09-13): confirmed via direct research that
+    // bund.de/rss/jobs was never a genuine, working jobs feed at all -
+    // the real, canonical source of German labour-market data is the
+    // Federal Employment Agency's own API (arbeitsagentur.de), which
+    // is well-documented in the open-source community (bundesAPI on
+    // GitHub) despite having no official public documentation of its
     // Commercial - Remote OK (Priority 3)
     REMOTE_OK_ALL: {
         name: 'Remote OK - Remote Jobs',
@@ -235,6 +230,43 @@ const RSS_FEEDS = {
 // ============================================
 
 const API_SOURCES = {
+    // FIXED (2026-09-13): confirmed via direct research that
+    // bund.de/rss/jobs (originally in RSS_FEEDS) was never a genuine,
+    // working jobs feed at all - the real, canonical source of German
+    // labour-market data is the Federal Employment Agency's own API
+    // (arbeitsagentur.de), well-documented in the open-source
+    // community (bundesAPI on GitHub) despite no official public
+    // documentation of its own. Requires only a publicly-known, static
+    // API key header - no signup or registration needed. Moved here
+    // from RSS_FEEDS since it needs custom headers and JSON parsing,
+    // not RSS/XML.
+    GERMANY_BUND: {
+        name: 'Bundesagentur für Arbeit - German Government Jobs',
+        country: 'DE',
+        url: 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs?size=50',
+        type: 'api',
+        is_active: true,
+        priority: 3,
+        headers: { 'X-API-Key': 'jobboerse-jobsuche' },
+        sponsorship_keywords: ['Work Visa', 'Blue Card', 'Sponsorship'],
+        parseFunction: (data) => {
+            const jobs = [];
+            for (const job of data.stellenangebote || []) {
+                jobs.push({
+                    title: job.titel,
+                    company: job.arbeitgeber,
+                    location: job.arbeitsort?.ort || 'Germany',
+                    description: job.stellenbeschreibung || job.titel,
+                    link: `https://www.arbeitsagentur.de/jobsuche/jobdetail/${job.refnr}`,
+                    source_name: 'Bundesagentur für Arbeit',
+                    source_country: 'DE',
+                    job_type: 'Full-time'
+                });
+            }
+            return jobs;
+        }
+    },
+
     // FIXED (2026-08-27): confirmed via fresh, direct research that
     // this exact endpoint is genuinely free, requires no authentication
     // at all, and is actively maintained (documentation updated within
@@ -760,7 +792,13 @@ async function fetchFromAPI(source) {
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
         
         const response = await fetch(source.url, {
-            headers: REALISTIC_BROWSER_HEADERS,
+            // NEW (2026-09-13): some real, working APIs (confirmed via
+            // direct research) require a specific header to function at
+            // all - e.g. Germany's Federal Employment Agency API needs
+            // X-API-Key. Merges any source-specific headers on top of
+            // the existing defaults, so sources that don't need this
+            // keep working exactly as before.
+            headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
             signal: controller.signal
         });
         
