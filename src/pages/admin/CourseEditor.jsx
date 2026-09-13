@@ -47,6 +47,7 @@ export default function CourseEditor() {
     const [saving, setSaving] = useState(false);
     const [generatingImage, setGeneratingImage] = useState(false);
     const [generatingAudio, setGeneratingAudio] = useState(false);
+    const [generatingContent, setGeneratingContent] = useState(false);
     const [expandedLesson, setExpandedLesson] = useState(null);
 
     const categories = [
@@ -160,6 +161,51 @@ export default function CourseEditor() {
             alert('Failed to generate audio: ' + error.message + '. If this mentions a storage bucket, see the file header for setup steps.');
         } finally {
             setGeneratingAudio(false);
+        }
+    }
+
+    // NEW (2026-09-13): confirmed real, honest gap - lessons created
+    // either manually or via the AI Course Builder had no way to
+    // generate real content for an individual lesson on demand from
+    // this editor - only image and audio generation existed here.
+    // Reuses the same generate-lesson-content backend action already
+    // built for the bulk course builder flow.
+    async function generateLessonContent(lessonId, lessonTitle) {
+        setGeneratingContent(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=generate-lesson-content', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({
+                    courseTitle: course.title,
+                    lessonTitle,
+                    level: course.difficulty
+                })
+            });
+
+            const data = await response.json();
+            if (data.success && data.content) {
+                // FIXED before delivery: updateLesson only changes local
+                // React state, it doesn't save to the database (same as
+                // every other lesson field in this editor - persistence
+                // happens via the existing Save button). Calling
+                // loadCourse() right after would have re-fetched from
+                // the database and immediately discarded this unsaved
+                // change.
+                await updateLesson(lessonId, { content: data.content });
+                alert('✍️ Lesson content generated - click Save to keep it.');
+            } else {
+                throw new Error(data.error || 'Content generation failed');
+            }
+        } catch (error) {
+            console.error('Lesson content generation error:', error);
+            alert('Failed to generate lesson content: ' + error.message);
+        } finally {
+            setGeneratingContent(false);
         }
     }
 
@@ -502,6 +548,14 @@ export default function CourseEditor() {
                                                 />
                                             </div>
                                             <div className="flex flex-wrap items-end gap-2">
+                                                <button
+                                                    onClick={() => generateLessonContent(lesson.id, lesson.title)}
+                                                    disabled={generatingContent}
+                                                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 disabled:opacity-50 flex items-center gap-1 text-sm"
+                                                >
+                                                    {generatingContent ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                                                    Generate Content
+                                                </button>
                                                 <button
                                                     onClick={() => generateLessonAudio(lesson.id, lesson.content)}
                                                     disabled={generatingAudio}
