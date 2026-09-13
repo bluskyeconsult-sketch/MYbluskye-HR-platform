@@ -39,6 +39,9 @@ import {
     AlertTriangle, TrendingUp, User, Bot, Activity, Brain
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+// NEW (2026-09-13): confirmed this component already existed, fully
+// built, but was never mounted anywhere in the app at all.
+import NotificationBell from './NotificationBell';
 
 // ============================================
 // CONFIGURATION
@@ -509,7 +512,9 @@ export default function Navbar() {
                     {/* Desktop Auth Section */}
                     <div className="hidden md:flex items-center space-x-3">
                         {user ? (
-                            <div className="relative">
+                            <>
+                                <NotificationBell userId={user.id} />
+                                <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen(!userMenuOpen)}
                                     className="flex items-center gap-2 px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition"
@@ -592,6 +597,7 @@ export default function Navbar() {
                                     </div>
                                 )}
                             </div>
+                            </>
                         ) : (
                             <>
                                 <Link to="/sign-in" className="px-4 py-2 text-slate-300 hover:text-white text-sm font-medium">Sign In</Link>
