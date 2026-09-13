@@ -27,6 +27,7 @@ export default function AdminDiagnostics() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [isAuthorized, setIsAuthorized] = useState(false);
+    const [running, setRunning] = useState(false);
 
     useEffect(() => {
         checkAdminAccess();
@@ -54,6 +55,36 @@ export default function AdminDiagnostics() {
         }
 
         setIsAuthorized(true);
+    }
+
+    // NEW (2026-09-13): actually runs a real diagnostic check on
+    // demand, writing a genuine entry to diagnostic_logs - replacing
+    // a dangerous, uploaded diagnosticsService.js whose selfHeal()
+    // logic would have deleted every real user profile due to a
+    // broken auth.users query. This only ever reports issues for
+    // manual review; nothing here deletes or modifies data.
+    async function handleRunDiagnostics() {
+        setRunning(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=run-diagnostics', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                }
+            });
+            const result = await response.json();
+            if (result.success) {
+                alert(result.healthy ? '✓ All checks passed' : '⚠️ Some checks reported issues - see the log below');
+                if (activeTab === 'diagnostic_logs') await loadEntries();
+            } else {
+                alert('Diagnostic run failed: ' + result.error);
+            }
+        } catch (err) {
+            alert('Diagnostic run failed: ' + err.message);
+        }
+        setRunning(false);
     }
 
     async function loadEntries() {
@@ -109,13 +140,22 @@ export default function AdminDiagnostics() {
                         <a href="/admin/health" className="text-primary-400 hover:underline">System Health</a>.
                     </p>
                 </div>
-                <button
-                    onClick={loadEntries}
-                    disabled={refreshing}
-                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 text-sm"
-                >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleRunDiagnostics}
+                        disabled={running}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2 text-sm disabled:opacity-50"
+                    >
+                        {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />} Run Diagnostics
+                    </button>
+                    <button
+                        onClick={loadEntries}
+                        disabled={refreshing}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 text-sm"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                </div>
             </div>
 
             <div className="flex gap-2 border-b border-slate-800 mb-6 flex-wrap">
