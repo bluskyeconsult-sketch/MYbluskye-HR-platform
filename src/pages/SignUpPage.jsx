@@ -840,6 +840,7 @@ export default function SignUpPage() {
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type={showPassword ? "text" : "password"}
+                                    autoComplete="new-password"
                                     value={formData.password}
                                     onChange={(e) => {
                                         setFormData({...formData, password: e.target.value});
@@ -896,6 +897,7 @@ export default function SignUpPage() {
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                                 <input
                                     type={showPassword ? "text" : "password"}
+                                    autoComplete="new-password"
                                     value={formData.confirmPassword}
                                     onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
                                     onBlur={() => handleFieldBlur('confirmPassword')}
