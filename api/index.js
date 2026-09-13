@@ -584,18 +584,20 @@ async function callOpenAIImage(prompt) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
-    // FIXED (2026-09-08): confirmed real, live error - "the model
-    // 'dall-e-3' does not exist" - meaning the configured OpenAI account
-    // genuinely doesn't have DALL-E 3 access. Switched to dall-e-2,
-    // which is far more widely available. Also removed the `quality`
-    // parameter, since dall-e-2's API doesn't accept it at all - leaving
-    // it in would have caused a new, different error immediately after
-    // this fix.
+    // FIXED (2026-09-13): confirmed directly from OpenAI's own current
+    // documentation - both dall-e-3 (retired March 2026) and dall-e-2
+    // (discontinued May 2026) have been permanently removed from the
+    // API. This isn't a code bug, it's an external model deprecation.
+    // gpt-image-2.5-flare is OpenAI's current recommended model for
+    // fast, everyday image generation. Critically, GPT-Image models
+    // return base64-encoded data (b64_json), not a URL like DALL-E did
+    // - this function now returns a real Buffer of the actual image
+    // bytes instead of a URL, since there's no URL to return anymore.
     const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            model: 'dall-e-2',
+            model: 'gpt-image-2.5-flare',
             prompt,
             n: 1,
             size: '1024x1024'
@@ -608,7 +610,7 @@ async function callOpenAIImage(prompt) {
     }
 
     const data = await response.json();
-    return data.data[0].url;
+    return Buffer.from(data.data[0].b64_json, 'base64');
 }
 
 async function callOpenAIAudio(text, voice = 'alloy') {
@@ -4248,6 +4250,37 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== GENERATE COURSE ==========
+    // NEW (2026-09-13): confirmed real, honest gap - generate-course only
+    // ever produced an outline (title, description, module/lesson
+    // titles), never actual lesson content. The frontend's own comments
+    // and a visible UI warning already documented this honestly. This
+    // generates genuine, substantive lesson content for one lesson at a
+    // time - called per-lesson from the frontend rather than attempting
+    // to generate an entire course's content in one request, which
+    // would risk exceeding token limits or the serverless function
+    // timeout for any course with several modules.
+    'generate-lesson-content': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { courseTitle, lessonTitle, level = 'beginner' } = req.body;
+        if (!lessonTitle) return res.status(400).json({ error: 'lessonTitle is required' });
+
+        try {
+            const data = await callOpenAI([
+                { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
+                { role: 'user', content: `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed - just well-organized paragraphs. Aim for genuinely useful depth, not a placeholder.` }
+            ], 1200, 0.7);
+
+            const content = data.choices[0].message.content;
+            return res.status(200).json({ success: true, content });
+        } catch (error) {
+            console.error('generate-lesson-content error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-course': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
@@ -4309,7 +4342,13 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
         try {
-            const imageUrl = await callOpenAIImage(prompt);
+            // FIXED (2026-09-13): callOpenAIImage now returns a real
+            // Buffer (GPT-Image models return base64 data, not a URL) -
+            // converted to a data URI here since this endpoint returns
+            // imageUrl directly for the frontend to display as <img
+            // src>, which a data URI works for identically to a real URL.
+            const imageBuffer = await callOpenAIImage(prompt);
+            const imageUrl = `data:image/png;base64,${imageBuffer.toString('base64')}`;
             return res.status(200).json({ success: true, imageUrl });
         } catch (error) {
             console.error('Course image generation error:', error);
@@ -4326,7 +4365,8 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
         try {
-            const imageUrl = await callOpenAIImage(prompt);
+            const imageBuffer = await callOpenAIImage(prompt);
+            const imageUrl = `data:image/png;base64,${imageBuffer.toString('base64')}`;
             return res.status(200).json({ success: true, imageUrl });
         } catch (error) {
             console.error('Lesson image generation error:', error);
@@ -4461,14 +4501,11 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
         try {
-            const temporaryImageUrl = await callOpenAIImage(prompt);
-
-            // DALL-E returns a URL, not raw bytes (unlike the TTS audio
-            // API) - fetch the actual image bytes server-side before
-            // they can expire, then upload those bytes permanently.
-            const imageResponse = await fetch(temporaryImageUrl);
-            if (!imageResponse.ok) throw new Error('Failed to retrieve the generated image');
-            const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+            // FIXED (2026-09-13): callOpenAIImage now returns a real
+            // Buffer directly (GPT-Image models return base64 data, not
+            // a URL) - the fetch-a-temporary-URL step is no longer
+            // needed at all, genuinely simpler than the old DALL-E flow.
+            const imageBuffer = await callOpenAIImage(prompt);
 
             const fileName = `articles/${articleId || 'article'}-${Date.now()}.png`;
 
