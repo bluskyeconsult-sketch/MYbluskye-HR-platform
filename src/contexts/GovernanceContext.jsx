@@ -171,7 +171,14 @@ export function GovernanceProvider({ children }) {
                 canPreview: true,
                 canChat: true,
                 canExecute: false,
-                canApplyJobs: true,
+                // FIXED (2026-09-13): confirmed via a systematic
+                // access-tier audit that this said true while the real
+                // rule (enforced directly in JobDetailPage.jsx as of
+                // this same audit) is that free tier cannot apply for
+                // jobs. Left as true, a free-tier user would have seen
+                // a working-looking Apply button that always failed
+                // once actually submitted.
+                canApplyJobs: false,
                 canContactWorkforce: false,
                 canHireVA: false,
                 canAccessHRTools: true,
