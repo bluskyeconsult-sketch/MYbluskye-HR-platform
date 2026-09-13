@@ -5184,10 +5184,228 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // in-app only, not email, since emailing every registered user for
     // every single article would be excessive; the existing, separate
     // "Send Newsletter" button already covers the opt-in email case.
-    'notify-article-subscribers': async (req, res) => {
+    // ========== KNOWLEDGE SOURCE REFRESH (LAWS/IMMIGRATION/JOBS) ==========
+    // NEW (2026-09-13): confirmed via searching prior session history that
+    // this was explicitly, honestly flagged back on 2026-08-07 as "a
+    // genuinely unbuilt feature, not a bug" - KnowledgeSourceManager.jsx's
+    // refresh button called a real endpoint name, but nothing on the
+    // backend actually existed to fetch and process approved source URLs.
+    // This builds the real thing: fetches the source's URL, respecting
+    // robots.txt and identifying honestly (not a disguised browser
+    // User-Agent), extracts readable text, and caches it for
+    // odusbaba-chat to actually use when answering law/immigration/jobs
+    // questions.
+    // ========== ODUSBABA LEGAL/IMMIGRATION QUERY (REAL) ==========
+    // NEW (2026-09-13): fetchLegalInfo() in ODUSBABAChat.jsx previously
+    // just returned a hardcoded template string with static links -
+    // despite its name, it never actually fetched or referenced any
+    // real content at all. This genuinely uses the cached_content now
+    // populated by refresh-knowledge-source, grounding the AI's answer
+    // in real, approved-source content rather than a static template.
+    'odusbaba-legal-query': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { question, countryCode } = req.body;
+        if (!question) return res.status(400).json({ error: 'question is required' });
+
+        try {
+            let sourcesQuery = supabaseClient
+                .from('ai_knowledge_sources')
+                .select('source_name, source_type, source_url, cached_content, last_fetched_at')
+                .in('source_type', ['laws', 'immigration'])
+                .eq('is_active', true)
+                .not('cached_content', 'is', null);
+
+            const { data: sources, error: sourcesError } = await sourcesQuery;
+            if (sourcesError) throw sourcesError;
+
+            if (!sources || sources.length === 0) {
+                return res.status(200).json({
+                    success: true,
+                    answer: "I don't have any approved law or immigration sources with cached content yet. An admin can add and refresh sources in Knowledge Source Manager, or you can consult your national labor authority directly.",
+                    sourcesUsed: []
+                });
+            }
+
+            const contextBlocks = sources.map(s =>
+                `Source: ${s.source_name} (${s.source_url}, last updated ${s.last_fetched_at})\n${s.cached_content}`
+            ).join('\n\n---\n\n');
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: 'You are ODUSBABA, an HR and employment assistant. Answer the question using ONLY the approved source content provided below - do not use general knowledge for specific legal figures, thresholds, or dates, since those change and must come from the real, current source text. If the provided sources don\'t actually cover what\'s being asked, say so plainly rather than guessing. Always end with: "This is general information, not legal advice - consult a qualified employment lawyer or your national labor authority for guidance specific to your situation."\n\nAPPROVED SOURCE CONTENT:\n' + contextBlocks
+                },
+                { role: 'user', content: question }
+            ], 700, 0.3);
+
+            return res.status(200).json({
+                success: true,
+                answer: data.choices[0].message.content,
+                sourcesUsed: sources.map(s => ({ name: s.source_name, url: s.source_url, lastUpdated: s.last_fetched_at }))
+            });
+        } catch (error) {
+            console.error('odusbaba-legal-query error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    'refresh-knowledge-source': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { sourceId } = req.body;
+        if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
+
+        try {
+            const { data: source, error: fetchError } = await supabaseClient
+                .from('ai_knowledge_sources')
+                .select('*')
+                .eq('id', sourceId)
+                .single();
+            if (fetchError || !source) throw new Error('Knowledge source not found');
+
+            const safetyCheck = isSafeExternalUrl(source.source_url);
+            if (!safetyCheck.safe) {
+                await supabaseClient.from('ai_knowledge_sources').update({
+                    last_fetch_status: 'failed',
+                    last_fetch_error: `Blocked for safety: ${safetyCheck.reason}`,
+                    last_fetched_at: new Date().toISOString()
+                }).eq('id', sourceId);
+                return res.status(200).json({ success: false, error: `Blocked for safety: ${safetyCheck.reason}` });
+            }
+
+            // Genuine robots.txt check, same honest approach as the
+            // employer career-page scraper - identifies as
+            // BluSkyeConsultBot, respects a site's stated wishes.
+            const robotsUrl = new URL(source.source_url);
+            const robotsTxtUrl = `${robotsUrl.protocol}//${robotsUrl.host}/robots.txt`;
+            let robotsAllowed = true;
+            let matchedRule = null;
+            try {
+                const robotsResponse = await fetch(robotsTxtUrl, {
+                    headers: { 'User-Agent': 'BluSkyeConsultBot/1.0 (+https://www.bluskyeconsult.com/about-our-bot)' }
+                });
+                if (robotsResponse.ok) {
+                    const robotsText = await robotsResponse.text();
+                    const lines = robotsText.split('\n').map(l => l.trim());
+                    let inGenericSection = false;
+                    const disallowed = [];
+                    for (const line of lines) {
+                        const lower = line.toLowerCase();
+                        if (lower.startsWith('user-agent:')) {
+                            inGenericSection = line.split(':')[1]?.trim() === '*';
+                        } else if (lower.startsWith('disallow:') && inGenericSection) {
+                            const path = line.split(':')[1]?.trim();
+                            if (path) disallowed.push(path);
+                        }
+                    }
+                    const requestPath = robotsUrl.pathname;
+                    matchedRule = disallowed.find(p => requestPath.startsWith(p));
+                    robotsAllowed = !matchedRule;
+                }
+            } catch {
+                // robots.txt unreachable - fail open, same as genuinely missing
+            }
+
+            if (!robotsAllowed) {
+                await supabaseClient.from('ai_knowledge_sources').update({
+                    last_fetch_status: 'failed',
+                    last_fetch_error: `Disallowed by robots.txt (rule: ${matchedRule})`,
+                    last_fetched_at: new Date().toISOString()
+                }).eq('id', sourceId);
+                return res.status(200).json({ success: false, error: `Disallowed by robots.txt (rule: ${matchedRule})` });
+            }
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            const response = await fetch(source.source_url, {
+                headers: {
+                    'User-Agent': 'BluSkyeConsultBot/1.0 (+https://www.bluskyeconsult.com/about-our-bot)',
+                    'Accept': 'text/html,application/xhtml+xml'
+                },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                await supabaseClient.from('ai_knowledge_sources').update({
+                    last_fetch_status: 'failed',
+                    last_fetch_error: `HTTP ${response.status}`,
+                    last_fetched_at: new Date().toISOString()
+                }).eq('id', sourceId);
+                return res.status(200).json({ success: false, error: `HTTP ${response.status}` });
+            }
+
+            const html = await response.text();
+
+            // Simple, honest text extraction - strips script/style blocks
+            // and HTML tags, collapses whitespace. This is genuinely
+            // government/legal informational content, not structured data
+            // requiring a parser - readable plain text is what the AI
+            // chat needs to reference accurately.
+            const textContent = html
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            // Capped to keep this genuinely usable as AI prompt context
+            // without dominating the token budget of every chat response
+            // that references it.
+            const cappedContent = textContent.substring(0, 8000);
+
+            const { error: updateError } = await supabaseClient
+                .from('ai_knowledge_sources')
+                .update({
+                    cached_content: cappedContent,
+                    last_fetch_status: 'success',
+                    last_fetch_error: null,
+                    last_fetched_at: new Date().toISOString()
+                })
+                .eq('id', sourceId);
+            if (updateError) throw updateError;
+
+            return res.status(200).json({ success: true, contentLength: cappedContent.length });
+        } catch (error) {
+            console.error('refresh-knowledge-source error:', error);
+            try {
+                await supabaseClient.from('ai_knowledge_sources').update({
+                    last_fetch_status: 'failed',
+                    last_fetch_error: error.message,
+                    last_fetched_at: new Date().toISOString()
+                }).eq('id', sourceId);
+            } catch {}
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    'notify-article-subscribers': async (req, res) => {
+        const supabaseClient = getSupabase();
+
+        // NEW (2026-09-13): this action is called two genuinely
+        // different ways - an authenticated admin from
+        // ArticleEditor.jsx's publish flow, and now also the
+        // send-article-notification Supabase Edge Function reacting to
+        // a database webhook (a real, internal, trusted service call,
+        // not a user request at all). A service role key is not a user
+        // JWT, so requireAdmin's auth.getUser() check would reject it.
+        // This checks for a separate, shared internal secret first -
+        // set as INTERNAL_SERVICE_SECRET in both Vercel's and
+        // Supabase's environment variables, matched exactly - and only
+        // falls back to the normal admin-user check when that header
+        // isn't present at all, so a genuine user-facing call to this
+        // action is completely unaffected.
+        const internalSecret = req.headers['x-internal-secret'];
+        const isInternalServiceCall = internalSecret && internalSecret === process.env.INTERNAL_SERVICE_SECRET;
+
+        if (!isInternalServiceCall) {
+            const auth = await requireAdmin(req, supabaseClient);
+            if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        }
 
         const { articleId, articleTitle, articleSlug } = req.body;
         if (!articleId || !articleTitle) {
