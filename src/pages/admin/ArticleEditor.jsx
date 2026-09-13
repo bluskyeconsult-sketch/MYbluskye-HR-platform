@@ -226,15 +226,28 @@ export default function ArticleEditor() {
         }
     }
 
+    // FIXED (2026-09-13): confirmed directly via the Supabase dashboard
+    // (Edge Functions list, "0 of 37 functions" matched this name) that
+    // send-article-notification never actually existed - this call was
+    // failing on every single publish, surfacing as a CORS error in the
+    // console (a 404 from a genuinely missing function, not a real CORS
+    // misconfiguration). Replaced with the new notify-article-subscribers
+    // action on the existing Vercel backend, which creates real,
+    // working in-app notifications via the notifications table.
     async function sendNotification(articleData) {
         try {
-            await supabase.functions.invoke('send-article-notification', {
-                body: {
+            const { data: { session } } = await supabase.auth.getSession();
+            await fetch('/api/index?action=notify-article-subscribers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({
                     articleId: id || articleData.id,
-                    title: articleData.title,
-                    excerpt: articleData.excerpt,
-                    slug: articleData.slug
-                }
+                    articleTitle: articleData.title,
+                    articleSlug: articleData.slug
+                })
             });
         } catch (error) {
             console.error('Failed to send notifications:', error);
