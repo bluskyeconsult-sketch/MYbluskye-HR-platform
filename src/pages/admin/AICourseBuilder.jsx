@@ -264,9 +264,28 @@ export default function AICourseBuilder() {
             const modules = outline.modules || [];
             for (let i = 0; i < modules.length; i++) {
                 const mod = modules[i];
-                const content = Array.isArray(mod.lessons)
-                    ? mod.lessons.join('\n\n')
-                    : (mod.content || mod.description || '');
+                // NEW (2026-09-13): confirmed real, honest gap - this
+                // previously just joined lesson title strings together
+                // as the entire lesson "content", never generating any
+                // actual teaching material. Now genuinely generates
+                // real content per lesson via the new
+                // generate-lesson-content action, one lesson at a time
+                // to stay well within token/timeout limits regardless
+                // of how many modules a course has.
+                setGenerationStatus(`Writing lesson content (${i + 1}/${modules.length})...`);
+                let content = mod.content || mod.description || '';
+                try {
+                    const contentResult = await authenticatedFetch('generate-lesson-content', {
+                        courseTitle: outline.title || topic,
+                        lessonTitle: mod.title || `Module ${i + 1}`,
+                        level
+                    });
+                    if (contentResult.success && contentResult.content) {
+                        content = contentResult.content;
+                    }
+                } catch (contentErr) {
+                    console.warn(`Lesson content generation failed for "${mod.title}", falling back to outline text:`, contentErr);
+                }
                 
                 await supabase.from('course_lessons').insert({
                     course_id: newCourse.id,
@@ -719,11 +738,11 @@ export default function AICourseBuilder() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>The outline is saved as a draft course, ready for review</span>
+                                <span>Real lesson content is written for each lesson, not just a title placeholder</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Open the draft in the course editor to add detailed lesson content</span>
+                                <span>The course is saved as a draft, ready for review and refinement in the editor</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
@@ -733,7 +752,7 @@ export default function AICourseBuilder() {
                         <ul className="space-y-2">
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Course images can be generated separately in the course editor (DALL-E)</span>
+                                <span>Course images can be generated separately in the course editor</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
@@ -745,7 +764,7 @@ export default function AICourseBuilder() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>The feature toggles above do not yet affect generation — outline only, for now</span>
+                                <span>The feature toggles above do not yet affect generation — images/audio/quizzes still manual, for now</span>
                             </li>
                         </ul>
                     </div>
