@@ -69,7 +69,22 @@ export async function authenticatedFetchRaw(action, body = null, options = {}) {
 // themselves every time.
 export async function authenticatedFetch(action, body = null, options = {}) {
     const response = await authenticatedFetchRaw(action, body, options);
-    const data = await response.json();
+
+    // FIXED (2026-09-13): confirmed real, live scenario - Vercel's own
+    // infrastructure rejects an oversized request body with a plain-text
+    // 413 before this app's code ever runs, meaning response.json()
+    // itself throws ("Unexpected token 'R'... is not valid JSON") rather
+    // than giving a clean, catchable error. Reading as text first and
+    // parsing only if it looks like JSON gives every caller (like
+    // EmployerSourcesManager's bulk import) a real, readable error
+    // message instead of a confusing parse-failure.
+    const rawText = await response.text();
+    let data;
+    try {
+        data = JSON.parse(rawText);
+    } catch {
+        throw new Error(response.ok ? 'Server returned an unexpected response' : `${response.status}: ${rawText.substring(0, 200)}`);
+    }
 
     if (!response.ok) {
         throw new Error(data.error || `Request failed: ${response.status}`);
