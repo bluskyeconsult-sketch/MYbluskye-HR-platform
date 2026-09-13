@@ -259,6 +259,20 @@ export default function JobDetailPage() {
 
       if (profile?.tier === 'free') {
         toast.error('Free tier cannot apply for jobs. Please register to continue.');
+        // NEW (2026-09-13): continuing the audit-logging rollout -
+        // audit_logs' own schema is built for exactly this kind of
+        // permission-denial event, and RLS already allows a user to
+        // insert their own row directly, no backend round-trip needed.
+        // Never lets a logging failure block the real denial message
+        // already shown above.
+        supabase.from('audit_logs').insert({
+          user_id: user.id,
+          action_type: 'apply_job',
+          tier_at_time: profile.tier,
+          was_allowed: false,
+          deny_reason: 'Free tier cannot apply for jobs',
+          risk_score: 25
+        }).then(() => {}, () => {});
         return;
       }
     } catch (tierCheckErr) {
