@@ -925,6 +925,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
         try {
             const { jobs, error: fetchIssue } = await parseRSSFeed(source.url, source.name, source.country);
             let added = 0;
+            let errorCount = 0;
+            let lastError = null;
             const sourceJobs = [];
 
             for (const job of jobs) {
@@ -933,8 +935,22 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'error') {
+                    // FIXED (2026-09-13): confirmed real bug - this was
+                    // previously completely silent. If every single
+                    // insert genuinely failed (e.g. a column mismatch),
+                    // this loop would finish reporting "found: 25,
+                    // added: 0" with zero indication anything actually
+                    // went wrong - exactly the confirmed, live symptom.
+                    errorCount++;
+                    lastError = saveResult.error;
+                    console.error(`  ❌ Failed to save job "${job.title}" from ${source.name}:`, saveResult.error);
                 }
                 await delay(100);
+            }
+
+            if (errorCount > 0) {
+                console.error(`  ⚠️ ${source.name}: ${errorCount}/${jobs.length} jobs failed to save. Last error: ${lastError}`);
             }
 
             return {
@@ -943,6 +959,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
                     source: source.name,
                     found: jobs.length,
                     added,
+                    errorCount,
+                    lastError: errorCount > 0 ? lastError : undefined,
                     status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
                     error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
                 }
@@ -958,6 +976,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
         try {
             const { jobs, error: fetchIssue } = await fetchFromAPI(source);
             let added = 0;
+            let errorCount = 0;
+            let lastError = null;
             const sourceJobs = [];
 
             for (const job of jobs) {
@@ -966,7 +986,15 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'error') {
+                    errorCount++;
+                    lastError = saveResult.error;
+                    console.error(`  ❌ Failed to save job "${job.title}" from ${source.name}:`, saveResult.error);
                 }
+            }
+
+            if (errorCount > 0) {
+                console.error(`  ⚠️ ${source.name}: ${errorCount}/${jobs.length} jobs failed to save. Last error: ${lastError}`);
             }
 
             return {
@@ -975,6 +1003,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
                     source: source.name,
                     found: jobs.length,
                     added,
+                    errorCount,
+                    lastError: errorCount > 0 ? lastError : undefined,
                     status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
                     error: (jobs.length === 0 && fetchIssue) ? fetchIssue : undefined
                 }
@@ -990,6 +1020,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
         try {
             const nigeriaJobs = await scrapeNigeriaFCSC();
             let added = 0;
+            let errorCount = 0;
+            let lastError = null;
             const sourceJobs = [];
 
             for (const job of nigeriaJobs) {
@@ -998,11 +1030,15 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'error') {
+                    errorCount++;
+                    lastError = saveResult.error;
+                    console.error(`  ❌ Failed to save job "${job.title}" from Nigeria FCSC:`, saveResult.error);
                 }
                 await delay(100);
             }
 
-            return { jobs: sourceJobs, result: { source: 'Federal Civil Service Commission Nigeria', found: nigeriaJobs.length, added, status: 'success' } };
+            return { jobs: sourceJobs, result: { source: 'Federal Civil Service Commission Nigeria', found: nigeriaJobs.length, added, errorCount, lastError: errorCount > 0 ? lastError : undefined, status: 'success' } };
         } catch (error) {
             console.error('  ❌ Error with Nigeria FCSC:', error.message);
             return { jobs: [], result: { source: 'Federal Civil Service Commission Nigeria', error: error.message, status: 'failed' } };
