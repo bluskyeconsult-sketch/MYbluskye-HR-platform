@@ -340,6 +340,20 @@ export default function ArticleDetail() {
                             {article.excerpt}
                         </p>
                     )}
+
+                    {/* NEW (2026-09-13): confirmed real, complete gap -
+                        article.image_url was never rendered anywhere on
+                        this page at all. The only <img> in this file is
+                        ReactMarkdown's styling for images inside the
+                        article's own markdown text, unrelated to the
+                        article's own featured image field. */}
+                    {article.image_url && (
+                        <img
+                            src={article.image_url}
+                            alt={article.title}
+                            className="w-full rounded-xl my-6 max-h-[500px] object-cover"
+                        />
+                    )}
                 </div>
 
                 {/* Action Buttons (Admin only) - Unchanged */}
