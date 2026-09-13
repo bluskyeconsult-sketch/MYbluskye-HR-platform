@@ -25,6 +25,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useGovernance } from '../contexts/GovernanceContext';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
   Users, CheckCircle, Award, TrendingUp, Save, Bookmark,
@@ -48,6 +49,7 @@ const SEO_URL_BASE = 'https://bluskyeconsult.com';
 export default function JobDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { hasCapability } = useGovernance();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
@@ -470,12 +472,26 @@ export default function JobDetailPage() {
               <ExternalLink className="w-5 h-5" /> Apply on {job.source_name || 'Original Site'}
             </a>
           ) : !showApplyForm ? (
-            <button
-              onClick={() => setShowApplyForm(true)}
-              className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
-            >
-              <Send className="w-5 h-5" /> Apply Now
-            </button>
+            !hasCapability('canApplyJobs') && user ? (
+              // NEW (2026-09-13): confirmed via a systematic
+              // access-tier audit that free tier genuinely cannot
+              // apply (now correctly enforced server-side too) -
+              // showing this instead of a button that would always
+              // fail once actually submitted.
+              <div className="text-center py-3 px-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <p className="text-slate-300 text-sm mb-2">Free tier cannot apply for jobs.</p>
+                <Link to="/pricing" className="text-primary-400 hover:text-primary-300 text-sm font-medium underline">
+                  Register or upgrade to apply
+                </Link>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowApplyForm(true)}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
+              >
+                <Send className="w-5 h-5" /> Apply Now
+              </button>
+            )
           ) : (
             <form onSubmit={handleApply} className="space-y-4">
               <div>
