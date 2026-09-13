@@ -40,10 +40,79 @@ const FETCH_TIMEOUT_MS = 15000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB - a real careers page is
 // never legitimately larger than this; caps memory use against a
 // malicious or broken oversized response.
+
+// FIXED (2026-09-13): confirmed real, genuine gap - this previously
+// disguised every request as a real Chrome browser rather than
+// honestly identifying itself, and never checked robots.txt at all.
+// Even though what this reads (Schema.org JobPosting structured data)
+// is genuinely, legitimately different from general scraping -
+// employers publish this specifically for automated systems like
+// Google to consume - transparency about what's making the request
+// matters regardless of how legitimate the underlying purpose is.
+// Identifies honestly now, and respects a career page's own stated
+// wishes via robots.txt before ever fetching it.
+const BOT_USER_AGENT = 'BluSkyeConsultBot/1.0 (+https://www.bluskyeconsult.com/about-our-bot)';
 const REALISTIC_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'User-Agent': BOT_USER_AGENT,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
 };
+
+// Genuine robots.txt check - fetches and parses the target site's own
+// robots.txt, checking whether it disallows the specific path being
+// requested for our user-agent (or for all bots via '*'). Fails open
+// (permits the fetch) only when robots.txt itself is missing or
+// unreachable, which is the standard, correct interpretation - no
+// robots.txt means no stated restriction exists.
+async function isAllowedByRobotsTxt(targetUrl) {
+    try {
+        const url = new URL(targetUrl);
+        const robotsUrl = `${url.protocol}//${url.host}/robots.txt`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(robotsUrl, {
+            headers: { 'User-Agent': BOT_USER_AGENT },
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) return { allowed: true }; // no robots.txt = no stated restriction
+
+        const text = await response.text();
+        const lines = text.split('\n').map(l => l.trim());
+
+        let relevantSection = false;
+        let genericSection = false;
+        const disallowedPaths = [];
+        const genericDisallowedPaths = [];
+
+        for (const line of lines) {
+            const lower = line.toLowerCase();
+            if (lower.startsWith('user-agent:')) {
+                const agent = line.split(':')[1]?.trim().toLowerCase();
+                relevantSection = agent === 'bluskyeconsultbot';
+                genericSection = agent === '*';
+            } else if (lower.startsWith('disallow:')) {
+                const path = line.split(':')[1]?.trim();
+                if (!path) continue;
+                if (relevantSection) disallowedPaths.push(path);
+                if (genericSection) genericDisallowedPaths.push(path);
+            }
+        }
+
+        // A rule specifically naming this bot always takes precedence
+        // over the generic '*' rule, per standard robots.txt semantics.
+        const rulesToCheck = disallowedPaths.length > 0 ? disallowedPaths : genericDisallowedPaths;
+        const requestPath = url.pathname;
+        const isDisallowed = rulesToCheck.some(path => requestPath.startsWith(path));
+
+        return { allowed: !isDisallowed, matchedRule: isDisallowed ? rulesToCheck.find(p => requestPath.startsWith(p)) : null };
+    } catch (error) {
+        // robots.txt unreachable (timeout, network error, etc.) - fail
+        // open, same as a genuinely missing robots.txt would.
+        return { allowed: true };
+    }
+}
 
 // Real SSRF guard - blocks anything that isn't a genuine, public
 // internet HTTP(S) address. Exported so the same check can be applied
@@ -216,6 +285,13 @@ export async function scrapeEmployerSource(employerSource) {
     const safetyCheck = isSafeExternalUrl(targetUrl);
     if (!safetyCheck.safe) {
         return { jobs: [], status: 'blocked', error: `Blocked for safety: ${safetyCheck.reason}` };
+    }
+
+    // NEW (2026-09-13): genuinely check and respect this site's own
+    // robots.txt before fetching, rather than never checking at all.
+    const robotsCheck = await isAllowedByRobotsTxt(targetUrl);
+    if (!robotsCheck.allowed) {
+        return { jobs: [], status: 'blocked', error: `Disallowed by robots.txt (matched rule: ${robotsCheck.matchedRule})` };
     }
 
     try {
