@@ -27,25 +27,40 @@ export default function BlogPage() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const PAGE_SIZE = 30;
 
     useEffect(() => {
         loadBlogArticles();
     }, []);
 
-    async function loadBlogArticles() {
+    // FIXED (2026-09-14): confirmed this previously had no limit at
+    // all - every published article returned in one unbounded query,
+    // the same bug already fixed in ArticlesPage.jsx. Added real
+    // 30-per-page pagination, matching that fix.
+    async function loadBlogArticles(pageNum = 1, append = false) {
+        if (append) setLoadingMore(true);
         try {
-            const { data, error } = await supabase
+            const from = (pageNum - 1) * PAGE_SIZE;
+            const to = from + PAGE_SIZE - 1;
+            const { data, error, count } = await supabase
                 .from('articles')
-                .select('*')
+                .select('*', { count: 'exact' })
                 .eq('is_published', true)
-                .order('published_at', { ascending: false });
+                .order('published_at', { ascending: false })
+                .range(from, to);
 
             if (error) throw error;
-            setArticles(data || []);
+            setArticles(prev => append ? [...prev, ...(data || [])] : (data || []));
+            setHasMore((count || 0) > pageNum * PAGE_SIZE);
+            setPage(pageNum);
         } catch (error) {
             console.error('Error loading blog articles:', error);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     }
 
@@ -120,9 +135,13 @@ export default function BlogPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredArticles.map((article) => (
                             <article key={article.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-slate-700 transition-all">
-                                {article.featured_image && (
+                                {/* FIXED (2026-09-14): confirmed real
+                                    column is image_url, not
+                                    featured_image - the same bug already
+                                    found and fixed in ArticleDetail.jsx. */}
+                                {article.image_url && (
                                     <img 
-                                        src={article.featured_image} 
+                                        src={article.image_url} 
                                         alt={article.title}
                                         className="w-full h-48 object-cover"
                                     />
@@ -151,6 +170,17 @@ export default function BlogPage() {
                                 </div>
                             </article>
                         ))}
+                    </div>
+                )}
+                {hasMore && !searchTerm && selectedCategory === 'all' && (
+                    <div className="flex justify-center mt-8">
+                        <button
+                            onClick={() => loadBlogArticles(page + 1, true)}
+                            disabled={loadingMore}
+                            className="px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition disabled:opacity-50"
+                        >
+                            {loadingMore ? 'Loading...' : 'Load More Articles'}
+                        </button>
                     </div>
                 )}
             </div>
