@@ -78,8 +78,12 @@ export default function JobsPage() {
     const [savedJobs, setSavedJobs] = useState(new Set());
     
     // Pagination states
+    // FIXED (2026-09-13): confirmed a complete, working client-side
+    // pagination system already existed here (slices filteredJobs by
+    // currentPage/jobsPerPage below) - only the default page size
+    // needed changing to the requested 30, from 50.
     const [currentPage, setCurrentPage] = useState(1);
-    const [jobsPerPage, setJobsPerPage] = useState(50);
+    const [jobsPerPage, setJobsPerPage] = useState(30);
     
     // Filter states
     const [searchParams] = useSearchParams();
