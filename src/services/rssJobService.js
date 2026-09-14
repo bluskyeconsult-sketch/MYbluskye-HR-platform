@@ -256,7 +256,17 @@ const API_SOURCES = {
     GERMANY_BUND: {
         name: 'Bundesagentur für Arbeit - German Government Jobs',
         country: 'DE',
-        url: 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs?size=50',
+        // FIXED (2026-09-13): confirmed via the official repo's working
+        // examples (api_example.R, api_example.py) that this API
+        // genuinely requires at least some search criteria - every
+        // confirmed-working call passes either a 'was' keyword or, at
+        // minimum, angebotsart. The earlier version passed neither,
+        // meaning the API correctly, honestly returned an empty
+        // stellenangebote array for a request with nothing to search
+        // for - "parsed successfully but found 0 jobs" was accurate,
+        // not a parser bug. angebotsart=1 means general job offers
+        // (Arbeitsstelle), the broadest, most common category.
+        url: 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs?size=50&angebotsart=1',
         type: 'api',
         is_active: true,
         priority: 3,
@@ -1185,14 +1195,25 @@ export async function getExternalJobsStats() {
     
     if (error) throw error;
     
+    // FIXED (2026-09-14): confirmed exact, definitive root cause of
+    // the Pending tab and stats card always showing 0 despite 113 real
+    // jobs genuinely existing - the real status value is
+    // 'pending_approval', but this only ever incremented a key
+    // matching the raw status string. stats['pending_approval'] was
+    // silently accumulating the real count on a key the UI never
+    // reads (it reads stats.pending specifically) - not an RLS issue,
+    // not a wrong-page issue, a straightforward key-mapping bug.
+    const statusKeyMap = { pending_approval: 'pending', approved: 'approved', rejected: 'rejected' };
+
     for (const job of data || []) {
-        stats[job.status] = (stats[job.status] || 0) + 1;
+        const key = statusKeyMap[job.status] || job.status;
+        stats[key] = (stats[key] || 0) + 1;
         stats.total++;
         
         if (!stats.bySource[job.source_name]) {
             stats.bySource[job.source_name] = { pending: 0, approved: 0, rejected: 0 };
         }
-        stats.bySource[job.source_name][job.status] = (stats.bySource[job.source_name][job.status] || 0) + 1;
+        stats.bySource[job.source_name][key] = (stats.bySource[job.source_name][key] || 0) + 1;
     }
     
     return stats;
