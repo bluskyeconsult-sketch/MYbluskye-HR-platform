@@ -433,7 +433,7 @@ function Footer() {
                     <div>
                         <h4 className="text-white font-semibold mb-3">ODUSBABA</h4>
                         <p className="text-slate-400 text-sm">AI-Powered Career Platform</p>
-                        <p className="text-slate-500 text-xs mt-2">© 2024 All rights reserved</p>
+                        <p className="text-slate-500 text-xs mt-2">© {new Date().getFullYear()} All rights reserved</p>
                     </div>
                     <div>
                         <h4 className="text-white font-semibold mb-3">Quick Links</h4>
@@ -574,6 +574,9 @@ const ArticlesPage = lazy(() => import('./pages/ArticlesPage'));
 const ArticleDetail = lazy(() => import('./pages/ArticleDetail'));
 const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
+// NEW (2026-09-13): NotificationBell.jsx's "View all" link pointed to
+// this route, which never existed anywhere in the app.
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const UserApplications = lazy(() => import('./pages/UserApplications'));
 const UserSkills = lazy(() => import('./pages/UserSkills'));
 const UserMessages = lazy(() => import('./pages/UserMessages'));
@@ -878,6 +881,7 @@ function AppContent() {
                             {/* User Routes - Protected */}
                             <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
                             <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+                            <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
                             <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
                             <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
