@@ -54,7 +54,11 @@ export default function AdminArticles() {
     const [exporting, setExporting] = useState(false);
     const [dateRange, setDateRange] = useState({ from: '', to: '' });
 
-    const itemsPerPage = 20;
+    // FIXED (2026-09-14): confirmed ordering was already correct
+    // (newest-first via created_at) and pagination was already a
+    // complete, working server-side system - only the page size
+    // needed changing to the requested 30, from 20.
+    const itemsPerPage = 30;
     const categories = ['AI & Technology', 'Employment Law', 'HR Strategy', 'Workforce Trends', 'Career Development', 'Skill Verification', 'Remote Work', 'Diversity & Inclusion', 'Leadership', 'Recruitment', 'Productivity', 'Wellness'];
 
     useEffect(() => { checkAuth(); }, []);
