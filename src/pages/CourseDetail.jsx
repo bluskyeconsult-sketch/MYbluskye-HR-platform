@@ -34,6 +34,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
+import ContentRenderer from '../components/ContentRenderer';
 import { BookOpen, Clock, CheckCircle, Circle, Loader2, AlertCircle, ChevronLeft, ChevronRight, Award, Users, Star, X } from 'lucide-react';
 
 export default function CourseDetail() {
@@ -401,9 +402,7 @@ export default function CourseDetail() {
                                         <h2 className="text-2xl font-bold text-white mb-6">{activeLesson.title}</h2>
 
                                         {activeLesson.content ? (
-                                            <div className="text-slate-300 whitespace-pre-wrap leading-relaxed">
-                                                {activeLesson.content}
-                                            </div>
+                                            <ContentRenderer content={activeLesson.content} showTableOfContents={false} />
                                         ) : (
                                             <p className="text-slate-500">No written content for this lesson yet.</p>
                                         )}
