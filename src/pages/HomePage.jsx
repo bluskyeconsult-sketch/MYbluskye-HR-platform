@@ -59,6 +59,7 @@ export default function HomePage() {
         error: null
     });
     const [articles, setArticles] = useState([]);
+    const [recentCourses, setRecentCourses] = useState([]);
     const [countryStats, setCountryStats] = useState([]);
     const [isStatsVisible, setIsStatsVisible] = useState(false);
     const [isFeaturesVisible, setIsFeaturesVisible] = useState(false);
@@ -264,12 +265,34 @@ export default function HomePage() {
         }
     }, []);
 
+    // NEW (2026-09-13): genuinely new - the homepage never had an
+    // actual "recent courses" listing, only a numeric count elsewhere
+    // on the page. Mirrors loadArticles()'s pattern exactly.
+    const loadRecentCourses = useCallback(async () => {
+        try {
+            const response = await fetch('/api/index?action=recent-courses', {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                setRecentCourses(data.courses || []);
+            } else {
+                setRecentCourses([]);
+            }
+        } catch (err) {
+            console.error('Error loading recent courses:', err);
+            setRecentCourses([]);
+        }
+    }, []);
+
     // Load all data
     useEffect(() => {
         const loadAllData = async () => {
             await Promise.all([
                 fetchStats(),
                 loadArticles(),
+                loadRecentCourses(),
                 loadCountryStats()
             ]);
         };
@@ -545,6 +568,64 @@ export default function HomePage() {
                     </div>
                 )}
             </div>
+
+            {/* New Courses Section */}
+            {/* NEW (2026-09-13): genuinely new - the homepage never had
+                an actual course listing, only a numeric count. Mirrors
+                the Latest Insights section above exactly. */}
+            {recentCourses.length > 0 && (
+                <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
+                        <div>
+                            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
+                                New Courses
+                            </h2>
+                            <p className="text-slate-400 text-sm">Grow your skills with our newest additions</p>
+                        </div>
+                        <Link to="/courses" className="text-primary-400 hover:text-primary-300 text-sm sm:text-base flex items-center gap-1 transition">
+                            View all <ChevronRight className="w-4 h-4" />
+                        </Link>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                        {recentCourses.map(course => (
+                            <Link
+                                key={course.id}
+                                to={`/courses/${course.id}`}
+                                className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all duration-300 hover:-translate-y-1"
+                            >
+                                {course.image_url && (
+                                    <img src={course.image_url} alt={course.title} className="w-full h-36 object-cover" />
+                                )}
+                                <div className="p-4 sm:p-6">
+                                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
+                                        <Calendar className="w-3 h-3" />
+                                        {new Date(course.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        {course.category && (
+                                            <>
+                                                <span className="w-1 h-1 bg-slate-600 rounded-full" />
+                                                {course.category}
+                                            </>
+                                        )}
+                                    </div>
+                                    <h3 className="text-base sm:text-lg font-semibold text-white mb-2 group-hover:text-primary-400 transition line-clamp-2">
+                                        {course.title}
+                                    </h3>
+                                    <p className="text-slate-400 text-sm line-clamp-3">{course.description}</p>
+                                    <div className="mt-4 flex items-center justify-between">
+                                        <span className="text-primary-400 text-sm font-medium">
+                                            {course.is_free ? 'Free' : `£${course.price}`}
+                                        </span>
+                                        <span className="flex items-center text-primary-400 text-sm font-medium">
+                                            View course <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition" />
+                                        </span>
+                                    </div>
+                                </div>
+                            </Link>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* CTA Section */}
             <CTASection />
