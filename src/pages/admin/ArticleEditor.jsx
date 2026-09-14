@@ -38,7 +38,7 @@ import {
     Edit, Clock, Wand2, Globe, Hash, Image as ImageIcon, 
     AlertCircle, WifiOff, Maximize2, Minimize2
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import ContentRenderer from '../components/ContentRenderer';
 
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
@@ -676,9 +676,11 @@ export default function ArticleEditor() {
                             {article.category && <span className="flex items-center gap-2"><Tag className="w-4 h-4" /> {article.category}</span>}
                         </div>
                         <div className="markdown-content">
-                            <ReactMarkdown>
-                                {article.content || '*No content yet*'}
-                            </ReactMarkdown>
+                            {article.content ? (
+                                <ContentRenderer content={article.content} />
+                            ) : (
+                                <p className="text-slate-500 italic">No content yet</p>
+                            )}
                         </div>
                     </div>
                 )}
