@@ -12,7 +12,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
-import ReactMarkdown from 'react-markdown';
+import ContentRenderer from '../components/ContentRenderer';
 import { 
     Calendar, User, Eye, ArrowLeft, Share2, Send, Sparkles, Loader2,
     AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check,
@@ -377,96 +377,8 @@ export default function ArticleDetail() {
                 {/* ============================================
                     ARTICLE CONTENT - UPGRADED READABILITY
                     ============================================ */}
-                <div className="article-content prose prose-invert max-w-none">
-                    <div className="text-slate-300 leading-relaxed space-y-6 markdown-content">
-                        <ReactMarkdown
-                            components={{
-                                // Custom heading rendering for better hierarchy
-                                h1: ({ children }) => (
-                                    <h1 className="text-3xl sm:text-4xl font-bold text-white mt-10 mb-4 leading-tight">
-                                        {children}
-                                    </h1>
-                                ),
-                                h2: ({ children }) => (
-                                    <h2 className="text-2xl sm:text-3xl font-bold text-white mt-8 mb-3 leading-snug">
-                                        {children}
-                                    </h2>
-                                ),
-                                h3: ({ children }) => (
-                                    <h3 className="text-xl sm:text-2xl font-semibold text-white mt-6 mb-2 leading-snug">
-                                        {children}
-                                    </h3>
-                                ),
-                                h4: ({ children }) => (
-                                    <h4 className="text-lg sm:text-xl font-semibold text-white mt-4 mb-2 leading-snug">
-                                        {children}
-                                    </h4>
-                                ),
-                                // Custom paragraph rendering
-                                p: ({ children }) => (
-                                    <p className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 max-w-3xl">
-                                        {children}
-                                    </p>
-                                ),
-                                // Custom list rendering
-                                ul: ({ children }) => (
-                                    <ul className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-disc pl-6 max-w-3xl">
-                                        {children}
-                                    </ul>
-                                ),
-                                ol: ({ children }) => (
-                                    <ol className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-decimal pl-6 max-w-3xl">
-                                        {children}
-                                    </ol>
-                                ),
-                                li: ({ children }) => (
-                                    <li className="mb-1.5 leading-relaxed">
-                                        {children}
-                                    </li>
-                                ),
-                                // Blockquote styling
-                                blockquote: ({ children }) => (
-                                    <blockquote className="border-l-4 border-primary-500 pl-4 sm:pl-6 py-1 my-6 text-slate-300 text-base sm:text-lg italic max-w-3xl">
-                                        {children}
-                                    </blockquote>
-                                ),
-                                // Code block styling
-                                code: ({ children, inline }) => (
-                                    inline ? (
-                                        <code className="bg-slate-800 px-1.5 py-0.5 rounded text-sm text-primary-400 font-mono">
-                                            {children}
-                                        </code>
-                                    ) : (
-                                        <code className="block bg-slate-800 p-4 rounded-lg text-sm text-slate-300 font-mono overflow-x-auto">
-                                            {children}
-                                        </code>
-                                    )
-                                ),
-                                // Image styling
-                                img: ({ src, alt }) => (
-                                    <img 
-                                        src={src} 
-                                        alt={alt || ''} 
-                                        className="rounded-xl max-w-full h-auto my-6"
-                                        loading="lazy"
-                                    />
-                                ),
-                                // Link styling
-                                a: ({ href, children }) => (
-                                    <a 
-                                        href={href} 
-                                        target={href?.startsWith('http') ? '_blank' : '_self'}
-                                        rel={href?.startsWith('http') ? 'noopener noreferrer' : ''}
-                                        className="text-primary-400 hover:text-primary-300 underline transition-colors"
-                                    >
-                                        {children}
-                                    </a>
-                                ),
-                            }}
-                        >
-                            {article.content}
-                        </ReactMarkdown>
-                    </div>
+                <div className="article-content max-w-none">
+                    <ContentRenderer content={article.content} />
                 </div>
 
                 {/* Tags - Unchanged */}
