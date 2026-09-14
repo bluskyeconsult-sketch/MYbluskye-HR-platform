@@ -6217,18 +6217,52 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     // ========== ARTICLES LIST ==========
-    'articles-list': async (req, res) => {
+    // NEW (2026-09-13): confirmed the homepage only ever showed a
+    // numeric course count, never an actual "newest courses" listing
+    // like articles already had - genuinely never built, not a bug.
+    'recent-courses': async (req, res) => {
         const supabaseClient = getSupabase();
-        
         try {
             const { data, error } = await supabaseClient
-                .from('articles')
-                .select('*')
+                .from('courses')
+                .select('id, title, description, category, image_url, price, is_free, created_at')
                 .eq('is_published', true)
-                .order('published_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .limit(3);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, courses: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'articles-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        // NEW (2026-09-13): confirmed this previously had no limit at
+        // all - every published article returned in one unbounded
+        // query. Added real pagination, defaulting to 30/page as
+        // requested, to avoid an ever-growing, slow response as the
+        // article count increases.
+        const page = parseInt(req.query.page) || 1;
+        const pageSize = 30;
+        const from = (page - 1) * pageSize;
+        const to = from + pageSize - 1;
+
+        try {
+            const { data, error, count } = await supabaseClient
+                .from('articles')
+                .select('*', { count: 'exact' })
+                .eq('is_published', true)
+                .order('published_at', { ascending: false })
+                .range(from, to);
             
             if (error) throw error;
-            return res.status(200).json({ success: true, articles: data || [] });
+            return res.status(200).json({
+                success: true,
+                articles: data || [],
+                pagination: { page, pageSize, total: count || 0, totalPages: Math.ceil((count || 0) / pageSize) }
+            });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
@@ -7966,24 +8000,42 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         let errors = [];
         let hasRealData = false;
         
+        // FIXED (2026-09-13): confirmed a genuine, serious honesty
+        // issue - every stat below had a hardcoded, fake number
+        // (activeUsers: 125, jobsPosted: 82, etc.) that would silently
+        // display whenever the real count was genuinely zero, or a
+        // query failed - fabricating a track record on a platform
+        // whose entire brand is built on verification and trust.
+        // Every default is now a genuine 0 - a real, honest "not
+        // established yet" is always preferable to an invented number.
         const stats = {
-            activeUsers: 125,
-            jobsPosted: 82,
-            courses: 15,
-            assessments: 8,
-            earlyMembers: 45,
-            testerSpots: 55,
-            // NEW (2026-08-07): backs HomeHero.jsx's "Impact" stat with a
-            // real count instead of a hardcoded number that never updated.
+            activeUsers: 0,
+            jobsPosted: 0,
+            courses: 0,
+            assessments: 0,
+            earlyMembers: 0,
+            testerSpots: 100,
             vaTasksCompleted: 0,
-            countriesSupported: 9
+            // FIXED (2026-09-14): completing the homepage honesty
+            // review - this was the last remaining static number,
+            // never contradicted by any real query. Now genuinely
+            // calculated below from distinct country_code values
+            // actually present in the jobs table.
+            countriesSupported: 0
         };
 
         try {
-            // Try each query individually with error handling
+            // Try each query individually with error handling.
+            // FIXED (2026-09-13): the condition below was `count > 0`,
+            // meaning a genuine, real zero count never actually
+            // overwrote the fake default - it looked identical to a
+            // failed query. Changed to check the query itself
+            // succeeded (count is not null/undefined), so a real zero
+            // is shown as a real zero, not silently replaced by a
+            // fabricated number.
             try {
                 const { count } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.activeUsers = count;
                     hasRealData = true;
                 }
@@ -7997,7 +8049,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     .select('*', { count: 'exact', head: true })
                     .eq('is_active', true)
                     .eq('compliance_status', 'approved');
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.jobsPosted = count;
                     hasRealData = true;
                 }
@@ -8010,7 +8062,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     .from('courses')
                     .select('*', { count: 'exact', head: true })
                     .eq('is_published', true);
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.courses = count;
                     hasRealData = true;
                 }
@@ -8023,7 +8075,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     .from('assessments')
                     .select('*', { count: 'exact', head: true })
                     .eq('is_active', true);
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.assessments = count;
                     hasRealData = true;
                 }
@@ -8036,7 +8088,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     .from('profiles')
                     .select('*', { count: 'exact', head: true })
                     .eq('user_type', 'tester');
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.earlyMembers = count;
                     stats.testerSpots = Math.max(0, 100 - count);
                     hasRealData = true;
@@ -8050,12 +8102,26 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                     .from('va_tasks')
                     .select('*', { count: 'exact', head: true })
                     .eq('status', 'completed');
-                if (count > 0) {
+                if (count !== null && count !== undefined) {
                     stats.vaTasksCompleted = count;
                     hasRealData = true;
                 }
             } catch (e) {
                 errors.push('va_tasks: ' + e.message);
+            }
+
+            try {
+                const { data: countryRows } = await supabaseClient
+                    .from('jobs')
+                    .select('country_code')
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved')
+                    .not('country_code', 'is', null);
+                const distinctCountries = new Set((countryRows || []).map(r => r.country_code));
+                stats.countriesSupported = distinctCountries.size;
+                hasRealData = true;
+            } catch (e) {
+                errors.push('countries: ' + e.message);
             }
 
             return res.status(200).json({
