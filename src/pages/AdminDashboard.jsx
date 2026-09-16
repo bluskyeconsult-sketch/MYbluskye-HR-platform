@@ -295,7 +295,16 @@ export default function AdminDashboard() {
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-slate-400 text-sm">Active Jobs</p>
+                                {/* FIXED (2026-09-16): confirmed this
+                                    and System Health's job count are
+                                    genuinely different, honest metrics
+                                    - this counts all is_active jobs,
+                                    System Health additionally requires
+                                    compliance_status = 'approved'.
+                                    Clarified rather than leaving both
+                                    labeled simply "Jobs" with no
+                                    distinction. */}
+                                <p className="text-slate-400 text-sm">Active Jobs (all)</p>
                                 <p className="text-2xl font-bold text-white">{stats.totalJobs}</p>
                             </div>
                             <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
