@@ -36,18 +36,23 @@ export default function ArticlesPage() {
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [selectedTag, setSelectedTag] = useState(null);
     const [categories, setCategories] = useState([]);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
 
     // ============================================
     // LOAD ARTICLES (Unified API)
     // ============================================
 
-    const loadArticles = useCallback(async () => {
-        setLoading(true);
+    const loadArticles = useCallback(async (pageNum = 1, append = false) => {
+        if (append) setLoadingMore(true); else setLoading(true);
         setError(null);
         
         try {
-            // ✅ Using unified API endpoint
-            const response = await fetch(`${API_BASE}?action=articles-list`, {
+            // NEW (2026-09-13): confirmed this previously fetched every
+            // published article in one unbounded request - added real,
+            // requested 30-per-page pagination.
+            const response = await fetch(`${API_BASE}?action=articles-list&page=${pageNum}`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -59,7 +64,9 @@ export default function ArticlesPage() {
             const data = await response.json();
             
             if (data.success && data.articles) {
-                processArticles(data.articles);
+                processArticles(data.articles, append);
+                setHasMore(data.pagination ? pageNum < data.pagination.totalPages : false);
+                setPage(pageNum);
             } else {
                 throw new Error(data.error || 'Failed to load articles');
             }
@@ -68,17 +75,22 @@ export default function ArticlesPage() {
             setError('Failed to load articles. Please refresh the page.');
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     }, []);
 
-    const processArticles = (data) => {
-        setArticles(data);
-        setFilteredArticles(data);
-        setFeaturedArticles(data.filter(a => a.is_featured === true).slice(0, 3));
+    const processArticles = (data, append = false) => {
+        setArticles(prev => append ? [...prev, ...data] : data);
+        setFilteredArticles(prev => append ? [...prev, ...data] : data);
+        if (!append) {
+            setFeaturedArticles(data.filter(a => a.is_featured === true).slice(0, 3));
+        }
         
         // Extract unique categories
-        const uniqueCategories = [...new Set(data.map(a => a.category).filter(Boolean))];
-        setCategories(uniqueCategories);
+        setCategories(prev => {
+            const combined = append ? [...prev, ...data.map(a => a.category)] : data.map(a => a.category);
+            return [...new Set(combined.filter(Boolean))];
+        });
     };
 
     // ============================================
@@ -380,6 +392,18 @@ export default function ArticlesPage() {
                                         )}
                                     </Link>
                                 ))}
+                            </div>
+                        )}
+                        {hasMore && !searchQuery && selectedCategory === 'all' && !selectedTag && (
+                            <div className="flex justify-center mt-8">
+                                <button
+                                    onClick={() => loadArticles(page + 1, true)}
+                                    disabled={loadingMore}
+                                    className="px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                    {loadingMore ? 'Loading...' : 'Load More Articles'}
+                                </button>
                             </div>
                         )}
                     </div>
