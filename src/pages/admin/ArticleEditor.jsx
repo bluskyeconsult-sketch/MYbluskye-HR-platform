@@ -23,11 +23,15 @@
 //    if that real call fails — same pattern used for the CoursesPage.jsx
 //    and assessmentService.js AI fixes.
 //
-// FLAGGED, NOT CHANGED: sendNotification() calls a Supabase Edge Function
-// named 'send-article-notification' — a different mechanism than anything
-// else in this project (which uses api/index.js or direct table queries
-// exclusively). Unconfirmed whether this edge function exists; left as-is
-// since it already fails silently/gracefully without blocking the save.
+// FIXED (2026-09-13, later session): sendNotification() previously
+// called a Supabase Edge Function named 'send-article-notification' -
+// confirmed via the Supabase dashboard's own function list that it
+// genuinely never existed at all (0 of 37 functions matched). Rewired
+// to call the real notify-article-subscribers action on this same
+// backend directly. Also fixed 2026-09-16: was being passed the stale
+// insert payload instead of the real, database-returned article,
+// meaning a brand-new article's notification call received an
+// invalid articleId of the literal string 'new'.
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -38,7 +42,7 @@ import {
     Edit, Clock, Wand2, Globe, Hash, Image as ImageIcon, 
     AlertCircle, WifiOff, Maximize2, Minimize2
 } from 'lucide-react';
-import ContentRenderer from '../components/ContentRenderer';
+import ContentRenderer from '../../components/ContentRenderer';
 
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
@@ -197,12 +201,22 @@ export default function ArticleEditor() {
 
         try {
             let result;
+            let savedArticle = articleData;
             if (id && id !== 'new') {
                 result = await supabase.from('articles').update(articleData).eq('id', id);
             } else {
                 const { data, error } = await supabase.from('articles').insert([articleData]).select();
                 result = { error };
                 if (!error && data) {
+                    // FIXED (2026-09-16): confirmed real bug - the
+                    // insert payload (articleData) never had an id
+                    // field for a brand-new article, and the id URL
+                    // param was still the literal string 'new' at
+                    // this exact moment - sendNotification() below was
+                    // being called with articleId: 'new', a genuinely
+                    // invalid value. Using the real, database-returned
+                    // row instead, which has the genuine id.
+                    savedArticle = data[0];
                     navigate(`/admin/articles/${data[0].id}`, { replace: true });
                 }
             }
@@ -213,7 +227,7 @@ export default function ArticleEditor() {
             
             if (publish && article.send_notification && !notificationSent) {
                 setNotificationSent(true);
-                await sendNotification(articleData);
+                await sendNotification(savedArticle);
             }
             
             navigate('/admin/articles');
