@@ -47,6 +47,7 @@ export default function CourseDetail() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
+    const [issuingCertificate, setIssuingCertificate] = useState(false);
     const [updating, setUpdating] = useState(false);
     // NEW (2026-09-04): confirmed real bug - clicking a lesson directly
     // toggled completion, never showing the lesson's actual content.
@@ -188,6 +189,29 @@ export default function CourseDetail() {
         await updateProgress(newProgress, lesson.id);
     }
 
+    // NEW (2026-09-16): issues (or reuses an already-issued) real
+    // certificate, then downloads the actual generated PDF - the
+    // issue step genuinely re-checks completion server-side rather
+    // than trusting this component's own isCompleted flag.
+    async function handleGetCertificate() {
+        setIssuingCertificate(true);
+        try {
+            const issueResponse = await fetch('/api/index?action=issue-certificate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, courseId: id })
+            });
+            const issueData = await issueResponse.json();
+            if (!issueData.success) throw new Error(issueData.error || 'Could not issue certificate');
+
+            window.open(`/api/index?action=download-certificate&certificateId=${issueData.certificateId}`, '_blank');
+        } catch (error) {
+            alert('Failed to get certificate: ' + error.message);
+        } finally {
+            setIssuingCertificate(false);
+        }
+    }
+
     // REDESIGNED (2026-09-06): navigation helpers for the full-view
     // reader's Next/Previous buttons.
     function openLesson(lessonId) {
@@ -256,9 +280,19 @@ export default function CourseDetail() {
                             <h1 className="text-2xl md:text-3xl font-bold text-white mt-2">{course.title}</h1>
                         </div>
                         {isCompleted && (
-                            <span className="flex items-center gap-1 text-sm px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-full flex-shrink-0">
-                                <Award className="w-4 h-4" /> Completed
-                            </span>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="flex items-center gap-1 text-sm px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-full">
+                                    <Award className="w-4 h-4" /> Completed
+                                </span>
+                                <button
+                                    onClick={handleGetCertificate}
+                                    disabled={issuingCertificate}
+                                    className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary-600 text-white rounded-full hover:bg-primary-500 transition disabled:opacity-50"
+                                >
+                                    {issuingCertificate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                                    Get Certificate
+                                </button>
+                            </div>
                         )}
                     </div>
 
