@@ -4191,6 +4191,115 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // suggest genuinely related angles - not fabricated external news,
     // grounded only in this site's own real, current article pool and
     // trending search activity.
+    // ========== PENDING JOBS V2 (NEW, 2026-09-17) ==========
+    // Built as a genuinely fresh, parallel path - deliberately does
+    // NOT call anything in rssJobService.js's existing
+    // getPendingExternalJobs()/getExternalJobsStats()/
+    // approveExternalJob() functions, even though those were already
+    // confirmed correct in the source code. This exists specifically
+    // to rule out (or bypass, if it's real) any stale bundle/cache
+    // issue affecting the old path - a completely new action name and
+    // new page cannot possibly inherit cached state from before.
+    'pending-jobs-v2': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error, count } = await supabaseClient
+                .from('external_jobs')
+                .select('*', { count: 'exact' })
+                .eq('status', 'pending_approval')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, jobs: data || [], total: count || 0 });
+        } catch (error) {
+            console.error('pending-jobs-v2 error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'approve-job-v2': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { jobId } = req.body;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        try {
+            const { data: externalJob, error: fetchError } = await supabaseClient
+                .from('external_jobs')
+                .select('*')
+                .eq('id', jobId)
+                .single();
+            if (fetchError || !externalJob) return res.status(404).json({ error: 'Job not found' });
+
+            let jobType = externalJob.job_type || 'full_time';
+            if (jobType === 'full-time') jobType = 'full_time';
+            if (jobType === 'part-time') jobType = 'part_time';
+
+            const { data: newJob, error: insertError } = await supabaseClient
+                .from('jobs')
+                .insert({
+                    title: externalJob.title || 'Untitled Position',
+                    company: externalJob.company || externalJob.source_name || 'Unknown Company',
+                    location: externalJob.location || externalJob.source_country || 'Not specified',
+                    description: externalJob.description || 'No description was provided for this listing. View the original posting for full details.',
+                    salary_range: externalJob.salary_range,
+                    salary_min: externalJob.salary_min,
+                    salary_max: externalJob.salary_max,
+                    job_type: jobType,
+                    external_apply_url: externalJob.external_apply_url,
+                    country_code: externalJob.source_country,
+                    source_type: 'authoritative',
+                    source_name: externalJob.source_name,
+                    sponsorship_eligible: externalJob.sponsorship_eligible,
+                    verified_employer_source_id: externalJob.verified_employer_source_id || null,
+                    compliance_status: 'approved',
+                    is_active: true,
+                    posted_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+            if (insertError) throw insertError;
+
+            await supabaseClient
+                .from('external_jobs')
+                .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+                .eq('id', jobId);
+
+            return res.status(200).json({ success: true, jobId: newJob.id });
+        } catch (error) {
+            console.error('approve-job-v2 error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'reject-job-v2': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { jobId, reason } = req.body;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        try {
+            const { error } = await supabaseClient
+                .from('external_jobs')
+                .update({ status: 'rejected', reviewed_at: new Date().toISOString(), rejection_reason: reason || null })
+                .eq('id', jobId);
+            if (error) throw error;
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('reject-job-v2 error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'newsletter-article-pool': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
