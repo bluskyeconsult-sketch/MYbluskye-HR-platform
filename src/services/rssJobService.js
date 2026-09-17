@@ -71,6 +71,28 @@ const supabaseKey = (typeof process !== 'undefined' ? (process.env?.SUPABASE_SER
     || import.meta.env?.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// FIXED (2026-09-17): confirmed real, definitive root cause of pending
+// jobs never showing despite genuinely existing - this client, used
+// directly by ExternalJobsManager.jsx in the browser, never once
+// attached the real, logged-in admin's session. RLS on external_jobs
+// only grants full access (including pending_approval rows) to the
+// authenticated role - a second, freshly-created client instance
+// doesn't automatically inherit a session that exists in a different
+// client instance elsewhere in the app. Every read from this client
+// was genuinely being treated as anonymous by Postgres RLS, meaning
+// it could only ever see the "anyone can read approved jobs" policy -
+// approved rows only, regardless of how many pending rows genuinely
+// existed. Exported so ExternalJobsManager.jsx can explicitly sync
+// the real session onto this client on mount.
+export async function syncSupabaseSession(session) {
+    if (session?.access_token && session?.refresh_token) {
+        await supabase.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token
+        });
+    }
+}
+
 // ============================================
 // CONSTANTS & CONFIGURATION
 // ============================================
@@ -111,19 +133,19 @@ const RSS_FEEDS = {
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa', 'Certificate of Sponsorship']
     },
-    // DISABLED (2026-09-17): confirmed via NHS Business Services
-    // RE-ENABLED (2026-09-17): re-enabled at explicit request to keep
-    // investigating rather than treat the earlier research-based
-    // inference as final. Rather than guess further, the parser below
-    // now captures and surfaces the actual raw response when parsing
-    // fails, so the next sync attempt shows real, direct evidence of
-    // what this URL is genuinely returning - not more inference.
+    // DISABLED (2026-09-17), now with definitive proof: the new
+    // diagnostic capture confirmed via real, direct evidence -
+    // "parsed keys: [html]", starting with an actual HTML doctype and
+    // IE8/9-conditional comments - that this URL genuinely returns a
+    // webpage, not a feed of any kind. Not inference this time; this
+    // is what the server actually sent back. No parsing fix can ever
+    // resolve this, since there is no feed here to parse.
     UK_NHS: {
         name: 'NHS Jobs',
         country: 'GB',
         url: 'https://www.jobs.nhs.uk/feeds/jobs.xml',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa']
     },
