@@ -26,10 +26,12 @@ import {
     Briefcase, Search, Loader2, CheckCircle, XCircle, Eye, 
     RefreshCw, Filter, MapPin, Calendar, Building2, DollarSign,
     Clock, AlertCircle, Trash2, Edit, ExternalLink, Users,
-    TrendingUp, Award, Shield, Star
+    TrendingUp, Award, Shield, Star, Upload
 } from 'lucide-react';
+import JobCsvImporter from '../../components/admin/JobCsvImporter';
 
 export default function AdminJobs() {
+    const [showCsvImporter, setShowCsvImporter] = useState(false);
     const [jobs, setJobs] = useState([]);
     const [filteredJobs, setFilteredJobs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -199,15 +201,25 @@ export default function AdminJobs() {
                     <h1 className="text-2xl font-bold text-white">Job Management</h1>
                     <p className="text-slate-400">View, moderate, and manage job listings</p>
                 </div>
-                <button
-                    onClick={refreshJobs}
-                    disabled={refreshing}
-                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
-                >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                    {refreshing ? 'Refreshing...' : 'Refresh'}
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setShowCsvImporter(true)}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition flex items-center gap-2"
+                    >
+                        <Upload className="w-4 h-4" /> Bulk Import CSV
+                    </button>
+                    <button
+                        onClick={refreshJobs}
+                        disabled={refreshing}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        {refreshing ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                </div>
             </div>
+
+            {showCsvImporter && <JobCsvImporter onClose={() => { setShowCsvImporter(false); refreshJobs(); }} />}
 
             {/* Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
