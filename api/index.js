@@ -28,6 +28,9 @@ import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/e
 // server, blocked only because of where the code was running) was never
 // actually visible before now.
 import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import crypto from 'crypto';
+import QRCode from 'qrcode';
 
 // ============================================
 // CONFIGURATION
@@ -1370,6 +1373,119 @@ const HR_TOOLS_FOR_CHAT = [
     { name: 'LinkedIn Optimizer', use: 'strengthen a LinkedIn profile before applying' }
 ];
 
+
+// NEW (2026-09-16): the actual certificate PDF generator - a genuine,
+// designed landscape layout (decorative border, centered hierarchy,
+// real branding), not a plain text dump. Returns raw PDF bytes; the
+// calling action decides what to do with them (return as base64,
+// store, etc).
+async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, verificationCode }) {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([842, 595]); // A4 landscape
+    const { width, height } = page.getSize();
+
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const timesItalic = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+
+    const brandColor = rgb(0.043, 0.235, 0.365); // matches the site's primary dark blue
+    const accentColor = rgb(0.055, 0.647, 0.914); // sky accent
+
+    // NEW (2026-09-16): confirmed the real, live logo is served at
+    // /Bluskye.png (same file Navbar.jsx uses) - fetches and embeds
+    // the genuine logo image rather than styled text standing in for
+    // a brand mark. Falls back to the text-only header only if the
+    // fetch genuinely fails (e.g. a transient network issue), so a
+    // certificate is never blocked from issuing over this.
+    let logoImage = null;
+    try {
+        const logoResponse = await fetch('https://www.bluskyeconsult.com/Bluskye.png');
+        if (logoResponse.ok) {
+            const logoBytes = await logoResponse.arrayBuffer();
+            logoImage = await pdfDoc.embedPng(logoBytes);
+        }
+    } catch (logoError) {
+        console.warn('Certificate logo fetch failed, falling back to text header:', logoError.message);
+    }
+
+    // Outer decorative border
+    page.drawRectangle({
+        x: 20, y: 20, width: width - 40, height: height - 40,
+        borderColor: brandColor, borderWidth: 3
+    });
+    page.drawRectangle({
+        x: 30, y: 30, width: width - 60, height: height - 60,
+        borderColor: accentColor, borderWidth: 1
+    });
+
+    const centerText = (text, y, font, size, color = rgb(0.1, 0.1, 0.1)) => {
+        const textWidth = font.widthOfTextAtSize(text, size);
+        page.drawText(text, { x: (width - textWidth) / 2, y, size, font, color });
+    };
+
+    if (logoImage) {
+        const logoDims = logoImage.scale(1);
+        const logoDisplayHeight = 50;
+        const logoDisplayWidth = (logoDims.width / logoDims.height) * logoDisplayHeight;
+        page.drawImage(logoImage, {
+            x: (width - logoDisplayWidth) / 2,
+            y: height - 95,
+            width: logoDisplayWidth,
+            height: logoDisplayHeight
+        });
+    } else {
+        // FIXED (2026-09-16): confirmed this fallback and the subtitle
+        // below were backwards from the homepage's own established
+        // pattern ("BluSkye Integrated Consult, powered by ODUSBABA
+        // intelligence") - the real logo image itself represents
+        // BluSkye's identity, so the text fallback should match that,
+        // not lead with the product/AI brand name instead.
+        centerText('BluSkye Integrated Consult', height - 90, helveticaBold, 20, brandColor);
+    }
+    centerText('Powered by ODUSBABA Intelligence', height - 112, helvetica, 10, rgb(0.4, 0.4, 0.4));
+
+    centerText('Certificate of Completion', height - 175, helveticaBold, 30, rgb(0.1, 0.1, 0.1));
+
+    centerText('This certifies that', height - 225, timesItalic, 14, rgb(0.35, 0.35, 0.35));
+    centerText(learnerName, height - 265, helveticaBold, 26, brandColor);
+
+    centerText('has successfully completed the course', height - 305, timesItalic, 14, rgb(0.35, 0.35, 0.35));
+    centerText(courseTitle, height - 340, helveticaBold, 20, rgb(0.1, 0.1, 0.1));
+
+    const dateStr = new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    centerText(`Issued on ${dateStr}`, height - 385, helvetica, 12, rgb(0.4, 0.4, 0.4));
+
+    // NEW (2026-09-16): confirmed qrcode was already a dependency,
+    // genuinely unused until now - a real, scannable QR code linking
+    // directly to the verification page, the standard, expected
+    // pattern on modern certificates. Positioned in the corner rather
+    // than the center footer, which keeps the text URL as a fallback
+    // for anyone who can't scan.
+    try {
+        const verifyUrl = `https://www.bluskyeconsult.com/verify/${verificationCode}`;
+        const qrBuffer = await QRCode.toBuffer(verifyUrl, { width: 200, margin: 1, color: { dark: '#0B3C5D', light: '#FFFFFF' } });
+        const qrImage = await pdfDoc.embedPng(qrBuffer);
+        const qrDisplaySize = 70;
+        page.drawImage(qrImage, {
+            x: width - 60 - qrDisplaySize,
+            y: 45,
+            width: qrDisplaySize,
+            height: qrDisplaySize
+        });
+    } catch (qrError) {
+        console.warn('QR code generation failed (non-blocking):', qrError.message);
+    }
+
+    // Verification footer - the actual trust mechanism, not decoration
+    page.drawLine({
+        start: { x: width / 2 - 140, y: 100 }, end: { x: width / 2 + 140, y: 100 },
+        thickness: 0.5, color: rgb(0.6, 0.6, 0.6)
+    });
+    centerText('Verify this certificate at', 78, helvetica, 9, rgb(0.5, 0.5, 0.5));
+    centerText(`bluskyeconsult.com/verify/${verificationCode}`, 62, helveticaBold, 11, accentColor);
+
+    return await pdfDoc.save();
+}
 
 const handlers = {
     // ========== HEALTH & SYSTEM ==========
@@ -4065,6 +4181,164 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // courses, new articles, trending topics) into a ready-to-edit
     // newsletter draft — closes the "newsletter pool" request without
     // requiring manual curation from scratch every time.
+    // ========== ARTICLE NEWSLETTER POOL (NEW, 2026-09-16) ==========
+    // NEW feature, genuinely distinct from generate-newsletter-digest
+    // below (which pulls jobs+courses+articles together into one
+    // pre-formatted blob with no per-item selection). This is
+    // specifically article-focused, returns individually-selectable
+    // real items (not a pre-written blob), and supports an optional
+    // industry/field focus that uses real AI to rank relevance and
+    // suggest genuinely related angles - not fabricated external news,
+    // grounded only in this site's own real, current article pool and
+    // trending search activity.
+    'newsletter-article-pool': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { industryFocus } = req.body;
+
+        try {
+            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+            const [{ data: articles }, { data: trendingSignals }] = await Promise.all([
+                supabaseClient
+                    .from('articles')
+                    .select('id, title, excerpt, slug, category, published_at, view_count')
+                    .eq('is_published', true)
+                    .gte('published_at', since)
+                    .order('published_at', { ascending: false })
+                    .limit(20),
+                supabaseClient
+                    .from('activity_signals')
+                    .select('query_text')
+                    .gte('created_at', since)
+                    .limit(500)
+            ]);
+
+            const counts = {};
+            for (const s of trendingSignals || []) {
+                const normalized = s.query_text?.toLowerCase().trim();
+                if (normalized) counts[normalized] = (counts[normalized] || 0) + 1;
+            }
+            const trendingTopics = Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8)
+                .map(([topic, count]) => ({ topic, count }));
+
+            let suggestedAngles = [];
+            let rankedArticleIds = (articles || []).map(a => a.id);
+
+            // AI assist is entirely optional - only runs when the admin
+            // actually specifies a focus, and only ever ranks/suggests
+            // from real, existing content - it never invents articles
+            // or external news that doesn't genuinely exist on the site.
+            if (industryFocus && (articles || []).length > 0) {
+                try {
+                    const articleList = articles.map(a => `[${a.id}] ${a.title} — ${a.excerpt || ''}`).join('\n');
+                    const data = await callOpenAI([
+                        {
+                            role: 'system',
+                            content: 'You help an admin pick which existing articles are most relevant to a stated industry focus, for a newsletter. You are given real article titles/excerpts with their real IDs. Return ONLY valid JSON: {"rankedIds": ["id1","id2",...], "suggestedAngles": ["short angle 1", "short angle 2", "short angle 3"]}. rankedIds must only contain IDs genuinely present in the list given - never invent one. suggestedAngles are brief, genuinely related topic ideas an admin could write a NEW article about for this focus - not claims about existing articles.'
+                        },
+                        {
+                            role: 'user',
+                            content: `Industry/field focus: "${industryFocus}"\n\nExisting recent articles:\n${articleList}`
+                        }
+                    ], 500, 0.5, { type: 'json_object' });
+
+                    const parsed = JSON.parse(data.choices[0].message.content);
+                    const validIds = new Set((articles || []).map(a => a.id));
+                    rankedArticleIds = (parsed.rankedIds || []).filter(id => validIds.has(id));
+                    // Any real articles the AI didn't rank still appear,
+                    // just after the ones it did - nothing is ever hidden.
+                    for (const a of articles) {
+                        if (!rankedArticleIds.includes(a.id)) rankedArticleIds.push(a.id);
+                    }
+                    suggestedAngles = (parsed.suggestedAngles || []).slice(0, 3);
+                } catch (aiError) {
+                    console.warn('AI ranking failed, falling back to recency order:', aiError.message);
+                    // Falls back to the honest, real recency-sorted list
+                    // above - never blocks the admin from seeing real
+                    // articles just because the AI step failed.
+                }
+            }
+
+            const orderedArticles = rankedArticleIds
+                .map(id => (articles || []).find(a => a.id === id))
+                .filter(Boolean);
+
+            return res.status(200).json({
+                success: true,
+                articles: orderedArticles,
+                trendingTopics,
+                suggestedAngles
+            });
+        } catch (error) {
+            console.error('newsletter-article-pool error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Compiles the admin's actual, chosen selection into a properly
+    // structured newsletter draft - a real HTML template, not a
+    // markdown blob dropped into a plain-text field.
+    'newsletter-compile-selection': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { selectedArticleIds, includedTrendingTopics, customIntro } = req.body;
+        if (!Array.isArray(selectedArticleIds) || selectedArticleIds.length === 0) {
+            return res.status(400).json({ error: 'At least one selected article is required' });
+        }
+
+        try {
+            const { data: articles, error } = await supabaseClient
+                .from('articles')
+                .select('id, title, excerpt, slug, category, published_at')
+                .in('id', selectedArticleIds);
+            if (error) throw error;
+
+            // Preserve the admin's own chosen order, not just whatever
+            // order the database happens to return.
+            const orderedArticles = selectedArticleIds
+                .map(id => articles.find(a => a.id === id))
+                .filter(Boolean);
+
+            const articlesHtml = orderedArticles.map(a => `
+                <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #1e293b;">
+                    <h3 style="color:#e2e8f0;margin:0 0 6px 0;">${a.title}</h3>
+                    <p style="color:#94a3b8;margin:0 0 8px 0;">${a.excerpt || ''}</p>
+                    <a href="https://www.bluskyeconsult.com/articles/${a.slug}" style="color:#0ea5e9;text-decoration:none;">Read more →</a>
+                </div>
+            `).join('');
+
+            const trendingHtml = (includedTrendingTopics || []).length > 0
+                ? `<div style="margin-top:20px;">
+                     <h3 style="color:#10b981;">What People Are Searching For</h3>
+                     <ul style="color:#94a3b8;">${includedTrendingTopics.map(t => `<li>${t}</li>`).join('')}</ul>
+                   </div>`
+                : '';
+
+            const subject = orderedArticles[0]?.title
+                ? `This Week: ${orderedArticles[0].title}${orderedArticles.length > 1 ? ` + ${orderedArticles.length - 1} more` : ''}`
+                : 'Latest from ODUSBABA';
+
+            const content = `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;">
+                ${customIntro ? `<p style="color:#e2e8f0;font-size:16px;">${customIntro}</p>` : ''}
+                <h2 style="color:#10b981;">Latest Articles</h2>
+                ${articlesHtml}
+                ${trendingHtml}
+            </div>`;
+
+            return res.status(200).json({ success: true, draft: { subject, content } });
+        } catch (error) {
+            console.error('newsletter-compile-selection error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-newsletter-digest': async (req, res) => {
         // FIXED (2026-08-27): same real gap found and fixed in the
         // sibling analyze-opportunity-gaps handler - "admin-only" by
@@ -6220,6 +6494,143 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // NEW (2026-09-13): confirmed the homepage only ever showed a
     // numeric course count, never an actual "newest courses" listing
     // like articles already had - genuinely never built, not a bug.
+    // ========== CERTIFICATES (NEW, 2026-09-16) ==========
+    // Issues a real, unique certificate only after genuinely
+    // confirming course completion server-side - never trusts a
+    // client-supplied "I finished" claim, since a certificate is
+    // exactly the kind of trust artifact this platform can't afford
+    // to hand out on an unverified say-so.
+    // RECONCILED (2026-09-17): confirmed a separate, earlier
+    // certificate system already existed (course_certificates table,
+    // auto-issuing on completion since 2026-08-07) that this was
+    // built without knowing about. Migrated onto that real table
+    // entirely, using its certificate_number as the verification
+    // identifier - no longer a separate certificates table. Since
+    // certificates already auto-issue on completion, this now mainly
+    // looks up what's already there; the issue path is a fallback
+    // only for completions from before that auto-issue logic existed.
+    'issue-certificate': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { userId, courseId } = req.body;
+        if (!userId || !courseId) return res.status(400).json({ error: 'userId and courseId are required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            // Genuine, server-side completion check - the actual gate,
+            // not the frontend's own claim.
+            const { data: enrollment } = await supabaseClient
+                .from('course_enrollments')
+                .select('completed_at')
+                .eq('user_id', userId)
+                .eq('course_id', courseId)
+                .maybeSingle();
+
+            if (!enrollment?.completed_at) {
+                return res.status(403).json({ success: false, error: 'Course not yet completed' });
+            }
+
+            // Look up what's very likely already there - certificates
+            // auto-issue on completion already.
+            const { data: existing } = await supabaseClient
+                .from('course_certificates')
+                .select('id, certificate_number')
+                .eq('user_id', userId)
+                .eq('course_id', courseId)
+                .maybeSingle();
+
+            if (existing) {
+                return res.status(200).json({ success: true, certificateId: existing.id, verificationCode: existing.certificate_number, alreadyIssued: true });
+            }
+
+            // Fallback only - a completion from before auto-issue
+            // existed, with no certificate on record yet.
+            const certificateNumber = `ODB-${courseId.toString().substring(0, 8).toUpperCase()}-${userId.toString().substring(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
+            const { data: created, error: insertError } = await supabaseClient
+                .from('course_certificates')
+                .insert({ user_id: userId, course_id: courseId, certificate_number: certificateNumber })
+                .select()
+                .single();
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true, certificateId: created.id, verificationCode: certificateNumber, alreadyIssued: false });
+        } catch (error) {
+            console.error('issue-certificate error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Generates and returns the actual PDF for a certificate the
+    // caller already knows the ID of - kept as a separate action from
+    // issuing, so a learner can re-download an existing certificate
+    // without re-triggering the completion check every time.
+    'download-certificate': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { certificateId } = req.query;
+        if (!certificateId) return res.status(400).json({ error: 'certificateId is required' });
+
+        try {
+            // Joins live against profiles/courses, matching the
+            // existing get-certificate action's established convention
+            // - the older system was already designed this way, so
+            // this reconciles onto that pattern rather than
+            // introducing a separate snapshot design for the same data.
+            const { data: cert, error } = await supabaseClient
+                .from('course_certificates')
+                .select('certificate_number, issued_at, profiles(full_name, email), courses(title)')
+                .eq('id', certificateId)
+                .single();
+            if (error || !cert) return res.status(404).json({ error: 'Certificate not found' });
+
+            const pdfBytes = await generateCertificatePdf({
+                learnerName: cert.profiles?.full_name || cert.profiles?.email || 'ODUSBABA Learner',
+                courseTitle: cert.courses?.title || 'ODUSBABA Course',
+                issuedAt: cert.issued_at,
+                verificationCode: cert.certificate_number
+            });
+
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="ODUSBABA-Certificate-${cert.certificate_number}.pdf"`);
+            return res.status(200).send(Buffer.from(pdfBytes));
+        } catch (error) {
+            console.error('download-certificate error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // The real trust mechanism - public, no auth required, deliberately
+    // returns only what's needed to confirm genuineness, nothing more.
+    'verify-certificate': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { code } = req.query;
+        if (!code) return res.status(400).json({ error: 'code is required' });
+
+        try {
+            const { data: cert } = await supabaseClient
+                .from('course_certificates')
+                .select('issued_at, profiles(full_name, email), courses(title)')
+                .eq('certificate_number', code)
+                .maybeSingle();
+
+            if (!cert) {
+                return res.status(200).json({ success: true, valid: false });
+            }
+
+            return res.status(200).json({
+                success: true,
+                valid: true,
+                learnerName: cert.profiles?.full_name || cert.profiles?.email || 'ODUSBABA Learner',
+                courseTitle: cert.courses?.title || 'ODUSBABA Course',
+                issuedAt: cert.issued_at
+            });
+        } catch (error) {
+            console.error('verify-certificate error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'recent-courses': async (req, res) => {
         const supabaseClient = getSupabase();
         try {
