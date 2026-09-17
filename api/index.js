@@ -4317,7 +4317,9 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     salary_max: externalJob.salary_max,
                     job_type: jobType,
                     external_apply_url: externalJob.external_apply_url,
-                    country_code: externalJob.source_country,
+                    // FIXED (2026-09-17): same not-null constraint fix
+                    // as approveExternalJob() in rssJobService.js.
+                    country_code: externalJob.source_country || 'GLOBAL',
                     source_type: 'authoritative',
                     source_name: externalJob.source_name,
                     sponsorship_eligible: externalJob.sponsorship_eligible,
