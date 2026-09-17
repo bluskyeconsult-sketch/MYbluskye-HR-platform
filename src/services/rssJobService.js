@@ -1319,7 +1319,14 @@ export async function approveExternalJob(jobId) {
             salary_max: externalJob.salary_max,
             job_type: jobType,
             external_apply_url: externalJob.external_apply_url,
-            country_code: externalJob.source_country,
+            // FIXED (2026-09-17): confirmed real, direct Postgres
+            // not-null constraint violation, blocking every approval
+            // from sources like We Work Remotely - these are
+            // genuinely global/remote listings with no specific
+            // source_country value at all, but jobs.country_code is
+            // NOT NULL. 'GLOBAL' is an honest fallback, not a guess at
+            // a specific country this job was never tied to.
+            country_code: externalJob.source_country || 'GLOBAL',
             source_type: 'authoritative',
             source_name: externalJob.source_name,
             sponsorship_eligible: externalJob.sponsorship_eligible,
