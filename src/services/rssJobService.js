@@ -112,25 +112,18 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa', 'Certificate of Sponsorship']
     },
     // DISABLED (2026-09-17): confirmed via NHS Business Services
-    // Authority's own official documentation that no generic, public
-    // RSS/Atom feed genuinely exists at this URL, or anywhere on NHS
-    // Jobs, for all vacancies. Their real feed system is
-    // employer-specific only (requires an employer code requested by
-    // email from the NHS Jobs team, returning just that one
-    // employer's listings) - useless for a general job aggregator.
-    // This URL almost certainly returns the main HTML candidate
-    // homepage, which is exactly why it returns HTTP 200 (something
-    // genuinely loads) while containing zero <item> or <entry>
-    // elements - not a parser bug, ever. No amount of parsing-logic
-    // fixes could have resolved this, since there was never a real
-    // feed here to parse. Disabled rather than left silently failing
-    // and repeatedly showing a misleading error on every sync.
+    // RE-ENABLED (2026-09-17): re-enabled at explicit request to keep
+    // investigating rather than treat the earlier research-based
+    // inference as final. Rather than guess further, the parser below
+    // now captures and surfaces the actual raw response when parsing
+    // fails, so the next sync attempt shows real, direct evidence of
+    // what this URL is genuinely returning - not more inference.
     UK_NHS: {
         name: 'NHS Jobs',
         country: 'GB',
         url: 'https://www.jobs.nhs.uk/feeds/jobs.xml',
         type: 'rss',
-        is_active: false,
+        is_active: true,
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa']
     },
@@ -693,14 +686,23 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         }
 
         if (items.length === 0) {
-            console.warn(`No items found in RSS feed: ${feedUrl}`);
+            // NEW (2026-09-17): captures real, direct evidence instead
+            // of more inference - the actual top-level keys the parser
+            // found (e.g. seeing "html" instead of "rss"/"feed" would
+            // immediately confirm a redirect to an HTML page, while
+            // seeing an unexpected real key would reveal a genuinely
+            // different feed structure worth actually parsing) plus a
+            // short, safe snippet of the raw response itself.
+            const topLevelKeys = parsed && typeof parsed === 'object' ? Object.keys(parsed).join(', ') : 'none';
+            const rawSnippet = text.substring(0, 300).replace(/\s+/g, ' ').trim();
+            console.warn(`No items found in RSS feed: ${feedUrl} | top-level keys: [${topLevelKeys}] | raw snippet: ${rawSnippet}`);
             // Genuinely different from a fetch/parse failure — the request
             // succeeded and produced valid, well-formed XML, it just didn't
             // contain any <item> entries under rss.channel (e.g. the feed
             // uses a different structure than expected, such as Atom's
             // <entry> instead of RSS's <item>, or is a redirect/placeholder
             // page rather than the real feed).
-            return { jobs: [], error: 'No <item> entries found — feed may use a different format (e.g. Atom) or the URL may be stale' };
+            return { jobs: [], error: `No <item> entries found — parsed keys: [${topLevelKeys}] — starts with: "${rawSnippet.substring(0, 120)}"` };
         }
 
         const jobs = [];
