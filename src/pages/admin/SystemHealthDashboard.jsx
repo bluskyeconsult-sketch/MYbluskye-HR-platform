@@ -115,7 +115,13 @@ export default function SystemHealthDashboard() {
                 name: 'Jobs Board',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - start,
-                details: error ? error.message : `${count || 0} active jobs`,
+                // FIXED (2026-09-16): confirmed this and Admin
+                // Dashboard's job count are genuinely different,
+                // honest metrics - this additionally requires
+                // compliance_status = 'approved', Admin Dashboard
+                // counts all is_active jobs. Clarified rather than
+                // leaving both labeled simply "active jobs".
+                details: error ? error.message : `${count || 0} active + compliance-approved jobs`,
                 icon: Briefcase,
                 metric: `${count || 0} jobs`
             });
