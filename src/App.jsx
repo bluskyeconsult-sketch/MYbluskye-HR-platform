@@ -563,6 +563,7 @@ const SignInPage = lazy(() => import('./pages/SignInPage'));
 // template links to - confirmed the real, live confirmation link uses
 // this exact path and was 404ing every single time.
 const ConfirmPage = lazy(() => import('./pages/ConfirmPage'));
+const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
@@ -806,6 +807,7 @@ function AppContent() {
                             <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                             <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                             <Route path="/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
+                            <Route path="/verify/:code" element={<AnimatedPage><VerifyCertificatePage /></AnimatedPage>} />
                             <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                             <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                             <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
