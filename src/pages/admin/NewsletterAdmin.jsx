@@ -26,6 +26,7 @@
 // and both wrap points, matching the established pattern everywhere else.
 
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { 
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 
 export default function NewsletterAdmin() {
+    const location = useLocation();
     const [newsletters, setNewsletters] = useState([]);
     const [subscribers, setSubscribers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -73,6 +75,21 @@ export default function NewsletterAdmin() {
         loadData();
         loadStats();
     }, []);
+
+    // NEW (2026-09-16): receives a draft compiled by the new Article
+    // Newsletter Composer (accessible from the Articles admin page) -
+    // opens the existing create-newsletter modal already pre-filled,
+    // reusing the same real send/schedule flow rather than duplicating it.
+    useEffect(() => {
+        if (location.state?.incomingDraft) {
+            const { subject, content } = location.state.incomingDraft;
+            setFormData({ title: subject, subject, content, scheduled_for: '', send_now: false });
+            setShowCreateModal(true);
+            // Clear the router state so refreshing this page doesn't
+            // reopen the same draft indefinitely.
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     // NEW (2026-08-16): pulls recent jobs/courses/articles/trending
     // topics into a ready-to-edit draft, closing the "newsletter pool
@@ -146,7 +163,7 @@ export default function NewsletterAdmin() {
             .from('newsletters')
             .select('*')
             .order('created_at', { ascending: false });
-        setNewsletters(newsData || []);
+        setNewsletters(newData || []);
         setLoading(false);
     }
 
