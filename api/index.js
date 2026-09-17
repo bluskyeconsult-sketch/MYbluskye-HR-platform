@@ -4221,6 +4221,70 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         }
     },
 
+    // ========== JOB CSV BULK IMPORT (NEW, 2026-09-17) ==========
+    // For manually-scraped or externally-sourced job data the admin
+    // has already personally reviewed before uploading (unlike the
+    // automated RSS pipeline, which needs a separate pending/approval
+    // step since nothing has vetted those listings yet) - goes
+    // directly into the live jobs table as already-approved.
+    'admin-bulk-import-jobs-csv': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { jobs } = req.body;
+        if (!Array.isArray(jobs) || jobs.length === 0) {
+            return res.status(400).json({ error: 'jobs array is required' });
+        }
+
+        let added = 0;
+        const errors = [];
+
+        for (const job of jobs) {
+            try {
+                if (!job.title) {
+                    errors.push({ row: job, error: 'Missing required title' });
+                    continue;
+                }
+
+                let jobType = job.job_type || 'full_time';
+                if (jobType === 'full-time') jobType = 'full_time';
+                if (jobType === 'part-time') jobType = 'part_time';
+
+                const { error: insertError } = await supabaseClient
+                    .from('jobs')
+                    .insert({
+                        title: job.title,
+                        company: job.company || 'Unknown Company',
+                        location: job.location || 'Not specified',
+                        description: job.description || 'No description was provided for this listing.',
+                        salary_range: job.salary_range || null,
+                        salary_min: job.salary_min ? parseFloat(job.salary_min) : null,
+                        salary_max: job.salary_max ? parseFloat(job.salary_max) : null,
+                        job_type: jobType,
+                        external_apply_url: job.external_apply_url || job.apply_url || null,
+                        country_code: job.country_code || null,
+                        source_type: 'manual_import',
+                        source_name: job.source_name || 'Manual CSV Import',
+                        sponsorship_eligible: job.sponsorship_eligible === 'true' || job.sponsorship_eligible === true,
+                        compliance_status: 'approved',
+                        is_active: true,
+                        posted_at: new Date().toISOString()
+                    });
+
+                if (insertError) {
+                    errors.push({ row: job.title, error: insertError.message });
+                } else {
+                    added++;
+                }
+            } catch (rowError) {
+                errors.push({ row: job.title || 'unknown', error: rowError.message });
+            }
+        }
+
+        return res.status(200).json({ success: true, added, failed: errors.length, errors: errors.slice(0, 20) });
+    },
+
     'approve-job-v2': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
