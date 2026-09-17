@@ -616,6 +616,7 @@ const TwoFactorSettings = lazy(() => import('./pages/TwoFactorSettings'));
 const EmailTest = lazy(() => import('./pages/admin/EmailTest'));
 const ExternalJobs = lazy(() => import('./pages/admin/ExternalJobs'));
 const ExternalJobsManager = lazy(() => import('./pages/admin/ExternalJobsManager'));
+const PendingJobsV2 = lazy(() => import('./pages/admin/PendingJobsV2'));
 const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
@@ -852,6 +853,7 @@ function AppContent() {
                                 routes now point to the real, complete tool. */}
                             <Route path="/admin/external-jobs" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobsManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/external-jobs-manager" element={<ProtectedRoute requireAdmin><AdminLayout><ExternalJobsManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/pending-jobs-v2" element={<ProtectedRoute requireAdmin><AdminLayout><PendingJobsV2 /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><AdminLayout><KnowledgeSourceManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/books" element={<ProtectedRoute requireAdmin><AdminLayout><ManageBooks /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><AdminLayout><NewsletterAdmin /></AdminLayout></ProtectedRoute>} />
