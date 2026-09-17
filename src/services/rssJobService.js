@@ -111,12 +111,26 @@ const RSS_FEEDS = {
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa', 'Certificate of Sponsorship']
     },
+    // DISABLED (2026-09-17): confirmed via NHS Business Services
+    // Authority's own official documentation that no generic, public
+    // RSS/Atom feed genuinely exists at this URL, or anywhere on NHS
+    // Jobs, for all vacancies. Their real feed system is
+    // employer-specific only (requires an employer code requested by
+    // email from the NHS Jobs team, returning just that one
+    // employer's listings) - useless for a general job aggregator.
+    // This URL almost certainly returns the main HTML candidate
+    // homepage, which is exactly why it returns HTTP 200 (something
+    // genuinely loads) while containing zero <item> or <entry>
+    // elements - not a parser bug, ever. No amount of parsing-logic
+    // fixes could have resolved this, since there was never a real
+    // feed here to parse. Disabled rather than left silently failing
+    // and repeatedly showing a misleading error on every sync.
     UK_NHS: {
         name: 'NHS Jobs',
         country: 'GB',
         url: 'https://www.jobs.nhs.uk/feeds/jobs.xml',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa']
     },
