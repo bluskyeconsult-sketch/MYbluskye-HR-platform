@@ -42,6 +42,7 @@ import {
     approveExternalJob, 
     rejectExternalJob, 
     getExternalJobsStats,
+    syncSupabaseSession,
     RSS_FEEDS,
     API_SOURCES
 } from '../../services/rssJobService';
@@ -112,9 +113,24 @@ export default function ExternalJobsManager() {
     const [searchTerm, setSearchTerm] = useState('');
     const [sourceFilter, setSourceFilter] = useState('all');
 
+    // FIXED (2026-09-17): confirmed real, definitive root cause of
+    // pending jobs never showing despite genuinely existing -
+    // rssJobService.js's own, separate Supabase client (used directly
+    // here) never once attached the real, logged-in admin's session.
+    // RLS on external_jobs only grants full access, including
+    // pending_approval rows, to the authenticated role - without this,
+    // every read from that client was genuinely being treated as
+    // anonymous, only ever able to see approved rows. Syncs the real
+    // session BEFORE the first load, not in parallel, so every
+    // subsequent read genuinely carries it.
     useEffect(() => {
-        loadJobs();
-        loadStats();
+        async function initAndLoad() {
+            const { data: { session } } = await supabase.auth.getSession();
+            await syncSupabaseSession(session);
+            loadJobs();
+            loadStats();
+        }
+        initAndLoad();
     }, [activeTab]);
 
     useEffect(() => {
