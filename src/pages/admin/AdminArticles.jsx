@@ -31,13 +31,15 @@ import {
     Plus, Edit, Trash2, FileText, Search, RefreshCw, Loader2, 
     AlertCircle, CheckCircle, Eye, EyeOff, X, Square, Globe, 
     Clock, Calendar, Tag, Save, Filter, Download, TrendingUp,
-    Award, Shield, Users, Zap, Copy, Check, ChevronLeft, ChevronRight
+    Award, Shield, Users, Zap, Copy, Check, ChevronLeft, ChevronRight, Mail
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
+import ArticleNewsletterComposer from '../../components/admin/ArticleNewsletterComposer';
 
 export default function AdminArticles() {
     const navigate = useNavigate();
+    const [showNewsletterComposer, setShowNewsletterComposer] = useState(false);
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -280,6 +282,13 @@ export default function AdminArticles() {
                         <p className="text-slate-400 text-sm">Manage your content and blog posts</p>
                     </div>
                     <div className="flex gap-3">
+                        <button
+                            onClick={() => setShowNewsletterComposer(true)}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition flex items-center gap-2"
+                            title="Pull trending articles and compile a newsletter draft"
+                        >
+                            <Mail className="w-4 h-4" /> Newsletter
+                        </button>
                         <button
                             onClick={exportArticles}
                             disabled={exporting}
@@ -553,6 +562,16 @@ export default function AdminArticles() {
                     </>
                 )}
             </div>
+
+            {showNewsletterComposer && (
+                <ArticleNewsletterComposer
+                    onClose={() => setShowNewsletterComposer(false)}
+                    onDraftReady={(draft) => {
+                        setShowNewsletterComposer(false);
+                        navigate('/admin/newsletter', { state: { incomingDraft: draft } });
+                    }}
+                />
+            )}
         </div>
     );
 }
