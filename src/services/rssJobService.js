@@ -659,7 +659,24 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
         // returns a single object (not an array) when there's only one
         // item, so normalize to an array either way.
         const rawItems = parsed?.rss?.channel?.item;
-        const items = Array.isArray(rawItems) ? rawItems : (rawItems ? [rawItems] : []);
+        let items = Array.isArray(rawItems) ? rawItems : (rawItems ? [rawItems] : []);
+        let isAtomFormat = false;
+
+        // FIXED (2026-09-16): confirmed real, live regression - NHS
+        // Jobs and Find a Job - UK Government both genuinely returned
+        // HTTP 200 (reachable) but "no <item> entries found," exactly
+        // matching a feed that switched to Atom format (<entry> instead
+        // of RSS's <item>) - a possibility this error message already,
+        // honestly flagged, but no actual fallback was ever built for
+        // it until now.
+        if (items.length === 0) {
+            const rawEntries = parsed?.feed?.entry;
+            const entries = Array.isArray(rawEntries) ? rawEntries : (rawEntries ? [rawEntries] : []);
+            if (entries.length > 0) {
+                items = entries;
+                isAtomFormat = true;
+            }
+        }
 
         if (items.length === 0) {
             console.warn(`No items found in RSS feed: ${feedUrl}`);
@@ -676,9 +693,18 @@ async function parseRSSFeed(feedUrl, sourceName, sourceCountry) {
 
         for (const item of items) {
             const title = (typeof item.title === 'string' ? item.title : item.title?.['#text'] || '').trim();
-            const description = (typeof item.description === 'string' ? item.description : item.description?.['#text'] || '').trim();
-            const link = (typeof item.link === 'string' ? item.link : item.link?.['#text'] || '').trim();
-            const pubDate = item.pubDate;
+            // FIXED (2026-09-16): Atom's <description> equivalent is
+            // <summary> or <content>, not <description> at all - and its
+            // <link> is a self-closing element with the URL in an href
+            // attribute (<link href="..."/>), not link's own text
+            // content the way RSS uses it.
+            const description = isAtomFormat
+                ? (typeof item.summary === 'string' ? item.summary : item.summary?.['#text'] || item.content?.['#text'] || item.content || '').trim()
+                : (typeof item.description === 'string' ? item.description : item.description?.['#text'] || '').trim();
+            const link = isAtomFormat
+                ? (item.link?.['@_href'] || (Array.isArray(item.link) ? item.link[0]?.['@_href'] : '') || '').trim()
+                : (typeof item.link === 'string' ? item.link : item.link?.['#text'] || '').trim();
+            const pubDate = isAtomFormat ? (item.published || item.updated) : item.pubDate;
 
             if (!title || !link) continue;
 
