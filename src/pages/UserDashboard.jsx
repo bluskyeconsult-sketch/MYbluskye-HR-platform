@@ -233,21 +233,54 @@ export default function UserDashboard() {
                 .eq('status', 'active');
             setStats(prev => ({ ...prev, activeEngagements: activeEngagements || 0 }));
             
-            // FIXED (2026-08-23): both branches of this condition ran the
-            // exact identical query — skill-based personalization was
-            // either never implemented or got lost at some point. Rather
-            // than leave misleading dead branching implying smart
-            // matching that isn't happening, simplified to one honest
-            // query. Real skill-based matching would need to actually
-            // filter/rank by profileData.skills, a real feature to build
-            // later, not something to fake here.
-            const { data: jobs } = await supabase
-                .from('jobs')
-                .select('id, title, company, location, salary_min')
-                .eq('is_active', true)
-                .eq('compliance_status', 'approved')
-                .limit(3);
-            setRecommendedJobs(jobs || []);
+            // FIXED (2026-09-16): confirmed this engagement's real,
+            // final gap in the signup-to-engagement flow - "product
+            // suggestions based on skill and profile detection" never
+            // actually existed. The prior fix here was honest about
+            // that (removing fake dual-branch matching that never
+            // really differed), but never built the real thing. This
+            // does: fetches the user's genuine, real skills from
+            // user_skills, and actually filters/ranks jobs by them -
+            // falling back to the same honest generic query only when
+            // the user genuinely has no skills recorded yet, not as a
+            // silent, permanent substitute for real matching.
+            const { data: userSkills } = await supabase
+                .from('user_skills')
+                .select('skill_name')
+                .eq('user_id', user.id)
+                .limit(10);
+
+            const skillNames = (userSkills || []).map(s => s.skill_name).filter(Boolean);
+
+            let jobs = [];
+            if (skillNames.length > 0) {
+                const skillFilter = skillNames
+                    .map(name => `title.ilike.%${name}%,description.ilike.%${name}%`)
+                    .join(',');
+                const { data: matchedJobs } = await supabase
+                    .from('jobs')
+                    .select('id, title, company, location, salary_min')
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved')
+                    .or(skillFilter)
+                    .limit(3);
+                jobs = matchedJobs || [];
+            }
+
+            // Honest fallback - only used when skill-matching genuinely
+            // found nothing (no skills recorded yet, or no jobs happen
+            // to match the skills the user does have), never silently
+            // pretending to be personalized when it isn't.
+            if (jobs.length === 0) {
+                const { data: genericJobs } = await supabase
+                    .from('jobs')
+                    .select('id, title, company, location, salary_min')
+                    .eq('is_active', true)
+                    .eq('compliance_status', 'approved')
+                    .limit(3);
+                jobs = genericJobs || [];
+            }
+            setRecommendedJobs(jobs);
 
         } catch (err) {
             console.error('Dashboard error:', err);
