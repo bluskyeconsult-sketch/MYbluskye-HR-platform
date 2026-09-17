@@ -171,8 +171,14 @@ const tiers = [
       // overstatement (300 promised, 200 actually delivered) — now
       // matches exactly.
       ai_credits_monthly: 200,
-      // FIXED (2026-08-23): was 10 — real backend allowance is 100.
-      assessments_included: 100,
+      // FIXED (2026-09-13): confirmed via direct review of the real,
+      // current assessmentService.js (getTierLimits) that Business
+      // tier now grants 999999 (effectively unlimited) assessments per
+      // month, not 100. The 100 figure was correct as of the 2026-08-23
+      // reconciliation pass, but the backend has since been changed to
+      // unlimited without this page being updated to match - a real,
+      // customer-favorable understatement now corrected.
+      assessments_included: 'Unlimited',
       saved_jobs: false,
       job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
