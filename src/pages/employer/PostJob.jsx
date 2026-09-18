@@ -135,6 +135,12 @@ export default function PostJob() {
                     // filters on compliance_status = 'approved', so leaving this
                     // unset meant jobs were either failing to save or saving
                     // invisibly while the UI claimed success.
+                    // FIXED (2026-09-18): same real schema fix as the
+                    // approval paths - jobs.status was never set here
+                    // either. A job pending admin review genuinely
+                    // isn't live yet, so 'draft' is the honest status
+                    // until it's approved.
+                    status: 'draft',
                     compliance_status: 'pending',
                     posted_at: new Date().toISOString(),
                     created_at: new Date().toISOString()
