@@ -25,6 +25,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import DOMPurify from 'dompurify';
 import { useGovernance } from '../contexts/GovernanceContext';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
@@ -390,7 +391,12 @@ export default function JobDetailPage() {
                     shows on the list view - added here too so this
                     information isn't lost when someone opens the full
                     detail page. */}
-                {job.sponsorship_eligible && (
+                {/* FIXED (2026-09-18): confirmed via the real,
+                    complete jobs schema that the actual column is
+                    visa_sponsorship, not sponsorship_eligible - this
+                    badge has likely never actually shown on any job's
+                    detail page, regardless of the real value. */}
+                {job.visa_sponsorship && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3" /> Visa Sponsorship
                   </span>
@@ -442,7 +448,27 @@ export default function JobDetailPage() {
           {/* Description */}
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-white mb-3">Job Description</h2>
-            <p className="text-slate-300 whitespace-pre-wrap">{job.description}</p>
+            {/* FIXED (2026-09-18): confirmed real, direct bug - job
+                descriptions from sources like Himalayas genuinely
+                contain real HTML markup, but this rendered it as
+                plain text, showing raw tags to every visitor. A
+                previous fix elsewhere in the codebase removed
+                dangerouslySetInnerHTML on externally-sourced content
+                due to a genuine XSS risk - the correct fix for that
+                risk is sanitizing, not disabling formatting entirely.
+                DOMPurify strips genuinely dangerous content (scripts,
+                event handlers, unsafe attributes) while preserving
+                safe, structural HTML, giving both safety and correct
+                presentation. */}
+            <div
+                className="text-slate-300 prose prose-invert prose-sm max-w-none"
+                dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(job.description || '', {
+                        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'a', 'blockquote', 'div', 'span'],
+                        ALLOWED_ATTR: ['href', 'target', 'rel']
+                    })
+                }}
+            />
           </div>
 
           {/* Requirements */}
