@@ -4350,10 +4350,15 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .single();
             if (insertError) throw insertError;
 
-            await supabaseClient
+            const { error: statusUpdateError } = await supabaseClient
                 .from('external_jobs')
                 .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
                 .eq('id', jobId);
+
+            if (statusUpdateError) {
+                console.error('external_jobs status update failed after successful jobs insert:', statusUpdateError);
+                return res.status(500).json({ success: false, error: `Job was added to the board, but its pending status could not be updated: ${statusUpdateError.message}` });
+            }
 
             return res.status(200).json({ success: true, jobId: newJob.id });
         } catch (error) {
