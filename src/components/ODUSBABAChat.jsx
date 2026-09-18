@@ -548,7 +548,13 @@ export default function ODUSBABAChat() {
                 content: m.message
             }));
 
-            const systemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The user's current tier is: ${userProfile?.tier || (user ? 'free' : 'visitor')}.`;
+            // NEW (2026-09-18): updated to genuinely reflect the real,
+            // expanded job source coverage added this session (West
+            // Africa via Jobberman, EU-wide via EURES, and a
+            // dedicated visa-sponsorship-focused source) - so the AI
+            // gives accurate answers when asked which regions are
+            // covered, instead of an outdated or generic claim.
+            const systemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The platform's live job board draws from real, current sources spanning the UK, Ireland, Canada, Australia, the USA, Germany, Nigeria and West Africa (Jobberman, BrighterMonday, Careers24, MyJobMag), the wider EU (via EURES), plus dedicated visa-sponsorship-focused listings and remote/global roles. If asked which countries or regions are covered, answer honestly based on this real list - never imply broader coverage than this. The user's current tier is: ${userProfile?.tier || (user ? 'free' : 'visitor')}.`;
 
             // ✅ Call unified API endpoint
             // FIXED (2026-08-28): confirmed live, reported bug - sent
