@@ -417,7 +417,7 @@ const API_SOURCES = {
                     link: job.applicationLink || job.url || null,
                     source_name: 'Himalayas',
                     source_country: 'Global',
-                    job_type: mapJobType(job.employmentType || 'full_time')
+                    job_type: mapJobType(job.employmentType || 'full-time')
                 });
             }
             return jobs;
@@ -470,50 +470,68 @@ function mapJobType(jobType) {
     // real response apparently returns jobType as something other than
     // a plain string (an array, object, or number) at least some of the
     // time. Now defensively coerces to a string first.
-    if (!jobType) return 'full_time';
+    // FIXED (2026-09-18): confirmed via the real, exact jobs table
+    // check constraint (CHECK (job_type = ANY (ARRAY['full-time',
+    // 'part-time', 'contract', 'freelance', 'internship']))) that
+    // this function had it completely backwards - it converted the
+    // genuinely correct, allowed hyphenated form into an invalid
+    // underscore form, and also produced 'remote'/'hybrid', which
+    // were never valid values at all (they describe work location,
+    // not employment type). This was the exact, definitive root cause
+    // of every jobs_job_type_check violation blocking approval.
+    if (!jobType) return 'full-time';
     if (typeof jobType !== 'string') {
         console.warn('mapJobType received a non-string value:', jobType);
-        return 'full_time';
+        return 'full-time';
     }
     
     const type = jobType.toLowerCase();
     
     const typeMap = {
-        'full': 'full_time',
-        'full-time': 'full_time',
-        'fulltime': 'full_time',
-        'part': 'part_time',
-        'part-time': 'part_time',
-        'parttime': 'part_time',
+        'full': 'full-time',
+        'full-time': 'full-time',
+        'fulltime': 'full-time',
+        'part': 'part-time',
+        'part-time': 'part-time',
+        'parttime': 'part-time',
         'contract': 'contract',
         'freelance': 'freelance',
-        'remote': 'remote',
-        'hybrid': 'hybrid'
+        'intern': 'internship',
+        'internship': 'internship',
+        // 'remote' and 'hybrid' describe location, not employment
+        // type - genuinely not in the allowed list, mapped to the
+        // most common, honest default rather than left invalid.
+        'remote': 'full-time',
+        'hybrid': 'full-time'
     };
     
     for (const [key, value] of Object.entries(typeMap)) {
         if (type.includes(key)) return value;
     }
     
-    return 'full_time';
+    return 'full-time';
 }
 
 function detectJobType(title, description) {
     const text = `${title} ${description || ''}`.toLowerCase();
     
+    // FIXED (2026-09-18): same real, exact constraint fix as
+    // mapJobType() above - was producing 'part_time'/'hybrid', both
+    // genuinely invalid.
     const typePatterns = [
-        { pattern: /remote|work from home|wfh|telework/, type: 'remote' },
-        { pattern: /part time|part-time|parttime|pt/, type: 'part_time' },
+        { pattern: /part time|part-time|parttime|pt/, type: 'part-time' },
         { pattern: /contract|fixed term|temporary|temp/, type: 'contract' },
         { pattern: /freelance|freelancer|gig/, type: 'freelance' },
-        { pattern: /hybrid|mix of office|home and office/, type: 'hybrid' }
+        { pattern: /internship|intern\b/, type: 'internship' }
+        // Deliberately no 'remote'/'hybrid' pattern here anymore -
+        // those never were, and aren't, valid employment types.
     ];
     
     for (const { pattern, type } of typePatterns) {
         if (pattern.test(text)) return type;
     }
     
-    return 'full_time';
+    return 'full-time';
 }
 
 function detectSponsorshipEligibility(title, description, sourceConfig = null) {
@@ -843,7 +861,7 @@ async function scrapeNigeriaFCSC() {
                 posted_date: null,
                 source_name: 'Federal Civil Service Commission Nigeria',
                 source_country: 'NG',
-                job_type: 'full_time'
+                job_type: 'full-time'
             });
         }
 
@@ -1292,9 +1310,28 @@ export async function approveExternalJob(jobId) {
     
     if (fetchError) throw fetchError;
     
-    let jobType = externalJob.job_type || 'full_time';
-    if (jobType === 'full-time') jobType = 'full_time';
-    if (jobType === 'part-time') jobType = 'part_time';
+    // FIXED (2026-09-18): confirmed via the real, exact jobs table
+    // constraint (only 'full-time', 'part-time', 'contract',
+    // 'freelance', 'internship' are allowed) that this conversion was
+    // completely backwards - it took the genuinely correct hyphenated
+    // form and converted it into an invalid underscore form, which is
+    // the exact, definitive cause of every job_type_check violation
+    // blocking approval. Also confirmed real, existing data has
+    // several other invalid variants already stored (uppercase
+    // 'Full-time', underscore 'full_time'/'part_time', and 'remote' -
+    // not a real employment type at all) - normalizing all of them
+    // here since existing external_jobs rows can't be fixed
+    // retroactively any other way.
+    const jobTypeMap = {
+        'full-time': 'full-time', 'full_time': 'full-time', 'fulltime': 'full-time', 'full': 'full-time',
+        'part-time': 'part-time', 'part_time': 'part-time', 'parttime': 'part-time', 'part': 'part-time',
+        'contract': 'contract',
+        'freelance': 'freelance',
+        'internship': 'internship', 'intern': 'internship',
+        'remote': 'full-time', 'hybrid': 'full-time'
+    };
+    const rawJobType = (externalJob.job_type || 'full-time').toLowerCase().trim();
+    const jobType = jobTypeMap[rawJobType] || 'full-time';
 
     // FIXED (2026-08-27): confirmed real, live failure —
     // "null value in column description of relation jobs violates
