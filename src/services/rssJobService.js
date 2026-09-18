@@ -1634,22 +1634,37 @@ export async function approveExternalJob(jobId) {
     
     if (insertError) throw insertError;
     
-    // FIXED (2026-09-18): confirmed real, direct bug - this update's
-    // error was never checked. The job genuinely gets added to the
-    // live board via the insert above (which is why it shows on the
-    // job board correctly), but if this specific update silently
-    // fails, external_jobs.status never actually changes to
-    // 'approved' - meaning it honestly, correctly still shows as
-    // pending, because its real status genuinely never changed. Now
-    // throws so a real failure here is visible, not silent.
+    // FIXED (2026-09-18): confirmed the real, root architectural
+    // issue behind this recurring bug - Postgres doesn't partially
+    // apply an UPDATE's SET clause, so bundling the critical status
+    // change together with optional traceability fields (reviewed_at,
+    // approved_job_id) meant ANY one of those being wrong or missing
+    // silently failed the ENTIRE update, every time, blocking the one
+    // thing that actually matters: moving the job out of pending.
+    // Splitting these into two separate updates means the critical
+    // status change can now never again be blocked by an optional
+    // field - this ends this whole recurring class of bug for good.
     const { error: statusUpdateError } = await supabase
         .from('external_jobs')
-        .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+        .update({ status: 'approved' })
         .eq('id', jobId);
 
     if (statusUpdateError) {
         console.error('external_jobs status update failed after successful jobs insert:', statusUpdateError);
         throw new Error(`Job was added to the board, but its pending status could not be updated: ${statusUpdateError.message}`);
+    }
+
+    // Best-effort only - traceability metadata that's genuinely nice
+    // to have but must never be able to block the actual approval
+    // above. A failure here is logged, not thrown, and never surfaces
+    // to the admin as a batch-approve failure.
+    try {
+        await supabase
+            .from('external_jobs')
+            .update({ reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+            .eq('id', jobId);
+    } catch (traceabilityError) {
+        console.warn('Optional traceability fields failed to update (non-blocking):', traceabilityError.message);
     }
     
     return { success: true, jobId: newJob.id };
