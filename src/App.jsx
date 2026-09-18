@@ -563,6 +563,7 @@ const SignInPage = lazy(() => import('./pages/SignInPage'));
 // template links to - confirmed the real, live confirmation link uses
 // this exact path and was 404ing every single time.
 const ConfirmPage = lazy(() => import('./pages/ConfirmPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
@@ -808,6 +809,13 @@ function AppContent() {
                             <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                             <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                             <Route path="/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
+                            {/* FIXED (2026-09-17): confirmed via the real, live email
+                                templates that magiclink/recovery/reauth links all point
+                                to /auth/confirm - a route that never existed, meaning
+                                every one of those emails led to a genuine 404. Reuses
+                                ConfirmPage, which now reads the real type param dynamically. */}
+                            <Route path="/auth/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
+                            <Route path="/reset-password" element={<AnimatedPage><ResetPasswordPage /></AnimatedPage>} />
                             <Route path="/verify/:code" element={<AnimatedPage><VerifyCertificatePage /></AnimatedPage>} />
                             <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                             <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
