@@ -1383,10 +1383,23 @@ export async function approveExternalJob(jobId) {
     
     if (insertError) throw insertError;
     
-    await supabase
+    // FIXED (2026-09-18): confirmed real, direct bug - this update's
+    // error was never checked. The job genuinely gets added to the
+    // live board via the insert above (which is why it shows on the
+    // job board correctly), but if this specific update silently
+    // fails, external_jobs.status never actually changes to
+    // 'approved' - meaning it honestly, correctly still shows as
+    // pending, because its real status genuinely never changed. Now
+    // throws so a real failure here is visible, not silent.
+    const { error: statusUpdateError } = await supabase
         .from('external_jobs')
         .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
         .eq('id', jobId);
+
+    if (statusUpdateError) {
+        console.error('external_jobs status update failed after successful jobs insert:', statusUpdateError);
+        throw new Error(`Job was added to the board, but its pending status could not be updated: ${statusUpdateError.message}`);
+    }
     
     return { success: true, jobId: newJob.id };
 }
