@@ -159,6 +159,52 @@ async function isIPBlocked(ip) {
     }
 }
 
+// NEW (2026-09-18): proactive threat detection - genuinely different
+// from isIPBlocked() above, which only recognizes an IP already known
+// to be bad (e.g. from the login-spray detector). This catches
+// abnormal request VOLUME across every action on the platform, not
+// just login, and auto-blocks before a human ever reviews it -
+// "spot the threat before it starts," as explicitly requested.
+// Deliberately generous thresholds (a real user, even a very active
+// one, genuinely never approaches this volume in one minute) so this
+// stays invisible to normal use and only catches genuinely automated,
+// abnormal traffic.
+const RATE_ABUSE_WINDOW_SECONDS = 60;
+const RATE_ABUSE_MAX_REQUESTS = 80;
+const RATE_ABUSE_LOCKOUT_MINUTES = 30;
+
+async function checkAndBlockRateAbuse(ip, action) {
+    // Never rate-limit based on an unknown/unavailable IP - failing
+    // open here, same philosophy as isIPBlocked() above, since a
+    // false positive that blocks a real user is worse than missing
+    // one genuinely malicious request.
+    if (!ip || ip === 'unknown') return false;
+
+    try {
+        const supabaseClient = getSupabase();
+        const since = new Date(Date.now() - RATE_ABUSE_WINDOW_SECONDS * 1000).toISOString();
+
+        const { count } = await supabaseClient
+            .from('security_events')
+            .select('id', { count: 'exact', head: true })
+            .eq('ip_address', ip)
+            .gte('created_at', since);
+
+        if ((count || 0) >= RATE_ABUSE_MAX_REQUESTS) {
+            await supabaseClient.from('blocked_ips').insert({
+                ip_address: ip,
+                expires_at: new Date(Date.now() + RATE_ABUSE_LOCKOUT_MINUTES * 60000).toISOString(),
+                reason: 'automated_rate_abuse'
+            });
+            logSecurityEvent('rate_abuse_lockout_triggered', ip, 'critical', { action, requestCount: count }); // fire-and-forget
+            return true;
+        }
+    } catch (err) {
+        console.warn('Rate abuse check failed, failing open:', err.message);
+    }
+    return false;
+}
+
 async function logSecurityEvent(eventType, ip, severity = 'info', metadata = {}) {
     try {
         const supabaseClient = getSupabase();
@@ -8774,7 +8820,19 @@ export default async function handler(req, res) {
         await logSecurityEvent('blocked_ip_attempt', requestIP, 'warning', { action: req.query.action || null });
         return res.status(403).json({ error: 'Access denied' });
     }
-    
+
+    // NEW (2026-09-18): a lightweight, fire-and-forget record of every
+    // real request - the rate-abuse check below genuinely needs this
+    // data to exist to count against; without it, checkAndBlockRateAbuse()
+    // would never have anything real to measure, since security_events
+    // was previously only written for specific named events like a
+    // failed login, not general traffic.
+    logSecurityEvent('api_request', requestIP, 'info', { action: req.query.action || null }); // fire-and-forget, never awaited
+
+    if (await checkAndBlockRateAbuse(requestIP, req.query.action)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
     const { action } = req.query;
     
     if (!action || !handlers[action]) {
