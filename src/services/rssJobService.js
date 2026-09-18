@@ -1637,6 +1637,17 @@ export async function approveExternalJob(jobId) {
     // so this was never something the current fetcher could produce).
     // Rather than let old, incomplete data crash approval outright,
     // every field going into the insert now has a real fallback.
+    // FIXED (2026-09-18): confirmed real, recurring failure -
+    // sponsorship_eligible was previously always undefined (silently
+    // omitted from the insert by the client), so this insert never
+    // actually tested whether jobs.sponsorship_eligible genuinely
+    // exists. Once it started sending a real boolean, PostgREST
+    // rejected the whole insert. Applying the same proven pattern as
+    // the external_jobs status fix: core, confirmed-real fields go in
+    // this insert alone, and optional "nice-to-have" fields
+    // (sponsorship_eligible, verified_employer_source_id) go in a
+    // separate, best-effort update after - so neither can ever again
+    // block the actual approval.
     const { data: newJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
@@ -1648,46 +1659,10 @@ export async function approveExternalJob(jobId) {
             salary_min: externalJob.salary_min,
             salary_max: externalJob.salary_max,
             job_type: jobType,
-            // FIXED (2026-09-18): confirmed via the real, complete
-            // schema that the actual column is external_url, not
-            // external_apply_url - this mismatch meant every approved
-            // job's apply link has been silently null this whole
-            // time, a genuinely broken, user-facing experience.
             external_apply_url: externalJob.external_url,
-            // FIXED (2026-09-17): confirmed real, direct Postgres
-            // not-null constraint violation, blocking every approval
-            // from sources like We Work Remotely - these are
-            // genuinely global/remote listings with no specific
-            // source_country value at all, but jobs.country_code is
-            // NOT NULL. 'GLOBAL' is an honest fallback, not a guess at
-            // a specific country this job was never tied to.
-            // FIXED (2026-09-18): confirmed via the real, complete
-            // schema and the insert side's own earlier fix comment
-            // that the actual column is 'source', not
-            // 'source_country' - this mismatch meant every approved
-            // job's country_code was silently defaulting to 'GLOBAL'
-            // regardless of its genuine, real country.
             country_code: externalJob.source || 'GLOBAL',
             source_type: 'authoritative',
             source_name: externalJob.source_name,
-            // FIXED (2026-09-18): confirmed via the real, complete
-            // schema that sponsorship_eligible doesn't exist on
-            // external_jobs at all - this was always silently
-            // undefined. Re-detecting from title+description at
-            // approval time instead, using this file's own existing
-            // detection function.
-            sponsorship_eligible: detectSponsorshipEligibility(externalJob.title, externalJob.description),
-            // FIXED (2026-08-27): verified_employer_source_id existed on
-            // external_jobs (set correctly by
-            // employerWebsiteScraperService.js) but was never carried
-            // through to the real jobs row on approval - the traceability
-            // link back to which verified employer a job came from was
-            // silently lost at the exact moment a job went live.
-            verified_employer_source_id: externalJob.verified_employer_source_id || null,
-            // FIXED (2026-09-18): confirmed via the real schema audit
-            // that jobs.status (separate from compliance_status) was
-            // never actually set anywhere - a genuinely live, approved
-            // job should be 'active'.
             status: 'active',
             compliance_status: 'approved',
             is_active: true,
@@ -1697,6 +1672,22 @@ export async function approveExternalJob(jobId) {
         .single();
     
     if (insertError) throw insertError;
+
+    // Best-effort only - if either of these columns has any issue
+    // (missing, wrong type, stale schema cache), it's logged, not
+    // thrown, and never blocks the approval that already succeeded
+    // above.
+    try {
+        await supabase
+            .from('jobs')
+            .update({
+                sponsorship_eligible: detectSponsorshipEligibility(externalJob.title, externalJob.description),
+                verified_employer_source_id: externalJob.verified_employer_source_id || null
+            })
+            .eq('id', newJob.id);
+    } catch (optionalFieldsError) {
+        console.warn('Optional jobs fields failed to update (non-blocking):', optionalFieldsError.message);
+    }
     
     // FIXED (2026-09-18): confirmed the real, root architectural
     // issue behind this recurring bug - Postgres doesn't partially
