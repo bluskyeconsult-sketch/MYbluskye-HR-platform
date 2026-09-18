@@ -1322,7 +1322,13 @@ async function findRelevantJobs(supabaseClient, userMessage) {
     try {
         let query = supabaseClient
             .from('jobs')
-            .select('title, company, location, job_type, salary_range, external_apply_url, source_country, sponsorship_eligible, verified_employer_source_id')
+            // FIXED (2026-09-18): confirmed via the real, complete
+            // jobs schema that this select had two genuine column-name
+            // mismatches - sponsorship_eligible should be
+            // visa_sponsorship, and source_country should be
+            // country_code. This meant every single call to this
+            // function has likely been silently, completely failing.
+            .select('title, company, location, job_type, salary_range, external_apply_url, country_code, visa_sponsorship, verified_employer_source_id')
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(5);
@@ -1330,10 +1336,10 @@ async function findRelevantJobs(supabaseClient, userMessage) {
         // Each real signal detected becomes its own genuine filter,
         // combined with AND - not folded into one substring search.
         if (intent.wantsSponsorship) {
-            query = query.eq('sponsorship_eligible', true);
+            query = query.eq('visa_sponsorship', true);
         }
         if (intent.country) {
-            query = query.eq('source_country', intent.country);
+            query = query.eq('country_code', intent.country);
         }
         if (intent.keyword) {
             query = query.or(`title.ilike.%${intent.keyword}%,description.ilike.%${intent.keyword}%`);
@@ -2006,7 +2012,7 @@ const handlers = {
                     const sourceLabel = j.verified_employer_source_id
                         ? " [via a government-verified sponsor employer's own careers page]"
                         : (j.source_country && j.source_country !== 'internal' ? ` [via official ${j.source_country} government portal]` : '');
-                    return `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${sourceLabel}${j.sponsorship_eligible ? ' [sponsorship available]' : ''}`;
+                    return `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${sourceLabel}${j.visa_sponsorship ? ' [sponsorship available]' : ''}`;
                 }).join('\n') : '';
 
                 // FIXED (2026-08-27): live results are explicitly, honestly
@@ -4319,7 +4325,10 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                         country_code: job.country_code || null,
                         source_type: 'manual_import',
                         source_name: job.source_name || 'Manual CSV Import',
-                        sponsorship_eligible: job.sponsorship_eligible === 'true' || job.sponsorship_eligible === true,
+                        // FIXED (2026-09-18): confirmed via the real,
+                        // complete jobs schema - visa_sponsorship, not
+                        // sponsorship_eligible.
+                        visa_sponsorship: job.sponsorship_eligible === 'true' || job.sponsorship_eligible === true,
                         // FIXED (2026-09-18): same real schema fix -
                         // jobs.status was never actually set.
                         status: 'active',
@@ -4407,7 +4416,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 await supabaseClient
                     .from('jobs')
                     .update({
-                        sponsorship_eligible: /visa sponsor|sponsorship available|will sponsor|relocation support|work permit/i.test(`${externalJob.title || ''} ${externalJob.description || ''}`),
+                        // FIXED (2026-09-18): confirmed via the real,
+                        // complete jobs schema that this is the actual,
+                        // definitive fix - visa_sponsorship, not
+                        // sponsorship_eligible. This was the real,
+                        // final cause of every batch-approve failure.
+                        visa_sponsorship: /visa sponsor|sponsorship available|will sponsor|relocation support|work permit/i.test(`${externalJob.title || ''} ${externalJob.description || ''}`),
                         verified_employer_source_id: externalJob.verified_employer_source_id || null
                     })
                     .eq('id', newJob.id);
