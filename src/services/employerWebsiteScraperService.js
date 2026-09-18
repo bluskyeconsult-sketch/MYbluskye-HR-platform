@@ -361,7 +361,12 @@ export async function scrapeAllVerifiedEmployers(supabaseClient) {
                     source_name: job.source_name,
                     status: 'pending_approval',
                     verified_employer_source_id: job.verified_employer_source_id,
-                    sponsorship_eligible: job.is_verified_sponsor,
+                    // FIXED (2026-09-18): confirmed via the real
+                    // schema that neither sponsorship_eligible nor
+                    // visa_sponsorship exists on external_jobs at
+                    // all - removed rather than renamed. The real,
+                    // final value gets set correctly later, at
+                    // approval time, on the jobs table.
                     created_at: new Date().toISOString(),
                     published_at: job.published_at
                 });
