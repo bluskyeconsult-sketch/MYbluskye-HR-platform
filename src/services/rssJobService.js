@@ -294,6 +294,9 @@ const API_SOURCES = {
         // per sync is a deliberately conservative starting cap,
         // easy to raise later once real value/cost is observed.
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        // NEW (2026-09-18): Apify actors genuinely take longer than a
+        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
+        timeout: 45000,
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -310,6 +313,9 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        // NEW (2026-09-18): Apify actors genuinely take longer than a
+        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
+        timeout: 45000,
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -326,6 +332,9 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        // NEW (2026-09-18): Apify actors genuinely take longer than a
+        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
+        timeout: 45000,
         is_active: true,
         priority: 1, // higher priority - this is directly on-mission content
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -342,6 +351,9 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        // NEW (2026-09-18): Apify actors genuinely take longer than a
+        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
+        timeout: 45000,
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -1126,7 +1138,12 @@ async function fetchFromAPI(source) {
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+        // NEW (2026-09-18): confirmed real timeout on Jobberman (Apify
+        // genuinely takes longer to scrape than a simple RSS/JSON
+        // fetch) - allows a source to specify its own, longer timeout
+        // while every existing source keeps the same default it always
+        // had.
+        const timeoutId = setTimeout(() => controller.abort(), source.timeout || REQUEST_TIMEOUT);
         
         // NEW (2026-09-18): optional method/body support - needed for
         // Apify's run-sync-get-dataset-items endpoint, which requires
