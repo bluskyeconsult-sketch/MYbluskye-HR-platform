@@ -334,6 +334,10 @@ const API_SOURCES = {
     // NEW (2026-09-18): directly matches this platform's core focus -
     // genuinely sponsorship-flagged listings, not general jobs
     // filtered afterward for sponsorship keywords.
+    // DISABLED (2026-09-18): confirmed via the actor's own real
+    // pricing page that this genuinely charges $5.00/1,000 records -
+    // 5x the agreed $1/1,000 target. Disabled rather than removed, so
+    // this is trivially reversible if a cheaper alternative is found.
     VISA_SPONSORED_JOBS: {
         name: 'Visa Sponsored Jobs',
         country: 'GLOBAL',
@@ -342,17 +346,18 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        // NEW (2026-09-18): Apify actors genuinely take longer than a
-        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
         timeout: 45000,
-        is_active: true,
-        priority: 1, // higher priority - this is directly on-mission content
+        is_active: false,
+        priority: 1,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
         parseFunction: parseVisaSponsoredResponse
     },
-    // NEW (2026-09-18): EURES is the EU's own, official job mobility
-    // portal - genuinely complements the existing Germany/France/
-    // Ireland RSS/API coverage with broader EU-wide reach.
+    // DISABLED (2026-09-18): confirmed via the actor's own real
+    // pricing page that this genuinely charges a flat $40.00/month
+    // rental fee plus usage - not the pay-per-result model targeted.
+    // The one cheaper alternative found (jobsapi/eures-jobs-search-
+    // scraper, $2.99/1,000) is also confirmed "Under maintenance" and
+    // still above target regardless. Disabled rather than removed.
     EURES_EU_JOBS: {
         name: 'EURES - EU Jobs',
         country: 'EU',
@@ -361,10 +366,8 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        // NEW (2026-09-18): Apify actors genuinely take longer than a
-        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
         timeout: 45000,
-        is_active: true,
+        is_active: false,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
         parseFunction: parseEuresResponse
