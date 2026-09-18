@@ -442,16 +442,19 @@ export default function JobsPage() {
                     <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4 text-center">
                         Verified Job Marketplace
                     </h1>
-                    {/* FIXED (2026-08-27): claimed "across 9 countries" -
-                        the confirmed real coverage is 7 countries via
-                        government/official sources (UK, US, Nigeria,
-                        Canada, Australia, Germany, Ireland), plus genuine
-                        global remote sources that aren't country-specific
-                        at all. "9" appears to be stale from an earlier
-                        iteration of this project. */}
+                    {/* FIXED (2026-09-18): the "7 countries" figure is
+                        now stale too - genuinely expanded this session
+                        to include West Africa (Nigeria, Kenya, South
+                        Africa via Jobberman/BrighterMonday/Careers24),
+                        the wider EU via EURES, and dedicated
+                        visa-sponsorship-focused listings, beyond the
+                        original 7. Rewritten to describe the real
+                        breadth honestly without a specific number that
+                        will keep going stale as sources change. */}
                     <p className="text-sm sm:text-base text-slate-300 text-center max-w-2xl mx-auto">
-                        Real job listings sourced from official government portals and verified employer career
-                        pages across 7 countries, plus global remote opportunities.
+                        Real job listings sourced from official government portals, verified employer career
+                        pages, and trusted job boards across the UK, Europe, Africa, North America, and Australia,
+                        plus global remote opportunities.
                     </p>
                     
                     {/* Intelligence Banner */}
