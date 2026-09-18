@@ -4247,9 +4247,16 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     continue;
                 }
 
-                let jobType = job.job_type || 'full_time';
-                if (jobType === 'full-time') jobType = 'full_time';
-                if (jobType === 'part-time') jobType = 'part_time';
+                const jobTypeMap = {
+                    'full-time': 'full-time', 'full_time': 'full-time', 'fulltime': 'full-time', 'full': 'full-time',
+                    'part-time': 'part-time', 'part_time': 'part-time', 'parttime': 'part-time', 'part': 'part-time',
+                    'contract': 'contract',
+                    'freelance': 'freelance',
+                    'internship': 'internship', 'intern': 'internship',
+                    'remote': 'full-time', 'hybrid': 'full-time'
+                };
+                const rawJobType = (job.job_type || 'full-time').toLowerCase().trim();
+                const jobType = jobTypeMap[rawJobType] || 'full-time';
 
                 const { error: insertError } = await supabaseClient
                     .from('jobs')
@@ -4301,9 +4308,20 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .single();
             if (fetchError || !externalJob) return res.status(404).json({ error: 'Job not found' });
 
-            let jobType = externalJob.job_type || 'full_time';
-            if (jobType === 'full-time') jobType = 'full_time';
-            if (jobType === 'part-time') jobType = 'part_time';
+            // FIXED (2026-09-18): same real, exact constraint fix as
+            // approveExternalJob() in rssJobService.js - only
+            // 'full-time', 'part-time', 'contract', 'freelance',
+            // 'internship' are genuinely allowed.
+            const jobTypeMap = {
+                'full-time': 'full-time', 'full_time': 'full-time', 'fulltime': 'full-time', 'full': 'full-time',
+                'part-time': 'part-time', 'part_time': 'part-time', 'parttime': 'part-time', 'part': 'part-time',
+                'contract': 'contract',
+                'freelance': 'freelance',
+                'internship': 'internship', 'intern': 'internship',
+                'remote': 'full-time', 'hybrid': 'full-time'
+            };
+            const rawJobType = (externalJob.job_type || 'full-time').toLowerCase().trim();
+            const jobType = jobTypeMap[rawJobType] || 'full-time';
 
             const { data: newJob, error: insertError } = await supabaseClient
                 .from('jobs')
