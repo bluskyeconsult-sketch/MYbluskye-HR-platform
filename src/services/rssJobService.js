@@ -665,6 +665,7 @@ function parseJobbermanResponse(data) {
             salary_range: salary,
             job_type: mapJobType(employmentType),
             applicationLink: link,
+            external_url: link,
             url: link,
             source_name: 'Jobberman - West Africa',
             source_country: 'NG'
@@ -707,6 +708,7 @@ function parseCivilServiceApifyResponse(data) {
             salary_range: salary,
             job_type: mapJobType(employmentType),
             applicationLink: link,
+            external_url: link,
             url: link,
             source_name: 'UK Civil Service Jobs',
             source_country: 'GB'
@@ -737,6 +739,7 @@ function parseVisaSponsoredResponse(data) {
             salary_range: salary,
             job_type: mapJobType(employmentType),
             applicationLink: link,
+            external_url: link,
             url: link,
             source_name: 'Visa Sponsored Jobs',
             // Genuinely, directly the whole point of this source - if
@@ -771,6 +774,7 @@ function parseEuresResponse(data) {
             salary_range: salary,
             job_type: mapJobType(employmentType),
             applicationLink: link,
+            external_url: link,
             url: link,
             source_name: 'EURES - EU Jobs',
             source_country: item.countryCode || 'EU'
@@ -1600,13 +1604,18 @@ export async function approveExternalJob(jobId) {
         .insert({
             title: externalJob.title || 'Untitled Position',
             company: externalJob.company || externalJob.source_name || 'Unknown Company',
-            location: externalJob.location || externalJob.source_country || 'Not specified',
+            location: externalJob.location || externalJob.source || 'Not specified',
             description: externalJob.description || 'No description was provided for this listing. View the original posting for full details.',
             salary_range: externalJob.salary_range,
             salary_min: externalJob.salary_min,
             salary_max: externalJob.salary_max,
             job_type: jobType,
-            external_apply_url: externalJob.external_apply_url,
+            // FIXED (2026-09-18): confirmed via the real, complete
+            // schema that the actual column is external_url, not
+            // external_apply_url - this mismatch meant every approved
+            // job's apply link has been silently null this whole
+            // time, a genuinely broken, user-facing experience.
+            external_apply_url: externalJob.external_url,
             // FIXED (2026-09-17): confirmed real, direct Postgres
             // not-null constraint violation, blocking every approval
             // from sources like We Work Remotely - these are
@@ -1614,10 +1623,22 @@ export async function approveExternalJob(jobId) {
             // source_country value at all, but jobs.country_code is
             // NOT NULL. 'GLOBAL' is an honest fallback, not a guess at
             // a specific country this job was never tied to.
-            country_code: externalJob.source_country || 'GLOBAL',
+            // FIXED (2026-09-18): confirmed via the real, complete
+            // schema and the insert side's own earlier fix comment
+            // that the actual column is 'source', not
+            // 'source_country' - this mismatch meant every approved
+            // job's country_code was silently defaulting to 'GLOBAL'
+            // regardless of its genuine, real country.
+            country_code: externalJob.source || 'GLOBAL',
             source_type: 'authoritative',
             source_name: externalJob.source_name,
-            sponsorship_eligible: externalJob.sponsorship_eligible,
+            // FIXED (2026-09-18): confirmed via the real, complete
+            // schema that sponsorship_eligible doesn't exist on
+            // external_jobs at all - this was always silently
+            // undefined. Re-detecting from title+description at
+            // approval time instead, using this file's own existing
+            // detection function.
+            sponsorship_eligible: detectSponsorshipEligibility(externalJob.title, externalJob.description),
             // FIXED (2026-08-27): verified_employer_source_id existed on
             // external_jobs (set correctly by
             // employerWebsiteScraperService.js) but was never carried
