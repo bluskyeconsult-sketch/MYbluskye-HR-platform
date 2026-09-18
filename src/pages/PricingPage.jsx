@@ -115,8 +115,13 @@ const tiers = [
   },
   {
     name: 'Employer',
-    price: 129.99,
-    priceYearly: 1299.99,
+    // UPDATED (2026-09-18): pricing review, Scenario B - real
+    // competitor research showed ZipRecruiter charges $299-$399/month
+    // for a single job slot with zero AI features; this tier includes
+    // 20 posts/month plus AI credits, and was genuinely underpriced
+    // relative to that. Still meaningfully cheaper than the market.
+    price: 199.99,
+    priceYearly: 1999.99,
     badge: 'For Hiring Teams',
     color: 'from-purple-600 to-purple-500',
     buttonColor: 'bg-purple-600 hover:bg-purple-500',
@@ -146,8 +151,11 @@ const tiers = [
   },
   {
     name: 'Business',
-    price: 399.99,
-    priceYearly: 3999.99,
+    // UPDATED (2026-09-18): pricing review, Scenario B - still
+    // roughly half of ZipRecruiter's Pro tier ($719-$999/month, no AI
+    // features at all), while including 200 AI credits/month.
+    price: 549.99,
+    priceYearly: 5499.99,
     badge: 'Enterprise',
     color: 'from-amber-600 to-amber-500',
     buttonColor: 'bg-amber-600 hover:bg-amber-500',
