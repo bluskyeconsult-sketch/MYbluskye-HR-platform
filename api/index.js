@@ -4374,19 +4374,29 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .insert({
                     title: externalJob.title || 'Untitled Position',
                     company: externalJob.company || externalJob.source_name || 'Unknown Company',
-                    location: externalJob.location || externalJob.source_country || 'Not specified',
+                    location: externalJob.location || externalJob.source || 'Not specified',
                     description: externalJob.description || 'No description was provided for this listing. View the original posting for full details.',
                     salary_range: externalJob.salary_range,
                     salary_min: externalJob.salary_min,
                     salary_max: externalJob.salary_max,
                     job_type: jobType,
-                    external_apply_url: externalJob.external_apply_url,
+                    // FIXED (2026-09-18): same real column-name fix as
+                    // approveExternalJob() in rssJobService.js.
+                    external_apply_url: externalJob.external_url,
                     // FIXED (2026-09-17): same not-null constraint fix
                     // as approveExternalJob() in rssJobService.js.
-                    country_code: externalJob.source_country || 'GLOBAL',
+                    // FIXED (2026-09-18): same real column-name fix as
+                    // rssJobService.js - 'source', not 'source_country'.
+                    country_code: externalJob.source || 'GLOBAL',
                     source_type: 'authoritative',
                     source_name: externalJob.source_name,
-                    sponsorship_eligible: externalJob.sponsorship_eligible,
+                    // FIXED (2026-09-18): same real column-gap fix as
+                    // rssJobService.js - sponsorship_eligible doesn't
+                    // exist on external_jobs, so this was always
+                    // undefined. Simple, inline keyword detection here
+                    // since this file doesn't have the fuller
+                    // detection function rssJobService.js has.
+                    sponsorship_eligible: /visa sponsor|sponsorship available|will sponsor|relocation support|work permit/i.test(`${externalJob.title || ''} ${externalJob.description || ''}`),
                     verified_employer_source_id: externalJob.verified_employer_source_id || null,
                     compliance_status: 'approved',
                     is_active: true,
