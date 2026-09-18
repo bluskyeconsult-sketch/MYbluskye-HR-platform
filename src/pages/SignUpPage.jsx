@@ -234,7 +234,7 @@ export default function SignUpPage() {
         { 
             id: 'employer', 
             name: 'Employer', 
-            price: '$129.99', 
+            price: '$199.99', 
             description: 'Post jobs, view applicants',
             features: ['Job posting', 'Applicant tracking', 'Company branding'],
             requiresPayment: true,
@@ -245,7 +245,7 @@ export default function SignUpPage() {
         { 
             id: 'business', 
             name: 'Business', 
-            price: '$399.99', 
+            price: '$549.99', 
             description: 'Unlimited jobs, team accounts',
             features: ['Unlimited jobs', '5 team accounts', 'API access', 'Dedicated support'],
             requiresPayment: true,
