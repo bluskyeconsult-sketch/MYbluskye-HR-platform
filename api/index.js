@@ -4396,14 +4396,28 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .single();
             if (insertError) throw insertError;
 
+            // FIXED (2026-09-18): same architectural fix as
+            // approveExternalJob() in rssJobService.js - splitting the
+            // critical status change from optional traceability
+            // fields, so a missing/wrong optional column can never
+            // again block the actual approval.
             const { error: statusUpdateError } = await supabaseClient
                 .from('external_jobs')
-                .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+                .update({ status: 'approved' })
                 .eq('id', jobId);
 
             if (statusUpdateError) {
                 console.error('external_jobs status update failed after successful jobs insert:', statusUpdateError);
                 return res.status(500).json({ success: false, error: `Job was added to the board, but its pending status could not be updated: ${statusUpdateError.message}` });
+            }
+
+            try {
+                await supabaseClient
+                    .from('external_jobs')
+                    .update({ reviewed_at: new Date().toISOString(), approved_job_id: newJob.id })
+                    .eq('id', jobId);
+            } catch (traceabilityError) {
+                console.warn('Optional traceability fields failed to update (non-blocking):', traceabilityError.message);
             }
 
             return res.status(200).json({ success: true, jobId: newJob.id });
