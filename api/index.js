@@ -4320,6 +4320,9 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                         source_type: 'manual_import',
                         source_name: job.source_name || 'Manual CSV Import',
                         sponsorship_eligible: job.sponsorship_eligible === 'true' || job.sponsorship_eligible === true,
+                        // FIXED (2026-09-18): same real schema fix -
+                        // jobs.status was never actually set.
+                        status: 'active',
                         compliance_status: 'approved',
                         is_active: true,
                         posted_at: new Date().toISOString()
@@ -4398,6 +4401,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     // detection function rssJobService.js has.
                     sponsorship_eligible: /visa sponsor|sponsorship available|will sponsor|relocation support|work permit/i.test(`${externalJob.title || ''} ${externalJob.description || ''}`),
                     verified_employer_source_id: externalJob.verified_employer_source_id || null,
+                    status: 'active',
                     compliance_status: 'approved',
                     is_active: true,
                     posted_at: new Date().toISOString()
