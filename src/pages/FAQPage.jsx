@@ -44,12 +44,11 @@ export default function FAQPage() {
                 },
                 { 
                     q: "Is ODUSBABA free to use?", 
-                    // FIXED (2026-08-27): stated Employer plans "start at
-                    // $39.99/month" - that's the real Professional price.
-                    // Employer is actually $129.99/month, Business is
-                    // $399.99/month - both confirmed against the real
-                    // backend tier constants.
-                    a: "Yes! We offer a free tier with basic features. Professional plans start at $39.99/month, Employer at $129.99/month, and Business at $399.99/month.",
+                    // UPDATED (2026-09-18): pricing review, Scenario B -
+                    // Employer and Business tiers raised to reflect real
+                    // competitor research (ZipRecruiter charges
+                    // $299-$999/month for far less).
+                    a: "Yes! We offer a free tier with basic features. Professional plans start at $39.99/month, Employer at $199.99/month, and Business at $549.99/month.",
                     keywords: ["free", "trial", "cost", "price"],
                     link: "/pricing",
                     popularity: 98
