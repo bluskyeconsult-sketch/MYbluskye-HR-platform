@@ -176,7 +176,9 @@ export async function fetchVerifiedSponsorJobs() {
                     external_apply_url: job.external_apply_url,
                     source_country: company.country_code,
                     source_name: `${company.company_name} (Verified Sponsor)`,
-                    sponsorship_eligible: company.government_verified,
+                    // FIXED (2026-09-18): same real schema fix as the
+                    // other scraper services - this column doesn't
+                    // exist on external_jobs at all.
                     status: 'pending_approval',
                     created_at: new Date().toISOString()
                 });
