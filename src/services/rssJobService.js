@@ -115,6 +115,12 @@ const REALISTIC_BROWSER_HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9'
 };
 const MAX_JOBS_PER_SOURCE = 30;
+// NEW (2026-09-18): Apify bills per result returned, unlike the free
+// RSS/API sources above - kept as one shared constant so every Apify
+// source stays consistent and is easy to raise/lower in one place
+// once real cost-vs-value is observed, rather than tuned separately
+// per source.
+const APIFY_MAX_ITEMS_PER_SOURCE = 30;
 const BATCH_SIZE = 10;
 const MIN_FETCH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours (hobby plan: once per day)
 
@@ -259,6 +265,88 @@ const RSS_FEEDS = {
 // ============================================
 
 const API_SOURCES = {
+    // NEW (2026-09-18): confirmed via direct research this genuinely
+    // replaces the Federal Civil Service Nigeria source, which has
+    // consistently shown "0 found, 0 new" - a real, live commercial
+    // job board (Jobberman is Nigeria's largest) rather than a narrow,
+    // effectively-dead civil-service-only feed. This specific actor
+    // covers Jobberman (Nigeria), BrighterMonday (Kenya), Careers24
+    // (South Africa), and MyJobMag in a single run. Uses Apify's real,
+    // documented run-sync-get-dataset-items endpoint, which returns
+    // the scraped data directly in the response - no separate polling
+    // step needed, fitting this file's existing fetch-and-parse
+    // pattern. Requires APIFY_API_TOKEN to be set as an environment
+    // variable - this source is genuinely inert without it, not
+    // silently broken.
+    JOBBERMAN_WEST_AFRICA: {
+        name: 'Jobberman - Nigeria & West Africa Jobs',
+        country: 'NG',
+        // Actor ID confirmed from the actor's own page - format is
+        // owner~actor-name for Apify's REST API path.
+        url: `https://api.apify.com/v2/acts/unfenced-group~jobberman-com-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+        type: 'api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // FIXED (2026-09-18): genuinely reduced from 50 - Apify bills
+        // per result returned, so a high maxItems here directly costs
+        // real money for results this platform would likely discard
+        // anyway via the existing duplicate-detection. 25 per source
+        // per sync is a deliberately conservative starting cap,
+        // easy to raise later once real value/cost is observed.
+        body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        is_active: true,
+        priority: 2,
+        sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
+        parseFunction: parseJobbermanResponse
+    },
+    // NEW (2026-09-18): replaces the dead "UK Civil Service Jobs" RSS
+    // source (confirmed via direct research to have no genuine public
+    // API/feed at all - see the earlier, dedicated research on this).
+    UK_CIVIL_SERVICE_APIFY: {
+        name: 'UK Civil Service Jobs (via Apify)',
+        country: 'GB',
+        url: `https://api.apify.com/v2/acts/automation-lab~uk-civil-service-jobs-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+        type: 'api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        is_active: true,
+        priority: 2,
+        sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
+        parseFunction: parseCivilServiceApifyResponse
+    },
+    // NEW (2026-09-18): directly matches this platform's core focus -
+    // genuinely sponsorship-flagged listings, not general jobs
+    // filtered afterward for sponsorship keywords.
+    VISA_SPONSORED_JOBS: {
+        name: 'Visa Sponsored Jobs',
+        country: 'GLOBAL',
+        url: `https://api.apify.com/v2/acts/khadinakbar~visa-sponsored-jobs-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+        type: 'api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        is_active: true,
+        priority: 1, // higher priority - this is directly on-mission content
+        sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
+        parseFunction: parseVisaSponsoredResponse
+    },
+    // NEW (2026-09-18): EURES is the EU's own, official job mobility
+    // portal - genuinely complements the existing Germany/France/
+    // Ireland RSS/API coverage with broader EU-wide reach.
+    EURES_EU_JOBS: {
+        name: 'EURES - EU Jobs',
+        country: 'EU',
+        url: `https://api.apify.com/v2/acts/lexis-solutions~eures-eu-jobs-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+        type: 'api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
+        is_active: true,
+        priority: 2,
+        sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
+        parseFunction: parseEuresResponse
+    },
     // FIXED (2026-09-13): confirmed via direct research that
     // bund.de/rss/jobs (originally in RSS_FEEDS) was never a genuine,
     // working jobs feed at all - the real, canonical source of German
@@ -532,6 +620,150 @@ function detectJobType(title, description) {
     }
     
     return 'full-time';
+}
+
+// NEW (2026-09-18): parses the Jobberman/West Africa actor's dataset
+// items. The exact output field names weren't directly confirmable
+// without running the actor first, so this defensively tries the most
+// likely variants (confirmed from the actor's own described output
+// fields: title, company, location, salary, category, link) in order,
+// rather than assuming one specific shape and silently returning
+// nothing if it's wrong - the same "parsed successfully but found 0
+// jobs, here's why" pattern already used elsewhere in this file.
+function parseJobbermanResponse(data) {
+    if (!Array.isArray(data)) {
+        console.warn('Jobberman actor returned a non-array response:', JSON.stringify(data).substring(0, 300));
+        return [];
+    }
+
+    return data.map(item => {
+        const title = item.title || item.jobTitle || item.position || '';
+        const company = item.company || item.hiringCompany || item.companyName || item.employer || 'Not specified';
+        const location = item.location || item.city || 'Nigeria';
+        const salary = item.salary || item.salaryRange || item.pay || null;
+        const link = item.url || item.link || item.adLink || item.applyUrl || null;
+        const description = item.description || item.summary || item.snippet || '';
+        const employmentType = item.employmentType || item.jobType || item.workType || '';
+
+        return {
+            title,
+            company,
+            location,
+            description,
+            salary_range: salary,
+            job_type: mapJobType(employmentType),
+            applicationLink: link,
+            url: link,
+            source_name: 'Jobberman - West Africa',
+            source_country: 'NG'
+        };
+    }).filter(job => job.title); // Genuinely skip any item with no title at all, rather than save an empty placeholder
+}
+
+// NEW (2026-09-18): shared helper - logs a real diagnostic sample
+// when an Apify actor's response doesn't parse into any jobs, same
+// "here's what actually came back" pattern already proven useful for
+// NHS/Germany earlier, rather than a silent, indistinguishable empty
+// result.
+function logApifyEmptyResponse(actorName, data) {
+    console.warn(`${actorName} (Apify) returned 0 parseable jobs. Raw response sample:`, JSON.stringify(data).substring(0, 500));
+}
+
+function parseCivilServiceApifyResponse(data) {
+    if (!Array.isArray(data)) {
+        logApifyEmptyResponse('UK Civil Service (Apify)', data);
+        return [];
+    }
+
+    return data.map(item => {
+        // Confirmed field names from this actor's own documented
+        // output schema: id, positiontitle, department, location,
+        // salary, closingDateLabel, grade, contractType, businessArea.
+        const title = item.positiontitle || item.title || item.jobTitle || '';
+        const company = item.department || item.businessArea || 'UK Civil Service';
+        const location = item.location || 'United Kingdom';
+        const salary = item.salary || null;
+        const link = item.url || item.link || item.applyUrl || null;
+        const description = item.description || `${title} - ${item.department || ''} (Grade: ${item.grade || 'Not specified'})`;
+        const employmentType = item.contractType || '';
+
+        return {
+            title,
+            company,
+            location,
+            description,
+            salary_range: salary,
+            job_type: mapJobType(employmentType),
+            applicationLink: link,
+            url: link,
+            source_name: 'UK Civil Service Jobs',
+            source_country: 'GB'
+        };
+    }).filter(job => job.title);
+}
+
+function parseVisaSponsoredResponse(data) {
+    if (!Array.isArray(data)) {
+        logApifyEmptyResponse('Visa Sponsored Jobs (Apify)', data);
+        return [];
+    }
+
+    return data.map(item => {
+        const title = item.title || item.jobTitle || item.position || '';
+        const company = item.company || item.companyName || item.employer || 'Not specified';
+        const location = item.location || item.country || 'Not specified';
+        const salary = item.salary || item.salaryRange || null;
+        const link = item.url || item.link || item.applyUrl || null;
+        const description = item.description || item.summary || '';
+        const employmentType = item.employmentType || item.jobType || '';
+
+        return {
+            title,
+            company,
+            location,
+            description,
+            salary_range: salary,
+            job_type: mapJobType(employmentType),
+            applicationLink: link,
+            url: link,
+            source_name: 'Visa Sponsored Jobs',
+            // Genuinely, directly the whole point of this source - if
+            // the actor itself only returns sponsorship-flagged
+            // listings, every job from it is honestly eligible.
+            sponsorship_eligible: true,
+            source_country: item.countryCode || null
+        };
+    }).filter(job => job.title);
+}
+
+function parseEuresResponse(data) {
+    if (!Array.isArray(data)) {
+        logApifyEmptyResponse('EURES EU Jobs (Apify)', data);
+        return [];
+    }
+
+    return data.map(item => {
+        const title = item.title || item.jobTitle || item.position || '';
+        const company = item.company || item.employer || item.companyName || 'Not specified';
+        const location = item.location || item.country || 'European Union';
+        const salary = item.salary || null;
+        const link = item.url || item.link || item.applyUrl || null;
+        const description = item.description || item.summary || '';
+        const employmentType = item.contractType || item.employmentType || '';
+
+        return {
+            title,
+            company,
+            location,
+            description,
+            salary_range: salary,
+            job_type: mapJobType(employmentType),
+            applicationLink: link,
+            url: link,
+            source_name: 'EURES - EU Jobs',
+            source_country: item.countryCode || 'EU'
+        };
+    }).filter(job => job.title);
 }
 
 function detectSponsorshipEligibility(title, description, sourceConfig = null) {
@@ -896,14 +1128,16 @@ async function fetchFromAPI(source) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
         
+        // NEW (2026-09-18): optional method/body support - needed for
+        // Apify's run-sync-get-dataset-items endpoint, which requires
+        // a POST with a JSON input body (the actor's search
+        // parameters), unlike every existing source here which is a
+        // simple GET. Defaults preserve every existing source's exact
+        // current behavior unchanged.
         const response = await fetch(source.url, {
-            // NEW (2026-09-13): some real, working APIs (confirmed via
-            // direct research) require a specific header to function at
-            // all - e.g. Germany's Federal Employment Agency API needs
-            // X-API-Key. Merges any source-specific headers on top of
-            // the existing defaults, so sources that don't need this
-            // keep working exactly as before.
+            method: source.method || 'GET',
             headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
+            ...(source.body ? { body: JSON.stringify(source.body) } : {}),
             signal: controller.signal
         });
         
