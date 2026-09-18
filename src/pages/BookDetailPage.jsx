@@ -19,6 +19,15 @@ import {
     AlertCircle, CheckCircle, ShoppingCart, Eye
 } from 'lucide-react';
 
+// NEW (2026-09-18): during the testing stage, e-copy checkout (real
+// Stripe payment) is paused - readers get the free preview via
+// BookReader for easy accessibility, and hardcopy purchases route
+// through the existing Amazon/retailer link, unaffected. A single,
+// clearly-labeled constant rather than deleting the checkout code, so
+// this is trivially reversible once testing ends - just set back to
+// false.
+const TESTING_MODE_DISABLE_ECOPY_CHECKOUT = true;
+
 export default function BookDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -278,14 +287,21 @@ export default function BookDetailPage() {
                                                 ${Number(book.ebook_price).toFixed(2)}
                                             </p>
                                             <div className="flex flex-wrap gap-3">
-                                                <button
-                                                    onClick={handleBuyEcopy}
-                                                    disabled={checkingOut}
-                                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50"
-                                                >
-                                                    {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
-                                                    Buy E-Copy
-                                                </button>
+                                                {!TESTING_MODE_DISABLE_ECOPY_CHECKOUT && (
+                                                    <button
+                                                        onClick={handleBuyEcopy}
+                                                        disabled={checkingOut}
+                                                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50"
+                                                    >
+                                                        {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+                                                        Buy E-Copy
+                                                    </button>
+                                                )}
+                                                {TESTING_MODE_DISABLE_ECOPY_CHECKOUT && (
+                                                    <p className="text-slate-500 text-sm italic">
+                                                        E-copy purchases are temporarily paused during our testing phase - read the free preview below, or buy the hardcopy above.
+                                                    </p>
+                                                )}
                                                 {book.preview_file_url && (
                                                     <button
                                                         onClick={openPreview}
