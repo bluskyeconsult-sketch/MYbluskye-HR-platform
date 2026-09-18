@@ -25,6 +25,14 @@ export default function ConfirmPage() {
 
     async function confirmToken() {
         const token = searchParams.get('token');
+        // FIXED (2026-09-17): confirmed via the real, live email
+        // templates that magiclink/recovery/reauth links all point to
+        // this same page (via /auth/confirm), each with a real type
+        // parameter in the URL - only the original signup confirmation
+        // link omits it. Reading it dynamically, defaulting to 'email'
+        // only when genuinely absent, rather than hardcoding 'email'
+        // for every token type regardless of what it actually is.
+        const tokenType = searchParams.get('type') || 'email';
 
         if (!token) {
             setStatus('error');
@@ -33,20 +41,23 @@ export default function ConfirmPage() {
         }
 
         try {
-            // FIXED (2026-09-12): confirmed exact, definitive root cause
-            // directly from Supabase's own current documentation - for
-            // email-based verifyOtp calls, valid types are 'email',
-            // 'recovery', 'invite', or 'email_change'. 'signup' is
-            // explicitly deprecated. This is why every real account
-            // never actually got email_confirmed_at set despite this
-            // flow appearing to complete - confirmed via direct query
-            // showing every recent signup's email_confirmed_at as null.
             const { error } = await supabase.auth.verifyOtp({
                 token_hash: token,
-                type: 'email'
+                type: tokenType
             });
 
             if (error) throw error;
+
+            // FIXED (2026-09-17): a password recovery link succeeding
+            // here doesn't mean the user is done - it means they now
+            // have a real session and need to actually set a new
+            // password. Sending them to /dashboard at this point would
+            // genuinely skip the one thing they came here to do.
+            if (tokenType === 'recovery') {
+                setStatus('success');
+                setTimeout(() => navigate('/reset-password', { replace: true }), 1000);
+                return;
+            }
 
             setStatus('success');
 
@@ -60,32 +71,38 @@ export default function ConfirmPage() {
             // multiple real users hit. Moved here, where it's now
             // truthfully accurate: the user really can go to their
             // dashboard at this exact moment.
-            try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session?.user) {
-                    const { data: profile } = await supabase
-                        .from('profiles')
-                        .select('full_name, user_type, is_tester')
-                        .eq('id', session.user.id)
-                        .single();
+            // FIXED (2026-09-17): only send this for a genuine new
+            // signup confirmation - a magic-link or reauth sign-in
+            // isn't someone new joining, and shouldn't get a "welcome"
+            // email each time they use one.
+            if (tokenType === 'email') {
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session?.user) {
+                        const { data: profile } = await supabase
+                            .from('profiles')
+                            .select('full_name, user_type, is_tester')
+                            .eq('id', session.user.id)
+                            .single();
 
-                    await fetch('/api/index?action=email', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            to: session.user.email,
-                            type: profile?.is_tester ? 'tester_welcome' : 'welcome',
-                            templateData: {
-                                name: profile?.full_name || 'there',
-                                userType: profile?.user_type
-                            }
-                        })
-                    });
+                        await fetch('/api/index?action=email', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                to: session.user.email,
+                                type: profile?.is_tester ? 'tester_welcome' : 'welcome',
+                                templateData: {
+                                    name: profile?.full_name || 'there',
+                                    userType: profile?.user_type
+                                }
+                            })
+                        });
+                    }
+                } catch (emailErr) {
+                    // Never let a welcome-email failure block the actual
+                    // confirmation success the user is already seeing.
+                    console.warn('Welcome email failed to send:', emailErr);
                 }
-            } catch (emailErr) {
-                // Never let a welcome-email failure block the actual
-                // confirmation success the user is already seeing.
-                console.warn('Welcome email failed to send:', emailErr);
             }
 
             // Brief pause so the success state is genuinely visible
