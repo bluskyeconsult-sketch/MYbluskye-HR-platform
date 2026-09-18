@@ -1681,7 +1681,12 @@ export async function approveExternalJob(jobId) {
         await supabase
             .from('jobs')
             .update({
-                sponsorship_eligible: detectSponsorshipEligibility(externalJob.title, externalJob.description),
+                // FIXED (2026-09-18): confirmed via the real, complete
+                // jobs schema that the actual column is
+                // visa_sponsorship, not sponsorship_eligible - this
+                // was the real, definitive cause of every batch-approve
+                // failure, not a stale schema cache after all.
+                visa_sponsorship: detectSponsorshipEligibility(externalJob.title, externalJob.description),
                 verified_employer_source_id: externalJob.verified_employer_source_id || null
             })
             .eq('id', newJob.id);
