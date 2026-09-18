@@ -215,16 +215,12 @@ const RSS_FEEDS = {
     // Federal Employment Agency's own API (arbeitsagentur.de), which
     // is well-documented in the open-source community (bundesAPI on
     // GitHub) despite having no official public documentation of its
-    // Commercial - Remote OK (Priority 3)
-    REMOTE_OK_ALL: {
-        name: 'Remote OK - Remote Jobs',
-        country: 'Global',
-        url: 'https://remoteok.com/remote-jobs.rss',
-        type: 'rss',
-        is_active: true,
-        priority: 3,
-        sponsorship_keywords: ['Visa', 'Sponsorship']
-    },
+    // MOVED (2026-09-18): confirmed via fresh research that
+    // remoteok.com/remote-jobs.rss is deprecated (source of the real
+    // 410 Gone) - the genuinely still-live, free, public endpoint is
+    // the JSON API at remoteok.com/api. Moved to API_SOURCES below
+    // with a dedicated parser rather than left here as a dead RSS
+    // entry.
     
     // Commercial - We Work Remotely (Priority 3)
     WE_WORK_REMOTELY: {
@@ -265,6 +261,20 @@ const RSS_FEEDS = {
 // ============================================
 
 const API_SOURCES = {
+    // NEW (2026-09-18): confirmed via fresh research that
+    // remoteok.com/api is a genuinely still-live, free, public JSON
+    // endpoint (no auth, no key) - the platform's old RSS path was
+    // the actual cause of the 410 Gone, not RemoteOK being dead.
+    REMOTE_OK_API: {
+        name: 'Remote OK - Remote Jobs',
+        country: 'GLOBAL',
+        url: 'https://remoteok.com/api',
+        type: 'api',
+        is_active: true,
+        priority: 3,
+        sponsorship_keywords: ['visa', 'sponsorship', 'relocation'],
+        parseFunction: parseRemoteOkResponse
+    },
     // NEW (2026-09-18): confirmed via direct research this genuinely
     // replaces the Federal Civil Service Nigeria source, which has
     // consistently shown "0 found, 0 new" - a real, live commercial
@@ -642,6 +652,34 @@ function detectJobType(title, description) {
 // rather than assuming one specific shape and silently returning
 // nothing if it's wrong - the same "parsed successfully but found 0
 // jobs, here's why" pattern already used elsewhere in this file.
+// NEW (2026-09-18): parses RemoteOK's genuine, confirmed-working
+// public API response. RemoteOK's own well-known quirk: the first
+// array element is a legal/metadata notice, not a job - filtered out
+// here by requiring a genuine position and company, rather than
+// assuming array index 0 is always the notice (safer against RemoteOK
+// changing this in the future).
+function parseRemoteOkResponse(data) {
+    if (!Array.isArray(data)) {
+        console.warn('RemoteOK API returned a non-array response:', JSON.stringify(data).substring(0, 300));
+        return [];
+    }
+
+    return data
+        .filter(item => item.position && item.company)
+        .map(item => ({
+            title: item.position,
+            company: item.company,
+            location: item.location || 'Worldwide',
+            description: item.description || '',
+            salary_range: (item.salary_min && item.salary_max) ? `$${item.salary_min} - $${item.salary_max}` : null,
+            job_type: mapJobType(item.tags?.join(' ') || ''),
+            applicationLink: item.apply_url || item.url || null,
+            external_url: item.apply_url || item.url || null,
+            source_name: 'Remote OK',
+            source_country: 'GLOBAL'
+        }));
+}
+
 function parseJobbermanResponse(data) {
     if (!Array.isArray(data)) {
         console.warn('Jobberman actor returned a non-array response:', JSON.stringify(data).substring(0, 300));
@@ -1646,6 +1684,11 @@ export async function approveExternalJob(jobId) {
             // link back to which verified employer a job came from was
             // silently lost at the exact moment a job went live.
             verified_employer_source_id: externalJob.verified_employer_source_id || null,
+            // FIXED (2026-09-18): confirmed via the real schema audit
+            // that jobs.status (separate from compliance_status) was
+            // never actually set anywhere - a genuinely live, approved
+            // job should be 'active'.
+            status: 'active',
             compliance_status: 'approved',
             is_active: true,
             posted_at: new Date().toISOString()
