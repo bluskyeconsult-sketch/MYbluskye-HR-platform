@@ -208,7 +208,16 @@ export default function JobsPage() {
             const jobsWithSource = (data || []).map(job => ({
                 ...job,
                 source: job.source_type === 'external' ? 'live' : 'database',
-                visa_sponsorship: job.sponsorship_eligible || false
+                // FIXED (2026-09-18): confirmed via the real, complete
+                // jobs schema that the actual column is
+                // visa_sponsorship, not sponsorship_eligible - this
+                // meant the job board's own "sponsorship available"
+                // badge has likely been silently, always false for
+                // every job this whole time, regardless of the real
+                // underlying value. Uses job.visa_sponsorship directly
+                // (already present via select('*')) rather than
+                // renaming to a second field name.
+                visa_sponsorship: job.visa_sponsorship || false
             }));
             
             setJobs(jobsWithSource);
@@ -294,7 +303,7 @@ export default function JobsPage() {
         
         // Visa sponsorship filter
         if (showVisaOnly) {
-            filtered = filtered.filter(job => job.sponsorship_eligible === true);
+            filtered = filtered.filter(job => job.visa_sponsorship === true);
         }
         
         // Sorting
@@ -674,7 +683,7 @@ export default function JobsPage() {
                                             <span className="text-xl sm:text-2xl">{getCountryFlag(job.country_code)}</span>
                                             <h3 className="text-base sm:text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
-                                            {job.sponsorship_eligible && (
+                                            {job.visa_sponsorship && (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
                                                     <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Visa Sponsorship
                                                 </span>
