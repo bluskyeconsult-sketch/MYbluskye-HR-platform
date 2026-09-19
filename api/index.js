@@ -1571,6 +1571,148 @@ const handlers = {
     // Lets a super admin create a genuine staff account directly
     // (rather than requiring public signup) and grant them specific,
     // named permissions - not full admin access.
+    // ========== BULK ARTICLE TOPICS (NEW, 2026-09-19) ==========
+    // Lets an admin list many article topics at once, then generate
+    // real, full article content for each one on demand - reuses the
+    // same, already-proven callOpenAI() pattern used for course/
+    // assessment generation elsewhere, rather than a new AI path.
+    'admin-bulk-add-article-topics': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { topics } = req.body;
+        if (!Array.isArray(topics) || topics.length === 0) {
+            return res.status(400).json({ error: 'topics array is required' });
+        }
+
+        try {
+            const rows = topics
+                .map(t => (typeof t === 'string' ? t.trim() : ''))
+                .filter(t => t.length > 0)
+                .map(t => ({ topic: t, created_by: auth.userId }));
+
+            if (rows.length === 0) {
+                return res.status(400).json({ error: 'No valid, non-empty topics found' });
+            }
+
+            const { data, error } = await supabaseClient
+                .from('article_topics')
+                .insert(rows)
+                .select();
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, added: data.length });
+        } catch (error) {
+            console.error('admin-bulk-add-article-topics error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'admin-get-article-topics': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('article_topics')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(500);
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, topics: data });
+        } catch (error) {
+            console.error('admin-get-article-topics error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'generate-article-from-topic': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { topicId, scheduledFor } = req.body;
+        if (!topicId) return res.status(400).json({ error: 'topicId is required' });
+
+        try {
+            const { data: topicRow, error: topicError } = await supabaseClient
+                .from('article_topics')
+                .select('*')
+                .eq('id', topicId)
+                .single();
+            if (topicError || !topicRow) return res.status(404).json({ error: 'Topic not found' });
+
+            await supabaseClient.from('article_topics').update({ status: 'generating', updated_at: new Date().toISOString() }).eq('id', topicId);
+
+            const systemPrompt = `You are a professional career and HR content writer for ODUSBABA, an AI-powered career platform. Write a complete, genuinely useful, well-structured article on the given topic - real, substantive content a job seeker or HR professional would find valuable, not generic filler. Return ONLY a JSON object with these exact fields:
+- "title": a clear, engaging article title (not the same as the raw topic - a genuine headline)
+- "excerpt": a 1-2 sentence summary for article listings
+- "content": the full article body in clean HTML (using <h2>, <h3>, <p>, <ul>/<li> as appropriate) - genuinely substantive, at least 600 words
+- "seo_title": a search-optimized title, under 60 characters
+- "category": one short category label (e.g. "Career Advice", "Job Search", "Workplace Skills")`;
+
+            const data = await callOpenAI(
+                [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: `Write the article now, on this topic: "${topicRow.topic}"` }
+                ],
+                3000, 0.7,
+                { type: 'json_object' }
+            );
+
+            let parsed;
+            try {
+                parsed = JSON.parse(data.choices[0].message.content);
+            } catch (parseErr) {
+                await supabaseClient.from('article_topics').update({ status: 'failed', error_message: 'AI returned invalid output', updated_at: new Date().toISOString() }).eq('id', topicId);
+                return res.status(500).json({ error: 'Article generation produced invalid output - please try again.' });
+            }
+
+            if (!parsed.title || !parsed.content) {
+                await supabaseClient.from('article_topics').update({ status: 'failed', error_message: 'AI response missing title or content', updated_at: new Date().toISOString() }).eq('id', topicId);
+                return res.status(500).json({ error: 'Article generation produced incomplete output - please try again.' });
+            }
+
+            const slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            const isScheduled = !!scheduledFor;
+
+            const { data: newArticle, error: insertError } = await supabaseClient
+                .from('articles')
+                .insert({
+                    title: parsed.title,
+                    excerpt: parsed.excerpt || null,
+                    content: parsed.content,
+                    seo_title: parsed.seo_title || parsed.title,
+                    category: parsed.category || null,
+                    slug,
+                    is_published: !isScheduled,
+                    scheduled_for: isScheduled ? scheduledFor : null,
+                    published_at: isScheduled ? null : new Date().toISOString(),
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+            if (insertError) {
+                await supabaseClient.from('article_topics').update({ status: 'failed', error_message: insertError.message, updated_at: new Date().toISOString() }).eq('id', topicId);
+                throw insertError;
+            }
+
+            await supabaseClient
+                .from('article_topics')
+                .update({ status: 'generated', generated_article_id: newArticle.id, updated_at: new Date().toISOString() })
+                .eq('id', topicId);
+
+            return res.status(200).json({ success: true, article: newArticle });
+        } catch (error) {
+            console.error('generate-article-from-topic error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     'admin-create-staff-user': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
