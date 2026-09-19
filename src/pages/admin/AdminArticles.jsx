@@ -31,15 +31,17 @@ import {
     Plus, Edit, Trash2, FileText, Search, RefreshCw, Loader2, 
     AlertCircle, CheckCircle, Eye, EyeOff, X, Square, Globe, 
     Clock, Calendar, Tag, Save, Filter, Download, TrendingUp,
-    Award, Shield, Users, Zap, Copy, Check, ChevronLeft, ChevronRight, Mail
+    Award, Shield, Users, Zap, Copy, Check, ChevronLeft, ChevronRight, Mail, Sparkles
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmModal from '../../components/ConfirmModal';
 import ArticleNewsletterComposer from '../../components/admin/ArticleNewsletterComposer';
+import ArticleTopicsManager from '../../components/admin/ArticleTopicsManager';
 
 export default function AdminArticles() {
     const navigate = useNavigate();
     const [showNewsletterComposer, setShowNewsletterComposer] = useState(false);
+    const [showTopicsManager, setShowTopicsManager] = useState(false);
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -282,6 +284,13 @@ export default function AdminArticles() {
                         <p className="text-slate-400 text-sm">Manage your content and blog posts</p>
                     </div>
                     <div className="flex gap-3">
+                        <button
+                            onClick={() => setShowTopicsManager(true)}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition flex items-center gap-2"
+                            title="Bulk-list article topics and generate content with AI"
+                        >
+                            <Sparkles className="w-4 h-4" /> Bulk AI Topics
+                        </button>
                         <button
                             onClick={() => setShowNewsletterComposer(true)}
                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition flex items-center gap-2"
@@ -570,6 +579,12 @@ export default function AdminArticles() {
                         setShowNewsletterComposer(false);
                         navigate('/admin/newsletter', { state: { incomingDraft: draft } });
                     }}
+                />
+            )}
+            {showTopicsManager && (
+                <ArticleTopicsManager
+                    onClose={() => setShowTopicsManager(false)}
+                    onArticleGenerated={() => loadArticles()}
                 />
             )}
         </div>
