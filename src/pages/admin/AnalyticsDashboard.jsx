@@ -166,16 +166,25 @@ export default function AnalyticsDashboard() {
     async function loadDeviceStats() {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
-        const { data: views } = await supabase
-            .from('analytics_page_views')
+        // FIXED (2026-09-19): confirmed a real, direct contradiction -
+        // this showed 100% desktop / 0% mobile despite Recent Visitors
+        // (below) genuinely showing a mobile visit in the same window.
+        // Root cause: analytics_page_views' device_type insert was
+        // silently failing on every call before an earlier fix,
+        // meaning its historical data is genuinely sparse/missing.
+        // analytics_sessions was never broken this way and is already
+        // proven correct by Recent Visitors using it successfully -
+        // switched to the same, genuinely reliable source.
+        const { data: sessions } = await supabase
+            .from('analytics_sessions')
             .select('device_type')
-            .gte('created_at', cutoff);
+            .gte('start_time', cutoff);
         
         const devices = { desktop: 0, mobile: 0, tablet: 0 };
-        (views || []).forEach(v => {
-            if (v.device_type === 'desktop') devices.desktop++;
-            else if (v.device_type === 'mobile') devices.mobile++;
-            else if (v.device_type === 'tablet') devices.tablet++;
+        (sessions || []).forEach(s => {
+            if (s.device_type === 'desktop') devices.desktop++;
+            else if (s.device_type === 'mobile') devices.mobile++;
+            else if (s.device_type === 'tablet') devices.tablet++;
         });
         
         const total = devices.desktop + devices.mobile + devices.tablet;
