@@ -292,7 +292,16 @@ function Navbar() {
     ];
 
     return (
-        <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
+        <nav className="bg-slate-900 border-b border-slate-800 fixed top-0 left-0 right-0 z-50">
+            {/* FIXED (2026-09-18): confirmed via direct inspection that
+                App.jsx never imports the separate Navbar.jsx file at
+                all - this local, inline function is the ONLY navbar
+                ever actually rendered on the live site, meaning every
+                earlier fix to Navbar.jsx was genuinely irrelevant.
+                position: sticky only sticks within its own parent's
+                scroll bounds and breaks if that ancestor has any
+                restricted height - position: fixed doesn't have this
+                weakness at all. */}
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center py-1">
                     <a href="/" className="flex items-center gap-3 text-white font-bold text-xl hover:text-primary-400 transition">
@@ -788,7 +797,11 @@ function AppContent() {
             <FraudSafetyBanner />
             
             {/* ✅ Mobile-optimized main container */}
-            <main className="min-h-screen bg-slate-950 overflow-x-hidden">
+            {/* FIXED (2026-09-18): pt-16 added - fixed positioning
+                removes the navbar from document flow entirely (unlike
+                sticky, which reserved its own space), so without this,
+                page content would now genuinely hide behind it. */}
+            <main className="min-h-screen bg-slate-950 overflow-x-hidden pt-16">
                 <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <Suspense fallback={<PageLoader />}>
                         {/* ✅ Removed AnimatePresence to prevent flickering (From Code 2) */}
