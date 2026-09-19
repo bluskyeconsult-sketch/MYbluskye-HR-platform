@@ -17,6 +17,8 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useCapability } from '../../hooks/useCapability';
+import StaffPermissionsModal from '../../components/admin/StaffPermissionsModal';
 import { 
     Users, Search, Loader2, CheckCircle, XCircle, Mail, 
     Calendar, Shield, RefreshCw, Filter, UserPlus, Edit, 
@@ -26,6 +28,9 @@ import {
 } from 'lucide-react';
 
 export default function AdminUsers() {
+    const { isSuperAdmin } = useCapability();
+    const [showCreateStaffModal, setShowCreateStaffModal] = useState(false);
+    const [permissionsModalUser, setPermissionsModalUser] = useState(null);
     const [users, setUsers] = useState([]);
     const [filteredUsers, setFilteredUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -268,15 +273,41 @@ export default function AdminUsers() {
                     <h1 className="text-2xl font-bold text-white">User Management</h1>
                     <p className="text-slate-400">View, manage, and moderate user accounts</p>
                 </div>
-                <button
-                    onClick={refreshUsers}
-                    disabled={refreshing}
-                    className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
-                >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                    {refreshing ? 'Refreshing...' : 'Refresh'}
-                </button>
+                <div className="flex gap-2">
+                    {isSuperAdmin && (
+                        <button
+                            onClick={() => setShowCreateStaffModal(true)}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition flex items-center gap-2"
+                        >
+                            <UserPlus className="w-4 h-4" /> Create Staff Account
+                        </button>
+                    )}
+                    <button
+                        onClick={refreshUsers}
+                        disabled={refreshing}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        {refreshing ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                </div>
             </div>
+
+            {showCreateStaffModal && (
+                <StaffPermissionsModal
+                    mode="create"
+                    onClose={() => setShowCreateStaffModal(false)}
+                    onSuccess={() => { setShowCreateStaffModal(false); refreshUsers(); }}
+                />
+            )}
+            {permissionsModalUser && (
+                <StaffPermissionsModal
+                    mode="edit"
+                    existingUser={permissionsModalUser}
+                    onClose={() => setPermissionsModalUser(null)}
+                    onSuccess={() => setPermissionsModalUser(null)}
+                />
+            )}
 
             {/* Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -528,6 +559,15 @@ export default function AdminUsers() {
                                             >
                                                 <Shield className="w-4 h-4" />
                                             </button>
+                                            {isSuperAdmin && user.user_type === 'admin' && (
+                                                <button
+                                                    onClick={() => setPermissionsModalUser(user)}
+                                                    className="p-1.5 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-700"
+                                                    title="Edit staff permissions"
+                                                >
+                                                    <UserPlus className="w-4 h-4" />
+                                                </button>
+                                            )}
                                             {user.is_tester && (
                                                 <button
                                                     onClick={() => endTesterStatus(user.id)}
@@ -762,7 +802,8 @@ export default function AdminUsers() {
                             >
                                 {savingManage ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save Changes'}
                             </button>
-                            <button                                onClick={() => { setShowManageModal(false); setManageForm(null); }}
+                            <button
+                                onClick={() => { setShowManageModal(false); setManageForm(null); }}
                                 className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition"
                             >
                                 Cancel
