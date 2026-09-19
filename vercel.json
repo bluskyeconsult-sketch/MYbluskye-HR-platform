@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/dispatch-job-alerts",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/publish-scheduled-articles",
+      "schedule": "*/15 * * * *"
     }
   ],
   "functions": {
@@ -18,18 +22,6 @@
     {
       "source": "/sitemap.xml",
       "destination": "/api/index?action=sitemap"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/assets/(.*)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/(.*)\\.(js|css|png|jpg|jpeg|svg|ico|webp|woff|woff2|ttf|eot|json|map)$",
-      "destination": "/$1.$2"
     },
     {
       "source": "/(.*)",
@@ -59,15 +51,6 @@
         {
           "key": "Cache-Control",
           "value": "no-cache, no-store, must-revalidate"
-        }
-      ]
-    },
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
         }
       ]
     },
