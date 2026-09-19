@@ -257,14 +257,37 @@ export default function UserDashboard() {
                 const skillFilter = skillNames
                     .map(name => `title.ilike.%${name}%,description.ilike.%${name}%`)
                     .join(',');
-                const { data: matchedJobs } = await supabase
+
+                // NEW (2026-09-19): platform-posted jobs (from real,
+                // registered employers) are genuinely fetched and
+                // shown first, before any externally-aggregated job -
+                // a direct employer posting on this platform is
+                // prioritized over pulled/aggregated listings when
+                // both match the user's skills equally.
+                const { data: platformJobs } = await supabase
                     .from('jobs')
                     .select('id, title, company, location, salary_min')
                     .eq('is_active', true)
                     .eq('compliance_status', 'approved')
+                    .eq('source_type', 'authoritative')
                     .or(skillFilter)
                     .limit(3);
-                jobs = matchedJobs || [];
+                jobs = platformJobs || [];
+
+                // Only fills remaining slots with external, aggregated
+                // jobs - never displaces a platform job that already
+                // matched.
+                if (jobs.length < 3) {
+                    const { data: externalJobs } = await supabase
+                        .from('jobs')
+                        .select('id, title, company, location, salary_min')
+                        .eq('is_active', true)
+                        .eq('compliance_status', 'approved')
+                        .neq('source_type', 'authoritative')
+                        .or(skillFilter)
+                        .limit(3 - jobs.length);
+                    jobs = [...jobs, ...(externalJobs || [])];
+                }
             }
 
             // Honest fallback - only used when skill-matching genuinely
