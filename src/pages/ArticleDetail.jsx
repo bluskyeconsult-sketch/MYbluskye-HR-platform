@@ -15,7 +15,7 @@ import { useCapability } from '../hooks/useCapability';
 import ContentRenderer from '../components/ContentRenderer';
 import { 
     Calendar, User, Eye, ArrowLeft, Share2, Send, Sparkles, Loader2,
-    AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check,
+    AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check, MessageCircle,
     Clock, TrendingUp, XCircle
 } from 'lucide-react';
 
@@ -203,6 +203,7 @@ export default function ArticleDetail() {
     }
 
     const shareUrls = {
+        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${article?.title} ${window.location.href}`)}`,
         twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(article?.title)}&url=${encodeURIComponent(window.location.href)}`,
         linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`,
         facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`,
@@ -425,6 +426,14 @@ export default function ArticleDetail() {
                                 
                                 {showShareMenu && (
                                     <div className="absolute bottom-full left-0 mb-2 bg-slate-800 border border-slate-700 rounded-lg shadow-xl p-2 flex gap-2">
+                                        <a
+                                            href={shareUrls.whatsapp}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-2 hover:bg-slate-700 rounded-lg transition text-[#25D366]"
+                                        >
+                                            <MessageCircle className="w-4 h-4" />
+                                        </a>
                                         <a
                                             href={shareUrls.twitter}
                                             target="_blank"
