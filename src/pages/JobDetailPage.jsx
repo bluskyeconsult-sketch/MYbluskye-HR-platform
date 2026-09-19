@@ -26,6 +26,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import DOMPurify from 'dompurify';
+import ShareMenu from '../components/ShareMenu';
 import { useGovernance } from '../contexts/GovernanceContext';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
@@ -419,9 +420,7 @@ export default function JobDetailPage() {
               <button onClick={handleSave} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
                 <Bookmark className={`w-5 h-5 ${saved ? 'fill-primary-400 text-primary-400' : 'text-slate-400'}`} />
               </button>
-              <button onClick={handleShare} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
-                <Share2 className="w-5 h-5 text-slate-400" />
-              </button>
+              <ShareMenu url={typeof window !== 'undefined' ? window.location.href : ''} title={job?.title} text={`Check out this job: ${job?.title} at ${job?.company}`} />
               <button onClick={handleReport} className="p-2 rounded-lg bg-slate-800 hover:bg-red-500/20 transition">
                 <Flag className="w-5 h-5 text-slate-400" />
               </button>
