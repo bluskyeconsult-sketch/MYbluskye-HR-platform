@@ -552,7 +552,34 @@ async function requireAdmin(req, supabaseClient) {
         return { authorized: false, status: 403, error: 'Admin access required' };
     }
 
-    return { authorized: true, userId: authCheck.userId };
+    return { authorized: true, userId: authCheck.userId, userType: profile.user_type };
+}
+
+// NEW (2026-09-19): gates a specific admin action on a genuine,
+// granted permission rather than just "is admin" - a super_admin
+// always passes every check unconditionally (this is the "sacred",
+// full control the platform owner keeps for themself), while a
+// regular staff/admin account must have that specific permission
+// explicitly granted in staff_permissions. Call requireAdmin() first
+// in every handler as before - this is an additional, narrower gate
+// on top of it, not a replacement for it.
+async function requirePermission(req, supabaseClient, permissionColumn) {
+    const adminCheck = await requireAdmin(req, supabaseClient);
+    if (!adminCheck.authorized) return adminCheck;
+
+    if (adminCheck.userType === 'super_admin') return adminCheck;
+
+    const { data: perms } = await supabaseClient
+        .from('staff_permissions')
+        .select(permissionColumn)
+        .eq('user_id', adminCheck.userId)
+        .maybeSingle();
+
+    if (!perms || !perms[permissionColumn]) {
+        return { authorized: false, status: 403, error: `You don't have permission to perform this action (requires: ${permissionColumn})` };
+    }
+
+    return adminCheck;
 }
 
 async function safeFetch(url, timeout = 10000) {
@@ -1540,6 +1567,138 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
 }
 
 const handlers = {
+    // ========== STAFF USER MANAGEMENT (NEW, 2026-09-19) ==========
+    // Lets a super admin create a genuine staff account directly
+    // (rather than requiring public signup) and grant them specific,
+    // named permissions - not full admin access.
+    'admin-create-staff-user': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        // Creating a new admin-capable account is genuinely
+        // sensitive - only a real super_admin can do this, not a
+        // regular admin, regardless of any granted permission.
+        if (auth.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'Only a super admin can create staff accounts' });
+        }
+
+        const { email, fullName, permissions } = req.body;
+        if (!email || !fullName) {
+            return res.status(400).json({ error: 'email and fullName are required' });
+        }
+
+        try {
+            // Creates the real auth account directly - the staff
+            // member never goes through public signup at all, and
+            // gets a genuine password-reset email to set their own
+            // password rather than the admin ever knowing it.
+            const { data: newUser, error: createError } = await supabaseClient.auth.admin.createUser({
+                email,
+                email_confirm: true,
+                user_metadata: { full_name: fullName }
+            });
+            if (createError) throw createError;
+
+            const { error: profileError } = await supabaseClient
+                .from('profiles')
+                .upsert({
+                    id: newUser.user.id,
+                    email,
+                    full_name: fullName,
+                    user_type: 'admin',
+                    tier: 'business',
+                    is_active: true,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                });
+            if (profileError) throw profileError;
+
+            const { error: permError } = await supabaseClient
+                .from('staff_permissions')
+                .upsert({
+                    user_id: newUser.user.id,
+                    ...(permissions || {}),
+                    granted_by: auth.userId,
+                    updated_at: new Date().toISOString()
+                });
+            if (permError) throw permError;
+
+            // Sends a real password-reset link so the new staff
+            // member can set their own password on first access -
+            // reuses the same, already-working recovery email flow.
+            await supabaseClient.auth.resetPasswordForEmail(email);
+
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'staff_user_created', tier: 'super_admin', wasAllowed: true }); // fire-and-forget
+
+            return res.status(200).json({ success: true, userId: newUser.user.id });
+        } catch (error) {
+            console.error('admin-create-staff-user error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'admin-get-staff-permissions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { userId } = req.query;
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('staff_permissions')
+                .select('*')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, permissions: data || null });
+        } catch (error) {
+            console.error('admin-get-staff-permissions error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'admin-update-staff-permissions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        // Changing what another staff member can do is itself a
+        // sensitive, "sacred" action - genuinely restricted to
+        // super_admin only, same as creating the account in the
+        // first place.
+        if (auth.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'Only a super admin can change staff permissions' });
+        }
+
+        const { userId, permissions } = req.body;
+        if (!userId || !permissions) {
+            return res.status(400).json({ error: 'userId and permissions are required' });
+        }
+
+        try {
+            const { error } = await supabaseClient
+                .from('staff_permissions')
+                .upsert({
+                    user_id: userId,
+                    ...permissions,
+                    granted_by: auth.userId,
+                    updated_at: new Date().toISOString()
+                });
+            if (error) throw error;
+
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'staff_permissions_updated', tier: 'super_admin', wasAllowed: true }); // fire-and-forget
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-update-staff-permissions error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     // ========== HEALTH & SYSTEM ==========
     health: async (req, res) => {
         const supabaseClient = getSupabase();
@@ -4352,7 +4511,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
     'approve-job-v2': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        // NEW (2026-09-19): switched from requireAdmin() to
+        // requirePermission() as a working example of the new,
+        // granular permission system - a super_admin still passes
+        // unconditionally, but a regular admin now needs
+        // can_manage_jobs specifically granted, not just "is admin".
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { jobId } = req.body;
@@ -4453,6 +4617,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 console.warn('Optional traceability fields failed to update (non-blocking):', traceabilityError.message);
             }
 
+            // NEW (2026-09-19): confirmed the Audit Log page has been
+            // genuinely empty because job approval - one of the most
+            // frequent, important admin actions this whole engagement
+            // - never actually called logAuditEvent() at all.
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'job_approval', tier: 'admin', wasAllowed: true }); // fire-and-forget
+
             return res.status(200).json({ success: true, jobId: newJob.id });
         } catch (error) {
             console.error('approve-job-v2 error:', error);
@@ -4462,7 +4632,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
     'reject-job-v2': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { jobId, reason } = req.body;
@@ -4474,6 +4644,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 .update({ status: 'rejected', reviewed_at: new Date().toISOString(), rejection_reason: reason || null })
                 .eq('id', jobId);
             if (error) throw error;
+
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'job_rejection', tier: 'admin', wasAllowed: true, denyReason: reason || null }); // fire-and-forget
 
             return res.status(200).json({ success: true });
         } catch (error) {
