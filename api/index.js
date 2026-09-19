@@ -2233,7 +2233,7 @@ const handlers = {
     // ========== GENERATE ASSESSMENT ==========
     'generate-assessment': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { topic, difficulty = 'intermediate', numberOfQuestions = 5 } = req.body;
@@ -4216,7 +4216,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
     'generate-insight-clues': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         // FIXED (2026-08-27): requireAdmin already verifies the real
@@ -4334,7 +4334,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         // could previously call this and have their own real credits
         // deducted for an admin-only analytics feature.
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         // FIXED (2026-08-27): same fix as generate-insight-clues - use
@@ -4413,7 +4413,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // new page cannot possibly inherit cached state from before.
     'pending-jobs-v2': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
@@ -4440,7 +4440,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // directly into the live jobs table as already-approved.
     'admin-bulk-import-jobs-csv': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { jobs } = req.body;
@@ -4656,7 +4656,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
     'newsletter-article-pool': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { industryFocus } = req.body;
@@ -4748,7 +4748,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // markdown blob dropped into a plain-text field.
     'newsletter-compile-selection': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { selectedArticleIds, includedTrendingTopics, customIntro } = req.body;
@@ -4812,7 +4812,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         // job/course/article/search-activity data, or spam it as a minor
         // load vector against the activity_signals table scan.
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
@@ -5078,7 +5078,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // timeout for any course with several modules.
     'generate-lesson-content': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { courseTitle, lessonTitle, level = 'beginner' } = req.body;
@@ -5100,7 +5100,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     'generate-course': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { topic, level = 'beginner' } = req.body;
@@ -5152,7 +5152,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // 'course-audio' → make it Public) before using this feature.
     generateCourseImage: async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { prompt } = req.body;
@@ -5175,7 +5175,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     generateLessonImage: async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { prompt } = req.body;
@@ -5201,7 +5201,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // than mixing book and course content in the same bucket.
     generateChapterAudio: async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { chapterId } = req.body;
@@ -5260,7 +5260,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     generateLessonAudio: async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { text, lessonId } = req.body;
@@ -5311,7 +5311,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // never expires.
     generateArticleImage: async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { prompt, articleId } = req.body;
@@ -6038,7 +6038,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     'refresh-knowledge-source': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { sourceId } = req.body;
@@ -6228,7 +6228,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // fragile email-sending operation.
     'admin-invite-verified-employers': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { batchSize = 50 } = req.body;
@@ -6298,7 +6298,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const isInternalServiceCall = internalSecret && internalSecret === process.env.INTERNAL_SERVICE_SECRET;
 
         if (!isInternalServiceCall) {
-            const auth = await requireAdmin(req, supabaseClient);
+            const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
             if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
         }
 
@@ -6339,7 +6339,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
     'admin-platform-capacity': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
@@ -6416,7 +6416,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         // separate gap from the 500 error this was originally
         // investigated for, found while confirming the table itself
         // genuinely exists (it does).
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
@@ -8598,7 +8598,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     // writing to it.
     'run-diagnostics': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const checks = [];
@@ -8697,7 +8697,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     // newsletter/job-reports tables genuinely being queryable.
     'readiness-check': async (req, res) => {
         const supabaseClient = getSupabase();
-        const auth = await requireAdmin(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const checks = [];
