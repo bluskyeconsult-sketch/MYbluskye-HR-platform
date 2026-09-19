@@ -219,7 +219,15 @@ export default function AdminUsers() {
                     tier: manageForm.tier,
                     is_active: manageForm.is_active,
                     ai_credits_remaining: manageForm.ai_credits_remaining,
-                    va_credits_balance: manageForm.va_credits_balance
+                    va_credits_balance: manageForm.va_credits_balance,
+                    // NEW (2026-09-19): the fuller profile fields added
+                    // to this modal - genuinely persisted now, not just
+                    // displayed.
+                    phone: manageForm.phone,
+                    job_title: manageForm.job_title,
+                    linkedin_url: manageForm.linkedin_url,
+                    github_url: manageForm.github_url,
+                    years_experience: manageForm.years_experience
                 })
                 .eq('id', manageForm.id);
             await loadUsers();
@@ -717,6 +725,69 @@ export default function AdminUsers() {
                                     onChange={(e) => setManageForm({ ...manageForm, bio: e.target.value })}
                                     rows={3}
                                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                            </div>
+
+                            {/* NEW (2026-09-19): the fuller profile
+                                details - these were already being
+                                fetched (select '*') but never actually
+                                shown anywhere in this modal. */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Phone</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.phone || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, phone: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Job Title</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.job_title || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, job_title: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">LinkedIn URL</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.linkedin_url || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, linkedin_url: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                    {manageForm.linkedin_url && (
+                                        <a href={manageForm.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-400 hover:underline mt-1 inline-block">Open link</a>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">GitHub URL</label>
+                                    <input
+                                        type="text"
+                                        value={manageForm.github_url || ''}
+                                        onChange={(e) => setManageForm({ ...manageForm, github_url: e.target.value })}
+                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                    />
+                                    {manageForm.github_url && (
+                                        <a href={manageForm.github_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-400 hover:underline mt-1 inline-block">Open link</a>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Years of Experience</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={manageForm.years_experience ?? ''}
+                                    onChange={(e) => setManageForm({ ...manageForm, years_experience: e.target.value ? parseInt(e.target.value) : null })}
+                                    className="w-32 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 />
                             </div>
 
