@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { authenticatedFetch } from '../lib/authFetch';
 import BookReader from '../components/BookReader';
 import AudiobookListener from '../components/AudiobookListener';
+import ShareMenu from '../components/ShareMenu';
 import {
     ArrowLeft, ExternalLink, Download, BookOpen, Loader2,
     AlertCircle, CheckCircle, ShoppingCart, Eye
@@ -235,7 +236,10 @@ export default function BookDetailPage() {
 
                     {/* Details */}
                     <div className="md:col-span-2">
-                        <h1 className="text-3xl font-bold text-white mb-1">{book.title}</h1>
+                        <div className="flex items-start justify-between gap-3 mb-1">
+                            <h1 className="text-3xl font-bold text-white">{book.title}</h1>
+                            <ShareMenu title={book.title} text={`Check out "${book.title}" by ${book.author}`} />
+                        </div>
                         <p className="text-slate-400 mb-4">by {book.author}</p>
                         <p className="text-slate-300 mb-6 leading-relaxed">{book.description}</p>
 
