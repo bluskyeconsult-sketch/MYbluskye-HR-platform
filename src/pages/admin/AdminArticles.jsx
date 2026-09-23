@@ -42,6 +42,7 @@ export default function AdminArticles() {
     const navigate = useNavigate();
     const [showNewsletterComposer, setShowNewsletterComposer] = useState(false);
     const [showTopicsManager, setShowTopicsManager] = useState(false);
+    const [fixingHtml, setFixingHtml] = useState(false);
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -107,6 +108,25 @@ export default function AdminArticles() {
             setStats({ total, published, draft, views, avgReadTime });
         } catch (err) {
             console.error('Error loading article stats:', err);
+        }
+    }
+
+    async function handleFixHtmlArticles() {
+        setFixingHtml(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=admin-fix-html-articles', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed');
+            toast.success(`Fixed ${data.fixed} article${data.fixed === 1 ? '' : 's'} with raw HTML`);
+            loadArticles();
+        } catch (err) {
+            toast.error('Failed to fix HTML articles: ' + err.message);
+        } finally {
+            setFixingHtml(false);
         }
     }
 
@@ -284,6 +304,15 @@ export default function AdminArticles() {
                         <p className="text-slate-400 text-sm">Manage your content and blog posts</p>
                     </div>
                     <div className="flex gap-3">
+                        <button
+                            onClick={handleFixHtmlArticles}
+                            disabled={fixingHtml}
+                            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 transition flex items-center gap-2 disabled:opacity-50"
+                            title="One-time fix for articles published with raw HTML instead of Markdown"
+                        >
+                            {fixingHtml ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            Fix HTML Articles
+                        </button>
                         <button
                             onClick={() => setShowTopicsManager(true)}
                             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition flex items-center gap-2"
