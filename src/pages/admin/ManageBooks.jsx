@@ -458,10 +458,10 @@ export default function ManageBooks() {
                                     </span>
                                 </div>
 
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
                                     <button
                                         onClick={() => openEditModal(book)}
-                                        className="flex-1 px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center justify-center gap-1 text-sm"
+                                        className="flex-1 min-w-[80px] px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center justify-center gap-1 text-sm"
                                     >
                                         <Edit2 className="w-3 h-3" /> Edit
                                     </button>
