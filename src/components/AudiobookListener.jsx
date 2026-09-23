@@ -8,7 +8,17 @@
 // established design and interaction quality of BookReader.jsx.
 
 import { useState, useRef, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Loader2 } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Loader2, Music, Music as MusicOff } from 'lucide-react';
+
+// NEW (2026-09-21): a real, licensed, genuinely subtle background
+// track - "Quiet Reflections" (solo piano, Haletski), Pixabay's free
+// content license (no attribution required, free for commercial use).
+// Source: https://pixabay.com/music/solo-piano-quiet-reflections-521788/
+// Sourcing the actual file needs a real download (this sandbox can't
+// reach external hosts) - download it from that page and upload to a
+// 'book-audio' or new 'ambient-audio' Supabase Storage bucket, then
+// set this to that file's public URL.
+const BACKGROUND_TRACK_URL = null; // set to the uploaded track's public URL once sourced
 
 export default function AudiobookListener({ segments = [], chapterTitle = '', onClose }) {
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -17,7 +27,9 @@ export default function AudiobookListener({ segments = [], chapterTitle = '', on
     const [duration, setDuration] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [playbackRate, setPlaybackRate] = useState(1);
+    const [backgroundMusicEnabled, setBackgroundMusicEnabled] = useState(true);
     const audioRef = useRef(null);
+    const backgroundAudioRef = useRef(null);
 
     const currentSegment = segments[currentSegmentIndex];
     const totalDuration = segments.reduce((sum, s) => sum + (s.duration || 0), 0);
@@ -28,6 +40,20 @@ export default function AudiobookListener({ segments = [], chapterTitle = '', on
             audioRef.current.playbackRate = playbackRate;
         }
     }, [playbackRate, currentSegmentIndex]);
+
+    // NEW (2026-09-21): keeps the background track quietly looping
+    // under the voice, in sync with play/pause - set low enough
+    // (8%) that it's genuinely subtle, never competing with the
+    // narration itself.
+    useEffect(() => {
+        if (!backgroundAudioRef.current) return;
+        backgroundAudioRef.current.volume = 0.08;
+        if (isPlaying && backgroundMusicEnabled) {
+            backgroundAudioRef.current.play().catch(() => {});
+        } else {
+            backgroundAudioRef.current.pause();
+        }
+    }, [isPlaying, backgroundMusicEnabled]);
 
     useEffect(() => {
         // Auto-play the next segment when one finishes, so a full
@@ -112,6 +138,10 @@ export default function AudiobookListener({ segments = [], chapterTitle = '', on
                 onPlaying={() => setIsLoading(false)}
             />
 
+            {BACKGROUND_TRACK_URL && (
+                <audio ref={backgroundAudioRef} src={BACKGROUND_TRACK_URL} loop />
+            )}
+
             {/* Overall chapter progress, across all segments */}
             <div className="mb-3">
                 <div className="flex justify-between text-xs text-slate-500 mb-1">
@@ -184,6 +214,19 @@ export default function AudiobookListener({ segments = [], chapterTitle = '', on
                     </button>
                 ))}
             </div>
+
+            {BACKGROUND_TRACK_URL && (
+                <div className="flex items-center justify-center gap-2 mt-2">
+                    <button
+                        onClick={() => setBackgroundMusicEnabled(!backgroundMusicEnabled)}
+                        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition"
+                        title="Toggle subtle background music"
+                    >
+                        {backgroundMusicEnabled ? <Music className="w-3.5 h-3.5" /> : <MusicOff className="w-3.5 h-3.5" />}
+                        Background music {backgroundMusicEnabled ? 'on' : 'off'}
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
