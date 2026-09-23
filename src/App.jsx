@@ -220,6 +220,27 @@ function Navbar() {
     
     const adminDropdownRef = useRef(null);
     const accountDropdownRef = useRef(null);
+    const navRef = useRef(null);
+
+    // NEW (2026-09-20): confirmed the earlier hardcoded pt-16 offset
+    // was genuinely too small - ScrollingBanner (the element right
+    // after the fixed navbar) was still partially hidden behind it,
+    // while FraudSafetyBanner (further down) wasn't. Rather than keep
+    // guessing at a pixel value, this measures the navbar's real,
+    // actual height (which can genuinely vary - this navbar has many
+    // links that could wrap on smaller screens) and writes it to a
+    // CSS variable the page-offset wrapper reads directly, so it's
+    // always correct regardless of screen size or content changes.
+    useEffect(() => {
+        if (!navRef.current) return;
+        const updateHeight = () => {
+            document.documentElement.style.setProperty('--navbar-height', `${navRef.current.offsetHeight}px`);
+        };
+        updateHeight();
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(navRef.current);
+        return () => observer.disconnect();
+    }, []);
     
     const checkAuth = useCallback(async () => {
         try {
@@ -292,7 +313,7 @@ function Navbar() {
     ];
 
     return (
-        <nav className="bg-slate-900 border-b border-slate-800 fixed top-0 left-0 right-0 z-50">
+        <nav ref={navRef} className="bg-slate-900 border-b border-slate-800 fixed top-0 left-0 right-0 z-50">
             {/* FIXED (2026-09-18): confirmed via direct inspection that
                 App.jsx never imports the separate Navbar.jsx file at
                 all - this local, inline function is the ONLY navbar
@@ -336,6 +357,7 @@ function Navbar() {
                                         <a href="/admin/assessments" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Assessments</a>
                                         <a href="/admin/ai-course-builder" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">AI Course Builder</a>
                                         <a href="/admin/virtual-assistants" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Virtual Assistants</a>
+                                        <a href="/admin/hr-tool-builder" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">HR Tool Builder</a>
                                         <a href="/admin/health" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">System Health</a>
                                     </div>
                                 )}
@@ -597,6 +619,7 @@ const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
 const LearnerDashboard = lazy(() => import('./pages/LearnerDashboard'));
 const CourseDetail = lazy(() => import('./pages/CourseDetail'));
+const MyLearning = lazy(() => import('./pages/MyLearning'));
 const CourseDetailsPage = lazy(() => import('./pages/CourseDetailsPage'));
 const CertificatePage = lazy(() => import('./pages/CertificatePage'));
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
@@ -633,6 +656,7 @@ const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
+const CustomHRToolManager = lazy(() => import('./pages/admin/CustomHRToolManager'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
 const AdminTesterFeedback = lazy(() => import('./pages/admin/AdminTesterFeedback'));
@@ -788,15 +812,16 @@ function AppContent() {
             <Navbar />
             {/* NEW (2026-08-16): ScrollingBanner and TermsPopup were both
                 built but never actually mounted anywhere — wired in here. */}
-            {/* FIXED (2026-09-20): confirmed the real, complete cause -
-                the earlier pt-16 fix only pushed <main> down, but
-                ScrollingBanner/WorkforceConsentPrompt/FraudSafetyBanner
-                are genuine siblings of main, not children of it - they
-                were still sitting at the very top of the page,
-                genuinely hidden behind the fixed navbar. Wrapping all
-                of them together in one shared pt-16 container fixes
-                this completely, not just for <main> alone. */}
-            <div className="pt-16">
+            {/* FIXED (2026-09-20): confirmed the earlier pt-16 fix was
+                still genuinely too small - ScrollingBanner (the very
+                first element here) was still partially hidden behind
+                the fixed navbar even after being wrapped, while
+                FraudSafetyBanner (further down) wasn't. Uses the
+                dynamically measured, always-correct real navbar height
+                (set by Navbar's own ResizeObserver) instead of a
+                guessed, hardcoded pixel value - correct regardless of
+                screen size or the navbar wrapping to two lines. */}
+            <div style={{ paddingTop: 'var(--navbar-height, 4rem)' }}>
                 <ScrollingBanner />
                 <WorkforceConsentPrompt />
                 <FraudSafetyBanner />
@@ -881,6 +906,7 @@ function AppContent() {
                             <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentEditor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><AdminLayout><VirtualAssistantManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/hr-tool-builder" element={<ProtectedRoute requireAdmin><AdminLayout><CustomHRToolManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSkills /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminLayout><AdminTesterFeedback /></AdminLayout></ProtectedRoute>} />
@@ -917,6 +943,7 @@ function AppContent() {
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
                             <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
                             <Route path="/learning/:id" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
+                            <Route path="/my-learning" element={<ProtectedRoute><MyLearning /></ProtectedRoute>} />
                             <Route path="/courses/:id" element={<CourseDetailsPage />} />
                             <Route path="/certificate/:id" element={<AnimatedPage><CertificatePage /></AnimatedPage>} />
                             <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
