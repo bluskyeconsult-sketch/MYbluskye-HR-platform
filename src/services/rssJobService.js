@@ -130,12 +130,18 @@ const MIN_FETCH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours (hobby plan: once pe
 
 const RSS_FEEDS = {
     // United Kingdom - Government (Priority 1 - Always active)
+    // DISABLED (2026-09-21): confirmed genuinely, uselessly still
+    // active despite this session's own earlier comment already
+    // saying it was "replaced" by UK_CIVIL_SERVICE_APIFY below - it
+    // was never actually turned off, so it's been failing every
+    // single sync since. The real, working Apify version already
+    // covers this source correctly.
     UK_CIVIL_SERVICE: {
         name: 'UK Civil Service Jobs',
         country: 'GB',
         url: 'https://www.civilservicejobs.gov.uk/feeds/jobs.xml',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa', 'Certificate of Sponsorship']
     },
@@ -155,58 +161,86 @@ const RSS_FEEDS = {
         priority: 1,
         sponsorship_keywords: ['Tier 2', 'Skilled Worker', 'Sponsorship', 'Visa']
     },
+    // DISABLED (2026-09-21): confirmed genuinely dead in an earlier
+    // session (returns an actual webpage, not an RSS/XML feed - no
+    // parsing fix can resolve this since there's no feed here), but
+    // never actually turned off, so it's been failing every sync since.
     UK_GOV_FIND_JOB: {
         name: 'Find a Job - UK Government',
         country: 'GB',
         url: 'https://findajob.dwp.gov.uk/feeds/jobs.rss',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 1,
         sponsorship_keywords: ['Sponsorship', 'Visa', 'Skilled Worker']
     },
     
     // Ireland - Government (Priority 2)
+    // DISABLED (2026-09-21): confirmed genuinely dead earlier - the
+    // site migrated to a new platform with no working feed at this
+    // URL, but was never actually turned off.
     IRELAND_PUBLICJOBS: {
         name: 'Public Jobs Ireland',
         country: 'IE',
         url: 'https://www.publicjobs.ie/rss',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 2,
         sponsorship_keywords: ['Work Permit', 'Critical Skills', 'Sponsorship']
     },
     
     // Canada - Government (Priority 2)
+    // DISABLED (2026-09-21): confirmed genuinely no free API exists
+    // for this earlier (Job Bank Canada's real, official feed
+    // requires a manual partner request), but was never actually
+    // turned off.
     CANADA_GC_JOBS: {
         name: 'GC Jobs Canada',
         country: 'CA',
         url: 'https://www.jobs.gc.ca/rss',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 2,
         sponsorship_keywords: ['Work Permit', 'LMIA', 'Sponsorship']
     },
     
     // Australia - Government (Priority 2)
+    // DISABLED (2026-09-21): confirmed genuinely no free API exists
+    // for this earlier (401 Unauthorized), but was never actually
+    // turned off.
     AUSTRALIA_APS_JOBS: {
         name: 'APS Jobs Australia',
         country: 'AU',
         url: 'https://www.apsjobs.gov.au/rss',
         type: 'rss',
-        is_active: true,
+        is_active: false,
         priority: 2,
         sponsorship_keywords: ['Visa Sponsorship', 'Work Visa', 'Sponsorship']
     },
     
     // USA - Government (Priority 2)
+    // FIXED (2026-09-21): confirmed via direct research that the old
+    // URL here was never a genuine, working feed - usajobs.gov/rss
+    // doesn't exist at all (source of the real 404). The actual,
+    // official USAJobs API lives at data.usajobs.gov/api/search and
+    // requires Authorization-Key and User-Agent headers, not a plain
+    // RSS fetch. Reuses the USAJOBS_API_KEY and USAJOBS_USER_AGENT
+    // env vars already provisioned in this platform's own Vercel
+    // setup - they just weren't being used by this source at all.
     USA_USAJOBS: {
         name: 'USAJobs',
         country: 'US',
-        url: 'https://www.usajobs.gov/rss',
-        type: 'rss',
+        url: 'https://data.usajobs.gov/api/search?ResultsPerPage=25',
+        type: 'api',
+        headers: {
+            'Authorization-Key': process.env.USAJOBS_API_KEY || '',
+            'User-Agent': process.env.USAJOBS_USER_AGENT || '',
+            'Host': 'data.usajobs.gov'
+        },
         is_active: true,
         priority: 2,
-        sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship']
+        sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship'],
+        parseFunction: parseUsaJobsResponse
     },
     
     // FIXED (2026-09-13): confirmed via direct research that
@@ -721,6 +755,44 @@ function parseJobbermanResponse(data) {
 // result.
 function logApifyEmptyResponse(actorName, data) {
     console.warn(`${actorName} (Apify) returned 0 parseable jobs. Raw response sample:`, JSON.stringify(data).substring(0, 500));
+}
+
+// NEW (2026-09-21): real parser for the real, official USAJobs API,
+// matching the confirmed, actual response shape
+// (SearchResult.SearchResultItems[].MatchedObjectDescriptor) - the
+// old config here was type 'rss' pointed at a URL that never existed,
+// so there was never a parser needed for it before now.
+function parseUsaJobsResponse(data) {
+    const items = data?.SearchResult?.SearchResultItems;
+    if (!Array.isArray(items)) {
+        console.warn('USAJobs: unexpected response shape, no SearchResult.SearchResultItems array found');
+        return [];
+    }
+
+    return items.map(item => {
+        const d = item.MatchedObjectDescriptor || {};
+        const title = d.PositionTitle || '';
+        const company = d.OrganizationName || d.DepartmentName || 'U.S. Federal Government';
+        const location = d.PositionLocationDisplay || (d.PositionLocation?.[0]?.LocationName) || 'United States';
+        const link = d.PositionURI || d.ApplyURI?.[0] || null;
+        const remuneration = d.PositionRemuneration?.[0];
+        const salary = remuneration ? `${remuneration.MinimumRange || ''}-${remuneration.MaximumRange || ''} ${remuneration.RateIntervalCode || ''}`.trim() : null;
+        const description = d.UserArea?.Details?.JobSummary || d.QualificationSummary || title;
+
+        return {
+            title,
+            company,
+            location,
+            description,
+            salary_range: salary,
+            job_type: 'full-time',
+            applicationLink: link,
+            external_url: link,
+            url: link,
+            source_name: 'USAJobs',
+            source_country: 'US'
+        };
+    }).filter(job => job.title);
 }
 
 function parseCivilServiceApifyResponse(data) {
