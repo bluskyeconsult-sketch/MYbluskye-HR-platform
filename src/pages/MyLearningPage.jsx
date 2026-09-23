@@ -1,212 +1,262 @@
-// src/pages/MyLearningPage.jsx
+// src/pages/MyLearning.jsx
+//
+// NEW (2026-09-20): course enrollment status (in-progress/completed)
+// already has a real, working page at /learning (LearnerDashboard.jsx)
+// - deliberately not duplicated here. This page covers what was
+// genuinely missing: course favorites, the cart, and job application
+// status (completed/pending), all already built on the backend but
+// with no UI anywhere until now.
+
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { Link } from 'react-router-dom';
-import { BookOpen, Clock, Award, TrendingUp, CheckCircle, Play, ChevronRight, Loader2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import { Heart, ShoppingCart, Trash2, Loader2, ArrowRight, Briefcase, Clock, GraduationCap } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export default function MyLearning() {
+    const navigate = useNavigate();
+    const [activeTab, setActiveTab] = useState('favorites');
+    const [loading, setLoading] = useState(true);
+    const [userId, setUserId] = useState(null);
+    const [favorites, setFavorites] = useState([]);
+    const [cartItems, setCartItems] = useState([]);
+    const [selectedCartIds, setSelectedCartIds] = useState(new Set());
+    const [completedJobs, setCompletedJobs] = useState([]);
+    const [pendingJobs, setPendingJobs] = useState([]);
+    const [processingCheckout, setProcessingCheckout] = useState(false);
 
-export default function MyLearningPage() {
-  const [enrollments, setEnrollments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
-  const [stats, setStats] = useState({ totalHours: 0, completedCourses: 0, inProgressCourses: 0 });
+    useEffect(() => {
+        loadAll();
+    }, []);
 
-  useEffect(() => {
-    checkUser();
-  }, []);
-
-  async function checkUser() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      window.location.href = '/sign-in';
-      return;
+    async function authHeaders() {
+        const { data: { session } } = await supabase.auth.getSession();
+        return { 'Authorization': `Bearer ${session?.access_token}` };
     }
-    setUser(session.user);
-    await loadEnrollments(session.user.id);
-  }
 
-  async function loadEnrollments(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('course_enrollments')
-        .select('*, courses:course_id(*)')
-        .eq('user_id', userId)
-        .order('started_at', { ascending: false });
-      
-      if (error) throw error;
-      
-      setEnrollments(data || []);
-      
-      const completed = data?.filter(e => e.progress_percent === 100).length || 0;
-      const totalHours = data?.reduce((sum, e) => sum + (e.courses?.duration_minutes || 0) / 60, 0) || 0;
-      
-      setStats({
-        totalHours: Math.round(totalHours),
-        completedCourses: completed,
-        inProgressCourses: (data?.length || 0) - completed
-      });
-    } catch (err) {
-      console.error('Error loading enrollments:', err);
-      toast.error('Failed to load your courses');
-    } finally {
-      setLoading(false);
+    async function loadAll() {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            navigate('/sign-in?redirect=/my-learning');
+            return;
+        }
+        setUserId(user.id);
+
+        const headers = await authHeaders();
+
+        const [favoritesRes, cartRes, jobsRes] = await Promise.all([
+            fetch(`/api/index?action=get-course-favorites&userId=${user.id}`, { headers }).then(r => r.json()),
+            fetch(`/api/index?action=get-cart&userId=${user.id}`, { headers }).then(r => r.json()),
+            fetch(`/api/index?action=get-my-job-applications&userId=${user.id}`, { headers }).then(r => r.json())
+        ]);
+
+        setFavorites(favoritesRes.favorites || []);
+        setCartItems(cartRes.items || []);
+        setCompletedJobs(jobsRes.completed || []);
+        setPendingJobs(jobsRes.pending || []);
+        setLoading(false);
     }
-  }
 
-  async function generateCertificate(courseId) {
-    toast.loading('Generating certificate...', { id: 'cert' });
-    try {
-      const enrollment = enrollments.find(e => e.course_id === courseId);
-      if (!enrollment || enrollment.progress_percent !== 100) {
-        toast.error('Complete the course first to get certificate');
-        return;
-      }
-      
-      const { data: certificate, error } = await supabase
-        .from('course_certificates')
-        .insert({
-          enrollment_id: enrollment.id,
-          certificate_number: `ODC-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-          issued_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      
-      toast.success('Certificate generated!', { id: 'cert' });
-      
-      // Create PDF and download (simplified)
-      const win = window.open();
-      win.document.write(`
-        <html>
-          <head><title>Certificate of Completion</title></head>
-          <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>Certificate of Completion</h1>
-            <p>This certifies that</p>
-            <h2>${user?.email}</h2>
-            <p>has successfully completed</p>
-            <h3>${enrollment.courses.title}</h3>
-            <p>Certificate Number: ${certificate.certificate_number}</p>
-            <p>Issued: ${new Date().toLocaleDateString()}</p>
-          </body>
-        </html>
-      `);
-      win.document.close();
-    } catch (err) {
-      console.error('Certificate error:', err);
-      toast.error('Failed to generate certificate');
+    async function removeFavorite(courseId) {
+        const headers = await authHeaders();
+        await fetch('/api/index?action=toggle-course-favorite', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, courseId })
+        });
+        setFavorites(prev => prev.filter(f => f.course_id !== courseId));
+        toast.success('Removed from favorites');
     }
-  }
 
-  if (loading) {
+    async function removeFromCart(cartItemId) {
+        const headers = await authHeaders();
+        await fetch('/api/index?action=remove-from-cart', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, cartItemId })
+        });
+        setCartItems(prev => prev.filter(c => c.id !== cartItemId));
+    }
+
+    function toggleCartSelect(itemId) {
+        setSelectedCartIds(prev => {
+            const next = new Set(prev);
+            if (next.has(itemId)) next.delete(itemId);
+            else next.add(itemId);
+            return next;
+        });
+    }
+
+    const selectedCartItems = cartItems.filter(i => selectedCartIds.has(i.id));
+    const cartTotal = selectedCartItems.reduce((sum, item) => sum + (Number(item.details?.price || item.details?.ebook_price) || 0), 0);
+
+    async function handleCheckoutSelected() {
+        if (selectedCartItems.length === 0) {
+            toast.error('Select at least one item to check out');
+            return;
+        }
+        setProcessingCheckout(true);
+        try {
+            const headers = await authHeaders();
+            const response = await fetch('/api/index?action=cart-checkout', {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: selectedCartItems.map(c => ({ type: c.item_type, id: c.item_id })) })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Checkout failed');
+
+            // Free courses (if any were selected) are already enrolled
+            // synchronously by the backend - only a real book purchase
+            // needs the Stripe redirect.
+            if (data.enrolledCourses > 0) {
+                toast.success(`Enrolled in ${data.enrolledCourses} course${data.enrolledCourses > 1 ? 's' : ''}!`);
+            }
+            if (data.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            } else {
+                setSelectedCartIds(new Set());
+                loadAll();
+            }
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setProcessingCheckout(false);
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+            </div>
+        );
+    }
+
+    const tabs = [
+        { key: 'favorites', label: `Favorites (${favorites.length})`, icon: Heart },
+        { key: 'cart', label: `Cart (${cartItems.length})`, icon: ShoppingCart },
+        { key: 'jobs-pending', label: `Applications Pending (${pendingJobs.length})`, icon: Clock },
+        { key: 'jobs-completed', label: `Applications Completed (${completedJobs.length})`, icon: Briefcase }
+    ];
+
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-white mb-2">My Learning</h1>
-        <p className="text-slate-400 mb-8">Track your course progress and achievements</p>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <Clock className="w-8 h-8 text-primary-400" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.totalHours}h</p>
-                <p className="text-sm text-slate-400">Total Learning Hours</p>
-              </div>
+        <div className="max-w-5xl mx-auto px-4 py-8">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+                <h1 className="text-3xl font-bold text-white">Favorites, Cart & Applications</h1>
+                <Link to="/learning" className="flex items-center gap-2 text-primary-400 hover:underline text-sm">
+                    <GraduationCap className="w-4 h-4" /> Go to My Courses
+                </Link>
             </div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <Award className="w-8 h-8 text-emerald-400" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.completedCourses}</p>
-                <p className="text-sm text-slate-400">Courses Completed</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <TrendingUp className="w-8 h-8 text-amber-400" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.inProgressCourses}</p>
-                <p className="text-sm text-slate-400">In Progress</p>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Enrolled Courses */}
-        <h2 className="text-xl font-semibold text-white mb-4">Your Courses</h2>
-        
-        {enrollments.length === 0 ? (
-          <div className="text-center py-12 bg-slate-900/50 border border-slate-800 rounded-xl">
-            <BookOpen className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-            <p className="text-slate-400">You haven't enrolled in any courses yet.</p>
-            <Link to="/courses" className="inline-block mt-4 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500">
-              Browse Courses
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {enrollments.map((enrollment) => (
-              <div key={enrollment.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="p-6">
-                  <h3 className="text-xl font-semibold text-white mb-2">{enrollment.courses?.title}</h3>
-                  <div className="flex items-center gap-4 text-sm text-slate-400 mb-4">
-                    <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {enrollment.courses?.duration_minutes} min</span>
-                    <span className="flex items-center gap-1"><BookOpen className="w-4 h-4" /> {enrollment.courses?.level}</span>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm text-slate-400 mb-1">
-                      <span>Progress</span>
-                      <span>{enrollment.progress_percent || 0}%</span>
-                    </div>
-                    <div className="w-full bg-slate-700 rounded-full h-2">
-                      <div 
-                        className="bg-primary-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${enrollment.progress_percent || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                    <Link
-                      to={`/courses/${enrollment.course_id}`}
-                      className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 flex items-center justify-center gap-2"
+            <div className="flex gap-2 mb-6 border-b border-slate-800 overflow-x-auto">
+                {tabs.map(tab => (
+                    <button
+                        key={tab.key}
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                            activeTab === tab.key ? 'border-primary-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+                        }`}
                     >
-                      <Play className="w-4 h-4" />
-                      Continue Learning
-                    </Link>
-                    {enrollment.progress_percent === 100 && (
-                      <button
-                        onClick={() => generateCertificate(enrollment.course_id)}
-                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 flex items-center gap-2"
-                      >
-                        <Award className="w-4 h-4" />
-                        Certificate
-                      </button>
-                    )}
-                  </div>
+                        <tab.icon className="w-4 h-4" /> {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {activeTab === 'favorites' && (
+                <div className="grid sm:grid-cols-2 gap-4">
+                    {favorites.length === 0 ? (
+                        <p className="text-slate-500 col-span-2 text-center py-8">No favorites saved yet. Browse courses and tap the heart icon to save one here.</p>
+                    ) : favorites.map(f => (
+                        <div key={f.course_id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex gap-4">
+                            {f.courses?.image_url && <img src={f.courses.image_url} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />}
+                            <div className="flex-1 min-w-0">
+                                <Link to={`/courses/${f.course_id}`} className="text-white font-medium truncate hover:text-primary-400 block">{f.courses?.title}</Link>
+                                <p className="text-slate-400 text-xs mt-1">{f.courses?.price === 0 ? 'Free' : `$${f.courses?.price}`}</p>
+                            </div>
+                            <button onClick={() => removeFavorite(f.course_id)} className="text-slate-500 hover:text-red-400 transition flex-shrink-0">
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+            )}
+
+            {activeTab === 'cart' && (
+                <div>
+                    {cartItems.length === 0 ? (
+                        <p className="text-slate-500 text-center py-8">Your cart is empty.</p>
+                    ) : (
+                        <>
+                            <div className="space-y-3 mb-6">
+                                {cartItems.map(item => (
+                                    <div key={item.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex gap-4 items-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedCartIds.has(item.id)}
+                                            onChange={() => toggleCartSelect(item.id)}
+                                        />
+                                        {item.details?.image_url && <img src={item.details.image_url} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-white font-medium truncate">{item.details?.title || 'Item unavailable'}</p>
+                                            <p className="text-slate-500 text-xs capitalize">{item.item_type}</p>
+                                        </div>
+                                        <p className="text-white font-semibold">
+                                            {item.item_type === 'course' ? 'Free' : `$${Number(item.details?.ebook_price || 0).toFixed(2)}`}
+                                        </p>
+                                        <button onClick={() => removeFromCart(item.id)} className="text-slate-500 hover:text-red-400 transition">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex justify-between items-center bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                                <div>
+                                    <p className="text-slate-400 text-sm">{selectedCartItems.length} item(s) selected</p>
+                                    <p className="text-white font-semibold text-lg">Total: ${cartTotal.toFixed(2)}</p>
+                                </div>
+                                <button
+                                    onClick={handleCheckoutSelected}
+                                    disabled={processingCheckout || selectedCartItems.length === 0}
+                                    className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {processingCheckout ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                                    Checkout Selected
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'jobs-pending' && (
+                <div className="space-y-3">
+                    {pendingJobs.length === 0 ? (
+                        <p className="text-slate-500 text-center py-8">No pending applications.</p>
+                    ) : pendingJobs.map(a => (
+                        <Link key={a.id} to={`/jobs/${a.jobs?.id}`} className="block bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/50 transition">
+                            <p className="text-white font-medium">{a.jobs?.title}</p>
+                            <p className="text-slate-400 text-sm">{a.jobs?.company} — {a.jobs?.location}</p>
+                            <p className="text-amber-400 text-xs mt-2 capitalize">{a.status}</p>
+                        </Link>
+                    ))}
+                </div>
+            )}
+
+            {activeTab === 'jobs-completed' && (
+                <div className="space-y-3">
+                    {completedJobs.length === 0 ? (
+                        <p className="text-slate-500 text-center py-8">No completed applications yet.</p>
+                    ) : completedJobs.map(a => (
+                        <Link key={a.id} to={`/jobs/${a.jobs?.id}`} className="block bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/50 transition">
+                            <p className="text-white font-medium">{a.jobs?.title}</p>
+                            <p className="text-slate-400 text-sm">{a.jobs?.company} — {a.jobs?.location}</p>
+                            <p className={`text-xs mt-2 capitalize ${a.status === 'accepted' ? 'text-emerald-400' : 'text-red-400'}`}>{a.status}</p>
+                        </Link>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 }
