@@ -40,7 +40,7 @@
     "postinstall": "echo '✅ Dependencies installed'"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/supabase-js": "^2.116.0",
     "axios": "^1.7.2",
     "dompurify": "^3.1.6",
     "framer-motion": "^10.16.16",
