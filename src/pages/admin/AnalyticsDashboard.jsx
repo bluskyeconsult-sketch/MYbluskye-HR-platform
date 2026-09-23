@@ -147,20 +147,31 @@ export default function AnalyticsDashboard() {
     }
 
     async function loadLocationStats() {
-        // FIXED (2026-09-05): confirmed via direct schema query this
-        // time, not an assumption - neither analytics_page_views nor
-        // analytics_sessions has any country/city/ip_address column at
-        // all. This platform genuinely doesn't capture geographic data
-        // anywhere yet, so the earlier fix (pointing this query at a
-        // different table) was based on an incorrect guess about that
-        // table's schema. Removed the query entirely rather than query
-        // columns that don't exist - setting an explicit empty state so
-        // the UI honestly reflects that this isn't tracked yet, instead
-        // of silently failing with a console error underneath a generic
-        // "no data" message. Adding real location tracking would need a
-        // genuine IP geolocation lookup added to the backend's
-        // track-page-view/session-start handlers first.
-        setLocationStats([]);
+        // FIXED (2026-09-20): confirmed via a fresh, direct schema
+        // query that the earlier claim here was genuinely wrong -
+        // analytics_sessions does have country/city/ip_address columns.
+        // The real issue was never a missing schema, just this query
+        // never having been built against the real, correct table.
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+        const { data: sessions } = await supabase
+            .from('analytics_sessions')
+            .select('country, city')
+            .gte('start_time', cutoff)
+            .not('country', 'is', null);
+
+        const counts = {};
+        (sessions || []).forEach(s => {
+            const key = s.country;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+
+        const sorted = Object.entries(counts)
+            .map(([country, count]) => ({ country, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        setLocationStats(sorted);
     }
 
     async function loadDeviceStats() {
