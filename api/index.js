@@ -5298,7 +5298,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     .select('id, title, excerpt, slug, category, published_at, view_count')
                     .eq('is_published', true)
                     .gte('published_at', since)
-                    .order('published_at', { ascending: false })
+                    .order('published_at', { ascending: false, nullsFirst: false })
                     .limit(20)
             ]);
 
@@ -8120,7 +8120,16 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 .from('articles')
                 .select('*', { count: 'exact' })
                 .eq('is_published', true)
-                .order('published_at', { ascending: false })
+                // FIXED (2026-09-21): confirmed the real, definitive
+                // cause of "old articles showing before recent ones" -
+                // Postgres defaults to NULLS FIRST for DESC order, and
+                // any article whose published_at was never set (only
+                // set on the first draft-to-published transition, so
+                // older articles predating that logic have it null)
+                // was sorting ahead of every real, dated article.
+                // nullsFirst: false explicitly requests NULLS LAST to
+                // match genuine newest-first intent.
+                .order('published_at', { ascending: false, nullsFirst: false })
                 .range(from, to);
             
             if (error) throw error;
