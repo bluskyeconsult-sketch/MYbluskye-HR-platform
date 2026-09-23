@@ -175,7 +175,20 @@ export default function ArticleEditor() {
             console.error('Error loading article:', error);
             alert('Error loading article: ' + error.message);
         } else if (data) {
-            setArticle(data);
+            // FIXED (2026-09-20): confirmed real crash cause - loading
+            // an existing article blindly set the raw database row,
+            // so a genuinely null tags column (as every bulk-generated
+            // article has, since that action never set it) crashed
+            // the editor immediately on open. Merging with safe
+            // defaults protects against this and any similar field.
+            setArticle({
+                title: '', slug: '', excerpt: '', content: '', category: '',
+                tags: [], image_url: '', author: DEFAULT_AUTHOR,
+                is_published: false, send_notification: false,
+                seo_title: '', seo_description: '', view_count: 0,
+                ...data,
+                tags: data.tags || []
+            });
         }
         setLoading(false);
     }
@@ -511,7 +524,7 @@ export default function ArticleEditor() {
                             <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
                                 <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {wordCount} words</span>
                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {readTime} min read</span>
-                                <span className="flex items-center gap-1"><Tag className="w-3 h-3" /> {article.tags.length} tags</span>
+                                <span className="flex items-center gap-1"><Tag className="w-3 h-3" /> {(article.tags || []).length} tags</span>
                             </div>
                         )}
                     </div>
