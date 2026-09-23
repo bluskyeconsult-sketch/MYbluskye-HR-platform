@@ -33,6 +33,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import PageEdgeBanner from '../components/PageEdgeBanner';
+import ShareMenu from '../components/ShareMenu';
 import { 
     Bot, Sparkles, DollarSign, Clock, Loader2, Star, Shield, 
     FileText, Briefcase, Users, Award, TrendingUp, 
@@ -767,6 +768,7 @@ export default function HireVirtualAssistant() {
                                         </div>
                                         <p className="text-slate-400 text-xs sm:text-sm mt-1">{selectedVA.longDescription}</p>
                                     </div>
+                                    <ShareMenu title={selectedVA.name} text={`Check out this VA: ${selectedVA.name} on ODUSBABA`} />
                                     <button
                                         onClick={() => {
                                             setSelectedVA(null);
