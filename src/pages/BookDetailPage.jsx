@@ -38,6 +38,7 @@ export default function BookDetailPage() {
     const [user, setUser] = useState(null);
     const [hasPurchased, setHasPurchased] = useState(false);
     const [checkingOut, setCheckingOut] = useState(false);
+    const [addingToCart, setAddingToCart] = useState(false);
     const [readerOpen, setReaderOpen] = useState(false);
     const [readerMode, setReaderMode] = useState('preview'); // 'preview' | 'full'
     const [readerUrl, setReaderUrl] = useState(null);
@@ -136,6 +137,31 @@ export default function BookDetailPage() {
             alert('Unable to start checkout: ' + err.message);
         } finally {
             setCheckingOut(false);
+        }
+    }
+
+    // NEW (2026-09-20): uses the same, existing add-to-cart backend
+    // action already proven working for courses - a genuinely
+    // missing piece here, not a new backend build. Uses
+    // authenticatedFetch and alert() to match this file's own,
+    // existing, proven pattern (toast isn't imported here at all).
+    async function handleAddToCart() {
+        if (!user) {
+            navigate(`/sign-in?redirect=/books/${id}`);
+            return;
+        }
+        setAddingToCart(true);
+        try {
+            await authenticatedFetch('add-to-cart', {
+                userId: user.id,
+                itemType: 'book',
+                itemId: book.id
+            });
+            alert('Added to cart');
+        } catch (err) {
+            alert('Failed to add to cart: ' + err.message);
+        } finally {
+            setAddingToCart(false);
         }
     }
 
@@ -306,6 +332,14 @@ export default function BookDetailPage() {
                                                         E-copy purchases are temporarily paused during our testing phase - read the free preview below, or buy the hardcopy above.
                                                     </p>
                                                 )}
+                                                <button
+                                                    onClick={handleAddToCart}
+                                                    disabled={addingToCart}
+                                                    className="inline-flex items-center gap-2 px-5 py-2.5 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition disabled:opacity-50"
+                                                >
+                                                    {addingToCart ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+                                                    Add to Cart
+                                                </button>
                                                 {book.preview_file_url && (
                                                     <button
                                                         onClick={openPreview}
