@@ -49,7 +49,7 @@ export default function BlogPage() {
                 .from('articles')
                 .select('*', { count: 'exact' })
                 .eq('is_published', true)
-                .order('published_at', { ascending: false })
+                .order('published_at', { ascending: false, nullsFirst: false })
                 .range(from, to);
 
             if (error) throw error;
