@@ -52,11 +52,10 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
         <button
             onClick={handleConvert}
             disabled={converting}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50"
+            className="px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center"
             title="Convert this book's chapters into a course"
         >
             {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-            Convert to Course
         </button>
     );
 }
