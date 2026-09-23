@@ -48,6 +48,15 @@ export default function CourseDetail() {
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [issuingCertificate, setIssuingCertificate] = useState(false);
+    // NEW (2026-09-21): quiz-taking state - genuinely didn't exist
+    // before, since courses had no quizzes at all until now.
+    const [showQuiz, setShowQuiz] = useState(false);
+    const [quizQuestions, setQuizQuestions] = useState([]);
+    const [quizAnswers, setQuizAnswers] = useState({});
+    const [quizResult, setQuizResult] = useState(null);
+    const [loadingQuiz, setLoadingQuiz] = useState(false);
+    const [submittingQuiz, setSubmittingQuiz] = useState(false);
+    const [quizPassed, setQuizPassed] = useState(false);
     const [updating, setUpdating] = useState(false);
     // NEW (2026-09-04): confirmed real bug - clicking a lesson directly
     // toggled completion, never showing the lesson's actual content.
@@ -212,6 +221,64 @@ export default function CourseDetail() {
         }
     }
 
+    // NEW (2026-09-21): checks whether this learner has already
+    // passed the quiz - reads course_quiz_attempts directly (its own
+    // RLS policy already lets a user read their own rows), so "Take
+    // Quiz" doesn't keep showing once they've genuinely passed.
+    useEffect(() => {
+        if (!isCompleted || !course?.has_quiz || !user) return;
+        supabase
+            .from('course_quiz_attempts')
+            .select('passed')
+            .eq('user_id', user.id)
+            .eq('course_id', id)
+            .eq('passed', true)
+            .maybeSingle()
+            .then(({ data }) => setQuizPassed(!!data));
+    }, [isCompleted, course?.has_quiz, user]);
+
+    async function handleOpenQuiz() {
+        setShowQuiz(true);
+        setQuizResult(null);
+        setQuizAnswers({});
+        if (quizQuestions.length > 0) return;
+
+        setLoadingQuiz(true);
+        try {
+            const { data } = await supabase
+                .from('course_quiz_questions')
+                .select('id, question, options')
+                .eq('course_id', id)
+                .order('sort_order', { ascending: true });
+            setQuizQuestions(data || []);
+        } catch (error) {
+            alert('Failed to load quiz: ' + error.message);
+        } finally {
+            setLoadingQuiz(false);
+        }
+    }
+
+    async function handleSubmitQuiz() {
+        const answers = quizQuestions.map((_, i) => quizAnswers[i] ?? -1);
+        setSubmittingQuiz(true);
+        try {
+            const response = await fetch('/api/index?action=submit-course-quiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, courseId: id, answers })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Could not submit quiz');
+
+            setQuizResult(data);
+            if (data.passed) setQuizPassed(true);
+        } catch (error) {
+            alert('Failed to submit quiz: ' + error.message);
+        } finally {
+            setSubmittingQuiz(false);
+        }
+    }
+
     // REDESIGNED (2026-09-06): navigation helpers for the full-view
     // reader's Next/Previous buttons.
     function openLesson(lessonId) {
@@ -284,6 +351,14 @@ export default function CourseDetail() {
                                 <span className="flex items-center gap-1 text-sm px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-full">
                                     <Award className="w-4 h-4" /> Completed
                                 </span>
+                                {course.has_quiz && !quizPassed && (
+                                    <button
+                                        onClick={handleOpenQuiz}
+                                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-slate-700 text-white rounded-full hover:bg-slate-600 transition"
+                                    >
+                                        Take Quiz
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleGetCertificate}
                                     disabled={issuingCertificate}
@@ -475,6 +550,77 @@ export default function CourseDetail() {
                     );
                 })()}
             </AnimatePresence>
+
+            {/* NEW (2026-09-21): the quiz-taking modal - genuinely
+                didn't exist before, since courses had no quizzes at
+                all until now. */}
+            {showQuiz && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-white">Course Quiz</h2>
+                            <button onClick={() => setShowQuiz(false)} className="text-slate-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {loadingQuiz ? (
+                            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-400" /></div>
+                        ) : quizResult ? (
+                            <div className="text-center py-6">
+                                {quizResult.passed ? (
+                                    <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                                ) : (
+                                    <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+                                )}
+                                <p className="text-white text-lg font-semibold mb-1">
+                                    {quizResult.score} / {quizResult.totalQuestions} correct
+                                </p>
+                                <p className={quizResult.passed ? 'text-emerald-400' : 'text-amber-400'}>
+                                    {quizResult.passed ? 'You passed! You can now get your certificate.' : 'Not quite - you need 70% to pass. Try again anytime.'}
+                                </p>
+                                <button
+                                    onClick={() => setShowQuiz(false)}
+                                    className="mt-4 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="space-y-5 mb-5">
+                                    {quizQuestions.map((q, qIndex) => (
+                                        <div key={q.id}>
+                                            <p className="text-white text-sm font-medium mb-2">{qIndex + 1}. {q.question}</p>
+                                            <div className="space-y-1.5">
+                                                {(q.options || []).map((opt, optIndex) => (
+                                                    <label key={optIndex} className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-800 text-sm text-slate-300">
+                                                        <input
+                                                            type="radio"
+                                                            name={`quiz-q-${qIndex}`}
+                                                            checked={quizAnswers[qIndex] === optIndex}
+                                                            onChange={() => setQuizAnswers(prev => ({ ...prev, [qIndex]: optIndex }))}
+                                                        />
+                                                        {opt}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={handleSubmitQuiz}
+                                    disabled={submittingQuiz || Object.keys(quizAnswers).length < quizQuestions.length}
+                                    className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {submittingQuiz ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                    Submit Quiz
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
