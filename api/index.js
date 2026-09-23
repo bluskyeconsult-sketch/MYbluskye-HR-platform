@@ -1567,6 +1567,178 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
 }
 
 const handlers = {
+    // ========== FAVORITES & CART (NEW, 2026-09-20) ==========
+    'toggle-course-favorite': async (req, res) => {
+        const { userId, courseId } = req.body;
+        const supabaseClient = getSupabase();
+        if (!userId || !courseId) return res.status(400).json({ error: 'userId and courseId required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: existing } = await supabaseClient
+                .from('course_favorites')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('course_id', courseId)
+                .maybeSingle();
+
+            if (existing) {
+                await supabaseClient.from('course_favorites').delete().eq('id', existing.id);
+                return res.status(200).json({ success: true, favorited: false });
+            } else {
+                await supabaseClient.from('course_favorites').insert({ user_id: userId, course_id: courseId });
+                return res.status(200).json({ success: true, favorited: true });
+            }
+        } catch (error) {
+            console.error('toggle-course-favorite error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'get-course-favorites': async (req, res) => {
+        const { userId } = req.query;
+        const supabaseClient = getSupabase();
+        if (!userId) return res.status(400).json({ error: 'userId required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('course_favorites')
+                .select('course_id, created_at, courses(id, title, description, price, image_url, level)')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, favorites: data });
+        } catch (error) {
+            console.error('get-course-favorites error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'add-to-cart': async (req, res) => {
+        const { userId, itemType, itemId } = req.body;
+        const supabaseClient = getSupabase();
+        if (!userId || !itemType || !itemId) return res.status(400).json({ error: 'userId, itemType, and itemId required' });
+        if (!['course', 'book'].includes(itemType)) return res.status(400).json({ error: 'itemType must be course or book' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            await supabaseClient
+                .from('cart_items')
+                .upsert({ user_id: userId, item_type: itemType, item_id: itemId }, { onConflict: 'user_id,item_type,item_id' });
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('add-to-cart error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'remove-from-cart': async (req, res) => {
+        const { userId, cartItemId } = req.body;
+        const supabaseClient = getSupabase();
+        if (!userId || !cartItemId) return res.status(400).json({ error: 'userId and cartItemId required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            await supabaseClient.from('cart_items').delete().eq('id', cartItemId).eq('user_id', userId);
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('remove-from-cart error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'get-cart': async (req, res) => {
+        const { userId } = req.query;
+        const supabaseClient = getSupabase();
+        if (!userId) return res.status(400).json({ error: 'userId required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: items, error } = await supabaseClient
+                .from('cart_items')
+                .select('*')
+                .eq('user_id', userId)
+                .order('added_at', { ascending: false });
+            if (error) throw error;
+
+            // Each cart item only stores a generic item_type/item_id
+            // pair (courses and books share one cart table), so the
+            // real title/price/image needs a second, targeted lookup
+            // per type rather than a single join.
+            const courseIds = (items || []).filter(i => i.item_type === 'course').map(i => i.item_id);
+            const bookIds = (items || []).filter(i => i.item_type === 'book').map(i => i.item_id);
+
+            const [{ data: courses }, { data: books }] = await Promise.all([
+                courseIds.length > 0
+                    ? supabaseClient.from('courses').select('id, title, price, image_url').in('id', courseIds)
+                    : { data: [] },
+                bookIds.length > 0
+                    ? supabaseClient.from('books').select('id, title, price, cover_url').in('id', bookIds)
+                    : { data: [] }
+            ]);
+
+            const enriched = (items || []).map(item => {
+                const source = item.item_type === 'course'
+                    ? courses.find(c => c.id === item.item_id)
+                    : books.find(b => b.id === item.item_id);
+                return { ...item, details: source || null };
+            });
+
+            return res.status(200).json({ success: true, items: enriched });
+        } catch (error) {
+            console.error('get-cart error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // NEW (2026-09-20): confirmed genuinely didn't exist at all -
+    // the platform had zero job-application tracking anywhere. This
+    // is the real, missing piece behind "completed jobs on a separate
+    // page from pending learning" - job_applications.status already
+    // has the right allowed values (pending/reviewed/shortlisted/
+    // rejected/accepted), just nothing ever queried or displayed them.
+    'get-my-job-applications': async (req, res) => {
+        const { userId } = req.query;
+        const supabaseClient = getSupabase();
+        if (!userId) return res.status(400).json({ error: 'userId required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('job_applications')
+                .select('id, status, created_at, jobs(id, title, company, location)')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+
+            // "Completed" here honestly means the application process
+            // has genuinely concluded either way - accepted or
+            // rejected - not just "accepted". Pending/reviewed/
+            // shortlisted are all still genuinely in progress.
+            const completed = (data || []).filter(a => a.status === 'accepted' || a.status === 'rejected');
+            const pending = (data || []).filter(a => a.status === 'pending' || a.status === 'reviewed' || a.status === 'shortlisted');
+
+            return res.status(200).json({ success: true, completed, pending });
+        } catch (error) {
+            console.error('get-my-job-applications error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     // ========== STAFF USER MANAGEMENT (NEW, 2026-09-19) ==========
     // Lets a super admin create a genuine staff account directly
     // (rather than requiring public signup) and grant them specific,
@@ -1576,6 +1748,50 @@ const handlers = {
     // real, full article content for each one on demand - reuses the
     // same, already-proven callOpenAI() pattern used for course/
     // assessment generation elsewhere, rather than a new AI path.
+    // NEW (2026-09-20): one-time backfill for the articles genuinely
+    // already published with raw HTML (generated before the prompt
+    // fix above) - converts the exact, limited set of tags the AI was
+    // constrained to use into their Markdown equivalents, since
+    // ContentRenderer.jsx displays Markdown, not HTML.
+    'admin-fix-html-articles': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data: articles, error } = await supabaseClient
+                .from('articles')
+                .select('id, content')
+                .ilike('content', '%<p%');
+            if (error) throw error;
+
+            let fixed = 0;
+            for (const article of articles || []) {
+                let md = article.content;
+                md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gis, '\n## $1\n');
+                md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gis, '\n### $1\n');
+                md = md.replace(/<li[^>]*>(.*?)<\/li>/gis, '- $1\n');
+                md = md.replace(/<\/?ul[^>]*>/gis, '\n');
+                md = md.replace(/<\/?ol[^>]*>/gis, '\n');
+                md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gis, '[$2]($1)');
+                md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gis, '**$1**');
+                md = md.replace(/<em[^>]*>(.*?)<\/em>/gis, '*$1*');
+                md = md.replace(/<\/p>\s*<p[^>]*>/gis, '\n\n');
+                md = md.replace(/<\/?p[^>]*>/gis, '');
+                md = md.replace(/<[^>]+>/g, ''); // strip any remaining, unhandled tags
+                md = md.replace(/\n{3,}/g, '\n\n').trim();
+
+                await supabaseClient.from('articles').update({ content: md }).eq('id', article.id);
+                fixed++;
+            }
+
+            return res.status(200).json({ success: true, fixed });
+        } catch (error) {
+            console.error('admin-fix-html-articles error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     'admin-bulk-add-article-topics': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
@@ -1650,7 +1866,7 @@ const handlers = {
             const systemPrompt = `You are a professional career and HR content writer for ODUSBABA, an AI-powered career platform. Write a complete, genuinely useful, well-structured article on the given topic - real, substantive content a job seeker or HR professional would find valuable, not generic filler. Return ONLY a JSON object with these exact fields:
 - "title": a clear, engaging article title (not the same as the raw topic - a genuine headline)
 - "excerpt": a 1-2 sentence summary for article listings
-- "content": the full article body in clean HTML (using <h2>, <h3>, <p>, <ul>/<li> as appropriate) - genuinely substantive, at least 600 words
+- "content": the full article body in clean Markdown (using ## and ### headings, plain paragraphs, and - for bullet lists as appropriate) - genuinely substantive, at least 600 words. Do NOT use HTML tags anywhere - the site's public article renderer displays Markdown, not HTML, and HTML tags would show up as literal, visible text to every reader.
 - "seo_title": a search-optimized title, under 60 characters
 - "category": one short category label (e.g. "Career Advice", "Job Search", "Workplace Skills")`;
 
@@ -1714,6 +1930,272 @@ const handlers = {
         } catch (error) {
             console.error('generate-article-from-topic error:', error);
             return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== CART CHECKOUT (NEW, 2026-09-20) ==========
+    // Builds one Stripe session with multiple line items - one per
+    // cart item - so a user can buy several courses/books at once,
+    // matching the exact, proven one-time-payment pattern already
+    // used for single book purchases.
+    'cart-checkout': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await getAuthenticatedUser(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { items } = req.body;
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'items array is required' });
+        }
+
+        try {
+            const courseItems = items.filter(i => i.type === 'course');
+            const bookItems = items.filter(i => i.type === 'book');
+
+            // FIXED (2026-09-21): confirmed via the real, existing
+            // enroll-course action that courses are genuinely free,
+            // tier-gated enrollment - never a Stripe purchase. The
+            // earlier version of this action incorrectly tried to
+            // charge for them. Courses enroll immediately and
+            // synchronously here, matching enroll-course's own,
+            // proven logic exactly (including its already-idempotent
+            // "already enrolled" check) - only books go through Stripe.
+            const enrolledCourseIds = [];
+            for (const item of courseItems) {
+                const { data: existing } = await supabaseClient
+                    .from('course_enrollments')
+                    .select('id')
+                    .eq('user_id', authCheck.userId)
+                    .eq('course_id', item.id)
+                    .maybeSingle();
+
+                if (!existing) {
+                    await supabaseClient.from('course_enrollments').insert({
+                        user_id: authCheck.userId,
+                        course_id: item.id,
+                        enrolled_at: new Date().toISOString(),
+                        progress: 0,
+                        status: 'active'
+                    });
+                }
+                enrolledCourseIds.push(item.id);
+            }
+
+            // Clears enrolled courses from the cart immediately, since
+            // they're already, genuinely done - no payment step to
+            // wait for on these.
+            if (enrolledCourseIds.length > 0) {
+                await supabaseClient
+                    .from('cart_items')
+                    .delete()
+                    .eq('user_id', authCheck.userId)
+                    .eq('item_type', 'course')
+                    .in('item_id', enrolledCourseIds);
+            }
+
+            // No books in the cart - courses are already enrolled
+            // above, genuinely nothing left requiring payment.
+            if (bookItems.length === 0) {
+                return res.status(200).json({ success: true, enrolledCourses: enrolledCourseIds.length, checkoutUrl: null });
+            }
+
+            const bookIds = bookItems.map(i => i.id);
+            const { data: books } = await supabaseClient
+                .from('books')
+                .select('id, title, ebook_price')
+                .in('id', bookIds);
+
+            const lineItems = [];
+            for (const item of bookItems) {
+                const b = (books || []).find(x => x.id === item.id);
+                if (b && b.ebook_price > 0) {
+                    lineItems.push({
+                        price_data: { currency: 'usd', product_data: { name: `${b.title} (E-Copy)` }, unit_amount: Math.round(b.ebook_price * 100) },
+                        quantity: 1
+                    });
+                }
+            }
+
+            if (lineItems.length === 0) {
+                return res.status(200).json({ success: true, enrolledCourses: enrolledCourseIds.length, checkoutUrl: null });
+            }
+
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
+
+            const session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                payment_method_types: ['card'],
+                line_items: lineItems,
+                success_url: `${siteUrl}/my-learning?purchased=true`,
+                cancel_url: `${siteUrl}/my-learning`,
+                client_reference_id: authCheck.userId,
+                // NOTE: only book purchases remain in this metadata now
+                // that courses are handled directly above - the
+                // webhook's cart_checkout case only ever needs to
+                // grant book access, never course enrollment.
+                metadata: { userId: authCheck.userId, type: 'cart_checkout', items: JSON.stringify(bookItems) }
+            });
+
+            return res.status(200).json({ success: true, enrolledCourses: enrolledCourseIds.length, checkoutUrl: session.url });
+        } catch (error) {
+            console.error('cart-checkout error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ========== CUSTOM HR TOOLS (NEW, 2026-09-21) ==========
+    // A new, generic, admin-creatable HR tool type, alongside (not
+    // replacing) the existing 10 hardcoded tools - those each have
+    // their own bespoke backend action and parameter shape, so adding
+    // a new type here is the safe, correct approach rather than
+    // risking a large refactor of working tools.
+    'generate-custom-hr-tool': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { topic, details } = req.body;
+        if (!topic) return res.status(400).json({ error: 'topic is required' });
+
+        try {
+            // Same real distinction already proven for VA generation -
+            // system_prompt becomes this tool's actual, operational
+            // instructions at execution time, not marketing copy.
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are designing a new HR tool for the ODUSBABA platform. Return ONLY valid JSON.`
+                },
+                {
+                    role: 'user',
+                    content: `Create a new HR tool profile.
+
+Topic: ${topic}
+Details: ${details || 'none provided'}
+
+system_prompt must be genuinely operational - it becomes the real instructions another AI model follows when someone uses this tool. It should: state the specific task, list what input it needs from the user, instruct it to ask for missing required information rather than guessing, and describe how to structure its response.
+
+Return JSON: {
+    "name": "Tool name",
+    "description": "1-2 sentence description for the tool's public listing card",
+    "system_prompt": "The genuinely operational instructions described above",
+    "category": "career|legal|employer|general"
+}`
+                }
+            ], 1500, 0.7, { type: 'json_object' });
+
+            const parsed = JSON.parse(data.choices[0].message.content);
+            return res.status(200).json({ success: true, tool: parsed });
+        } catch (error) {
+            console.error('generate-custom-hr-tool error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'admin-create-custom-hr-tool': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { name, description, systemPrompt, category, requiredTier = 'free' } = req.body;
+        if (!name || !description || !systemPrompt) {
+            return res.status(400).json({ error: 'name, description, and systemPrompt are required' });
+        }
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('custom_hr_tools')
+                .insert({
+                    name, description,
+                    system_prompt: systemPrompt,
+                    category: category || null,
+                    required_tier: requiredTier,
+                    created_by: auth.userId
+                })
+                .select()
+                .single();
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, tool: data });
+        } catch (error) {
+            console.error('admin-create-custom-hr-tool error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'list-custom-hr-tools': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const { data, error } = await supabaseClient
+                .from('custom_hr_tools')
+                .select('id, name, description, category, required_tier')
+                .eq('is_active', true)
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, tools: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message, tools: [] });
+        }
+    },
+
+    'execute-custom-hr-tool': async (req, res) => {
+        const { toolId, input, userId } = req.body;
+        if (!toolId || !input) return res.status(400).json({ error: 'toolId and input are required' });
+
+        const supabaseClient = getSupabase();
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: tool, error: toolError } = await supabaseClient
+                .from('custom_hr_tools')
+                .select('*')
+                .eq('id', toolId)
+                .eq('is_active', true)
+                .single();
+            if (toolError || !tool) return res.status(404).json({ error: 'Tool not found' });
+
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('tier, user_type')
+                .eq('id', userId)
+                .maybeSingle();
+
+            const TIER_LEVELS = { free: 0, registered: 1, professional: 2, employer: 2, business: 3, admin: 3, super_admin: 3 };
+            const userTierLevel = TIER_LEVELS[profile?.user_type] ?? TIER_LEVELS[profile?.tier] ?? 0;
+            const requiredTierLevel = TIER_LEVELS[tool.required_tier] ?? 0;
+
+            if (userTierLevel < requiredTierLevel) {
+                return res.status(403).json({ error: `This tool requires the ${tool.required_tier} plan or higher.` });
+            }
+
+            // Same, proven credit-checking pattern already used by
+            // every other HR tool - genuinely metered the same way,
+            // not a separate, unmetered path.
+            const creditCheck = await checkAndDeductCredit(supabaseClient, userId, req);
+            if (!creditCheck.allowed) {
+                return res.status(creditCheck.rateLimited ? 429 : 403).json({
+                    error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.'
+                });
+            }
+
+            try {
+                const data = await callOpenAI([
+                    { role: 'system', content: tool.system_prompt },
+                    { role: 'user', content: input }
+                ], 1400, 0.6);
+
+                return res.status(200).json({ success: true, result: data.choices[0].message.content, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+            } catch (aiError) {
+                await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
+                throw aiError;
+            }
+        } catch (error) {
+            console.error('execute-custom-hr-tool error:', error);
+            return res.status(500).json({ success: false, error: error.message });
         }
     },
 
@@ -5264,6 +5746,158 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         }
     },
 
+    // ========== BOOKS TO COURSES CONVERSION (NEW, 2026-09-21) ==========
+    // Converts an existing book's real chapters into a real course -
+    // each chapter with actual content becomes one lesson, using the
+    // book's own text directly (a genuine conversion of existing
+    // material, not an AI regenerating the book from scratch).
+    // ========== FETCH EXTERNAL AUDIO INTO STORAGE (NEW, 2026-09-21) ==========
+    // Takes any direct, publicly-accessible audio URL (e.g. a Pixabay
+    // download link, or any other source), fetches it server-side, and
+    // uploads it into Supabase Storage - genuinely solves the "can't
+    // download files" limitation, since this backend runs on Vercel
+    // and can reach external hosts even though a sandboxed assistant
+    // often cannot. Reuses the exact, proven storage-upload pattern
+    // already used for chapter audio generation.
+    'admin-fetch-external-audio': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { sourceUrl, bucket = 'book-audio', fileName } = req.body;
+        if (!sourceUrl) return res.status(400).json({ error: 'sourceUrl is required' });
+
+        try {
+            const audioResponse = await fetch(sourceUrl);
+            if (!audioResponse.ok) {
+                return res.status(400).json({ error: `Could not fetch that URL (status ${audioResponse.status}) - confirm it's a direct, publicly-accessible audio file link, not a page URL.` });
+            }
+
+            const contentType = audioResponse.headers.get('content-type') || 'audio/mpeg';
+            const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+
+            const finalFileName = fileName || `external/${Date.now()}-${sourceUrl.split('/').pop().split('?')[0]}`;
+
+            const { error: uploadError } = await supabaseClient.storage
+                .from(bucket)
+                .upload(finalFileName, audioBuffer, { contentType, upsert: true });
+
+            if (uploadError) {
+                return res.status(500).json({
+                    error: uploadError.message.includes('not found') || uploadError.message.includes('Bucket')
+                        ? `Storage bucket '${bucket}' doesn't exist yet - create it in your Supabase dashboard (Storage → New bucket → name it '${bucket}' → make it Public), then try again.`
+                        : uploadError.message
+                });
+            }
+
+            const { data: publicUrlData } = supabaseClient.storage.from(bucket).getPublicUrl(finalFileName);
+
+            return res.status(200).json({ success: true, publicUrl: publicUrlData.publicUrl, sizeBytes: audioBuffer.length });
+        } catch (error) {
+            console.error('admin-fetch-external-audio error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'generate-course-from-book': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { bookId, elaborateWithAI = false } = req.body;
+        if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+
+        try {
+            const { data: book, error: bookError } = await supabaseClient
+                .from('books')
+                .select('id, title, author, description, category, cover_url')
+                .eq('id', bookId)
+                .single();
+            if (bookError || !book) return res.status(404).json({ error: 'Book not found' });
+
+            const { data: chapters, error: chaptersError } = await supabaseClient
+                .from('book_chapters')
+                .select('id, title, content, order_index')
+                .eq('book_id', bookId)
+                .order('order_index', { ascending: true });
+            if (chaptersError) throw chaptersError;
+
+            const chaptersWithContent = (chapters || []).filter(c => c.content && c.content.trim().length > 0);
+            if (chaptersWithContent.length === 0) {
+                return res.status(400).json({ error: 'This book has no chapters with real content yet - add chapter content before converting to a course.' });
+            }
+
+            const { data: newCourse, error: courseError } = await supabaseClient
+                .from('courses')
+                .insert({
+                    title: `${book.title}: The Course`,
+                    description: book.description || `A course based on the book "${book.title}" by ${book.author}.`,
+                    category: book.category || null,
+                    difficulty: 'beginner',
+                    duration_hours: Math.max(1, Math.round(chaptersWithContent.length * 0.5)),
+                    is_published: false,
+                    is_free: false,
+                    price: 0,
+                    source_book_id: book.id
+                })
+                .select()
+                .single();
+            if (courseError) throw courseError;
+
+            // NEW (2026-09-21): genuine AI elaboration, opt-in rather
+            // than automatic - a large book means many chapters, and
+            // forcing a slow, costly AI pass on every one whenever
+            // this action runs isn't something to impose by default.
+            // When enabled, adds real learning-module structure
+            // (objectives, key takeaways) while explicitly preserving
+            // the book's actual content and meaning rather than
+            // having the AI rewrite it from scratch - a "genuine
+            // conversion" should still be the book's own words.
+            const elaborationSystemPrompt = `You are adapting a book chapter into a course lesson. The chapter's real content and meaning must be preserved exactly - you are NOT rewriting or summarizing it, you are adding genuine learning-module structure around it.
+
+Return the lesson as markdown with this structure:
+1. A "## Learning Objectives" section at the top - 2-4 bullet points stating what the learner will be able to do after this lesson, genuinely derived from what this specific chapter covers
+2. The chapter's own content, included in full and largely unchanged (light formatting/structural cleanup is fine, but do not shorten, summarize, or alter its substance)
+3. A "## Key Takeaways" section at the end - 3-5 bullet points genuinely summarizing the chapter's real, specific content, not generic statements`;
+
+            for (let i = 0; i < chaptersWithContent.length; i++) {
+                const chapter = chaptersWithContent[i];
+                let lessonContent = chapter.content;
+
+                if (elaborateWithAI) {
+                    try {
+                        const elaborated = await callOpenAI([
+                            { role: 'system', content: elaborationSystemPrompt },
+                            { role: 'user', content: `Chapter title: "${chapter.title || `Chapter ${i + 1}`}"\n\n${chapter.content}` }
+                        ], 3000, 0.5);
+                        lessonContent = elaborated.choices[0].message.content;
+                    } catch (elaborationError) {
+                        console.warn(`AI elaboration failed for chapter "${chapter.title}", using original content:`, elaborationError.message);
+                        // Falls back to the real, original chapter text
+                        // rather than failing the whole conversion over
+                        // one chapter's AI call.
+                    }
+                }
+
+                await supabaseClient.from('course_lessons').insert({
+                    course_id: newCourse.id,
+                    title: chapter.title || `Lesson ${i + 1}`,
+                    content: lessonContent,
+                    sort_order: i,
+                    duration_minutes: Math.max(5, Math.round(chapter.content.length / 1000)),
+                    is_free: i === 0
+                });
+            }
+
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'course_generated_from_book', tier: 'admin', wasAllowed: true }); // fire-and-forget
+
+            return res.status(200).json({ success: true, course: newCourse, lessonsCreated: chaptersWithContent.length });
+        } catch (error) {
+            console.error('generate-course-from-book error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     'generate-course': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
@@ -7138,6 +7772,137 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     // certificates already auto-issue on completion, this now mainly
     // looks up what's already there; the issue path is a fallback
     // only for completions from before that auto-issue logic existed.
+    // ========== COURSE QUIZZES (NEW, 2026-09-21) ==========
+    // Per-course, toggle-able quizzes - genuinely didn't exist before.
+    // has_quiz defaults false, so this is opt-in per course.
+    'generate-course-quiz': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { courseId, numberOfQuestions = 5 } = req.body;
+        if (!courseId) return res.status(400).json({ error: 'courseId is required' });
+
+        try {
+            const { data: course } = await supabaseClient
+                .from('courses')
+                .select('title, description')
+                .eq('id', courseId)
+                .single();
+            if (!course) return res.status(404).json({ error: 'Course not found' });
+
+            const { data: lessons } = await supabaseClient
+                .from('course_lessons')
+                .select('title, content')
+                .eq('course_id', courseId)
+                .order('sort_order', { ascending: true });
+
+            if (!lessons || lessons.length === 0) {
+                return res.status(400).json({ error: 'This course has no lessons yet - add lesson content before generating a quiz.' });
+            }
+
+            // Same quality standard already proven for
+            // generate-assessment - plausible distractors, genuinely
+            // testing the material rather than trivia.
+            const lessonsSummary = lessons.map(l => `## ${l.title}\n${(l.content || '').substring(0, 1500)}`).join('\n\n');
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are an instructional designer creating a quiz that genuinely tests whether someone learned the real material in this course. Create ${numberOfQuestions} multiple-choice questions based ONLY on the actual lesson content provided - not general knowledge about the topic.
+
+Quality requirements:
+- Distractors (wrong options) must be plausible, not obviously wrong or joke answers
+- Questions must be answerable from the given lesson content specifically, not from outside knowledge
+- Spread questions across the different lessons rather than clustering on one
+
+Return a JSON object with a "questions" array. Each item must have: "question" (text), "options" (array of exactly 4 strings), "correct" (index 0-3), "explanation" (why the correct answer is right, referencing the lesson).`
+                },
+                { role: 'user', content: `Course: "${course.title}"\n\n${lessonsSummary}` }
+            ], 2500, 0.6, { type: 'json_object' });
+
+            const parsed = JSON.parse(data.choices[0].message.content);
+            const questions = parsed.questions || [];
+
+            if (questions.length === 0) {
+                return res.status(500).json({ error: 'Quiz generation produced no questions - please try again.' });
+            }
+
+            // Replaces any existing quiz for this course rather than
+            // appending, so re-generating genuinely gives a fresh set
+            // rather than accumulating duplicates.
+            await supabaseClient.from('course_quiz_questions').delete().eq('course_id', courseId);
+
+            const rows = questions.map((q, i) => ({
+                course_id: courseId,
+                question: q.question,
+                options: q.options,
+                correct_index: q.correct,
+                explanation: q.explanation || null,
+                sort_order: i
+            }));
+
+            const { error: insertError } = await supabaseClient.from('course_quiz_questions').insert(rows);
+            if (insertError) throw insertError;
+
+            await supabaseClient.from('courses').update({ has_quiz: true }).eq('id', courseId);
+
+            return res.status(200).json({ success: true, questionsCreated: rows.length });
+        } catch (error) {
+            console.error('generate-course-quiz error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
+    'submit-course-quiz': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { userId, courseId, answers } = req.body;
+        if (!userId || !courseId || !Array.isArray(answers)) {
+            return res.status(400).json({ error: 'userId, courseId, and answers array are required' });
+        }
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: questions } = await supabaseClient
+                .from('course_quiz_questions')
+                .select('id, correct_index')
+                .eq('course_id', courseId)
+                .order('sort_order', { ascending: true });
+
+            if (!questions || questions.length === 0) {
+                return res.status(404).json({ error: 'This course has no quiz.' });
+            }
+
+            let score = 0;
+            questions.forEach((q, i) => {
+                if (answers[i] === q.correct_index) score++;
+            });
+
+            // 70% is the genuine passing threshold - matches the
+            // platform's existing convention elsewhere for
+            // assessment-style scoring.
+            const passed = (score / questions.length) >= 0.7;
+
+            const { error: insertError } = await supabaseClient
+                .from('course_quiz_attempts')
+                .insert({
+                    user_id: userId,
+                    course_id: courseId,
+                    score,
+                    total_questions: questions.length,
+                    passed
+                });
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true, score, totalQuestions: questions.length, passed });
+        } catch (error) {
+            console.error('submit-course-quiz error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     'issue-certificate': async (req, res) => {
         const supabaseClient = getSupabase();
         const { userId, courseId } = req.body;
@@ -7158,6 +7923,30 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
             if (!enrollment?.completed_at) {
                 return res.status(403).json({ success: false, error: 'Course not yet completed' });
+            }
+
+            // NEW (2026-09-21): genuine quiz-passing gate - only
+            // enforced for courses that actually have a quiz enabled
+            // (has_quiz defaults false), so every existing course and
+            // certificate is completely unaffected by this.
+            const { data: courseRow } = await supabaseClient
+                .from('courses')
+                .select('has_quiz')
+                .eq('id', courseId)
+                .maybeSingle();
+
+            if (courseRow?.has_quiz) {
+                const { data: bestAttempt } = await supabaseClient
+                    .from('course_quiz_attempts')
+                    .select('passed')
+                    .eq('user_id', userId)
+                    .eq('course_id', courseId)
+                    .eq('passed', true)
+                    .maybeSingle();
+
+                if (!bestAttempt) {
+                    return res.status(403).json({ success: false, error: 'This course requires passing the quiz before your certificate can be issued.' });
+                }
             }
 
             // Look up what's very likely already there - certificates
@@ -7256,6 +8045,43 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             });
         } catch (error) {
             console.error('verify-certificate error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-21): diagnostic for the confirmed contradiction -
+    // real, published, publicly-accessible courses exist, but this
+    // exact query returns none. Distinguishes the two real
+    // possibilities: RLS blocking an anon-key fallback (if
+    // SUPABASE_SERVICE_ROLE_KEY isn't genuinely set on Vercel -
+    // confirmed possible from an earlier warning this session), or
+    // the query itself genuinely returning nothing despite what looks
+    // like matching data.
+    'diagnose-recent-courses': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const usingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+            const { data: allCourses, error: allError } = await supabaseClient
+                .from('courses')
+                .select('id, title, is_published, created_at')
+                .order('created_at', { ascending: false })
+                .limit(10);
+
+            const { data: publishedOnly, error: publishedError } = await supabaseClient
+                .from('courses')
+                .select('id, title, is_published, created_at')
+                .eq('is_published', true)
+                .order('created_at', { ascending: false })
+                .limit(3);
+
+            return res.status(200).json({
+                success: true,
+                usingServiceRoleKey: usingServiceRole,
+                allCoursesQuery: { data: allCourses, error: allError?.message || null, count: allCourses?.length || 0 },
+                publishedOnlyQuery: { data: publishedOnly, error: publishedError?.message || null, count: publishedOnly?.length || 0 }
+            });
+        } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
     },
