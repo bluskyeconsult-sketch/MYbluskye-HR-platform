@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
 import PageEdgeBanner from '../components/PageEdgeBanner';
+import ShareMenu from '../components/ShareMenu';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
     CheckCircle, Loader2, Sparkles, TrendingUp,
@@ -427,7 +428,9 @@ Would you like me to provide more specific information?`;
                                     <p className="text-slate-400 text-sm">{activeToolData?.description}</p>
                                 </div>
                             </div>
-                            <button
+                            <div className="flex items-center gap-2">
+                                <ShareMenu title={activeToolData?.name} text={`Check out this HR tool: ${activeToolData?.name} on ODUSBABA`} />
+                                <button
                                 onClick={() => {
                                     setActiveTool(null);
                                     setInput('');
@@ -440,6 +443,7 @@ Would you like me to provide more specific information?`;
                             >
                                 ← Back to Tools
                             </button>
+                            </div>
                         </div>
 
                         {/* Tool Input */}
