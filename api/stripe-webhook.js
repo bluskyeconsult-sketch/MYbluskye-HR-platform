@@ -161,6 +161,57 @@ export default async function handler(req, res) {
                     break;
                 }
 
+                // NEW (2026-09-20): bulk cart checkout - grants access
+                // for every item purchased together in one session,
+                // matching the exact, proven patterns already used
+                // above for single book purchases (book_purchases
+                // upsert) and reusing course_enrollments' own real,
+                // existing shape (status: 'active', progress: 0) - the
+                // same fields CourseDetail.jsx already inserts on
+                // first enrollment.
+                // FIXED (2026-09-21): simplified to match the real,
+                // fixed cart-checkout backend action - courses are
+                // genuinely free, tier-gated enrollment with no
+                // payment involved at all, so they're now enrolled
+                // synchronously before Stripe is ever reached. This
+                // metadata only ever contains books now.
+                if (session.metadata?.type === 'cart_checkout') {
+                    let items = [];
+                    try {
+                        items = JSON.parse(session.metadata?.items || '[]');
+                    } catch (parseErr) {
+                        console.error('Failed to parse cart_checkout items metadata:', session.id, parseErr.message);
+                        break;
+                    }
+
+                    for (const item of items) {
+                        if (item.type === 'book' && userId) {
+                            await supabase
+                                .from('book_purchases')
+                                .upsert({
+                                    user_id: userId,
+                                    book_id: item.id,
+                                    stripe_session_id: session.id,
+                                    amount_paid: null,
+                                    purchased_at: new Date().toISOString()
+                                }, { onConflict: 'user_id,book_id', ignoreDuplicates: true });
+                        }
+                    }
+
+                    // Clears the purchased books from the cart - course
+                    // items were already removed by cart-checkout
+                    // itself, right after enrolling.
+                    if (userId) {
+                        await supabase
+                            .from('cart_items')
+                            .delete()
+                            .eq('user_id', userId)
+                            .eq('item_type', 'book')
+                            .in('item_id', items.map(i => i.id));
+                    }
+                    break;
+                }
+
                 const tierName = session.metadata?.tierName;
 
                 if (!userId || !tierName) {
