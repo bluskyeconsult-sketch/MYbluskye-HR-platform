@@ -49,18 +49,36 @@ async function callVAExecutionAPI(vaId, input, userId) {
 // ============================================
 
 export async function generateVirtualAssistantWithAI(topic, specialization, tone = 'professional') {
-    const prompt = `Create a complete Virtual Assistant profile for ODUSBABA platform.
+    // FIXED (2026-09-21): confirmed via direct review of va-execute's
+    // real runtime logic that long_description becomes this VA's
+    // actual system prompt when someone uses it - not just marketing
+    // copy shown on a card. The old prompt here only asked for
+    // generic "explanation of services and benefits" text, producing
+    // VAs that never actually identified what specific task they do
+    // or what data they genuinely need before attempting it - a real
+    // gap against the platform's own, proven-good pattern (the Rota
+    // Assistant's prompt, which explicitly lists required inputs and
+    // instructs the AI to ask for them before proceeding). This
+    // prompt now asks the AI to build that same kind of genuinely
+    // operational instruction into long_description directly.
+    const prompt = `Create a complete Virtual Assistant profile for the ODUSBABA career platform.
 
 Topic/Specialization: ${topic}
 Specialization Details: ${specialization}
 Tone: ${tone}
 
+This VA will be used for real work, not just displayed as a description - long_description becomes this VA's actual operating instructions, read by another AI model at the moment someone uses it. So long_description must be genuinely operational, not marketing copy. It should:
+1. State the specific task this VA performs - not a vague category, the real thing it does
+2. List the specific pieces of information it genuinely needs from the person before it can do that task well (e.g. for a CV reviewer: their target role, years of experience, industry; for a salary negotiation assistant: their current offer, market context, what they're trying to achieve)
+3. Instruct it to ask for any of that missing information rather than guessing or giving generic advice when it isn't provided
+4. Describe how it should structure its response once it has what it needs
+
 Return as JSON with this exact structure:
 {
     "name": "Catchy VA name",
     "title": "Professional title",
-    "description": "2-3 sentence description of what this VA does",
-    "long_description": "Detailed explanation of services and benefits",
+    "description": "2-3 sentence description of what this VA does, for the VA's public listing card",
+    "long_description": "The genuinely operational instructions described above - this is what the VA actually runs on, written as direct instructions to the AI that will follow them (e.g. 'Before giving advice, ask for X, Y, Z if not already provided...'), not a sales pitch",
     "features": ["feature 1", "feature 2", "feature 3", "feature 4", "feature 5"],
     "price": 9.99,
     "category": "resume|career|interview|skill|legal",
@@ -70,7 +88,7 @@ Return as JSON with this exact structure:
     "tags": ["tag1", "tag2", "tag3"]
 }
 
-Make it practical, valuable, and engaging. Return ONLY valid JSON.`;
+Make it practical, genuinely useful, and specific to "${topic}" - not a generic template. Return ONLY valid JSON.`;
 
     try {
         // FIXED (2026-09-04): confirmed critical, live security
