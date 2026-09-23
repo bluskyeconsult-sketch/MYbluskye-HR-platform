@@ -33,7 +33,7 @@ import {
     Users, Award, Play, FileText, MessageCircle, ThumbsUp,
     Calendar, TrendingUp, Shield, Target, Sparkles, X,
     ChevronRight, ChevronDown, ExternalLink, Download,
-    AlertCircle, Lock
+    AlertCircle, Lock, Heart, ShoppingCart
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -44,6 +44,8 @@ export default function CourseDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [enrolled, setEnrolled] = useState(false);
+    const [isFavorited, setIsFavorited] = useState(false);
+    const [addingToCart, setAddingToCart] = useState(false);
     const [enrollmentProgress, setEnrollmentProgress] = useState(0);
     const [user, setUser] = useState(null);
     const [activeTab, setActiveTab] = useState('overview');
@@ -83,6 +85,7 @@ export default function CourseDetailsPage() {
             // Load enrollment status if user is logged in
             if (user) {
                 await loadEnrollmentStatus(courseData.id);
+                await loadFavoriteStatus(courseData.id);
             }
             
             // Load reviews
@@ -98,6 +101,73 @@ export default function CourseDetailsPage() {
             navigate('/courses');
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function loadFavoriteStatus(courseId) {
+        if (!user) return;
+        try {
+            const { data } = await supabase
+                .from('course_favorites')
+                .select('id')
+                .eq('course_id', courseId)
+                .eq('user_id', user.id)
+                .maybeSingle();
+            setIsFavorited(!!data);
+        } catch (err) {
+            console.error('Error loading favorite status:', err);
+        }
+    }
+
+    async function handleToggleFavorite() {
+        if (!user) {
+            toast.error('Please sign in to save favorites');
+            navigate('/sign-in');
+            return;
+        }
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=toggle-course-favorite', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
+                body: JSON.stringify({ userId: user.id, courseId: id })
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error);
+            setIsFavorited(result.favorited);
+            toast.success(result.favorited ? 'Added to favorites' : 'Removed from favorites');
+        } catch (err) {
+            toast.error('Failed to update favorites: ' + err.message);
+        }
+    }
+
+    async function handleAddToCart() {
+        if (!user) {
+            toast.error('Please sign in to add to cart');
+            navigate('/sign-in');
+            return;
+        }
+        setAddingToCart(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=add-to-cart', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
+                body: JSON.stringify({ userId: user.id, itemType: 'course', itemId: id })
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error);
+            toast.success('Added to cart');
+        } catch (err) {
+            toast.error('Failed to add to cart: ' + err.message);
+        } finally {
+            setAddingToCart(false);
         }
     }
 
@@ -716,6 +786,23 @@ export default function CourseDetailsPage() {
                             </h3>
                             <div className="flex gap-2">
                                 <ShareMenu title={course.title} text={`Check out this course: ${course.title}`} />
+                                <button
+                                    onClick={handleToggleFavorite}
+                                    className={`flex-1 py-2 rounded-lg transition text-sm flex items-center justify-center gap-1.5 ${isFavorited ? 'bg-pink-600 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+                                >
+                                    <Heart className={`w-4 h-4 ${isFavorited ? 'fill-white' : ''}`} />
+                                    {isFavorited ? 'Favorited' : 'Favorite'}
+                                </button>
+                                {!enrolled && (
+                                    <button
+                                        onClick={handleAddToCart}
+                                        disabled={addingToCart}
+                                        className="flex-1 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition text-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    >
+                                        {addingToCart ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+                                        Add to Cart
+                                    </button>
+                                )}
                                 <button 
                                     onClick={() => {
                                         navigator.clipboard.writeText(window.location.href);
