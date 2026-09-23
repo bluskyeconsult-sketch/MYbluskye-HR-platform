@@ -1686,6 +1686,10 @@ const handlers = {
                     excerpt: parsed.excerpt || null,
                     content: parsed.content,
                     seo_title: parsed.seo_title || parsed.title,
+                    // FIXED (2026-09-20): confirmed real cause of the
+                    // article editor crashing on open - this insert
+                    // never set tags at all, leaving it null.
+                    tags: [],
                     category: parsed.category || null,
                     slug,
                     is_published: !isScheduled,
