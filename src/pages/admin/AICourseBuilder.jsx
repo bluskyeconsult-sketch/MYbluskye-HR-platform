@@ -34,6 +34,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { authenticatedFetch } from '../../lib/authFetch';
+import GenerateCourseQuizButton from '../../components/admin/GenerateCourseQuizButton';
 import { 
     Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
@@ -706,6 +707,7 @@ export default function AICourseBuilder() {
                                         {course.is_published && (
                                             <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">Published</span>
                                         )}
+                                        <GenerateCourseQuizButton courseId={course.id} courseTitle={course.title} />
                                         <a href={`/admin/courses/${course.id}/edit`} className="text-primary-400 hover:text-primary-300 text-sm">
                                             Edit →
                                         </a>
