@@ -14,7 +14,7 @@
 // since it was built. All 6 now have real backend handlers in
 // api/index.js, reusing the existing callOpenAI() pattern.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
 import PageEdgeBanner from '../components/PageEdgeBanner';
@@ -29,6 +29,41 @@ import api from '../lib/api';
 
 export default function HRToolsPage() {
     const [activeTool, setActiveTool] = useState(null);
+    // NEW (2026-09-21): custom, admin-created HR tools loaded
+    // alongside the existing 10 hardcoded ones - genuinely new, since
+    // no admin-buildable tool type existed before.
+    const [customTools, setCustomTools] = useState([]);
+    const [activeCustomTool, setActiveCustomTool] = useState(null);
+    const [customToolInput, setCustomToolInput] = useState('');
+    const [customToolOutput, setCustomToolOutput] = useState('');
+    const [customToolLoading, setCustomToolLoading] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/index?action=list-custom-hr-tools')
+            .then(r => r.json())
+            .then(data => setCustomTools(data.tools || []))
+            .catch(() => setCustomTools([]));
+    }, []);
+
+    async function executeCustomTool() {
+        if (!customToolInput.trim() || !activeCustomTool) return;
+        setCustomToolLoading(true);
+        setCustomToolOutput('');
+        try {
+            const response = await fetch('/api/index?action=execute-custom-hr-tool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ toolId: activeCustomTool.id, input: customToolInput, userId: user?.id })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            setCustomToolOutput(data.result);
+        } catch (err) {
+            setCustomToolOutput(`Error: ${err.message}`);
+        } finally {
+            setCustomToolLoading(false);
+        }
+    }
     const [input, setInput] = useState('');
     // NEW (2026-08-30): optional target role field for CV Analyzer -
     // lets the AI give real, role-specific ATS and keyword feedback
@@ -381,8 +416,39 @@ Would you like me to provide more specific information?`;
                     </a>
                 </div>
 
-                {/* Tools Grid */}
-                {!activeTool ? (
+                {activeCustomTool ? (
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-xl font-bold text-white">{activeCustomTool.name}</h2>
+                                <p className="text-slate-400 text-sm">{activeCustomTool.description}</p>
+                            </div>
+                            <button onClick={() => { setActiveCustomTool(null); setCustomToolInput(''); setCustomToolOutput(''); }} className="text-slate-400 hover:text-white">
+                                ← Back to Tools
+                            </button>
+                        </div>
+                        <textarea
+                            value={customToolInput}
+                            onChange={(e) => setCustomToolInput(e.target.value)}
+                            rows={5}
+                            placeholder="Describe what you need..."
+                            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white mb-4"
+                        />
+                        <button
+                            onClick={executeCustomTool}
+                            disabled={customToolLoading || !customToolInput.trim()}
+                            className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {customToolLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                            Run
+                        </button>
+                        {customToolOutput && (
+                            <div className="mt-4 p-4 bg-slate-800/50 rounded-lg whitespace-pre-wrap text-slate-200 text-sm">
+                                {customToolOutput}
+                            </div>
+                        )}
+                    </div>
+                ) : !activeTool ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {tools.map(tool => {
                             const Icon = tool.icon;
@@ -415,7 +481,30 @@ Would you like me to provide more specific information?`;
                             );
                         })}
                     </div>
-                ) : (
+                ) : null}
+
+                {activeCustomTool ? null : !activeTool && customTools.length > 0 ? (
+                    <div className="mt-8">
+                        <h2 className="text-xl font-bold text-white mb-4">More Tools</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {customTools.map(tool => (
+                                <button
+                                    key={tool.id}
+                                    onClick={() => setActiveCustomTool(tool)}
+                                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-left hover:border-primary-500/30 transition-all duration-200 group"
+                                >
+                                    <div className="w-12 h-12 rounded-lg bg-primary-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition">
+                                        <Sparkles className="w-6 h-6 text-primary-400" />
+                                    </div>
+                                    <h3 className="text-lg font-semibold text-white mb-1 group-hover:text-primary-400 transition">{tool.name}</h3>
+                                    <p className="text-slate-400 text-sm">{tool.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
+
+                {!activeCustomTool && activeTool && (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
                         {/* Tool Header */}
                         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
