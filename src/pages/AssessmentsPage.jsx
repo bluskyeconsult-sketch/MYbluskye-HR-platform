@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import PageEdgeBanner from '../components/PageEdgeBanner';
+import ShareMenu from '../components/ShareMenu';
 import { 
     Brain, Clock, TrendingUp, Award, Search, Loader2, 
     AlertCircle, Star, Users, FileText, CheckCircle, 
@@ -480,7 +481,12 @@ export default function AssessmentsPage() {
                                         )}
                                     </div>
                                     
-                                    <h3 className="text-base sm:text-xl font-bold text-white mb-1 sm:mb-2 line-clamp-1">{assessment.title}</h3>
+                                    <div className="flex items-start justify-between gap-2 mb-1 sm:mb-2">
+                                        <h3 className="text-base sm:text-xl font-bold text-white line-clamp-1">{assessment.title}</h3>
+                                        <div className="scale-75 origin-top-right flex-shrink-0">
+                                            <ShareMenu title={assessment.title} text={`Take this assessment: ${assessment.title}`} url={`${window.location.origin}/assessments/${assessment.id}`} />
+                                        </div>
+                                    </div>
                                     <p className="text-slate-400 text-xs sm:text-sm mb-3 sm:mb-4 line-clamp-2">{assessment.description || 'No description available'}</p>
                                     
                                     <div className="flex items-center justify-between mb-3 sm:mb-4">
