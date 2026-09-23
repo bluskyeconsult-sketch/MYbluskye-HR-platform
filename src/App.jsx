@@ -788,21 +788,21 @@ function AppContent() {
             <Navbar />
             {/* NEW (2026-08-16): ScrollingBanner and TermsPopup were both
                 built but never actually mounted anywhere — wired in here. */}
-            <ScrollingBanner />
-            {/* NEW (2026-09-11): asks new users, once, about joining the
-                Workforce Marketplace - checks its own auth/consent state
-                internally and renders nothing if there's no signed-in
-                user or nothing to show, so it's safe to always mount. */}
-            <WorkforceConsentPrompt />
-            <FraudSafetyBanner />
-            
-            {/* ✅ Mobile-optimized main container */}
-            {/* FIXED (2026-09-18): pt-16 added - fixed positioning
-                removes the navbar from document flow entirely (unlike
-                sticky, which reserved its own space), so without this,
-                page content would now genuinely hide behind it. */}
-            <main className="min-h-screen bg-slate-950 overflow-x-hidden pt-16">
-                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* FIXED (2026-09-20): confirmed the real, complete cause -
+                the earlier pt-16 fix only pushed <main> down, but
+                ScrollingBanner/WorkforceConsentPrompt/FraudSafetyBanner
+                are genuine siblings of main, not children of it - they
+                were still sitting at the very top of the page,
+                genuinely hidden behind the fixed navbar. Wrapping all
+                of them together in one shared pt-16 container fixes
+                this completely, not just for <main> alone. */}
+            <div className="pt-16">
+                <ScrollingBanner />
+                <WorkforceConsentPrompt />
+                <FraudSafetyBanner />
+
+                <main className="min-h-screen bg-slate-950 overflow-x-hidden">
+                    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <Suspense fallback={<PageLoader />}>
                         {/* ✅ Removed AnimatePresence to prevent flickering (From Code 2) */}
                         <Routes location={location} key={location.pathname}>
@@ -952,6 +952,7 @@ function AppContent() {
                     </Suspense>
                 </div>
             </main>
+            </div>
             
             <NewsletterSignup />
             <ODUSBABAChat />
