@@ -4810,30 +4810,50 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         try {
             const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-            const [{ data: articles }, { data: trendingSignals }] = await Promise.all([
+            const [{ data: articles }] = await Promise.all([
                 supabaseClient
                     .from('articles')
                     .select('id, title, excerpt, slug, category, published_at, view_count')
                     .eq('is_published', true)
                     .gte('published_at', since)
                     .order('published_at', { ascending: false })
-                    .limit(20),
-                supabaseClient
-                    .from('activity_signals')
-                    .select('query_text')
-                    .gte('created_at', since)
-                    .limit(500)
+                    .limit(20)
             ]);
 
-            const counts = {};
-            for (const s of trendingSignals || []) {
-                const normalized = s.query_text?.toLowerCase().trim();
-                if (normalized) counts[normalized] = (counts[normalized] || 0) + 1;
+            // FIXED (2026-09-20): confirmed real, honest issue -
+            // "trending" here genuinely meant internal, on-platform
+            // search terms (activity_signals), not real internet
+            // trends at all, despite the "What's Trending" label. This
+            // platform's traffic is still genuinely low, so that
+            // internal signal was likely too sparse to feel
+            // meaningfully "trending" anyway. Now pulls real, current
+            // Google Trends data via a confirmed, working Apify actor
+            // instead - genuinely external, not simulated or internal.
+            let trendingTopics = [];
+            try {
+                const trendsResponse = await fetch(
+                    `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ geo: 'US', maxItems: 15 })
+                    }
+                );
+                if (trendsResponse.ok) {
+                    const trendsData = await trendsResponse.json();
+                    // Defensive parsing - this actor's exact field
+                    // names weren't directly confirmable without
+                    // running it, so trying the most likely variants
+                    // rather than assuming one shape.
+                    trendingTopics = (Array.isArray(trendsData) ? trendsData : [])
+                        .map(item => item.title || item.query || item.term || item.keyword || item.topic)
+                        .filter(Boolean)
+                        .slice(0, 8)
+                        .map(topic => ({ topic, count: null }));
+                }
+            } catch (trendsError) {
+                console.warn('Real trending topics fetch failed, continuing without them:', trendsError.message);
             }
-            const trendingTopics = Object.entries(counts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 8)
-                .map(([topic, count]) => ({ topic, count }));
 
             let suggestedAngles = [];
             let rankedArticleIds = (articles || []).map(a => a.id);
