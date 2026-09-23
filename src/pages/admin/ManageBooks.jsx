@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import ConvertBookToCourseButton from '../../components/admin/ConvertBookToCourseButton';
 import { 
     BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
     CheckCircle, XCircle, Search, Upload, FileText,
@@ -464,6 +465,7 @@ export default function ManageBooks() {
                                     >
                                         <Edit2 className="w-3 h-3" /> Edit
                                     </button>
+                                    <ConvertBookToCourseButton bookId={book.id} bookTitle={book.title} />
                                     <button
                                         onClick={() => togglePublish(book.id, book.is_published)}
                                         className={`px-3 py-1.5 rounded-lg flex items-center gap-1 text-sm ${
