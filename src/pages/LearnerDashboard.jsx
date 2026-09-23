@@ -12,7 +12,7 @@ import {
     BookOpen, Clock, Play, CheckCircle, Loader2, Award, 
     TrendingUp, Calendar, Star, Users, Filter, Search, 
     ChevronRight, Trophy, Sparkles, GraduationCap, Brain,
-    AlertCircle, Download, Circle, Target, Zap, Globe
+    AlertCircle, Download, Circle, Target, Zap, Globe, Heart
 } from 'lucide-react';
 
 export default function LearnerDashboard() {
@@ -192,9 +192,14 @@ export default function LearnerDashboard() {
                 
                 {/* Header */}
                 <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-2">
-                        <GraduationCap className="w-8 h-8 text-primary-400" />
-                        <h1 className="text-3xl font-bold text-white">My Learning Dashboard</h1>
+                    <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                        <div className="flex items-center gap-3">
+                            <GraduationCap className="w-8 h-8 text-primary-400" />
+                            <h1 className="text-3xl font-bold text-white">My Learning Dashboard</h1>
+                        </div>
+                        <Link to="/my-learning" className="flex items-center gap-2 text-primary-400 hover:underline text-sm">
+                            <Heart className="w-4 h-4" /> Favorites, Cart & Applications
+                        </Link>
                     </div>
                     <p className="text-slate-400">Track your course progress and continue learning</p>
                 </div>
