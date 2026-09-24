@@ -325,9 +325,12 @@ const API_SOURCES = {
     JOBBERMAN_WEST_AFRICA: {
         name: 'Jobberman - Nigeria & West Africa Jobs',
         country: 'NG',
-        // Actor ID confirmed from the actor's own page - format is
-        // owner~actor-name for Apify's REST API path.
-        url: `https://api.apify.com/v2/acts/unfenced-group~jobberman-com-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+        // NEW (2026-09-24): switched to async start-then-poll after
+        // confirmed, repeated timeouts persisted even after
+        // sequential execution and raising the timeout to 90s - see
+        // fetchFromApifyAsync's own comment for the full reasoning.
+        actorId: 'unfenced-group~jobberman-com-scraper',
+        useAsyncPolling: true,
         type: 'api',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -338,9 +341,7 @@ const API_SOURCES = {
         // per sync is a deliberately conservative starting cap,
         // easy to raise later once real value/cost is observed.
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        // NEW (2026-09-18): Apify actors genuinely take longer than a
-        // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
-        timeout: 90000, // raised from 45000 - genuine safety margin now that Apify sources run sequentially, and the platform's own function limit is 300s (Vercel Pro)
+        timeout: 120000, // genuinely more headroom for the full start+poll+fetch cycle
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -1241,6 +1242,90 @@ async function scrapeNigeriaFCSC() {
 // API FETCHING
 // ============================================
 
+// NEW (2026-09-24): confirmed real, repeated Jobberman timeouts
+// persisted even after sequential execution and a raised timeout -
+// switches to Apify's async start-then-poll pattern instead of
+// holding one single, long HTTP connection open via
+// run-sync-get-dataset-items. Apify's own docs explicitly warn this
+// kind of long-idle connection "might be impossible to maintain...
+// due to client timeout or network conditions" over infrastructure
+// like this - several short, separate requests (start, poll, fetch)
+// are genuinely more robust than one long one.
+async function fetchFromApifyAsync(source) {
+    if (!source.is_active) return { jobs: [], error: 'Source is disabled' };
+
+    const token = process.env.APIFY_API_TOKEN || '';
+    const maxWaitMs = source.timeout || 90000;
+    const pollIntervalMs = 4000;
+    const startTime = Date.now();
+
+    try {
+        // Start the run - returns immediately with a run ID, rather
+        // than waiting for the actor to finish on this one request.
+        const startResponse = await fetch(
+            `https://api.apify.com/v2/acts/${source.actorId}/runs?token=${token}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(source.body || {})
+            }
+        );
+
+        if (!startResponse.ok) {
+            return { jobs: [], error: `Failed to start Apify run: HTTP ${startResponse.status}` };
+        }
+
+        const startData = await startResponse.json();
+        const runId = startData.data?.id;
+        if (!runId) {
+            return { jobs: [], error: 'Apify run start response had no run ID' };
+        }
+
+        // Poll the run's own status periodically - each request here
+        // is short-lived, rather than one connection held open for
+        // the entire duration.
+        let runStatus = startData.data.status;
+        let datasetId = startData.data.defaultDatasetId;
+
+        while (runStatus === 'RUNNING' || runStatus === 'READY') {
+            if (Date.now() - startTime > maxWaitMs) {
+                return { jobs: [], error: `Timed out after ${maxWaitMs}ms waiting for Apify run to finish (last status: ${runStatus})` };
+            }
+            await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+
+            const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
+            if (!statusResponse.ok) continue; // transient - try again next poll
+            const statusData = await statusResponse.json();
+            runStatus = statusData.data?.status;
+            datasetId = statusData.data?.defaultDatasetId || datasetId;
+        }
+
+        if (runStatus !== 'SUCCEEDED') {
+            return { jobs: [], error: `Apify run finished with status: ${runStatus}` };
+        }
+
+        // Fetch the finished dataset - genuinely separate, short
+        // request, only once the run is confirmed done.
+        const itemsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`);
+        if (!itemsResponse.ok) {
+            return { jobs: [], error: `Failed to fetch dataset items: HTTP ${itemsResponse.status}` };
+        }
+        const data = await itemsResponse.json();
+
+        if (source.parseFunction && typeof source.parseFunction === 'function') {
+            try {
+                const jobs = source.parseFunction(data);
+                return { jobs, error: null };
+            } catch (parseError) {
+                return { jobs: [], error: `Parse error: ${parseError.message}` };
+            }
+        }
+        return { jobs: [], error: 'No parseFunction configured for this source' };
+    } catch (error) {
+        return { jobs: [], error: error.message };
+    }
+}
+
 async function fetchFromAPI(source) {
     // FIXED (2026-08-27): confirmed real, live mystery - Jobicy and
     // Himalayas both showed "0 found, 0 new" after being enabled, with
@@ -1498,7 +1583,9 @@ export async function fetchExternalJobs(forceRefresh = false) {
     async function processApiSource([key, source]) {
         console.log(`  📡 Fetching from ${source.name}...`);
         try {
-            const { jobs, error: fetchIssue } = await fetchFromAPI(source);
+            const { jobs, error: fetchIssue } = source.useAsyncPolling
+                ? await fetchFromApifyAsync(source)
+                : await fetchFromAPI(source);
             let added = 0;
             let errorCount = 0;
             let lastError = null;
@@ -1587,8 +1674,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
     // source stays genuinely parallel and fast, since only Apify has
     // this concurrency limit at all.
     const allApiSources = Object.entries(API_SOURCES).filter(([_, source]) => source.is_active);
-    const apifySources = allApiSources.filter(([_, source]) => source.url.includes('api.apify.com'));
-    const nonApifySources = allApiSources.filter(([_, source]) => !source.url.includes('api.apify.com'));
+    const apifySources = allApiSources.filter(([_, source]) => source.useAsyncPolling || (source.url && source.url.includes('api.apify.com')));
+    const nonApifySources = allApiSources.filter(([_, source]) => !source.useAsyncPolling && !(source.url && source.url.includes('api.apify.com')));
 
     async function processApifySourcesSequentially() {
         const results = [];
