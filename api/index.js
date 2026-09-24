@@ -2235,6 +2235,38 @@ Return JSON: {
         }
     },
 
+    // NEW (2026-09-24): real completion counts for course social
+    // proof - genuine numbers from real completed_at timestamps, not
+    // fabricated.
+    'course-completion-count': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { courseId } = req.query;
+        if (!courseId) return res.status(400).json({ error: 'courseId is required' });
+
+        try {
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+            const [{ count: weekCount }, { count: totalCount }] = await Promise.all([
+                supabaseClient
+                    .from('course_enrollments')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('course_id', courseId)
+                    .eq('status', 'completed')
+                    .gte('completed_at', sevenDaysAgo),
+                supabaseClient
+                    .from('course_enrollments')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('course_id', courseId)
+                    .eq('status', 'completed')
+            ]);
+
+            return res.status(200).json({ success: true, completedThisWeek: weekCount || 0, completedTotal: totalCount || 0 });
+        } catch (error) {
+            console.error('course-completion-count error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-create-staff-user': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
