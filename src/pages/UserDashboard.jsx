@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import AffiliatePromoBanner from '../components/AffiliatePromoBanner';
 import { supabase } from '../lib/supabase';
 import WorkforceOptInPrompt from '../components/workforce/WorkforceOptInPrompt';
 import { 
@@ -398,6 +399,8 @@ export default function UserDashboard() {
                         )}
                     </div>
                 </div>
+
+                <AffiliatePromoBanner />
 
                 {/* Stats Cards - Row 1 */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
