@@ -5860,34 +5860,44 @@ Return the lesson as markdown with this structure:
 2. The chapter's own content, included in full and largely unchanged (light formatting/structural cleanup is fine, but do not shorten, summarize, or alter its substance)
 3. A "## Key Takeaways" section at the end - 3-5 bullet points genuinely summarizing the chapter's real, specific content, not generic statements`;
 
-            for (let i = 0; i < chaptersWithContent.length; i++) {
-                const chapter = chaptersWithContent[i];
-                let lessonContent = chapter.content;
-
-                if (elaborateWithAI) {
+            // FIXED (2026-09-23): confirmed real, live cause of "spun
+            // and did nothing" - this ran chapters through AI
+            // elaboration sequentially, one at a time. A real book
+            // with 10+ chapters easily exceeded Vercel's function
+            // timeout (60s), so the request was silently killed
+            // mid-run with no response ever reaching the frontend.
+            // Parallelizing cuts total time to roughly one chapter's
+            // latency regardless of book length. allSettled (not
+            // all) so one chapter's AI failure doesn't sink the
+            // whole batch - each one already has its own, real
+            // fallback to the original text.
+            const lessonContents = await Promise.allSettled(
+                chaptersWithContent.map(async (chapter, i) => {
+                    if (!elaborateWithAI) return chapter.content;
                     try {
                         const elaborated = await callOpenAI([
                             { role: 'system', content: elaborationSystemPrompt },
                             { role: 'user', content: `Chapter title: "${chapter.title || `Chapter ${i + 1}`}"\n\n${chapter.content}` }
                         ], 3000, 0.5);
-                        lessonContent = elaborated.choices[0].message.content;
+                        return elaborated.choices[0].message.content;
                     } catch (elaborationError) {
                         console.warn(`AI elaboration failed for chapter "${chapter.title}", using original content:`, elaborationError.message);
-                        // Falls back to the real, original chapter text
-                        // rather than failing the whole conversion over
-                        // one chapter's AI call.
+                        return chapter.content;
                     }
-                }
+                })
+            );
 
-                await supabaseClient.from('course_lessons').insert({
-                    course_id: newCourse.id,
-                    title: chapter.title || `Lesson ${i + 1}`,
-                    content: lessonContent,
-                    sort_order: i,
-                    duration_minutes: Math.max(5, Math.round(chapter.content.length / 1000)),
-                    is_free: i === 0
-                });
-            }
+            const lessonRows = chaptersWithContent.map((chapter, i) => ({
+                course_id: newCourse.id,
+                title: chapter.title || `Lesson ${i + 1}`,
+                content: lessonContents[i].status === 'fulfilled' ? lessonContents[i].value : chapter.content,
+                sort_order: i,
+                duration_minutes: Math.max(5, Math.round(chapter.content.length / 1000)),
+                is_free: i === 0
+            }));
+
+            const { error: lessonsInsertError } = await supabaseClient.from('course_lessons').insert(lessonRows);
+            if (lessonsInsertError) throw lessonsInsertError;
 
             logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'course_generated_from_book', tier: 'admin', wasAllowed: true }); // fire-and-forget
 
