@@ -217,6 +217,12 @@ function Navbar() {
     const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
     const [userName, setUserName] = useState('');
     const testerVisibility = useTesterVisibility();
+    // NEW (2026-09-23): used to hide the redundant "Dashboard" link
+    // below while already on an admin page - the left AdminLayout
+    // sidebar already covers all admin navigation there, so this
+    // top-dropdown link was genuine, confirmed duplication.
+    const { pathname } = useLocation();
+    const isOnAdminPage = pathname.startsWith('/admin');
     
     const adminDropdownRef = useRef(null);
     const accountDropdownRef = useRef(null);
@@ -377,7 +383,7 @@ function Navbar() {
                                 </button>
                                 {accountDropdownOpen && (
                                     <div className="absolute right-0 mt-2 bg-slate-800 rounded-lg shadow-lg py-2 w-48 z-50 border border-slate-700">
-                                        <a href="/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>
+                                        {!isOnAdminPage && <a href="/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>}
                                         <a href="/profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Profile</a>
                                         <a href="/applications" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Applications</a>
                                         <a href="/saved-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Saved Jobs</a>
@@ -427,7 +433,7 @@ function Navbar() {
                         {isLoggedIn ? (
                             <>
                                 <div className="text-primary-400 font-semibold pt-2 pb-1">Account</div>
-                                <a href="/dashboard" className="block py-2 text-slate-300 hover:text-white">Dashboard</a>
+                                {!isOnAdminPage && <a href="/dashboard" className="block py-2 text-slate-300 hover:text-white">Dashboard</a>}
                                 <a href="/profile" className="block py-2 text-slate-300 hover:text-white">Profile</a>
                                 <a href="/applications" className="block py-2 text-slate-300 hover:text-white">Applications</a>
                                 <button onClick={handleLogout} className="block w-full text-left py-2 text-red-400">Logout</button>
