@@ -109,7 +109,26 @@ export default function SignInPage() {
                 refresh_token: result.session.refresh_token
             });
 
-            if (setSessionError) throw setSessionError;
+            if (setSessionError) {
+                // FIXED (2026-09-24): confirmed real, live user report
+                // matching this exact pattern - login shows an error,
+                // but a refresh reveals they were already logged in.
+                // supabase-js's setSession() can write the session to
+                // storage before fully erroring (the same underlying
+                // library bug behind the earlier "changedAccessToken,
+                // object is not extensible" error, meant to be fixed
+                // by the package.json version bump - this is a
+                // genuine, defensive backstop in case that hasn't
+                // been deployed yet, or another transient issue hits
+                // the same code path). Checks whether the session was
+                // actually, genuinely established despite the error
+                // before showing the user anything is wrong at all.
+                const { data: { session: actualSession } } = await supabase.auth.getSession();
+                if (!actualSession) {
+                    throw setSessionError;
+                }
+                console.warn('setSession() reported an error but a real session was genuinely established anyway - proceeding:', setSessionError.message);
+            }
 
             // Same destination logic as before, just using the isAdmin
             // flag the backend already determined rather than a second
