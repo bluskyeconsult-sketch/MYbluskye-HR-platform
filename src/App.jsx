@@ -298,6 +298,18 @@ function Navbar() {
 
     const handleLogout = async () => {
         try {
+            // NEW (2026-09-24): logged before signOut() specifically -
+            // the real session/token is still genuinely valid right
+            // here, but wouldn't be immediately after signing out.
+            // Fire-and-forget, never awaited.
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                fetch('/api/index?action=log-user-activity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ userId: session.user.id, userEmail: session.user.email, actionType: 'logout' })
+                }).catch(() => {});
+            }
             await supabase.auth.signOut();
         } catch (error) {
             console.error('Logout error:', error);
@@ -385,6 +397,7 @@ function Navbar() {
                                 {accountDropdownOpen && (
                                     <div className="absolute right-0 mt-2 bg-slate-800 rounded-lg shadow-lg py-2 w-48 z-50 border border-slate-700">
                                         {!isOnAdminPage && <a href="/dashboard" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Dashboard</a>}
+                                        <a href="/support-tickets" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Support Tickets</a>
                                         <a href="/profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Profile</a>
                                         <a href="/applications" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Applications</a>
                                         <a href="/saved-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Saved Jobs</a>
@@ -435,6 +448,7 @@ function Navbar() {
                             <>
                                 <div className="text-primary-400 font-semibold pt-2 pb-1">Account</div>
                                 {!isOnAdminPage && <a href="/dashboard" className="block py-2 text-slate-300 hover:text-white">Dashboard</a>}
+                                <a href="/support-tickets" className="block py-2 text-slate-300 hover:text-white">Support Tickets</a>
                                 <a href="/profile" className="block py-2 text-slate-300 hover:text-white">Profile</a>
                                 <a href="/applications" className="block py-2 text-slate-300 hover:text-white">Applications</a>
                                 <button onClick={handleLogout} className="block w-full text-left py-2 text-red-400">Logout</button>
@@ -595,6 +609,7 @@ const NewsletterPage = lazy(() => import('./pages/NewsletterPage'));
 const HireVirtualAssistant = lazy(() => import('./pages/HireVirtualAssistant'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
 const ContactPage = lazy(() => import('./pages/ContactPage'));
+const SupportTicketsPage = lazy(() => import('./pages/SupportTicketsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 // NEW (2026-09-09): the genuinely missing page Supabase's own email
@@ -664,6 +679,7 @@ const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
 const CustomHRToolManager = lazy(() => import('./pages/admin/CustomHRToolManager'));
+const AdminSupportTickets = lazy(() => import('./pages/admin/AdminSupportTickets'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
 const AdminTesterFeedback = lazy(() => import('./pages/admin/AdminTesterFeedback'));
@@ -851,6 +867,7 @@ function AppContent() {
                             <Route path="/hire-va" element={<AnimatedPage><HireVirtualAssistant /></AnimatedPage>} />
                             <Route path="/about" element={<AnimatedPage><AboutPage /></AnimatedPage>} />
                             <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
+                            <Route path="/support-tickets" element={<ProtectedRoute><SupportTicketsPage /></ProtectedRoute>} />
                             <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
                             <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                             <Route path="/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
@@ -914,6 +931,7 @@ function AppContent() {
                             <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentEditor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><AdminLayout><VirtualAssistantManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/hr-tool-builder" element={<ProtectedRoute requireAdmin><AdminLayout><CustomHRToolManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/support-tickets" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSupportTickets /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSkills /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminLayout><AdminTesterFeedback /></AdminLayout></ProtectedRoute>} />
