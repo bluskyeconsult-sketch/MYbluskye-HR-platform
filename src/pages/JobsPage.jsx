@@ -14,6 +14,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
 import PageEdgeBanner from '../components/PageEdgeBanner';
+import JobAlertsBanner from '../components/JobAlertsBanner';
 import { 
     Briefcase, MapPin, DollarSign, Building2, Clock, 
     Search, Filter, Loader2, AlertCircle, ExternalLink,
@@ -476,6 +477,8 @@ export default function JobsPage() {
                             </div>
                         </div>
                     </div>
+
+                    <JobAlertsBanner />
 
                     <PageEdgeBanner>
                         Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
