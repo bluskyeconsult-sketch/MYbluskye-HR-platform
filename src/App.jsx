@@ -44,6 +44,7 @@ import { supabase } from './lib/supabase';
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import ScrollingBanner from './components/ScrollingBanner';
+import VisitorEngagementPrompt from './components/VisitorEngagementPrompt';
 import WorkforceConsentPrompt from './components/WorkforceConsentPrompt';
 import TermsPopup from './components/TermsPopup';
 import BrainstormPartner from './components/BrainstormPartner';
@@ -990,6 +991,7 @@ function AppContent() {
             <NewsletterSignup />
             <ODUSBABAChat />
             <CookieConsent />
+            <VisitorEngagementPrompt />
             <TermsPopup />
             {isTeamMember && <BrainstormPartner />}
             <Footer />
