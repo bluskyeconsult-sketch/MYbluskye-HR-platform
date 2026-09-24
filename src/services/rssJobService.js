@@ -1310,7 +1310,7 @@ async function fetchFromAPI(source) {
         return { jobs: [], error: 'No parseFunction configured for this source' };
     } catch (error) {
         console.error(`Error fetching from ${source.name}:`, error);
-        return { jobs: [], error: error.name === 'AbortError' ? `Timed out after ${REQUEST_TIMEOUT}ms` : error.message };
+        return { jobs: [], error: error.name === 'AbortError' ? `Timed out after ${source.timeout || REQUEST_TIMEOUT}ms` : error.message };
     }
 }
 
@@ -1343,18 +1343,24 @@ async function saveJobToDatabase(job, sponsorship) {
         // this table at all; source_country doesn't exist (only
         // 'source' does); external_apply_url should be external_url;
         // published_at should be posted_date.
+        // FIXED (2026-09-23): confirmed a real, live save failure -
+        // "value too long for type character varying(500)" - meaning
+        // at least one working source occasionally returns a title,
+        // company, or location string longer than a real varchar(500)
+        // column limit. Truncates defensively rather than letting one
+        // oversized field silently drop an entire, otherwise-good job.
         const { data, error } = await supabase
             .from('external_jobs')
             .insert({
-                title: job.title,
-                company: job.source_name,
-                location: job.location || job.source_country,
+                title: (job.title || '').substring(0, 500),
+                company: (job.source_name || '').substring(0, 500),
+                location: (job.location || job.source_country || '').substring(0, 500),
                 description: job.description,
-                salary_range: job.salary_range,
+                salary_range: (job.salary_range || '').substring(0, 500),
                 job_type: job.job_type,
                 external_url: job.external_url,
-                source: job.source_country,
-                source_name: job.source_name,
+                source: (job.source_country || '').substring(0, 500),
+                source_name: (job.source_name || '').substring(0, 500),
                 status: 'pending_approval',
                 is_active: true,
                 created_at: new Date().toISOString(),
