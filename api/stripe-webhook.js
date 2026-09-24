@@ -209,6 +209,20 @@ export default async function handler(req, res) {
                             .eq('item_type', 'book')
                             .in('item_id', items.map(i => i.id));
                     }
+
+                    // NEW (2026-09-24): logs the real, confirmed
+                    // purchase - genuinely useful for a future dispute
+                    // ("I was charged incorrectly"), since this is the
+                    // point where payment is actually confirmed
+                    // complete, not just attempted. Fire-and-forget.
+                    if (userId) {
+                        supabase.from('user_activity_log').insert({
+                            user_id: userId,
+                            action_type: 'purchase_completed',
+                            details: { items, stripeSessionId: session.id }
+                        }).then(() => {}).catch(() => {});
+                    }
+
                     break;
                 }
 
