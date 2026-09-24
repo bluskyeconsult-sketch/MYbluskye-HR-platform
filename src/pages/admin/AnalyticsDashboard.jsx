@@ -11,6 +11,72 @@ import {
     FileText, Award, Zap, Shield, AlertCircle, CheckCircle
 } from 'lucide-react';
 
+// NEW (2026-09-23): maps real route paths to human-readable labels -
+// confirmed real bug that the Pages table only ever showed raw paths
+// (e.g. "/admin/external-jobs") as the only label, with no readable
+// name at all. Covers every known, static route; dynamic routes (a
+// job/article/course detail page with a real ID in the path) get a
+// genuine, honest fallback describing the page type rather than a
+// meaningless label.
+const PAGE_NAME_MAP = {
+    '/': 'Homepage',
+    '/jobs': 'Jobs Listing',
+    '/courses': 'Courses Listing',
+    '/assessments': 'Assessments',
+    '/workforce': 'Workforce Marketplace',
+    '/hire-va': 'Hire Virtual Assistant',
+    '/books': 'Books Listing',
+    '/blog': 'Blog',
+    '/hr-tools': 'HR Tools',
+    '/contact': 'Contact',
+    '/sign-in': 'Sign In',
+    '/sign-up': 'Sign Up',
+    '/dashboard': 'User Dashboard',
+    '/learning': 'My Learning',
+    '/my-learning': 'Favorites, Cart & Applications',
+    '/pricing': 'Pricing',
+    '/faq': 'FAQ',
+    '/admin/dashboard': 'Admin Dashboard',
+    '/admin/health': 'Admin: System Health',
+    '/admin/readiness-check': 'Admin: Readiness Check',
+    '/admin/diagnostics': 'Admin: Diagnostics',
+    '/admin/analytics': 'Admin: Analytics',
+    '/admin/usage-meter': 'Admin: Usage Meter',
+    '/admin/security': 'Admin: Security',
+    '/admin/audit': 'Admin: Audit Log',
+    '/admin/users': 'Admin: Users',
+    '/admin/employer-verification': 'Admin: Employer Verification',
+    '/admin/fraud-reports': 'Admin: Fraud Reports',
+    '/admin/jobs': 'Admin: Job Management',
+    '/admin/external-jobs': 'Admin: External Jobs',
+    '/admin/employer-sources': 'Admin: Employer Sources',
+    '/admin/banner-messages': 'Admin: Banner Messages',
+    '/admin/workforce': 'Admin: Workforce Marketplace',
+    '/admin/courses': 'Admin: Courses',
+    '/admin/ai-course-builder': 'Admin: AI Course Builder',
+    '/admin/articles': 'Admin: Articles',
+    '/admin/books': 'Admin: Books',
+    '/admin/assessments': 'Admin: Assessments',
+    '/admin/virtual-assistants': 'Admin: Virtual Assistants',
+    '/admin/hr-tool-builder': 'Admin: HR Tool Builder',
+    '/admin/skills': 'Admin: Skills',
+    '/admin/newsletter': 'Admin: Newsletter'
+};
+
+function getReadablePageName(path) {
+    if (PAGE_NAME_MAP[path]) return PAGE_NAME_MAP[path];
+
+    // Genuine, honest fallback for dynamic routes with a real ID -
+    // names the page type rather than showing a meaningless label.
+    if (/^\/jobs\/[^/]+$/.test(path)) return 'Job Detail Page';
+    if (/^\/courses\/[^/]+$/.test(path)) return 'Course Detail Page';
+    if (/^\/learning\/[^/]+$/.test(path)) return 'Course Learning Page';
+    if (/^\/books\/[^/]+$/.test(path)) return 'Book Detail Page';
+    if (/^\/articles\/[^/]+$/.test(path)) return 'Article Page';
+
+    return path;
+}
+
 export default function AnalyticsDashboard() {
     const [stats, setStats] = useState({ 
         totalUsers: 0, 
@@ -529,7 +595,10 @@ export default function AnalyticsDashboard() {
                                 {pageViews.slice(0, 20).map((page, idx) => (
                                     <tr key={idx} className="border-b border-slate-800">
                                         <td className="px-4 py-2 text-slate-500 text-sm">{idx + 1}</td>
-                                        <td className="px-4 py-2 text-slate-300 text-sm font-mono">{page.path}</td>
+                                        <td className="px-4 py-2 text-sm">
+                                            <p className="text-slate-200">{getReadablePageName(page.path)}</p>
+                                            <p className="text-slate-500 text-xs font-mono">{page.path}</p>
+                                        </td>
                                         <td className="px-4 py-2 text-slate-300 text-sm text-right font-medium">{page.views}</td>
                                     </tr>
                                 ))}
