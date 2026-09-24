@@ -259,7 +259,16 @@ export default function CourseDetailsPage() {
             const result = await response.json();
             
             if (!result.success) throw new Error(result.error);
-            
+
+            // NEW (2026-09-24): fire-and-forget, never awaited.
+            if (session?.access_token) {
+                fetch('/api/index?action=log-user-activity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'course_enrollment', details: { courseId: id, courseTitle: course?.title } })
+                }).catch(() => {});
+            }
+
             setEnrolled(true);
             toast.success('Successfully enrolled in course!');
         } catch (err) {
