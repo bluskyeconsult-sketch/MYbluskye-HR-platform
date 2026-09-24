@@ -2199,6 +2199,42 @@ Return JSON: {
         }
     },
 
+    // ========== EXTERNAL TRENDS (NEW, 2026-09-24) ==========
+    // Genuinely separate from trending-topics (which correctly stays
+    // on-site search/chat activity for ArticlesPage.jsx's tag filter
+    // and AdminOpportunityGaps.jsx's gap analysis) - this is real,
+    // external internet trends, reusing the exact, proven Google
+    // Trends fetch pattern already working in newsletter-article-pool.
+    'external-trending-topics': async (req, res) => {
+        try {
+            const trendsResponse = await fetch(
+                `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ geo: 'US', maxItems: 10 })
+                }
+            );
+
+            let trending = [];
+            if (trendsResponse.ok) {
+                const trendsData = await trendsResponse.json();
+                trending = (Array.isArray(trendsData) ? trendsData : [])
+                    .map(item => item.title || item.query || item.term || item.keyword || item.topic)
+                    .filter(Boolean)
+                    .slice(0, 10)
+                    .map(topic => ({ topic }));
+            } else {
+                console.warn('external-trending-topics: Google Trends fetch failed with status', trendsResponse.status);
+            }
+
+            return res.status(200).json({ success: true, trending });
+        } catch (error) {
+            console.error('external-trending-topics error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-create-staff-user': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
