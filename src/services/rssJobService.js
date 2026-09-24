@@ -340,7 +340,7 @@ const API_SOURCES = {
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
         // NEW (2026-09-18): Apify actors genuinely take longer than a
         // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
-        timeout: 45000,
+        timeout: 90000, // raised from 45000 - genuine safety margin now that Apify sources run sequentially, and the platform's own function limit is 300s (Vercel Pro)
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -359,7 +359,7 @@ const API_SOURCES = {
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
         // NEW (2026-09-18): Apify actors genuinely take longer than a
         // simple RSS/JSON fetch - confirmed via Jobberman's real timeout.
-        timeout: 45000,
+        timeout: 90000, // raised from 45000 - genuine safety margin now that Apify sources run sequentially, and the platform's own function limit is 300s (Vercel Pro)
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -380,7 +380,7 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        timeout: 45000,
+        timeout: 90000, // raised from 45000 - genuine safety margin now that Apify sources run sequentially, and the platform's own function limit is 300s (Vercel Pro)
         is_active: false,
         priority: 1,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -400,7 +400,7 @@ const API_SOURCES = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        timeout: 45000,
+        timeout: 90000, // raised from 45000 - genuine safety margin now that Apify sources run sequentially, and the platform's own function limit is 300s (Vercel Pro)
         is_active: false,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -1572,13 +1572,40 @@ export async function fetchExternalJobs(forceRefresh = false) {
     const sortedFeeds = Object.entries(RSS_FEEDS)
         .filter(([_, source]) => source.is_active)
         .sort((a, b) => (a[1].priority || 99) - (b[1].priority || 99));
-    const activeApiSources = Object.entries(API_SOURCES).filter(([_, source]) => source.is_active);
 
-    const [rssOutcomes, nigeriaOutcome, apiOutcomes] = await Promise.all([
+    // FIXED (2026-09-24): confirmed the real, definitive cause of
+    // Jobberman's genuine timeouts - the Apify actor itself completes
+    // in ~12 seconds (confirmed directly on Apify's own dashboard),
+    // but run-sync-get-dataset-items measures the FULL round trip,
+    // including real queue-wait time for an available worker slot on
+    // Apify's own side. Running multiple Apify sources simultaneously
+    // (as this did before) genuinely causes them to queue behind each
+    // other on a limited-concurrency account - a real screenshot
+    // showed Google Trends Scraper running at the exact same
+    // timestamp, taking 1m40s. Apify sources now run sequentially
+    // among themselves (avoiding that contention), while every other
+    // source stays genuinely parallel and fast, since only Apify has
+    // this concurrency limit at all.
+    const allApiSources = Object.entries(API_SOURCES).filter(([_, source]) => source.is_active);
+    const apifySources = allApiSources.filter(([_, source]) => source.url.includes('api.apify.com'));
+    const nonApifySources = allApiSources.filter(([_, source]) => !source.url.includes('api.apify.com'));
+
+    async function processApifySourcesSequentially() {
+        const results = [];
+        for (const entry of apifySources) {
+            results.push(await Promise.allSettled([processApiSource(entry)]).then(r => r[0]));
+        }
+        return results;
+    }
+
+    const [rssOutcomes, nigeriaOutcome, apifyOutcomes, nonApifyOutcomes] = await Promise.all([
         Promise.allSettled(sortedFeeds.map(processRSSSource)),
         processNigeria(),
-        Promise.allSettled(activeApiSources.map(processApiSource))
+        processApifySourcesSequentially(),
+        Promise.allSettled(nonApifySources.map(processApiSource))
     ]);
+
+    const apiOutcomes = [...apifyOutcomes, ...nonApifyOutcomes];
 
     for (const outcome of rssOutcomes) {
         if (outcome.status === 'fulfilled') {
