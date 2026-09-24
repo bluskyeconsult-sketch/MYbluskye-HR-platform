@@ -150,8 +150,32 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                                 {children}
                             </blockquote>
                         ),
-                        code: ({ children, inline }) => (
-                            inline ? (
+                        code: ({ children, inline }) => {
+                            // NEW (2026-09-23): confirmed real, live
+                            // bug - a bullet list with leading
+                            // whitespace before "-" gets misparsed by
+                            // react-markdown as an indented code
+                            // block (monospace font, dark box)
+                            // instead of a real list - the exact,
+                            // reported "odd looking font" symptom.
+                            // Detects this pattern defensively and
+                            // rescues it into a real, styled list,
+                            // covering any article with this issue
+                            // without needing every one individually
+                            // backfilled.
+                            if (!inline && typeof children === 'string') {
+                                const lines = children.trim().split('\n').filter(l => l.trim().length > 0);
+                                if (lines.length > 0 && lines.every(l => l.trim().startsWith('- '))) {
+                                    return (
+                                        <ul className="list-disc list-outside ml-5 space-y-1.5 text-slate-300 mb-5">
+                                            {lines.map((line, i) => (
+                                                <li key={i}>{line.trim().replace(/^- /, '')}</li>
+                                            ))}
+                                        </ul>
+                                    );
+                                }
+                            }
+                            return inline ? (
                                 <code className="bg-slate-800 px-1.5 py-0.5 rounded text-sm text-primary-400 font-mono">
                                     {children}
                                 </code>
@@ -159,8 +183,8 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                                 <code className="block bg-slate-800 p-4 rounded-lg text-sm text-slate-300 font-mono overflow-x-auto">
                                     {children}
                                 </code>
-                            )
-                        ),
+                            );
+                        },
                         img: ({ src, alt }) => (
                             <img
                                 src={src}
