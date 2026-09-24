@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
 import TrendingCorner from '../components/TrendingCorner';
+import GlobalTrendsWidget from '../components/GlobalTrendsWidget';
 import CTASection from '../components/CTASection';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
@@ -506,8 +507,13 @@ export default function HomePage() {
             {/* NEW (2026-08-16): Latest Trend Corner — real search/chat
                 activity, not curated content. Also feeds the admin
                 opportunity-gaps analysis and newsletter digest. */}
-            <div className="w-full max-w-7xl mx-auto px-4 pt-12">
+            {/* NEW (2026-09-24): GlobalTrendsWidget sits alongside it -
+                genuinely separate, real external internet trends, with
+                an honest, distinct label. Neither widget touches the
+                other's data or logic. */}
+            <div className="w-full max-w-7xl mx-auto px-4 pt-12 grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <TrendingCorner />
+                <GlobalTrendsWidget />
             </div>
 
             {/* Latest Insights Section */}
