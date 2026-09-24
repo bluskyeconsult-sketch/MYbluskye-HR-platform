@@ -322,6 +322,19 @@ export default function JobDetailPage() {
         // monthly-limit check above depends on this being accurate.
         applied_at: new Date().toISOString()
       });
+
+      // NEW (2026-09-24): fire-and-forget - never awaited, so this
+      // can't slow down or block a real application actually
+      // submitting.
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session?.access_token) return;
+        fetch('/api/index?action=log-user-activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'job_application', details: { jobId: id } })
+        }).catch(() => {});
+      }).catch(() => {});
+
       toast.success('Application submitted successfully!');
       setShowApplyForm(false);
       setCoverLetter('');
