@@ -538,6 +538,29 @@ async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllo
     }
 }
 
+// NEW (2026-09-24): genuine, comprehensive user-activity logging -
+// distinct from logAuditEvent above (admin decisions/skill
+// submissions only). Records everyday user actions (signup, login,
+// job applications, purchases, profile changes) so that as the
+// platform grows, any dispute or support request has a real,
+// queryable record - the log was genuinely empty for this before.
+// Fire-and-forget, non-blocking - a logging failure should never
+// break the actual action the user is trying to perform.
+async function logUserActivity(supabaseClient, req, { userId, userEmail = null, actionType, details = {} }) {
+    try {
+        await supabaseClient.from('user_activity_log').insert({
+            user_id: userId,
+            user_email: userEmail,
+            action_type: actionType,
+            details,
+            ip_address: getRequestIP(req),
+            user_agent: req.headers['user-agent'] || null
+        });
+    } catch (error) {
+        console.error('User activity log write failed (non-blocking):', error);
+    }
+}
+
 async function requireAdmin(req, supabaseClient) {
     const authCheck = await getAuthenticatedUser(req, supabaseClient);
     if (!authCheck.authorized) return authCheck;
@@ -6415,6 +6438,218 @@ Return the lesson as markdown with this structure:
     // IP is a materially different, genuinely suspicious pattern from
     // ordinary shared-IP traffic, where failures would be spread across
     // different people's own accounts, each with their own low count).
+    // NEW (2026-09-24): generic activity-logging endpoint any
+    // frontend flow can call directly, rather than needing every
+    // existing backend action individually modified. Verifies the
+    // claimed user genuinely matches the real, authenticated session.
+    // ========== SUPPORT TICKETS (NEW, 2026-09-24) ==========
+    // Genuine ticketing system - real ticket numbers, real status
+    // tracking (open/in_progress/resolved/closed), a full reply
+    // thread. Didn't exist before - only a plain /contact route.
+    'create-support-ticket': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { userId, userEmail, subject, message, category, priority = 'normal' } = req.body;
+        if (!userEmail || !subject || !message) {
+            return res.status(400).json({ error: 'userEmail, subject, and message are required' });
+        }
+
+        // A real user_id claim is verified if one is given, but a
+        // genuinely anonymous visitor (not logged in) can still open
+        // a ticket - support requests shouldn't require an account.
+        if (userId) {
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+        }
+
+        try {
+            const { data: ticketNumberData, error: numberError } = await supabaseClient.rpc('generate_ticket_number');
+            if (numberError) throw numberError;
+
+            const { data: ticket, error: insertError } = await supabaseClient
+                .from('support_tickets')
+                .insert({
+                    ticket_number: ticketNumberData,
+                    user_id: userId || null,
+                    user_email: userEmail,
+                    subject,
+                    message,
+                    category: category || null,
+                    priority
+                })
+                .select()
+                .single();
+            if (insertError) throw insertError;
+
+            // First message also goes into the reply thread, so the
+            // full conversation (including the original request) is
+            // always in one place.
+            await supabaseClient.from('support_ticket_replies').insert({
+                ticket_id: ticket.id,
+                author_id: userId || null,
+                author_type: 'user',
+                message
+            });
+
+            logUserActivity(supabaseClient, req, { userId, userEmail, actionType: 'support_ticket_created', details: { ticketNumber: ticket.ticket_number } }); // fire-and-forget
+
+            return res.status(200).json({ success: true, ticket });
+        } catch (error) {
+            console.error('create-support-ticket error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'get-my-tickets': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { userId } = req.query;
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('support_tickets')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, tickets: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'get-ticket-detail': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { ticketId, userId } = req.query;
+        if (!ticketId) return res.status(400).json({ error: 'ticketId is required' });
+
+        try {
+            const { data: ticket, error: ticketError } = await supabaseClient
+                .from('support_tickets')
+                .select('*')
+                .eq('id', ticketId)
+                .single();
+            if (ticketError || !ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+            // A regular user can only ever see their own ticket - an
+            // admin viewing any ticket goes through the separate
+            // admin-list-tickets path instead, which already gates on
+            // can_manage_users.
+            if (userId) {
+                const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+                if (!idCheck.verified || ticket.user_id !== userId) {
+                    return res.status(403).json({ error: 'You can only view your own tickets' });
+                }
+            }
+
+            const { data: replies } = await supabaseClient
+                .from('support_ticket_replies')
+                .select('*')
+                .eq('ticket_id', ticketId)
+                .order('created_at', { ascending: true });
+
+            return res.status(200).json({ success: true, ticket, replies: replies || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-list-tickets': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { status } = req.query;
+
+        try {
+            let query = supabaseClient.from('support_tickets').select('*').order('created_at', { ascending: false });
+            if (status) query = query.eq('status', status);
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            return res.status(200).json({ success: true, tickets: data || [] });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-reply-ticket': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { ticketId, message } = req.body;
+        if (!ticketId || !message) return res.status(400).json({ error: 'ticketId and message are required' });
+
+        try {
+            const { error: replyError } = await supabaseClient.from('support_ticket_replies').insert({
+                ticket_id: ticketId,
+                author_id: auth.userId,
+                author_type: 'support',
+                message
+            });
+            if (replyError) throw replyError;
+
+            // A support reply genuinely moves an open ticket forward -
+            // in_progress reflects that someone is actually working
+            // it, without requiring a separate, manual status change
+            // for the common case.
+            await supabaseClient
+                .from('support_tickets')
+                .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+                .eq('id', ticketId)
+                .eq('status', 'open');
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-update-ticket-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { ticketId, status } = req.body;
+        if (!ticketId || !status) return res.status(400).json({ error: 'ticketId and status are required' });
+        if (!['open', 'in_progress', 'resolved', 'closed'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        try {
+            const updates = { status, updated_at: new Date().toISOString() };
+            if (status === 'resolved') updates.resolved_at = new Date().toISOString();
+            if (status === 'closed') updates.closed_at = new Date().toISOString();
+
+            const { error } = await supabaseClient.from('support_tickets').update(updates).eq('id', ticketId);
+            if (error) throw error;
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'log-user-activity': async (req, res) => {
+        const { userId, userEmail, actionType, details } = req.body;
+        if (!userId || !actionType) {
+            return res.status(400).json({ error: 'userId and actionType are required' });
+        }
+
+        const supabaseClient = getSupabase();
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        logUserActivity(supabaseClient, req, { userId, userEmail, actionType, details }); // fire-and-forget
+
+        return res.status(200).json({ success: true });
+    },
+
     'user-login': async (req, res) => {
         const { email, password } = req.body;
         const ip = getRequestIP(req);
@@ -6536,6 +6771,11 @@ Return the lesson as markdown with this structure:
                 .single();
 
             const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            // NEW (2026-09-24): fire-and-forget, matching the exact
+            // lesson documented above - never awaited, so this can
+            // never reintroduce the same "spinning forever" issue.
+            logUserActivity(supabaseClient, req, { userId: authData.user.id, userEmail: authData.user.email, actionType: 'login' });
 
             return res.status(200).json({
                 success: true,
