@@ -41,6 +41,8 @@ export default function CourseDetailsPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const [course, setCourse] = useState(null);
+    // NEW (2026-09-24): genuine, real completion social proof.
+    const [completionStats, setCompletionStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [enrolled, setEnrolled] = useState(false);
@@ -81,6 +83,14 @@ export default function CourseDetailsPage() {
             if (courseError || !courseData) throw new Error(courseError?.message || 'Course not found');
             
             setCourse(courseData);
+
+            // NEW (2026-09-24): real completion counts - genuine
+            // social proof, not fabricated. Non-critical if this
+            // fails, so wrapped separately from the course load itself.
+            fetch(`/api/index?action=course-completion-count&courseId=${courseData.id}`)
+                .then(r => r.json())
+                .then(data => { if (data.success) setCompletionStats(data); })
+                .catch(() => {});
             
             // Load enrollment status if user is logged in
             if (user) {
@@ -699,6 +709,12 @@ export default function CourseDetailsPage() {
                             <div className="text-3xl font-bold text-primary-400 mb-4 text-center">
                                 {course.price === 0 ? 'Free' : `$${course.price}`}
                             </div>
+
+                            {completionStats && completionStats.completedThisWeek > 0 && (
+                                <p className="text-emerald-400 text-xs text-center mb-4">
+                                    🔥 {completionStats.completedThisWeek} {completionStats.completedThisWeek === 1 ? 'person' : 'people'} completed this course this week
+                                </p>
+                            )}
                             
                             {enrolled ? (
                                 <div className="space-y-3">
