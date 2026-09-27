@@ -5,26 +5,24 @@
 // Mount this wherever the admin book-management UI renders each
 // book's row/card (e.g. AdminBooks.jsx), alongside its other actions.
 //
+// UPDATED (2026-09-25): replaced the crude window.confirm() prompts
+// with a real, polished modal - a genuine checkbox for AI elaboration
+// instead of a second confirm() dialog, matching the platform's own
+// UI style instead of a native browser dialog.
+//
 // Usage: <ConvertBookToCourseButton bookId={book.id} bookTitle={book.title} />
 
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { GraduationCap, Loader2 } from 'lucide-react';
+import { GraduationCap, Loader2, X, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ConvertBookToCourseButton({ bookId, bookTitle, onConverted }) {
+    const [showModal, setShowModal] = useState(false);
+    const [elaborateWithAI, setElaborateWithAI] = useState(true);
     const [converting, setConverting] = useState(false);
 
     async function handleConvert() {
-        if (!window.confirm(`Convert "${bookTitle}" into a course? Each chapter with real content becomes one lesson.`)) return;
-
-        // NEW (2026-09-21): genuine AI elaboration option - adds real
-        // learning objectives and key takeaways per lesson while
-        // preserving the book's actual content, rather than just
-        // copying chapter text as-is. Opt-in since it's slower and
-        // uses real AI credits per chapter.
-        const elaborateWithAI = window.confirm('Also use AI to add learning objectives and key takeaways to each lesson? (Preserves the book\'s real content - just adds structure around it.) Click Cancel to convert with the raw chapter text only.');
-
         setConverting(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -40,6 +38,7 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
             if (!response.ok) throw new Error(data.error || 'Conversion failed');
 
             toast.success(`Course created with ${data.lessonsCreated} lessons — it's saved as a draft, ready to review before publishing.`);
+            setShowModal(false);
             if (onConverted) onConverted(data.course);
         } catch (err) {
             toast.error(err.message);
@@ -49,13 +48,59 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
     }
 
     return (
-        <button
-            onClick={handleConvert}
-            disabled={converting}
-            className="px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center"
-            title="Convert this book's chapters into a course"
-        >
-            {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-        </button>
+        <>
+            <button
+                onClick={() => setShowModal(true)}
+                className="px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center justify-center"
+                title="Convert this book's chapters into a course"
+            >
+                <GraduationCap className="w-4 h-4" />
+            </button>
+
+            {showModal && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <GraduationCap className="w-5 h-5 text-primary-400" /> Convert to Course
+                            </h2>
+                            <button onClick={() => setShowModal(false)} disabled={converting} className="text-slate-400 hover:text-white disabled:opacity-50">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <p className="text-slate-300 text-sm mb-4">
+                            Convert <strong className="text-white">"{bookTitle}"</strong> into a course. Each chapter with real content becomes one lesson.
+                        </p>
+
+                        <label className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-800 mb-5">
+                            <input
+                                type="checkbox"
+                                checked={elaborateWithAI}
+                                onChange={(e) => setElaborateWithAI(e.target.checked)}
+                                className="mt-1"
+                            />
+                            <div>
+                                <p className="text-white text-sm font-medium flex items-center gap-1.5">
+                                    <Sparkles className="w-3.5 h-3.5 text-primary-400" /> Use AI to add learning structure
+                                </p>
+                                <p className="text-slate-400 text-xs mt-0.5">
+                                    Adds learning objectives and key takeaways to each lesson, while preserving the book's real content exactly. Uncheck to convert with the raw chapter text only.
+                                </p>
+                            </div>
+                        </label>
+
+                        <button
+                            onClick={handleConvert}
+                            disabled={converting}
+                            className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
+                            {converting ? 'Converting...' : 'Convert to Course'}
+                        </button>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
