@@ -11,7 +11,7 @@
 // Security was handled.
 
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, Receipt } from 'lucide-react';
+import { ShieldCheck, ChevronRight, Receipt, User } from 'lucide-react';
 
 export default function UserSettings() {
   return (
@@ -21,6 +21,19 @@ export default function UserSettings() {
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4">
           <p className="text-slate-400">Account settings and preferences coming soon.</p>
         </div>
+        <Link
+          to="/settings/profile"
+          className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition mb-4"
+        >
+          <div className="flex items-center gap-3">
+            <User className="w-5 h-5 text-primary-400" />
+            <div>
+              <p className="text-white font-medium">Edit Profile</p>
+              <p className="text-slate-400 text-sm">Update your name, photo, bio, and contact details</p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-500" />
+        </Link>
         <Link
           to="/settings/security"
           className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition mb-4"
