@@ -287,22 +287,49 @@ export default function JobDetailPage() {
     try {
       // NEW: upload the CV to the private job-cvs bucket first, under
       // the applicant's own user id folder - matches the folder-based
-      // ownership check the bucket's storage policies require.
+      // NEW (2026-09-26): routes through a real virus scan before the
+      // file is ever stored, rather than uploading directly to
+      // Supabase storage. Converts to base64 to send through the
+      // backend, which scans with CloudMersive and only stores it
+      // once confirmed clean.
       let cvUrl = null;
       if (cvFile) {
         setUploadingCv(true);
-        const filePath = `${user.id}/${Date.now()}_${cvFile.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from('job-cvs')
-          .upload(filePath, cvFile);
-        setUploadingCv(false);
-        if (uploadError) {
-          toast.error('Failed to upload CV: ' + uploadError.message);
+        try {
+          const fileBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(cvFile);
+          });
+
+          const { data: { session } } = await supabase.auth.getSession();
+          const scanResponse = await fetch('/api/index?action=scan-and-upload-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+            body: JSON.stringify({
+              fileBase64,
+              fileName: cvFile.name,
+              mimeType: cvFile.type,
+              bucket: 'job-cvs',
+              folder: user.id
+            })
+          });
+          const scanData = await scanResponse.json();
+          setUploadingCv(false);
+
+          if (!scanData.success) {
+            toast.error(scanData.error || 'Failed to upload CV');
+            setSubmitting(false);
+            return;
+          }
+          cvUrl = scanData.url;
+        } catch (scanErr) {
+          setUploadingCv(false);
+          toast.error('Failed to upload CV: ' + scanErr.message);
           setSubmitting(false);
           return;
         }
-        const { data: urlData } = supabase.storage.from('job-cvs').getPublicUrl(filePath);
-        cvUrl = urlData?.publicUrl || filePath;
       }
 
       // FIXED: applicant_id (not user_id) to match the confirmed real
@@ -545,7 +572,41 @@ export default function JobDetailPage() {
                 <input
                   type="file"
                   accept=".pdf,.doc,.docx"
-                  onChange={(e) => setCvFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) { setCvFile(null); return; }
+
+                    // NEW (2026-09-26): confirmed the previous version
+                    // had zero real validation - the accept attribute
+                    // is only a browser hint, easily bypassed. Checks
+                    // both extension and MIME type (each can be
+                    // individually spoofed, but requiring both raises
+                    // the bar meaningfully), plus a real size cap.
+                    const allowedExtensions = ['.pdf', '.doc', '.docx'];
+                    const allowedMimeTypes = [
+                      'application/pdf',
+                      'application/msword',
+                      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    ];
+                    const hasValidExtension = allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+                    const hasValidMimeType = allowedMimeTypes.includes(file.type);
+                    const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB - genuinely generous for a resume
+
+                    if (!hasValidExtension || !hasValidMimeType) {
+                      toast.error('Please upload a PDF or Word document (.pdf, .doc, .docx)');
+                      e.target.value = '';
+                      setCvFile(null);
+                      return;
+                    }
+                    if (file.size > MAX_SIZE_BYTES) {
+                      toast.error('File is too large - please keep your CV under 5MB');
+                      e.target.value = '';
+                      setCvFile(null);
+                      return;
+                    }
+
+                    setCvFile(file);
+                  }}
                   className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-primary-600 file:text-white file:text-sm"
                 />
                 {cvFile && <p className="text-xs text-slate-400 mt-1">{cvFile.name}</p>}
