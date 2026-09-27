@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Loader2, X, Plus, Trash2, ChevronUp, ChevronDown, Save } from 'lucide-react';
+import { BookOpen, Loader2, X, Plus, Trash2, ChevronUp, ChevronDown, Save, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ManageBookChapters({ bookId, bookTitle }) {
@@ -20,6 +20,8 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
     const [draftTitle, setDraftTitle] = useState('');
     const [draftContent, setDraftContent] = useState('');
     const [saving, setSaving] = useState(false);
+    const [detecting, setDetecting] = useState(false);
+    const [detectError, setDetectError] = useState(null);
 
     useEffect(() => {
         if (showModal) loadChapters();
@@ -28,6 +30,31 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
     async function authHeaders() {
         const { data: { session } } = await supabase.auth.getSession();
         return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` };
+    }
+
+    async function handleAutoDetect() {
+        if (chapters.length > 0 && !confirm('This will replace all existing chapters with ones detected from the uploaded PDF. Continue?')) {
+            return;
+        }
+        setDetecting(true);
+        setDetectError(null);
+        try {
+            const headers = await authHeaders();
+            const response = await fetch('/api/index?action=extract-chapters-from-pdf', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ bookId })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            toast.success(`Detected and saved ${data.detectedCount} chapters from the uploaded PDF.`);
+            loadChapters();
+        } catch (err) {
+            setDetectError(err.message);
+        } finally {
+            setDetecting(false);
+        }
     }
 
     async function loadChapters() {
@@ -159,6 +186,23 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
                             <p className="text-xs text-slate-500 mb-4">
                                 {chaptersWithContent} of {chapters.length} chapter{chapters.length === 1 ? '' : 's'} have real content — needed before this book can be converted to a course.
                             </p>
+                        )}
+
+                        {!activeChapterId && (
+                            <button
+                                onClick={handleAutoDetect}
+                                disabled={detecting}
+                                className="w-full mb-3 py-2.5 bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 rounded-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                            >
+                                {detecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                {detecting ? 'Detecting chapters from PDF...' : 'Auto-Detect Chapters from Uploaded PDF'}
+                            </button>
+                        )}
+
+                        {detectError && (
+                            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg mb-4">
+                                <p className="text-amber-200 text-sm">{detectError}</p>
+                            </div>
                         )}
 
                         {activeChapterId ? (
