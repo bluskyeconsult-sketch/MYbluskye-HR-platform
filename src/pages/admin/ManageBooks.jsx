@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import ConvertBookToCourseButton from '../../components/admin/ConvertBookToCourseButton';
+import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import { 
     BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
     CheckCircle, XCircle, Search, Upload, FileText,
@@ -569,6 +570,13 @@ export default function ManageBooks() {
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     />
                                     <p className="text-xs text-slate-500 mt-1">Real Stripe checkout price, charged on this site</p>
+                                    <SuggestPriceButton
+                                        itemType="book"
+                                        name={bookForm.title}
+                                        description={bookForm.description}
+                                        category={bookForm.category}
+                                        onApply={(price) => setBookForm({ ...bookForm, ebook_price: price })}
+                                    />
                                 </div>
                             </div>
 
@@ -589,8 +597,8 @@ export default function ManageBooks() {
                             {/* NEW (2026-08-23): real upload buttons, replacing the
                                 manual "paste a URL/path" workflow — especially
                                 important for the private e-copy file below, where
-                                typing the exact path by hand was error-prone. Manual
-                                paste is still available underneath as a fallback
+                                typing the exact path by hand was error-prone.
+                                Manual paste is still available underneath as a fallback
                                 (e.g. if a cover is already hosted elsewhere). */}
                             <div>
                                 <label className="block text-sm text-slate-400 mb-1">Cover Image</label>
