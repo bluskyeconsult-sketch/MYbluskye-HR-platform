@@ -35,6 +35,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { authenticatedFetch } from '../../lib/authFetch';
 import GenerateCourseQuizButton from '../../components/admin/GenerateCourseQuizButton';
+import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import { 
     Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
@@ -88,6 +89,10 @@ export default function AICourseBuilder() {
     const [targetAudience, setTargetAudience] = useState('');
     const [learningObjectives, setLearningObjectives] = useState('');
     const [category, setCategory] = useState('technology');
+    // NEW (2026-09-25): genuinely missing before - courses were
+    // always hardcoded to price: 0 with no editable field at all.
+    const [price, setPrice] = useState(0);
+    const [isFree, setIsFree] = useState(true);
     
     // Feature Toggles
     const [includeImages, setIncludeImages] = useState(true);
@@ -251,8 +256,8 @@ export default function AICourseBuilder() {
                     difficulty: level,
                     duration_hours: durationHours,
                     is_published: false,
-                    is_free: false,
-                    price: 0
+                    is_free: isFree,
+                    price: isFree ? 0 : price
                 })
                 .select()
                 .single();
@@ -561,6 +566,36 @@ export default function AICourseBuilder() {
                                     <span>Standard (10h)</span>
                                     <span>Deep (50h)</span>
                                 </div>
+                            </div>
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={isFree}
+                                        onChange={(e) => setIsFree(e.target.checked)}
+                                        disabled={loading}
+                                    />
+                                    Free course
+                                </label>
+                                {!isFree && (
+                                    <>
+                                        <input
+                                            type="number"
+                                            value={price}
+                                            onChange={(e) => setPrice(parseFloat(e.target.value) || 0)}
+                                            min="0"
+                                            step="0.01"
+                                            disabled={loading}
+                                            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                        />
+                                        <SuggestPriceButton
+                                            itemType="course"
+                                            name={topic}
+                                            category={category}
+                                            onApply={(suggested) => setPrice(suggested)}
+                                        />
+                                    </>
+                                )}
                             </div>
                         </div>
                         
