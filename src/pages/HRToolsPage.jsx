@@ -19,6 +19,8 @@ import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
 import PageEdgeBanner from '../components/PageEdgeBanner';
 import ShareMenu from '../components/ShareMenu';
+import ContentRenderer from '../components/ContentRenderer';
+import PricingBadge from '../components/PricingBadge';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
     CheckCircle, Loader2, Sparkles, TrendingUp,
@@ -86,7 +88,12 @@ export default function HRToolsPage() {
     // returned a property named userTier, only tier. This was always
     // undefined here, meaning the comparison below always evaluated to
     // false regardless of the real user's tier.
-    const { canSync, tier: userTier, capabilities, user } = useCapability();
+    const { canSync, tier: userTier, capabilities, user, remainingCredits } = useCapability();
+    // NEW (2026-09-25): matches the real, confirmed backend
+    // TIER_MONTHLY_ALLOWANCE constant exactly - used only to display
+    // "X/Y credits left", not to enforce anything (enforcement
+    // already happens server-side via checkAndDeductCredit).
+    const TIER_MONTHLY_ALLOWANCE = { free: 5, registered: 10, professional: 25, employer: 20, business: 200, tester: 10 };
 
     const tools = [
         { id: 'cv_analyzer', name: 'CV Analyzer', icon: FileText, description: 'Get AI-powered CV feedback and optimization tips', color: 'blue', apiMethod: 'analyzeCV' },
@@ -443,8 +450,8 @@ Would you like me to provide more specific information?`;
                             Run
                         </button>
                         {customToolOutput && (
-                            <div className="mt-4 p-4 bg-slate-800/50 rounded-lg whitespace-pre-wrap text-slate-200 text-sm">
-                                {customToolOutput}
+                            <div className="mt-4 p-4 bg-slate-800/50 rounded-lg text-slate-200 text-sm prose prose-invert prose-sm max-w-none">
+                                <ContentRenderer content={customToolOutput} />
                             </div>
                         )}
                     </div>
@@ -535,6 +542,21 @@ Would you like me to provide more specific information?`;
                             </div>
                         </div>
 
+                        {/* NEW (2026-09-25): the standard pricing/access
+                            badge - shows the genuinely correct state
+                            using real tier and credit data. */}
+                        <div className="mb-4">
+                            {(userTier === 'visitor' || userTier === 'free') ? (
+                                <PricingBadge kind="upgrade" requiredTier="professional" />
+                            ) : (
+                                <PricingBadge
+                                    kind="included"
+                                    creditsUsed={Math.max(0, (TIER_MONTHLY_ALLOWANCE[userTier] || 0) - (remainingCredits ?? 0))}
+                                    creditsTotal={TIER_MONTHLY_ALLOWANCE[userTier]}
+                                />
+                            )}
+                        </div>
+
                         {/* Tool Input */}
                         <GateGuard 
                             action="hr_tools"
@@ -596,8 +618,8 @@ Would you like me to provide more specific information?`;
                                     <CheckCircle className="w-4 h-4 text-emerald-400" />
                                     Results
                                 </h3>
-                                <div className="text-slate-300 whitespace-pre-wrap prose prose-invert max-w-none">
-                                    {output}
+                                <div className="text-slate-300 prose prose-invert prose-sm max-w-none">
+                                    <ContentRenderer content={output} />
                                 </div>
                             </div>
                         )}
