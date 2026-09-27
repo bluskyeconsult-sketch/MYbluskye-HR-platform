@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import ConvertBookToCourseButton from '../../components/admin/ConvertBookToCourseButton';
+import ManageBookChapters from '../../components/admin/ManageBookChapters';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import { 
     BookOpen, Plus, Edit2, Trash2, Eye, Loader2, 
@@ -466,6 +467,7 @@ export default function ManageBooks() {
                                     >
                                         <Edit2 className="w-3 h-3" /> Edit
                                     </button>
+                                    <ManageBookChapters bookId={book.id} bookTitle={book.title} />
                                     <ConvertBookToCourseButton bookId={book.id} bookTitle={book.title} />
                                     <button
                                         onClick={() => togglePublish(book.id, book.is_published)}
@@ -597,8 +599,8 @@ export default function ManageBooks() {
                             {/* NEW (2026-08-23): real upload buttons, replacing the
                                 manual "paste a URL/path" workflow — especially
                                 important for the private e-copy file below, where
-                                typing the exact path by hand was error-prone.
-                                Manual paste is still available underneath as a fallback
+                                typing the exact path by hand was error-prone. Manual
+                                paste is still available underneath as a fallback
                                 (e.g. if a cover is already hosted elsewhere). */}
                             <div>
                                 <label className="block text-sm text-slate-400 mb-1">Cover Image</label>
