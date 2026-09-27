@@ -17,11 +17,18 @@
 //    country — the same currency-hardcoding bug already found and fixed
 //    in JobDetailPage.jsx, recurring here in a different file. Now uses
 //    the same real country-to-currency mapping.
+//
+// FIXED (2026-09-25): the genuinely missing "View Applicants" feature -
+// confirmed the Users icon was already imported here but never actually
+// used anywhere, strongly suggesting this was planned but never built.
+// The pricing page has promised this as a real, paid Employer/Business
+// feature this whole time with no working UI behind it at all.
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Eye, Edit, Trash2, Users, Calendar, Loader2, MapPin, Clock, DollarSign, Briefcase } from 'lucide-react';
+import { Eye, Edit, Trash2, Users, Calendar, Loader2, MapPin, Clock, DollarSign, Briefcase, X, Mail, Phone, ExternalLink, Linkedin, MessageCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 // Matches the same mapping used in JobDetailPage.jsx's JobPosting
 // structured data — kept consistent rather than inventing a second copy.
@@ -31,10 +38,24 @@ const CURRENCY_BY_COUNTRY = {
 };
 const CURRENCY_SYMBOL = { GBP: '£', USD: '$', NGN: '₦', CAD: 'C$', AUD: 'A$', EUR: '€' };
 
+const STATUS_COLORS = {
+    pending: 'bg-amber-500/20 text-amber-400',
+    reviewed: 'bg-sky-500/20 text-sky-400',
+    shortlisted: 'bg-emerald-500/20 text-emerald-400',
+    rejected: 'bg-red-500/20 text-red-400'
+};
+
 export default function ManageJobs() {
+    const navigate = useNavigate();
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState(null);
+
+    // NEW (2026-09-25): applicant-viewing state
+    const [applicantsModalJob, setApplicantsModalJob] = useState(null);
+    const [applicants, setApplicants] = useState([]);
+    const [loadingApplicants, setLoadingApplicants] = useState(false);
+    const [applicantCounts, setApplicantCounts] = useState({});
 
     useEffect(() => {
         loadJobs();
@@ -53,10 +74,79 @@ export default function ManageJobs() {
 
             if (error) throw error;
             setJobs(data || []);
+            loadApplicantCounts(data || []);
         } catch (error) {
             console.error('Error loading jobs:', error);
         } finally {
             setLoading(false);
+        }
+    }
+
+    // NEW (2026-09-25): a real applicant count per job, shown on the
+    // card itself so an employer doesn't have to open every job just
+    // to see if anyone's applied yet.
+    async function loadApplicantCounts(jobList) {
+        if (jobList.length === 0) return;
+        const { data } = await supabase
+            .from('job_applications')
+            .select('job_id')
+            .in('job_id', jobList.map(j => j.id));
+
+        const counts = {};
+        (data || []).forEach(a => { counts[a.job_id] = (counts[a.job_id] || 0) + 1; });
+        setApplicantCounts(counts);
+    }
+
+    async function openApplicants(job) {
+        setApplicantsModalJob(job);
+        setLoadingApplicants(true);
+        setApplicants([]);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch(`/api/index?action=get-job-applicants&jobId=${job.id}`, {
+                headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to load applicants');
+            setApplicants(data.applicants || []);
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setLoadingApplicants(false);
+        }
+    }
+
+    async function handleMessageApplicant(applicantId, jobId) {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=start-conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+                body: JSON.stringify({ otherUserId: applicantId, relatedJobId: jobId })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            navigate(`/messages?conversation=${data.conversationId}`);
+        } catch (err) {
+            toast.error(err.message);
+        }
+    }
+
+    async function handleStatusChange(applicationId, newStatus) {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=update-application-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+                body: JSON.stringify({ applicationId, status: newStatus })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            setApplicants(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
+            toast.success('Status updated');
+        } catch (err) {
+            toast.error(err.message);
         }
     }
 
@@ -148,6 +238,14 @@ export default function ManageJobs() {
                                     </div>
                                     
                                     <div className="flex gap-2">
+                                        <button
+                                            onClick={() => openApplicants(job)}
+                                            className="flex items-center gap-1.5 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors text-sm"
+                                            title="View Applicants"
+                                        >
+                                            <Users className="w-5 h-5" />
+                                            {applicantCounts[job.id] || 0}
+                                        </button>
                                         <Link
                                             to={`/jobs/${job.id}`}
                                             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
@@ -155,13 +253,13 @@ export default function ManageJobs() {
                                         >
                                             <Eye className="w-5 h-5" />
                                         </Link>
-                                        <button
-                                            disabled
-                                            title="Job editing isn't built yet"
-                                            className="p-2 text-slate-600 cursor-not-allowed rounded-lg"
+                                        <Link
+                                            to={`/edit-job/${job.id}`}
+                                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                                            title="Edit Job"
                                         >
                                             <Edit className="w-5 h-5" />
-                                        </button>
+                                        </Link>
                                         <button
                                             onClick={() => handleDelete(job.id)}
                                             disabled={deleting === job.id}
@@ -177,6 +275,87 @@ export default function ManageJobs() {
                     </div>
                 )}
             </div>
+
+            {/* NEW (2026-09-25): the real applicant-viewing modal */}
+            {applicantsModalJob && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6">
+                        <div className="flex justify-between items-start mb-5">
+                            <div>
+                                <h2 className="text-lg font-bold text-white">Applicants</h2>
+                                <p className="text-slate-400 text-sm">{applicantsModalJob.title}</p>
+                            </div>
+                            <button onClick={() => setApplicantsModalJob(null)} className="text-slate-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {loadingApplicants ? (
+                            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-400" /></div>
+                        ) : applicants.length === 0 ? (
+                            <p className="text-slate-500 text-sm text-center py-10">No applicants yet for this job.</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {applicants.map(app => (
+                                    <div key={app.id} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                                        <div className="flex justify-between items-start gap-3 mb-2">
+                                            <div>
+                                                <p className="text-white font-medium">{app.profiles?.full_name || 'Unnamed applicant'}</p>
+                                                {app.profiles?.job_title && <p className="text-slate-400 text-xs">{app.profiles.job_title}{app.profiles.years_experience ? ` • ${app.profiles.years_experience} yrs experience` : ''}</p>}
+                                            </div>
+                                            <select
+                                                value={app.status}
+                                                onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                                                className={`text-xs px-2 py-1 rounded-full border-0 ${STATUS_COLORS[app.status] || 'bg-slate-700 text-slate-300'}`}
+                                            >
+                                                <option value="pending">Pending</option>
+                                                <option value="reviewed">Reviewed</option>
+                                                <option value="shortlisted">Shortlisted</option>
+                                                <option value="rejected">Rejected</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-3 text-xs text-slate-400 mb-3">
+                                            {app.profiles?.email && (
+                                                <a href={`mailto:${app.profiles.email}`} className="flex items-center gap-1 hover:text-white">
+                                                    <Mail className="w-3 h-3" /> {app.profiles.email}
+                                                </a>
+                                            )}
+                                            {app.profiles?.phone && (
+                                                <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {app.profiles.phone}</span>
+                                            )}
+                                            {app.profiles?.linkedin_url && (
+                                                <a href={app.profiles.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-white">
+                                                    <Linkedin className="w-3 h-3" /> LinkedIn
+                                                </a>
+                                            )}
+                                        </div>
+
+                                        {app.cover_letter && (
+                                            <p className="text-slate-300 text-sm bg-slate-900/50 rounded-lg p-3 mb-2 whitespace-pre-wrap">{app.cover_letter}</p>
+                                        )}
+
+                                        <div className="flex items-center justify-between">
+                                            <button
+                                                onClick={() => handleMessageApplicant(app.applicant_id, applicantsModalJob.id)}
+                                                className="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300"
+                                            >
+                                                <MessageCircle className="w-3 h-3" /> Message
+                                            </button>
+                                            <p className="text-slate-500 text-xs">Applied {new Date(app.applied_at).toLocaleDateString()}</p>
+                                            {app.cv_url && (
+                                                <a href={app.cv_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300">
+                                                    <ExternalLink className="w-3 h-3" /> View CV
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
