@@ -505,6 +505,7 @@ function Footer() {
                             <li><a href="/blog" className="text-slate-400 text-sm hover:text-white transition">Career Blog</a></li>
                             <li><a href="/faq" className="text-slate-400 text-sm hover:text-white transition">FAQ</a></li>
                             <li><a href="/pricing" className="text-slate-400 text-sm hover:text-white transition">Pricing Plans</a></li>
+                            <li><a href="/pricing-explained" className="text-slate-400 text-sm hover:text-white transition">Pricing & Credits Explained</a></li>
                             {/* NEW (2026-08-16): the real, live footer had
                                 no affiliate link anywhere at all — the
                                 separate, unused Footer.jsx component had
@@ -600,6 +601,7 @@ const VerifiedEmployersPage = lazy(() => import('./pages/VerifiedEmployersPage')
 // there was no frontend to actually use them.
 const EmployerSourcesManager = lazy(() => import('./pages/admin/EmployerSourcesManager'));
 const AdminBannerMessages = lazy(() => import('./pages/admin/AdminBannerMessages'));
+const AdminDashboardAnnouncements = lazy(() => import('./pages/admin/AdminDashboardAnnouncements'));
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
 const WorkforceMarketplace = lazy(() => import('./pages/WorkforceMarketplace'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
@@ -611,6 +613,7 @@ const AboutPage = lazy(() => import('./pages/AboutPage'));
 const ContactPage = lazy(() => import('./pages/ContactPage'));
 const SupportTicketsPage = lazy(() => import('./pages/SupportTicketsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
+const PricingExplained = lazy(() => import('./pages/PricingExplained'));
 const SignInPage = lazy(() => import('./pages/SignInPage'));
 // NEW (2026-09-09): the genuinely missing page Supabase's own email
 // template links to - confirmed the real, live confirmation link uses
@@ -636,6 +639,7 @@ const UserApplications = lazy(() => import('./pages/UserApplications'));
 const UserSkills = lazy(() => import('./pages/UserSkills'));
 const UserMessages = lazy(() => import('./pages/UserMessages'));
 const UserSettings = lazy(() => import('./pages/UserSettings'));
+const EditProfilePage = lazy(() => import('./pages/EditProfilePage'));
 const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage'));
 const JobAlertsPage = lazy(() => import('./pages/JobAlertsPage'));
 const AffiliateDashboard = lazy(() => import('./pages/AffiliateDashboard'));
@@ -647,6 +651,7 @@ const CertificatePage = lazy(() => import('./pages/CertificatePage'));
 const CompanyProfile = lazy(() => import('./pages/CompanyProfile'));
 const WorkforceDashboard = lazy(() => import('./pages/WorkforceDashboard'));
 const PostJob = lazy(() => import('./pages/employer/PostJob'));
+const EditJob = lazy(() => import('./pages/employer/EditJob'));
 const ManageJobs = lazy(() => import('./pages/employer/ManageJobs'));
 const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
 const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
@@ -679,6 +684,7 @@ const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
 const CustomHRToolManager = lazy(() => import('./pages/admin/CustomHRToolManager'));
+const PersonalMediaStudio = lazy(() => import('./pages/admin/PersonalMediaStudio'));
 const AdminSupportTickets = lazy(() => import('./pages/admin/AdminSupportTickets'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
@@ -869,6 +875,7 @@ function AppContent() {
                             <Route path="/contact" element={<AnimatedPage><ContactPage /></AnimatedPage>} />
                             <Route path="/support-tickets" element={<ProtectedRoute><SupportTicketsPage /></ProtectedRoute>} />
                             <Route path="/pricing" element={<AnimatedPage><PricingPage /></AnimatedPage>} />
+                            <Route path="/pricing-explained" element={<AnimatedPage><PricingExplained /></AnimatedPage>} />
                             <Route path="/sign-in" element={<AnimatedPage><SignInPage /></AnimatedPage>} />
                             <Route path="/confirm" element={<AnimatedPage><ConfirmPage /></AnimatedPage>} />
                             {/* FIXED (2026-09-17): confirmed via the real, live email
@@ -931,6 +938,7 @@ function AppContent() {
                             <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentEditor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><AdminLayout><VirtualAssistantManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/hr-tool-builder" element={<ProtectedRoute requireAdmin><AdminLayout><CustomHRToolManager /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/personal-media-studio" element={<ProtectedRoute requireAdmin><AdminLayout><PersonalMediaStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/support-tickets" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSupportTickets /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSkills /></AdminLayout></ProtectedRoute>} />
@@ -944,6 +952,7 @@ function AppContent() {
                             <Route path="/admin/insight-engine" element={<ProtectedRoute requireAdmin><AdminLayout><InsightEngine /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/employer-sources" element={<ProtectedRoute requireAdmin><AdminLayout><EmployerSourcesManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/banner-messages" element={<ProtectedRoute requireAdmin><AdminLayout><AdminBannerMessages /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/dashboard-announcements" element={<ProtectedRoute requireAdmin><AdminLayout><AdminDashboardAnnouncements /></AdminLayout></ProtectedRoute>} />
                             <Route path="/employer-verification" element={<ProtectedRoute><EmployerVerification /></ProtectedRoute>} />
                             <Route path="/admin/employer-verification" element={<ProtectedRoute requireAdmin><AdminLayout><AdminEmployerVerification /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/opportunity-gaps" element={<ProtectedRoute requireAdmin><AdminLayout><AdminOpportunityGaps /></AdminLayout></ProtectedRoute>} />
@@ -963,6 +972,7 @@ function AppContent() {
                             <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
                             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
                             <Route path="/settings/security" element={<ProtectedRoute><TwoFactorSettings /></ProtectedRoute>} />
+                            <Route path="/settings/profile" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
                             <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
                             <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
@@ -976,6 +986,7 @@ function AppContent() {
                             
                             {/* Employer Routes - Protected */}
                             <Route path="/post-job" element={<ProtectedRoute><PostJob /></ProtectedRoute>} />
+                            <Route path="/edit-job/:id" element={<ProtectedRoute><EditJob /></ProtectedRoute>} />
                             <Route path="/manage-jobs" element={<ProtectedRoute><ManageJobs /></ProtectedRoute>} />
                             
                             {/* Tester Routes */}
