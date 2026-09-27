@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { GraduationCap, Loader2, X, Sparkles } from 'lucide-react';
+import { GraduationCap, Loader2, X, Sparkles, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ConvertBookToCourseButton({ bookId, bookTitle, onConverted }) {
@@ -23,9 +23,11 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
     const [showModal, setShowModal] = useState(false);
     const [elaborateWithAI, setElaborateWithAI] = useState(true);
     const [converting, setConverting] = useState(false);
+    const [conversionError, setConversionError] = useState(null);
 
     async function handleConvert() {
         setConverting(true);
+        setConversionError(null);
         try {
             const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/index?action=generate-course-from-book', {
@@ -51,6 +53,7 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
             navigate('/admin/courses');
         } catch (err) {
             toast.error(err.message);
+            setConversionError(err.message);
         } finally {
             setConverting(false);
         }
@@ -98,6 +101,13 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
                                 </p>
                             </div>
                         </label>
+
+                        {conversionError && (
+                            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg mb-4">
+                                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                                <p className="text-red-300 text-sm">{conversionError}</p>
+                            </div>
+                        )}
 
                         <button
                             onClick={handleConvert}
