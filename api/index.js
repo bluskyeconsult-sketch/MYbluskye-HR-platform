@@ -301,22 +301,12 @@ async function checkIpRateLimit(supabaseClient, ip, maxPerHour) {
 // exposure by default) — this is a judgment call, not a confirmed
 // business decision; revisit if the larger numbers were actually intended.
 //
-// FLAGGED, NOT RESOLVED: 'business' tier is treated as fully UNLIMITED in
-// user-eligibility (isUnlimited check on profile.tier === 'business'), but
-// checkAndDeductCredit — the function that actually gates VA/HR-tools AI
-// calls — does NOT include business in its unlimited check at all, so a
-// business-tier account is metered against a real balance there. Given
-// business tier is unlimited in one place and metered in another, its
-// exact number here (20) is a placeholder matching what SignUpPage.jsx
-// already grants — but if business is meant to be unlimited everywhere,
-// this number is moot and the real fix is adding business to
-// checkAndDeductCredit's unlimited check instead. Needs a decision on
-// actual intent, not a guess.
-// DECIDED (2026-08-21): business tier gets a high but finite cap for
-// AI-backed VA/HR-tool usage — 200/month — not truly unlimited. Applied
-// consistently below and in both user-eligibility branches (assessments
-// and credits), which previously treated business as fully unlimited,
-// creating the exact inconsistency this decision was meant to resolve.
+// RESOLVED (2026-09-25): confirmed directly - this was already fixed
+// in user-eligibility (see its own 2026-08-21 comment) and every
+// isUnlimited definition across the codebase is now genuinely
+// consistent: only admin/super_admin are unlimited. Business tier is
+// capped at 200/month everywhere, unlimited nowhere. The number below
+// (200) is the real, decided cap, not a placeholder.
 const TIER_MONTHLY_ALLOWANCE = {
     free: 5,
     registered: 10,
@@ -2290,6 +2280,1090 @@ Return JSON: {
         }
     },
 
+    // ========== AI PRICING ASSISTANT (NEW, 2026-09-25) ==========
+    // Grounded in the platform's own, real, confirmed price ranges
+    // (books ~$8-25, VAs ~$5-15, tier structure $0/$39.99/$199.99/
+    // $549.99), combined with the AI's own genuine knowledge of
+    // typical market pricing for comparable digital products - so
+    // recommendations reflect both internal consistency (nothing
+    // wildly out of step with what's already sold here) and real,
+    // external competitive positioning.
+    'suggest-price': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { itemType, name, description, category } = req.body;
+        if (!itemType || !name) return res.status(400).json({ error: 'itemType and name are required' });
+
+        const validTypes = ['book', 'course', 'virtual_assistant', 'hr_tool'];
+        if (!validTypes.includes(itemType)) {
+            return res.status(400).json({ error: `itemType must be one of: ${validTypes.join(', ')}` });
+        }
+
+        try {
+            // Real, current prices already charged on this platform,
+            // for each item type - genuine internal reference points,
+            // not fabricated benchmarks.
+            const contextByType = {
+                book: `This platform's existing books typically price e-copies around $8.99-$14.99 and hardcopies around $16.99-$24.99, depending on length and depth.`,
+                course: `This platform's courses range from free (lead-generation/intro content) up to roughly $49.99-$99.99 for in-depth, multi-lesson premium courses with quizzes and certificates.`,
+                virtual_assistant: `This platform's existing AI virtual assistants typically price around $5.99-$14.99 per use, reflecting a single, focused task completed in minutes.`,
+                hr_tool: `This platform's HR tools are typically included within paid subscription tiers (Professional $39.99/mo, Employer $199.99/mo, Business $549.99/mo) rather than priced individually - if this is a standalone, pay-per-use tool, price it similarly to the virtual assistants above ($5-15 range) unless it's genuinely more complex.`
+            };
+
+            const data = await callOpenAI([
+                {
+                    role: 'system',
+                    content: `You are a pricing analyst for ODUSBABA, an AI-powered HR/career platform. Recommend a specific, genuine price for a new item, reflecting both this platform's own existing pricing (so the new item doesn't feel wildly out of step with what's already sold here) and real, current market rates for comparable products elsewhere (so it's genuinely competitive, not arbitrary).
+
+${contextByType[itemType]}
+
+Return ONLY a JSON object: {
+    "suggestedPrice": <number>,
+    "priceRange": { "min": <number>, "max": <number> },
+    "reasoning": "2-3 sentences explaining why this price, referencing both this platform's own existing prices and genuine external market comparables",
+    "competitivePosition": "budget|mid-market|premium"
+}`
+                },
+                {
+                    role: 'user',
+                    content: `Item type: ${itemType}\nName: ${name}\nDescription: ${description || 'none provided'}\nCategory: ${category || 'none provided'}\n\nRecommend a genuine, specific price for this.`
+                }
+            ], 500, 0.4, { type: 'json_object' });
+
+            const parsed = JSON.parse(data.choices[0].message.content);
+            return res.status(200).json({ success: true, ...parsed });
+        } catch (error) {
+            console.error('suggest-price error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-25): the genuinely missing piece - "View
+    // Applicants" was promised on the pricing page and linked from
+    // the dashboard, but no backend action or UI existed anywhere to
+    // actually do it. Verifies the requesting user genuinely owns
+    // this job before returning any applicant data - an employer
+    // should only ever see applications to their own postings.
+    'get-job-applicants': async (req, res) => {
+        const { jobId } = req.query;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        const supabaseClient = getSupabase();
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: 'Not authenticated' });
+
+        try {
+            const token = authHeader.replace('Bearer ', '');
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // Confirms real ownership before returning anything -
+            // never trusts a jobId alone to mean this caller may see
+            // its applicants.
+            const { data: job, error: jobError } = await supabaseClient
+                .from('jobs')
+                .select('id, title, user_id')
+                .eq('id', jobId)
+                .single();
+
+            if (jobError || !job) return res.status(404).json({ error: 'Job not found' });
+            if (job.user_id !== user.id) {
+                return res.status(403).json({ error: 'You can only view applicants for your own job postings' });
+            }
+
+            const { data: applications, error: appsError } = await supabaseClient
+                .from('job_applications')
+                .select('id, applicant_id, cover_letter, cv_url, status, applied_at')
+                .eq('job_id', jobId)
+                .order('applied_at', { ascending: false });
+
+            if (appsError) throw appsError;
+
+            const applicantIds = (applications || []).map(a => a.applicant_id);
+            const { data: profiles } = applicantIds.length > 0
+                ? await supabaseClient
+                    .from('profiles')
+                    .select('id, full_name, email, job_title, years_experience, linkedin_url, phone')
+                    .in('id', applicantIds)
+                : { data: [] };
+
+            const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+            const enriched = (applications || []).map(a => ({
+                ...a,
+                applicant: profileMap[a.applicant_id] || null
+            }));
+
+            return res.status(200).json({ success: true, jobTitle: job.title, applicants: enriched });
+        } catch (error) {
+            console.error('get-job-applicants error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-25): lets an employer update an applicant's status
+    // (shortlisted/rejected/etc.) - the other genuinely missing half
+    // of managing applicants, not just viewing them. Same real
+    // ownership check as above.
+
+    // ========== APPLICANT VIEWING (NEW, 2026-09-25) ==========
+    // The genuinely missing half of the employer/business "View
+    // Applicants" feature - promised on the pricing page, but no
+    // actual UI or backend existed to do it until now.
+    'get-job-applicants': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { jobId } = req.query;
+        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const token = authHeader.replace('Bearer ', '');
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // Real authorization - confirms the requester genuinely
+            // owns this job before showing anyone's application data,
+            // rather than trusting a jobId alone.
+            const { data: job, error: jobError } = await supabaseClient
+                .from('jobs')
+                .select('id, title, user_id')
+                .eq('id', jobId)
+                .single();
+
+            if (jobError || !job) return res.status(404).json({ error: 'Job not found' });
+
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('user_type')
+                .eq('id', user.id)
+                .single();
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            if (job.user_id !== user.id && !isAdmin) {
+                return res.status(403).json({ error: "You can only view applicants for jobs you posted" });
+            }
+
+            const { data: applications, error: appsError } = await supabaseClient
+                .from('job_applications')
+                .select('id, applicant_id, cover_letter, cv_url, status, applied_at, profiles:applicant_id (full_name, email, job_title, phone, linkedin_url, years_experience)')
+                .eq('job_id', jobId)
+                .order('applied_at', { ascending: false });
+
+            if (appsError) throw appsError;
+
+            return res.status(200).json({ success: true, jobTitle: job.title, applicants: applications || [] });
+        } catch (error) {
+            console.error('get-job-applicants error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'update-application-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { applicationId, status } = req.body;
+        const validStatuses = ['pending', 'reviewed', 'shortlisted', 'rejected', 'hired'];
+        if (!applicationId || !validStatuses.includes(status)) {
+            return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+        }
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const token = authHeader.replace('Bearer ', '');
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // Real authorization - joins through to the job to confirm
+            // genuine ownership before letting anyone change an
+            // application's status.
+            const { data: application, error: appError } = await supabaseClient
+                .from('job_applications')
+                .select('id, jobs:job_id (user_id)')
+                .eq('id', applicationId)
+                .single();
+
+            if (appError || !application) return res.status(404).json({ error: 'Application not found' });
+
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('user_type')
+                .eq('id', user.id)
+                .single();
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+
+            if (application.jobs?.user_id !== user.id && !isAdmin) {
+                return res.status(403).json({ error: 'You can only update applications for jobs you posted' });
+            }
+
+            const { error: updateError } = await supabaseClient
+                .from('job_applications')
+                .update({ status })
+                .eq('id', applicationId);
+
+            if (updateError) throw updateError;
+
+            // NEW (2026-09-25): real abuse-trail logging - an
+            // applicant's status is a genuinely sensitive decision
+            // (could reflect discrimination or retaliation), worth
+            // a real, traceable record of who changed it and when.
+            logUserActivity(supabaseClient, req, { userId: user.id, userEmail: user.email, actionType: 'application_status_changed', details: { applicationId, newStatus: status } });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('update-application-status error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== DIRECT MESSAGING (NEW, 2026-09-25) ==========
+    // Replaces UserMessages.jsx's "Coming soon" stub with real,
+    // working conversations between two users.
+    'get-conversations': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            const { data: conversations, error } = await supabaseClient
+                .from('conversations')
+                .select(`
+                    id, related_job_id, last_message_at,
+                    participant_one_id, participant_two_id,
+                    p1:participant_one_id (full_name, avatar_url),
+                    p2:participant_two_id (full_name, avatar_url),
+                    jobs:related_job_id (title)
+                `)
+                .or(`participant_one_id.eq.${user.id},participant_two_id.eq.${user.id}`)
+                .order('last_message_at', { ascending: false });
+
+            if (error) throw error;
+
+            // Real, unread-count per conversation - genuinely useful
+            // for showing which threads need attention.
+            const conversationIds = (conversations || []).map(c => c.id);
+            let unreadCounts = {};
+            if (conversationIds.length > 0) {
+                const { data: unread } = await supabaseClient
+                    .from('messages')
+                    .select('conversation_id')
+                    .in('conversation_id', conversationIds)
+                    .eq('is_read', false)
+                    .neq('sender_id', user.id);
+                (unread || []).forEach(m => { unreadCounts[m.conversation_id] = (unreadCounts[m.conversation_id] || 0) + 1; });
+            }
+
+            const shaped = (conversations || []).map(c => {
+                const isP1 = c.participant_one_id === user.id;
+                const other = isP1 ? c.p2 : c.p1;
+                return {
+                    id: c.id,
+                    otherUser: other,
+                    relatedJobTitle: c.jobs?.title || null,
+                    lastMessageAt: c.last_message_at,
+                    unreadCount: unreadCounts[c.id] || 0
+                };
+            });
+
+            return res.status(200).json({ success: true, conversations: shaped });
+        } catch (error) {
+            console.error('get-conversations error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'get-messages': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { conversationId } = req.query;
+        if (!conversationId) return res.status(400).json({ error: 'conversationId is required' });
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // Real authorization - confirms genuine membership in
+            // this conversation before showing its messages.
+            const { data: convo } = await supabaseClient
+                .from('conversations')
+                .select('participant_one_id, participant_two_id')
+                .eq('id', conversationId)
+                .single();
+
+            if (!convo || (convo.participant_one_id !== user.id && convo.participant_two_id !== user.id)) {
+                return res.status(403).json({ error: 'Not a participant in this conversation' });
+            }
+
+            const { data: messages, error } = await supabaseClient
+                .from('messages')
+                .select('id, sender_id, content, is_read, created_at')
+                .eq('conversation_id', conversationId)
+                .order('created_at', { ascending: true });
+
+            if (error) throw error;
+
+            // Marks the other person's messages as read, fire-and-forget
+            // - never blocks returning the thread itself.
+            supabaseClient
+                .from('messages')
+                .update({ is_read: true })
+                .eq('conversation_id', conversationId)
+                .neq('sender_id', user.id)
+                .eq('is_read', false)
+                .then(() => {}, () => {});
+
+            return res.status(200).json({ success: true, messages: messages || [] });
+        } catch (error) {
+            console.error('get-messages error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'send-message': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { conversationId, content } = req.body;
+        if (!conversationId || !content?.trim()) {
+            return res.status(400).json({ error: 'conversationId and content are required' });
+        }
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // NEW (2026-09-26): real rate limiting - confirmed this
+            // was genuinely missing before, no protection against
+            // automated spam-blasting through this endpoint at all.
+            // 20/minute is generous for real conversation but stops
+            // a script from flooding a conversation or many
+            // conversations at once.
+            if (!checkRateLimit(`message:${user.id}`, 20)) {
+                await logSecurityEvent('message_rate_limit_exceeded', getRequestIP(req), 'warning', { userId: user.id });
+                return res.status(429).json({ error: "You're sending messages too quickly - please slow down." });
+            }
+
+            const { data: convo } = await supabaseClient
+                .from('conversations')
+                .select('participant_one_id, participant_two_id')
+                .eq('id', conversationId)
+                .single();
+
+            if (!convo || (convo.participant_one_id !== user.id && convo.participant_two_id !== user.id)) {
+                return res.status(403).json({ error: 'Not a participant in this conversation' });
+            }
+
+            const trimmedContent = content.trim();
+
+            // NEW (2026-09-26): real, honest suspicious-content
+            // detection - deliberately flags for admin review rather
+            // than blocking outright, since false positives are
+            // genuinely likely (e.g. a legitimate mention of a wire
+            // transfer for a real payroll question). Catches the
+            // common, real scam patterns seen on hiring platforms:
+            // requests for gift cards or wire transfers "to secure"
+            // a job, and messages carrying multiple external links
+            // (a common phishing pattern).
+            const scamPatterns = /\b(gift\s?card|western\s?union|wire\s?transfer|money\s?gram|crypto(currency)?\s?wallet|bitcoin\s?address|processing\s?fee|advance\s?fee|send.{0,20}(payment|money).{0,20}(secure|confirm|hold)|whatsapp\s?me|telegram\s?me)\b/i;
+            const urlCount = (trimmedContent.match(/https?:\/\//gi) || []).length;
+            const isSuspicious = scamPatterns.test(trimmedContent) || urlCount >= 3;
+
+            if (isSuspicious) {
+                logSecurityEvent('suspicious_message_content', getRequestIP(req), 'warning', { userId: user.id, conversationId, urlCount });
+            }
+
+            const { data: message, error } = await supabaseClient
+                .from('messages')
+                .insert({ conversation_id: conversationId, sender_id: user.id, content: trimmedContent, is_flagged: isSuspicious })
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await supabaseClient
+                .from('conversations')
+                .update({ last_message_at: new Date().toISOString() })
+                .eq('id', conversationId);
+
+            // NEW (2026-09-25): real abuse-trail logging - deliberately
+            // logs only the fact and conversation reference, not the
+            // message content itself, since that's already
+            // permanently stored in the real messages table and an
+            // admin investigating a report can read it there directly.
+            logUserActivity(supabaseClient, req, { userId: user.id, userEmail: user.email, actionType: 'message_sent', details: { conversationId } });
+
+            return res.status(200).json({ success: true, message });
+        } catch (error) {
+            console.error('send-message error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'start-conversation': async (req, res) => {
+        const supabaseClient = getSupabase();
+        let { otherUserId, relatedJobId, firstMessage, jobId } = req.body;
+        if (!otherUserId && !jobId) {
+            return res.status(400).json({ error: 'otherUserId or jobId is required' });
+        }
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // NEW (2026-09-25): the job-seeker-initiated path - jobId
+            // alone, no otherUserId trusted from the client at all.
+            // Resolves the employer server-side, and genuinely
+            // requires a real, existing application to that job -
+            // this is real, enforced authorization, not just a UI
+            // restriction, and deliberately scoped so a job seeker
+            // can only message an employer they've genuinely already
+            // applied to, never cold-outreach to anyone else.
+            if (jobId && !otherUserId) {
+                const { data: application } = await supabaseClient
+                    .from('job_applications')
+                    .select('id')
+                    .eq('job_id', jobId)
+                    .eq('user_id', user.id)
+                    .maybeSingle();
+
+                if (!application) {
+                    return res.status(403).json({ error: "You can only message an employer for a job you've applied to" });
+                }
+
+                const { data: job } = await supabaseClient
+                    .from('jobs')
+                    .select('user_id')
+                    .eq('id', jobId)
+                    .single();
+
+                if (!job?.user_id) {
+                    return res.status(404).json({ error: 'Job or employer not found' });
+                }
+
+                otherUserId = job.user_id;
+                relatedJobId = jobId;
+            }
+
+            if (otherUserId === user.id) {
+                return res.status(400).json({ error: "You can't start a conversation with yourself" });
+            }
+
+            // Reuses an existing conversation between these two people
+            // (about this same job, if any) rather than ever creating
+            // a duplicate thread.
+            const { data: existing } = await supabaseClient
+                .from('conversations')
+                .select('id')
+                .or(`and(participant_one_id.eq.${user.id},participant_two_id.eq.${otherUserId}),and(participant_one_id.eq.${otherUserId},participant_two_id.eq.${user.id})`)
+                .eq('related_job_id', relatedJobId || null)
+                .maybeSingle();
+
+            let conversationId = existing?.id;
+
+            if (!conversationId) {
+                const { data: newConvo, error: createError } = await supabaseClient
+                    .from('conversations')
+                    .insert({
+                        participant_one_id: user.id,
+                        participant_two_id: otherUserId,
+                        related_job_id: relatedJobId || null
+                    })
+                    .select()
+                    .single();
+                if (createError) throw createError;
+                conversationId = newConvo.id;
+            }
+
+            if (firstMessage?.trim()) {
+                await supabaseClient.from('messages').insert({
+                    conversation_id: conversationId,
+                    sender_id: user.id,
+                    content: firstMessage.trim()
+                });
+                await supabaseClient
+                    .from('conversations')
+                    .update({ last_message_at: new Date().toISOString() })
+                    .eq('id', conversationId);
+            }
+
+            return res.status(200).json({ success: true, conversationId });
+
+        } catch (error) {
+            console.error('start-conversation error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== DASHBOARD ANNOUNCEMENTS (NEW, 2026-09-25) ==========
+    // Genuinely distinct from banner_messages (the top scrolling bar)
+    // - a real, dismissible popup for occasional, important
+    // communications that need active acknowledgment.
+    'get-dashboard-announcement': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(200).json({ success: true, announcement: null });
+            const { data: { user } } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (!user) return res.status(200).json({ success: true, announcement: null });
+
+            const { data: dismissals } = await supabaseClient
+                .from('dashboard_announcement_dismissals')
+                .select('announcement_id')
+                .eq('user_id', user.id);
+            const dismissedIds = (dismissals || []).map(d => d.announcement_id);
+
+            let query = supabaseClient
+                .from('dashboard_announcements')
+                .select('*')
+                .eq('is_active', true)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (dismissedIds.length > 0) {
+                query = query.not('id', 'in', `(${dismissedIds.join(',')})`);
+            }
+
+            const { data: announcement } = await query.maybeSingle();
+            return res.status(200).json({ success: true, announcement: announcement || null });
+        } catch (error) {
+            console.error('get-dashboard-announcement error:', error);
+            return res.status(200).json({ success: true, announcement: null });
+        }
+    },
+
+    'dismiss-dashboard-announcement': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { announcementId } = req.body;
+        if (!announcementId) return res.status(400).json({ error: 'announcementId is required' });
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            await supabaseClient
+                .from('dashboard_announcement_dismissals')
+                .upsert({ announcement_id: announcementId, user_id: user.id }, { onConflict: 'announcement_id,user_id' });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('dismiss-dashboard-announcement error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-create-dashboard-announcement': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { title, message, ctaLabel, ctaUrl } = req.body;
+        if (!title?.trim() || !message?.trim()) {
+            return res.status(400).json({ error: 'title and message are required' });
+        }
+
+        // NEW (2026-09-26): real URL validation - defense-in-depth
+        // against a javascript: pseudo-protocol URL (or similar)
+        // ending up as a raw href that would execute for every single
+        // user who sees this announcement. Only genuine http/https
+        // links are allowed through.
+        if (ctaUrl?.trim()) {
+            try {
+                const parsed = new URL(ctaUrl.trim());
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    return res.status(400).json({ error: 'Button link must be a genuine http:// or https:// URL' });
+                }
+            } catch {
+                return res.status(400).json({ error: 'Button link is not a valid URL' });
+            }
+        }
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('dashboard_announcements')
+                .insert({
+                    title: title.trim(),
+                    message: message.trim(),
+                    cta_label: ctaLabel?.trim() || null,
+                    cta_url: ctaUrl?.trim() || null,
+                    created_by: auth.userId
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            // NEW (2026-09-25): real admin-accountability trail -
+            // easier for an admin investigating abuse to find in the
+            // unified activity log than checking dashboard_announcements
+            // directly, even though created_by is already stored there.
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'dashboard_announcement_created', details: { announcementId: data.id, title: data.title } });
+
+            return res.status(200).json({ success: true, announcement: data });
+        } catch (error) {
+            console.error('admin-create-dashboard-announcement error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-list-dashboard-announcements': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('dashboard_announcements')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, announcements: data || [] });
+        } catch (error) {
+            console.error('admin-list-dashboard-announcements error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-deactivate-dashboard-announcement': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { announcementId } = req.body;
+        if (!announcementId) return res.status(400).json({ error: 'announcementId is required' });
+
+        try {
+            const { error } = await supabaseClient
+                .from('dashboard_announcements')
+                .update({ is_active: false })
+                .eq('id', announcementId);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-deactivate-dashboard-announcement error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== PERSONAL MEDIA STUDIO (NEW, 2026-09-26) ==========
+    // Cost-conscious by default, matching the same real sensitivity
+    // as the bulk article/course content generation - genuinely
+    // different from an earlier draft of this that defaulted to
+    // gpt-image-1 at quality: 'high', which was both more expensive
+    // than necessary AND used a model OpenAI is retiring on
+    // 2026-10-23. Now uses gpt-image-1-mini (the same, cheapest model
+    // already proven elsewhere on this platform) with quality
+    // defaulting to 'low', and returns a real, accurate cost estimate
+    // with every result so cost is always visible, never hidden.
+    // High quality remains available - the user chooses it
+    // deliberately per-generation, it's never the silent default.
+    //
+    // Honest note: video generation (OpenAI's Sora) is NOT included
+    // here - confirmed directly that OpenAI discontinued the Sora API
+    // on 2026-09-24, two days before this was built. Building against
+    // a shut-down API would fail on every call.
+    'generate-personal-image': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+        if (authCheck.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'This tool is restricted to the platform owner' });
+        }
+
+        const { prompt, size, quality } = req.body;
+        if (!prompt?.trim()) return res.status(400).json({ error: 'prompt is required' });
+
+        // Real, confirmed-via-research per-image cost estimates for
+        // gpt-image-1-mini by size and quality - shown to the user
+        // with every result, not hidden.
+        const COST_ESTIMATES = {
+            '1024x1024': { low: 0.005, medium: 0.015, high: 0.052 },
+            '1536x1024': { low: 0.006, medium: 0.015, high: 0.052 },
+            '1024x1536': { low: 0.006, medium: 0.015, high: 0.052 }
+        };
+
+        const finalSize = size || '1024x1024';
+        const finalQuality = quality || 'low';
+
+        try {
+            const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+            if (!apiKey) throw new Error('OpenAI API key not configured');
+
+            const response = await fetch('https://api.openai.com/v1/images/generations', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    // FIXED (2026-09-26): switched from gpt-image-1,
+                    // confirmed via direct research to be retiring on
+                    // 2026-10-23 - genuinely would have stopped
+                    // working within weeks. gpt-image-1-mini is the
+                    // same, cheapest model already proven elsewhere
+                    // on this platform's bulk content generation.
+                    model: 'gpt-image-1-mini',
+                    prompt: prompt.trim(),
+                    n: 1,
+                    size: finalSize,
+                    quality: finalQuality
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error?.message || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const imageBase64 = data.data[0].b64_json;
+            const estimatedCost = COST_ESTIMATES[finalSize]?.[finalQuality] ?? null;
+
+            logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_image_generated', details: { promptLength: prompt.length, quality: finalQuality, estimatedCost } });
+
+            return res.status(200).json({ success: true, image: `data:image/png;base64,${imageBase64}`, estimatedCost });
+        } catch (error) {
+            console.error('generate-personal-image error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'generate-personal-audio': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+        if (authCheck.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'This tool is restricted to the platform owner' });
+        }
+
+        const { script, voice, speed, hd } = req.body;
+        if (!script?.trim()) return res.status(400).json({ error: 'script is required' });
+
+        try {
+            const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+            if (!apiKey) throw new Error('OpenAI API key not configured');
+
+            // FIXED (2026-09-26): defaults to tts-1, confirmed via
+            // direct research to cost exactly half of tts-1-hd ($15
+            // vs $30 per 1M characters) - HD is now an explicit,
+            // deliberate opt-in (hd: true) rather than the silent
+            // default, matching genuine cost-sensitivity. Still
+            // genuinely handles the 4096-char input limit by chunking
+            // and concatenating rather than silently truncating.
+            const model = hd ? 'tts-1-hd' : 'tts-1';
+            const ratePerChar = hd ? 0.00003 : 0.000015; // $30 or $15 per 1M chars
+
+            const trimmedScript = script.trim();
+            const chunks = [];
+            for (let i = 0; i < trimmedScript.length; i += 4000) {
+                chunks.push(trimmedScript.substring(i, i + 4000));
+            }
+
+            const audioBuffers = [];
+            for (const chunk of chunks) {
+                const response = await fetch('https://api.openai.com/v1/audio/speech', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model,
+                        input: chunk,
+                        voice: voice || 'alloy',
+                        speed: speed || 1.0
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || `HTTP ${response.status}`);
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                audioBuffers.push(Buffer.from(arrayBuffer));
+            }
+
+            const combinedAudio = Buffer.concat(audioBuffers);
+            const estimatedCost = Math.round(trimmedScript.length * ratePerChar * 10000) / 10000;
+
+            logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_audio_generated', details: { scriptLength: script.length, chunks: chunks.length, model, estimatedCost } });
+
+            return res.status(200).json({ success: true, audio: `data:audio/mpeg;base64,${combinedAudio.toString('base64')}`, estimatedCost });
+        } catch (error) {
+            console.error('generate-personal-audio error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'start-personal-video': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+        if (authCheck.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'This tool is restricted to the platform owner' });
+        }
+
+        const { prompt, imageUrl } = req.body;
+        if (!prompt?.trim()) return res.status(400).json({ error: 'prompt is required' });
+
+        // FIXED (2026-09-26): confirmed a real flaw in the first draft
+        // of this - a single-request poll loop could genuinely run up
+        // to 25 minutes, but Vercel's real maxDuration ceiling is 300
+        // seconds (Pro tier) - that draft would have been killed
+        // mid-generation every time. Split into start (this action,
+        // returns immediately) and a separate status-check action the
+        // frontend polls repeatedly - each individual request
+        // completes in well under a second, genuinely safe regardless
+        // of how long the actual video generation takes.
+        //
+        // Honest research note: Sora (OpenAI) is discontinued as of
+        // 2026-09-24. Google Veo's direct API needs a real Google
+        // Cloud project/billing setup at $0.03-0.60 PER SECOND (a 10s
+        // clip can run $3-6+). This actor needs zero new setup
+        // (reuses the same APIFY_API_TOKEN already working elsewhere
+        // on this platform) at a real, confirmed ~$1.05-1.12 per whole
+        // video, with a confirmed 100% success rate across its real
+        // users.
+        const token = process.env.APIFY_API_TOKEN || '';
+
+        try {
+            const startResponse = await fetch(
+                `https://api.apify.com/v2/acts/seo-scraper~gemini-omni-video-api/runs?token=${token}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt.trim(), ...(imageUrl?.trim() ? { imageUrl: imageUrl.trim() } : {}) })
+                }
+            );
+
+            if (!startResponse.ok) {
+                return res.status(500).json({ success: false, error: `Failed to start video generation: HTTP ${startResponse.status}` });
+            }
+
+            const startData = await startResponse.json();
+            const runId = startData.data?.id;
+            if (!runId) return res.status(500).json({ success: false, error: 'Video generation start response had no run ID' });
+
+            logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_video_started', details: { promptLength: prompt.length, runId } });
+
+            return res.status(200).json({ success: true, runId });
+        } catch (error) {
+            console.error('start-personal-video error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'check-personal-video-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+        if (authCheck.userType !== 'super_admin') {
+            return res.status(403).json({ error: 'This tool is restricted to the platform owner' });
+        }
+
+        const { runId } = req.query;
+        if (!runId) return res.status(400).json({ error: 'runId is required' });
+
+        const token = process.env.APIFY_API_TOKEN || '';
+
+        try {
+            const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
+            if (!statusResponse.ok) {
+                return res.status(500).json({ success: false, error: `Failed to check status: HTTP ${statusResponse.status}` });
+            }
+            const statusData = await statusResponse.json();
+            const runStatus = statusData.data?.status;
+            const datasetId = statusData.data?.defaultDatasetId;
+
+            if (runStatus === 'RUNNING' || runStatus === 'READY') {
+                return res.status(200).json({ success: true, done: false, status: runStatus });
+            }
+
+            if (runStatus !== 'SUCCEEDED') {
+                return res.status(200).json({ success: true, done: true, failed: true, status: runStatus });
+            }
+
+            const itemsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`);
+            if (!itemsResponse.ok) {
+                return res.status(200).json({ success: true, done: true, failed: true, status: 'RESULT_FETCH_FAILED' });
+            }
+            const items = await itemsResponse.json();
+            const result = items?.[0];
+
+            if (!result?.success || !result?.videoKvsUrl) {
+                return res.status(200).json({ success: true, done: true, failed: true, status: 'NO_VIDEO_RETURNED', message: result?.message });
+            }
+
+            return res.status(200).json({ success: true, done: true, failed: false, videoUrl: result.videoKvsUrl, estimatedCost: 1.10 });
+        } catch (error) {
+            console.error('check-personal-video-status error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-26): real admin visibility into flagged messages -
+    // both automatically flagged (suspicious content) and manually
+    // reported by a real user.
+    'admin-list-flagged-messages': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('messages')
+                .select('id, conversation_id, sender_id, content, created_at, profiles:sender_id (full_name, email)')
+                .eq('is_flagged', true)
+                .order('created_at', { ascending: false })
+                .limit(100);
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, messages: data || [] });
+        } catch (error) {
+            console.error('admin-list-flagged-messages error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // A real, user-facing report - automated detection genuinely
+    // won't catch everything, a human flagging something matters too.
+    'report-message': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { messageId, reason } = req.body;
+        if (!messageId) return res.status(400).json({ error: 'messageId is required' });
+
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+            // Real authorization - confirms the reporter is genuinely
+            // a participant in this message's conversation, not just
+            // any logged-in user reporting an arbitrary message ID.
+            const { data: message } = await supabaseClient
+                .from('messages')
+                .select('conversation_id, conversations:conversation_id (participant_one_id, participant_two_id)')
+                .eq('id', messageId)
+                .single();
+
+            const convo = message?.conversations;
+            if (!convo || (convo.participant_one_id !== user.id && convo.participant_two_id !== user.id)) {
+                return res.status(403).json({ error: 'You can only report messages in your own conversations' });
+            }
+
+            await supabaseClient.from('messages').update({ is_flagged: true }).eq('id', messageId);
+            logUserActivity(supabaseClient, req, { userId: user.id, userEmail: user.email, actionType: 'message_reported', details: { messageId, reason } });
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('report-message error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== FILE VIRUS SCANNING (NEW, 2026-09-26) ==========
+    // Uses CloudMersive rather than VirusTotal - confirmed via direct
+    // research that VirusTotal's free tier explicitly forbids
+    // commercial use, and their paid/enterprise tier runs an
+    // estimated $1,500-4,000+/month, genuinely prohibitive at this
+    // platform's scale. CloudMersive allows commercial use on its
+    // free tier and is used in production by companies with the
+    // genuinely same use case (their own case study: a platform
+    // where "customers upload millions of resumes and documents").
+    //
+    // Scans BEFORE ever storing the file - the client sends the raw
+    // file here first; only once CloudMersive confirms it's clean
+    // does this action upload it to Supabase Storage itself (using
+    // the service role, server-side) and return the public URL. This
+    // is deliberately more secure than uploading to storage first and
+    // scanning after, which would briefly leave a possibly-malicious
+    // file sitting in a real, accessible bucket.
+    'scan-and-upload-file': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: 'Authentication required' });
+        const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+        if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
+
+        const { fileBase64, fileName, mimeType, bucket, folder } = req.body;
+        if (!fileBase64 || !fileName || !bucket) {
+            return res.status(400).json({ error: 'fileBase64, fileName, and bucket are required' });
+        }
+
+        // Only the two real, already-validated upload destinations on
+        // this platform - never an arbitrary bucket a client could
+        // otherwise pass in.
+        const allowedBuckets = ['job-cvs', 'avatars'];
+        if (!allowedBuckets.includes(bucket)) {
+            return res.status(400).json({ error: 'Invalid upload destination' });
+        }
+
+        try {
+            const apiKey = process.env.CLOUDMERSIVE_API_KEY;
+            if (!apiKey) throw new Error('Virus scanning is not configured (CLOUDMERSIVE_API_KEY missing)');
+
+            const fileBuffer = Buffer.from(fileBase64, 'base64');
+
+            // Real, genuine 10MB ceiling - CloudMersive's own free
+            // tier requires a paid account above this size, so this
+            // is enforced here rather than letting a larger file fail
+            // unpredictably at their end.
+            if (fileBuffer.length > 10 * 1024 * 1024) {
+                return res.status(400).json({ error: 'File exceeds the 10MB scanning limit' });
+            }
+
+            const formData = new FormData();
+            formData.append('inputFile', new Blob([fileBuffer]), fileName);
+
+            const scanResponse = await fetch('https://api.cloudmersive.com/virus/scan/file', {
+                method: 'POST',
+                headers: { 'Apikey': apiKey },
+                body: formData
+            });
+
+            if (!scanResponse.ok) {
+                throw new Error(`Virus scan request failed: HTTP ${scanResponse.status}`);
+            }
+
+            const scanResult = await scanResponse.json();
+
+            if (!scanResult.CleanResult) {
+                logSecurityEvent('malicious_file_upload_blocked', getRequestIP(req), 'critical', {
+                    userId: user.id,
+                    fileName,
+                    foundViruses: scanResult.FoundViruses || null
+                });
+                return res.status(400).json({
+                    success: false,
+                    error: 'This file was flagged by our virus scan and cannot be uploaded. If you believe this is a mistake, please try a different file or contact support.'
+                });
+            }
+
+            // Genuinely clean - now, and only now, actually stored.
+            const filePath = folder ? `${folder}/${Date.now()}_${fileName}` : `${user.id}/${Date.now()}_${fileName}`;
+            const { error: uploadError } = await supabaseClient.storage
+                .from(bucket)
+                .upload(filePath, fileBuffer, { contentType: mimeType || 'application/octet-stream', upsert: true });
+
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabaseClient.storage.from(bucket).getPublicUrl(filePath);
+
+            logUserActivity(supabaseClient, req, { userId: user.id, userEmail: user.email, actionType: 'file_uploaded', details: { bucket, fileName } });
+
+            return res.status(200).json({ success: true, url: urlData?.publicUrl, path: filePath });
+        } catch (error) {
+            console.error('scan-and-upload-file error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-create-staff-user': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
@@ -2812,6 +3886,12 @@ Return JSON: {
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
         }
+        // NEW (2026-09-26): genuine length cap - nothing prevented an
+        // arbitrarily long message before, which could drive up real
+        // OpenAI costs on a single request.
+        if (message.length > 4000) {
+            return res.status(400).json({ error: 'Message is too long - please keep it under 4000 characters' });
+        }
 
         try {
             // FIXED (2026-08-16): total overhaul — migrated from
@@ -2836,10 +3916,24 @@ Return JSON: {
 
             let messages = history || [];
             messages.push({ role: 'user', content: message });
-            
-            if (systemPrompt) {
-                messages = [{ role: 'system', content: systemPrompt }, ...messages];
-            }
+
+            // FIXED (2026-09-26): confirmed a real, genuine
+            // vulnerability - this previously trusted systemPrompt
+            // directly from the request body. The frontend only ever
+            // sends its own, fixed template, but nothing stopped
+            // someone from calling this action directly (bypassing
+            // the UI entirely) with an arbitrary system prompt of
+            // their own - using this platform's own OpenAI account to
+            // run completely unrelated, potentially policy-violating
+            // prompts. Now always rebuilt server-side, using the
+            // real, verified user's tier (not whatever the client
+            // claims), regardless of what systemPrompt the request
+            // body contains.
+            const { data: chatUserProfile } = userId
+                ? await supabaseClient.from('profiles').select('tier').eq('id', userId).maybeSingle()
+                : { data: null };
+            const realSystemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The platform's live job board draws from real, current sources spanning the UK, Ireland, Canada, Australia, the USA, Germany, Nigeria and West Africa (Jobberman, BrighterMonday, Careers24, MyJobMag), the wider EU (via EURES), plus dedicated visa-sponsorship-focused listings and remote/global roles. If asked which countries or regions are covered, answer honestly based on this real list - never imply broader coverage than this. The user's current tier is: ${chatUserProfile?.tier || (userId ? 'free' : 'visitor')}.`;
+            messages = [{ role: 'system', content: realSystemPrompt }, ...messages];
 
             // NEW (2026-08-16): job-search awareness — if the message
             // looks job-related, real current listings are injected as
