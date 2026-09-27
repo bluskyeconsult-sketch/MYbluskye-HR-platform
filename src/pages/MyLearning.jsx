@@ -10,7 +10,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Heart, ShoppingCart, Trash2, Loader2, ArrowRight, Briefcase, Clock, GraduationCap } from 'lucide-react';
+import { Heart, ShoppingCart, Trash2, Loader2, ArrowRight, Briefcase, Clock, GraduationCap, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function MyLearning() {
@@ -56,6 +56,22 @@ export default function MyLearning() {
         setCompletedJobs(jobsRes.completed || []);
         setPendingJobs(jobsRes.pending || []);
         setLoading(false);
+    }
+
+    async function handleMessageEmployer(jobId) {
+        try {
+            const headers = await authHeaders();
+            const response = await fetch('/api/index?action=start-conversation', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ jobId })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            navigate(`/messages?conversation=${data.conversationId}`);
+        } catch (err) {
+            toast.error(err.message);
+        }
     }
 
     async function removeFavorite(courseId) {
@@ -235,11 +251,22 @@ export default function MyLearning() {
                     {pendingJobs.length === 0 ? (
                         <p className="text-slate-500 text-center py-8">No pending applications.</p>
                     ) : pendingJobs.map(a => (
-                        <Link key={a.id} to={`/jobs/${a.jobs?.id}`} className="block bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/50 transition">
-                            <p className="text-white font-medium">{a.jobs?.title}</p>
-                            <p className="text-slate-400 text-sm">{a.jobs?.company} — {a.jobs?.location}</p>
-                            <p className="text-amber-400 text-xs mt-2 capitalize">{a.status}</p>
-                        </Link>
+                        <div key={a.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/50 transition">
+                            <Link to={`/jobs/${a.jobs?.id}`} className="block">
+                                <p className="text-white font-medium">{a.jobs?.title}</p>
+                                <p className="text-slate-400 text-sm">{a.jobs?.company} — {a.jobs?.location}</p>
+                                <p className="text-amber-400 text-xs mt-2 capitalize">{a.status}</p>
+                            </Link>
+                            {/* NEW (2026-09-25): scoped, real feature -
+                                only shown for a job genuinely already
+                                applied to, never cold-outreach. */}
+                            <button
+                                onClick={() => handleMessageEmployer(a.jobs?.id)}
+                                className="mt-3 flex items-center gap-1.5 text-xs text-primary-400 hover:text-primary-300 transition"
+                            >
+                                <MessageCircle className="w-3.5 h-3.5" /> Message Employer
+                            </button>
+                        </div>
                     ))}
                 </div>
             )}
