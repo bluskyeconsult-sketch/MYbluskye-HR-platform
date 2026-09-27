@@ -3364,6 +3364,131 @@ Return ONLY a JSON object: {
         }
     },
 
+    // ========== BOOK CHAPTER MANAGEMENT (NEW, 2026-09-27) ==========
+    // The genuinely missing piece - confirmed directly that no admin
+    // UI existed to add real chapter content at all, which is exactly
+    // why "Convert to Course" always failed with "no chapters with
+    // real content yet" for every book on the platform.
+    'get-book-chapters': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { bookId } = req.query;
+        if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('book_chapters')
+                .select('id, title, content, order_index, audio_segments')
+                .eq('book_id', bookId)
+                .order('order_index', { ascending: true });
+
+            if (error) throw error;
+            return res.status(200).json({ success: true, chapters: data || [] });
+        } catch (error) {
+            console.error('get-book-chapters error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'save-book-chapter': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { chapterId, bookId, title, content, orderIndex } = req.body;
+        if (!bookId || !title?.trim()) {
+            return res.status(400).json({ error: 'bookId and title are required' });
+        }
+
+        try {
+            if (chapterId) {
+                // Real update to an existing chapter - editing content
+                // never resets its already-generated audio segments
+                // unless the content genuinely changed, so this
+                // deliberately leaves audio_segments untouched here;
+                // re-generating audio is its own, separate action.
+                const { data, error } = await supabaseClient
+                    .from('book_chapters')
+                    .update({ title: title.trim(), content: content || '' })
+                    .eq('id', chapterId)
+                    .select()
+                    .single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, chapter: data });
+            } else {
+                // New chapter - genuinely appends to the end unless a
+                // specific order was given.
+                let finalOrderIndex = orderIndex;
+                if (finalOrderIndex === undefined || finalOrderIndex === null) {
+                    const { data: existing } = await supabaseClient
+                        .from('book_chapters')
+                        .select('order_index')
+                        .eq('book_id', bookId)
+                        .order('order_index', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+                    finalOrderIndex = (existing?.order_index ?? -1) + 1;
+                }
+
+                const { data, error } = await supabaseClient
+                    .from('book_chapters')
+                    .insert({ book_id: bookId, title: title.trim(), content: content || '', order_index: finalOrderIndex })
+                    .select()
+                    .single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, chapter: data });
+            }
+        } catch (error) {
+            console.error('save-book-chapter error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'delete-book-chapter': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { chapterId } = req.body;
+        if (!chapterId) return res.status(400).json({ error: 'chapterId is required' });
+
+        try {
+            const { error } = await supabaseClient.from('book_chapters').delete().eq('id', chapterId);
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('delete-book-chapter error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'reorder-book-chapters': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        // orderedIds: array of chapter IDs in their real, new order -
+        // each one's index in this array becomes its new order_index.
+        const { orderedIds } = req.body;
+        if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+            return res.status(400).json({ error: 'orderedIds must be a non-empty array' });
+        }
+
+        try {
+            await Promise.all(
+                orderedIds.map((id, index) =>
+                    supabaseClient.from('book_chapters').update({ order_index: index }).eq('id', id)
+                )
+            );
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('reorder-book-chapters error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-create-staff-user': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
