@@ -13,11 +13,13 @@
 // Usage: <ConvertBookToCourseButton bookId={book.id} bookTitle={book.title} />
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { GraduationCap, Loader2, X, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ConvertBookToCourseButton({ bookId, bookTitle, onConverted }) {
+    const navigate = useNavigate();
     const [showModal, setShowModal] = useState(false);
     const [elaborateWithAI, setElaborateWithAI] = useState(true);
     const [converting, setConverting] = useState(false);
@@ -37,9 +39,16 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Conversion failed');
 
+            // FIXED (2026-09-27): confirmed the real, honest cause of
+            // "just rolling and did nothing" - this never navigated
+            // anywhere after success at all, only closing the modal
+            // and showing a toast easy to miss. Now genuinely
+            // navigates to the real course-management page, where the
+            // new course (as a draft) is visible to open and publish.
             toast.success(`Course created with ${data.lessonsCreated} lessons — it's saved as a draft, ready to review before publishing.`);
             setShowModal(false);
             if (onConverted) onConverted(data.course);
+            navigate('/admin/courses');
         } catch (err) {
             toast.error(err.message);
         } finally {
