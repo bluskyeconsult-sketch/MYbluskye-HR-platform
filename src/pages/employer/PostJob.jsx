@@ -171,6 +171,14 @@ export default function PostJob() {
                 // required part of posting a job
             }
 
+            // NEW (2026-09-25): fire-and-forget - never awaited, so
+            // this can't slow down or block a real job posting.
+            fetch('/api/index?action=log-user-activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+                body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'job_posted', details: { jobId: data?.[0]?.id, title: formData.title } })
+            }).catch(() => {});
+
             // FIXED: honest messaging — this was "Job posted successfully!"
             // implying it was immediately live, which wasn't true.
             alert('Job submitted for review! It will appear on the job board once approved.');
