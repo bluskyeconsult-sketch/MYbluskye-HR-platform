@@ -14,7 +14,7 @@ import {
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
     Activity, Shield, ShieldCheck, BarChart3, UserCheck, Lightbulb, DollarSign,
     FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
-    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy
+    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy, Bell, Image
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -46,6 +46,7 @@ const ADMIN_NAV = [
         { path: '/admin/external-jobs', label: 'External Jobs', icon: Globe },
         { path: '/admin/employer-sources', label: 'Employer Sources', icon: Building2 },
         { path: '/admin/banner-messages', label: 'Banner Messages', icon: Megaphone },
+        { path: '/admin/dashboard-announcements', label: 'Dashboard Announcements', icon: Bell },
         { path: '/admin/workforce', label: 'Workforce Marketplace', icon: Network },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
@@ -54,6 +55,7 @@ const ADMIN_NAV = [
         { path: '/admin/assessments', label: 'Assessments', icon: ClipboardList },
         { path: '/admin/virtual-assistants', label: 'Virtual Assistants', icon: Bot },
         { path: '/admin/hr-tool-builder', label: 'HR Tool Builder', icon: Wrench },
+        { path: '/admin/personal-media-studio', label: 'Media Studio', icon: Image },
         { path: '/admin/support-tickets', label: 'Support Tickets', icon: LifeBuoy },
         { path: '/admin/skills', label: 'Skills', icon: Flag },
     ]},
