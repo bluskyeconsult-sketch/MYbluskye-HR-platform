@@ -27,6 +27,7 @@
 // role-gated global widgets are handled in this project.
 
 import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 import { 
     Lightbulb, Sparkles, TrendingUp, Users, Briefcase, Zap, 
     X, Send, Loader2, Copy, Check, MessageCircle, Star, 
@@ -38,7 +39,16 @@ import {
 // ============================================
 
 const API_BASE = '/api/index';
-const CHAT_ENDPOINT = `${API_BASE}?action=chat`;
+// FIXED (2026-09-30): switched from the shared, public ?action=chat
+// (OpenAI) to a genuinely separate, admin-only action powered by
+// Claude - the admin explicitly wanted Claude's real, superior
+// reasoning for this specific, low-frequency internal tool, without
+// touching the public-facing chat's OpenAI path at all. This also
+// fixes a real, separate bug found along the way: this component's
+// own systemPrompt values were being silently ignored by the shared
+// chat action's forced-prompt security fix, so they were never
+// actually being used before now.
+const CHAT_ENDPOINT = `${API_BASE}?action=admin-brainstorm`;
 
 // ============================================
 // MAIN COMPONENT
@@ -82,6 +92,15 @@ export default function BrainstormPartner() {
     // IDEA GENERATION (Unified API)
     // ============================================
 
+    // NEW (2026-09-30): the new admin-brainstorm action genuinely
+    // requires real admin authentication, unlike the old shared,
+    // public chat endpoint - this helper is used by all 3 call sites
+    // below.
+    async function authHeaders() {
+        const { data: { session } } = await supabase.auth.getSession();
+        return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` };
+    }
+
     const generateIdeas = async () => {
         if (!topic.trim()) return;
         
@@ -92,9 +111,10 @@ export default function BrainstormPartner() {
         
         try {
             // ✅ Using unified chat API
+            const headers = await authHeaders();
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     message: topic,
                     systemPrompt: `You are a product strategy expert. Generate innovative, actionable ideas for: ${topic}. Return exactly 5 ideas as a numbered list (1. 2. 3. 4. 5.).`,
@@ -150,9 +170,10 @@ export default function BrainstormPartner() {
         setIsLoading(true);
         
         try {
+            const headers = await authHeaders();
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     message: `Original topic: "${topic}"\n\nIdea: "${idea}"\n\nProvide a comprehensive deep dive analysis.`,
                     systemPrompt: `Provide a detailed analysis of this idea including: feasibility, implementation steps, potential challenges, and success metrics.`,
@@ -193,9 +214,10 @@ export default function BrainstormPartner() {
         setFollowUp('');
         
         try {
+            const headers = await authHeaders();
             const response = await fetch(CHAT_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     message: followUp,
                     systemPrompt: `Context: "${topic}". Previous ideas: ${JSON.stringify(ideas)}. Answer the follow-up question clearly and helpfully. If suggesting new ideas, return them as a numbered list (1. 2. 3.).`,
@@ -521,7 +543,7 @@ export default function BrainstormPartner() {
                                 <button
                                     onClick={generateIdeas}
                                     disabled={isLoading || !topic.trim()}
-                                    className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-500 to-orange-500 transition disabled:opacity-50 flex items-center gap-2"
+                                    className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-500 hover:to-orange-500 transition disabled:opacity-50 flex items-center gap-2"
                                 >
                                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                                     Generate
