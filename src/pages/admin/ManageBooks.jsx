@@ -28,6 +28,7 @@ export default function ManageBooks() {
     const [uploadingCover, setUploadingCover] = useState(false);
     const [uploadingPreview, setUploadingPreview] = useState(false);
     const [uploadingFullBook, setUploadingFullBook] = useState(false);
+    const [uploadingEpub, setUploadingEpub] = useState(false);
     const [bookForm, setBookForm] = useState({
         title: '',
         author: '',
@@ -37,6 +38,7 @@ export default function ManageBooks() {
         category: 'HR',
         cover_url: '',
         file_url: '',
+        epub_file_url: '',
         preview_file_url: '',
         external_purchase_url: '',
         is_published: true
@@ -78,6 +80,7 @@ export default function ManageBooks() {
             category: 'HR',
             cover_url: '',
             file_url: '',
+            epub_file_url: '',
             preview_file_url: '',
             external_purchase_url: '',
             is_published: true
@@ -97,6 +100,7 @@ export default function ManageBooks() {
             category: book.category || 'HR',
             cover_url: book.cover_url || '',
             file_url: book.file_url || '',
+            epub_file_url: book.epub_file_url || '',
             preview_file_url: book.preview_file_url || '',
             external_purchase_url: book.external_purchase_url || '',
             is_published: book.is_published !== undefined ? book.is_published : true
@@ -199,6 +203,36 @@ export default function ManageBooks() {
         }
     }
 
+    // NEW (2026-09-27): matches the exact, same pattern as the PDF
+    // upload above - same private bucket, same signed-URL access
+    // model, just a separate column since a book can have either or
+    // both formats. EPUB is genuinely the more reliable source for
+    // chapter auto-detection, since it has a real, structured table
+    // of contents rather than needing pattern-matching on raw text.
+    async function handleEpubUpload(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingEpub(true);
+        setError(null);
+        try {
+            const path = `${crypto.randomUUID()}-${file.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('books-private')
+                .upload(path, file, { upsert: false });
+
+            if (uploadError) throw uploadError;
+
+            setBookForm(prev => ({ ...prev, epub_file_url: path }));
+        } catch (err) {
+            setError('EPUB upload failed: ' + err.message);
+        } finally {
+            setUploadingEpub(false);
+            e.target.value = '';
+        }
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
         setSaving(true);
@@ -234,6 +268,7 @@ export default function ManageBooks() {
                 // then paste the resulting path here (e.g.
                 // "my-book/full.pdf"), not a public link.
                 file_url: bookForm.file_url.trim(),
+                epub_file_url: bookForm.epub_file_url?.trim() || null,
                 preview_file_url: bookForm.preview_file_url.trim(),
                 external_purchase_url: bookForm.external_purchase_url.trim(),
                 is_published: bookForm.is_published,
@@ -653,6 +688,21 @@ export default function ManageBooks() {
                                     file is only ever revealed through a short-lived
                                     signed link, generated after a confirmed purchase. */}
                                 <p className="text-xs text-slate-500 mt-1">Uploaded directly to private storage — never publicly accessible, only revealed after a confirmed purchase</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">EPUB File (optional, better for auto-detecting chapters)</label>
+                                <label className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition">
+                                    {uploadingEpub ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                    {uploadingEpub ? 'Uploading...' : (bookForm.epub_file_url ? 'Replace uploaded EPUB' : 'Upload EPUB')}
+                                    <input type="file" accept=".epub,application/epub+zip" onChange={handleEpubUpload} disabled={uploadingEpub} className="hidden" />
+                                </label>
+                                {bookForm.epub_file_url && (
+                                    <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Uploaded: {bookForm.epub_file_url}
+                                    </p>
+                                )}
+                                <p className="text-xs text-slate-500 mt-1">EPUB's real table of contents makes chapter auto-detection genuinely more reliable than PDF</p>
                             </div>
 
                             <div>
