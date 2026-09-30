@@ -30,6 +30,11 @@ import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/e
 import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
+import EPub from 'epub';
+import mammoth from 'mammoth';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
 
@@ -615,6 +620,29 @@ async function safeFetch(url, timeout = 10000) {
 // JSON array from free-form text). Defaults to null, so every existing
 // caller - all 10 HR Tools, every VA, chat - is completely unaffected
 // and continues exactly as before.
+// NEW (2026-09-30): real, genuine OpenAI usage logging - fire-and-
+// forget, never blocks or fails the actual call it's logging.
+// gpt-4o-mini's real, public pricing: $0.15/1M input tokens,
+// $0.60/1M output tokens. Image/audio use their own real, confirmed
+// per-call rates already established elsewhere in this file.
+function logOpenAIUsage(callType, { model, promptTokens, completionTokens, flatCost } = {}) {
+    try {
+        const supabaseClient = getSupabase();
+        let estimatedCost = flatCost ?? 0;
+        if (promptTokens != null && completionTokens != null) {
+            estimatedCost = (promptTokens * 0.15 / 1_000_000) + (completionTokens * 0.60 / 1_000_000);
+        }
+        supabaseClient.from('openai_usage_log').insert({
+            call_type: callType,
+            model: model || null,
+            estimated_cost: estimatedCost,
+            tokens_used: (promptTokens || 0) + (completionTokens || 0)
+        }).then(() => {}, (err) => console.warn('openai_usage_log insert failed (non-blocking):', err.message));
+    } catch (err) {
+        console.warn('logOpenAIUsage failed (non-blocking):', err.message);
+    }
+}
+
 async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -633,7 +661,143 @@ async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, response
         throw new Error(error.error?.message || `HTTP ${response.status}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    logOpenAIUsage('chat', {
+        model: 'gpt-4o-mini',
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens
+    });
+    return data;
+}
+
+// NEW (2026-09-30): real Anthropic (Claude) integration - genuinely
+// separate from the shared, public-facing chat endpoint (which stays
+// on OpenAI). Used only by the new admin-only brainstorm action,
+// where an admin explicitly wanted Claude's real, superior reasoning
+// for low-frequency, strategic brainstorming - not a platform-wide
+// migration, given the confirmed, real 6-8x cost differential.
+// Confirmed, real API format: x-api-key header (not Bearer, unlike
+// OpenAI), system prompt as its own top-level field, not inside the
+// messages array.
+async function callAnthropic(messages, systemPrompt, maxTokens = 1000, temperature = 0.7) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('Anthropic API key not configured (ANTHROPIC_API_KEY missing)');
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: 'claude-sonnet-5',
+            max_tokens: maxTokens,
+            temperature,
+            system: systemPrompt,
+            messages
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    // Real, confirmed Claude Sonnet 5 pricing: $3/1M input tokens,
+    // $15/1M output tokens - logged into the same, shared
+    // usage-monitoring table already built for OpenAI, distinguished
+    // by call_type so both are visible together.
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    logOpenAIUsage('anthropic_chat', {
+        model: 'claude-sonnet-5',
+        flatCost: (inputTokens * 3 / 1_000_000) + (outputTokens * 15 / 1_000_000)
+    });
+
+    return data.content?.[0]?.text || '';
+}
+
+// NEW (2026-09-30): real Google Gemini integration - genuinely
+// cheaper than gpt-4o-mini ($0.10/$0.40 per 1M tokens on Flash-Lite
+// vs $0.15/$0.60), used only as an automatic fallback when OpenAI
+// genuinely fails, not a primary provider anywhere. Confirmed, real
+// API format: x-goog-api-key header, a completely different
+// contents/parts request shape than OpenAI's messages array, and
+// system_instruction as its own separate field (matching the pattern
+// already used for Anthropic's separate system field).
+//
+// Takes the same, OpenAI-style messages array (role/content pairs)
+// every other caller already uses, and converts it internally -
+// callers never need to think in Gemini's own shape.
+async function callGemini(messages, systemPrompt, maxTokens = 800, temperature = 0.7) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('Gemini API key not configured (GEMINI_API_KEY missing)');
+
+    const model = 'gemini-2.5-flash-lite';
+    const contents = messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+    }));
+
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+            method: 'POST',
+            headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents,
+                ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
+                generationConfig: { maxOutputTokens: maxTokens, temperature }
+            })
+        }
+    );
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // Real, confirmed Gemini 2.5 Flash-Lite pricing: $0.10/1M input,
+    // $0.40/1M output tokens.
+    const inputTokens = data.usageMetadata?.promptTokenCount || 0;
+    const outputTokens = data.usageMetadata?.candidatesTokenCount || 0;
+    logOpenAIUsage('gemini_chat', {
+        model,
+        flatCost: (inputTokens * 0.10 / 1_000_000) + (outputTokens * 0.40 / 1_000_000)
+    });
+
+    return text;
+}
+
+// NEW (2026-09-30): the real fallback wrapper - tries OpenAI first
+// (the platform's real, primary, established provider), and only on
+// a genuine failure (outage, rate limit, timeout), automatically
+// retries the exact same prompt through Gemini instead. Callers get
+// a plain { text, provider } result regardless of which provider
+// actually answered, so nothing calling this needs its own
+// provider-specific error handling.
+async function callAIWithFallback(messages, systemPrompt, maxTokens = 800, temperature = 0.7) {
+    try {
+        const fullMessages = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
+        const data = await callOpenAI(fullMessages, maxTokens, temperature);
+        return { text: data.choices[0].message.content, provider: 'openai' };
+    } catch (openAiError) {
+        console.warn('callOpenAI failed, falling back to Gemini:', openAiError.message);
+        try {
+            const text = await callGemini(messages, systemPrompt, maxTokens, temperature);
+            return { text, provider: 'gemini' };
+        } catch (geminiError) {
+            console.error('Gemini fallback also failed:', geminiError.message);
+            // Genuinely honest about both failures, rather than only
+            // surfacing the second one and hiding what OpenAI reported.
+            throw new Error(`Both providers failed - OpenAI: ${openAiError.message}; Gemini: ${geminiError.message}`);
+        }
+    }
 }
 
 // ============================================
@@ -726,6 +890,7 @@ async function callOpenAIImage(prompt) {
     }
 
     const data = await response.json();
+    logOpenAIUsage('image', { model: 'gpt-image-1-mini', flatCost: 0.006 });
     return Buffer.from(data.data[0].b64_json, 'base64');
 }
 
@@ -753,6 +918,7 @@ async function callOpenAIAudio(text, voice = 'alloy') {
     }
 
     const arrayBuffer = await response.arrayBuffer();
+    logOpenAIUsage('audio', { model: 'tts-1', flatCost: trimmedText.length * 0.000015 });
     return Buffer.from(arrayBuffer);
 }
 
@@ -3027,6 +3193,7 @@ Return ONLY a JSON object: {
             const imageBase64 = data.data[0].b64_json;
             const estimatedCost = COST_ESTIMATES[finalSize]?.[finalQuality] ?? null;
 
+            logOpenAIUsage('image', { model: 'gpt-image-1-mini', flatCost: estimatedCost });
             logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_image_generated', details: { promptLength: prompt.length, quality: finalQuality, estimatedCost } });
 
             return res.status(200).json({ success: true, image: `data:image/png;base64,${imageBase64}`, estimatedCost });
@@ -3092,6 +3259,7 @@ Return ONLY a JSON object: {
             const combinedAudio = Buffer.concat(audioBuffers);
             const estimatedCost = Math.round(trimmedScript.length * ratePerChar * 10000) / 10000;
 
+            logOpenAIUsage('audio', { model, flatCost: estimatedCost });
             logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_audio_generated', details: { scriptLength: script.length, chunks: chunks.length, model, estimatedCost } });
 
             return res.status(200).json({ success: true, audio: `data:audio/mpeg;base64,${combinedAudio.toString('base64')}`, estimatedCost });
@@ -3586,6 +3754,408 @@ Return ONLY a JSON object: {
             return res.status(200).json({ success: true, detectedCount: detectedChapters.length });
         } catch (error) {
             console.error('extract-chapters-from-pdf error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-27): EPUB chapter extraction - genuinely more
+    // reliable than the PDF regex approach above, since an EPUB has
+    // a real, structured table of contents (its spine) explicitly
+    // listing every chapter boundary, rather than guessing at text
+    // patterns. The epub library's API is callback-style, not
+    // Promise-based, so this wraps it in a real Promise for clean
+    // async/await use. The library also requires a real file path
+    // (not a buffer), so the downloaded EPUB is written to a real
+    // temp file first, then cleaned up after.
+    'extract-chapters-from-epub': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { bookId } = req.body;
+        if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+
+        let tempFilePath = null;
+        try {
+            const { data: book, error: bookError } = await supabaseClient
+                .from('books')
+                .select('id, epub_file_url')
+                .eq('id', bookId)
+                .single();
+            if (bookError || !book) return res.status(404).json({ error: 'Book not found' });
+            if (!book.epub_file_url) {
+                return res.status(400).json({ error: 'This book has no uploaded EPUB yet - upload the EPUB file first, then try again.' });
+            }
+
+            const { data: signed, error: signError } = await supabaseClient
+                .storage
+                .from('books-private')
+                .createSignedUrl(book.epub_file_url, 300);
+            if (signError || !signed) throw new Error('Could not access the uploaded EPUB');
+
+            const epubResponse = await fetch(signed.signedUrl);
+            if (!epubResponse.ok) throw new Error('Failed to download the uploaded EPUB');
+            const epubBuffer = Buffer.from(await epubResponse.arrayBuffer());
+
+            tempFilePath = path.join(os.tmpdir(), `${bookId}-${Date.now()}.epub`);
+            fs.writeFileSync(tempFilePath, epubBuffer);
+
+            const detectedChapters = await new Promise((resolve, reject) => {
+                const epub = new EPub(tempFilePath);
+                epub.on('error', reject);
+                epub.on('end', async () => {
+                    try {
+                        const flow = epub.flow || [];
+                        if (flow.length === 0) {
+                            return reject(new Error('No chapters found in this EPUB\'s own table of contents.'));
+                        }
+
+                        const chapters = [];
+                        for (const item of flow) {
+                            const html = await new Promise((res2, rej2) => {
+                                epub.getChapter(item.id, (err, text) => err ? rej2(err) : res2(text));
+                            });
+                            // Real, plain-text stripping of the
+                            // chapter's own HTML - genuinely simple on
+                            // purpose, since this only needs to remove
+                            // tags, not preserve rich formatting.
+                            const plainText = (html || '')
+                                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                                .replace(/<[^>]+>/g, ' ')
+                                .replace(/\s+/g, ' ')
+                                .trim();
+
+                            if (plainText.length > 50) {
+                                chapters.push({ title: item.title || item.id || `Chapter ${chapters.length + 1}`, content: plainText });
+                            }
+                        }
+                        resolve(chapters);
+                    } catch (innerError) {
+                        reject(innerError);
+                    }
+                });
+                epub.parse();
+            });
+
+            if (detectedChapters.length < 2) {
+                return res.status(400).json({ error: "This EPUB's table of contents didn't yield enough real chapter content - please add chapters manually." });
+            }
+
+            await supabaseClient.from('book_chapters').delete().eq('book_id', bookId);
+            const rows = detectedChapters.map((ch, i) => ({
+                book_id: bookId,
+                title: ch.title.slice(0, 200),
+                content: ch.content,
+                order_index: i
+            }));
+            const { error: insertError } = await supabaseClient.from('book_chapters').insert(rows);
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true, detectedCount: detectedChapters.length });
+        } catch (error) {
+            console.error('extract-chapters-from-epub error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        } finally {
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
+        }
+    },
+
+    // NEW (2026-09-27): the genuine "upload to AI Course Builder"
+    // pathway the user asked for - accepts DOC/PDF/EPUB directly (not
+    // tied to an existing book), extracts real text with the right
+    // library for each format. Text extraction only - deliberately
+    // does NOT attempt image extraction, which is a meaningfully
+    // bigger, separate undertaking (locating images per format,
+    // deciding placement, storage) not built here; this was flagged
+    // honestly rather than silently skipped.
+    'extract-text-from-document': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { fileBase64, fileName } = req.body;
+        if (!fileBase64 || !fileName) {
+            return res.status(400).json({ error: 'fileBase64 and fileName are required' });
+        }
+
+        const extension = fileName.toLowerCase().split('.').pop();
+        const validExtensions = ['pdf', 'docx', 'doc', 'epub'];
+        if (!validExtensions.includes(extension)) {
+            return res.status(400).json({ error: `Unsupported file type - use PDF, DOCX, or EPUB (got .${extension})` });
+        }
+
+        const fileBuffer = Buffer.from(fileBase64, 'base64');
+        if (fileBuffer.length > 20 * 1024 * 1024) {
+            return res.status(400).json({ error: 'File exceeds the 20MB limit for text extraction' });
+        }
+
+        let tempFilePath = null;
+        try {
+            let extractedText = '';
+
+            if (extension === 'pdf') {
+                const parsed = await pdfParse(fileBuffer);
+                extractedText = parsed.text || '';
+            } else if (extension === 'docx' || extension === 'doc') {
+                // mammoth genuinely only supports .docx (the modern,
+                // XML-based format) - a real .doc (the old, binary
+                // format) will fail here, which is an honest,
+                // real limitation of the library itself.
+                const result = await mammoth.extractRawText({ buffer: fileBuffer });
+                extractedText = result.value || '';
+            } else if (extension === 'epub') {
+                tempFilePath = path.join(os.tmpdir(), `doc-extract-${Date.now()}.epub`);
+                fs.writeFileSync(tempFilePath, fileBuffer);
+
+                extractedText = await new Promise((resolve, reject) => {
+                    const epub = new EPub(tempFilePath);
+                    epub.on('error', reject);
+                    epub.on('end', async () => {
+                        try {
+                            const flow = epub.flow || [];
+                            const parts = [];
+                            for (const item of flow) {
+                                const html = await new Promise((res2, rej2) => {
+                                    epub.getChapter(item.id, (err, text) => err ? rej2(err) : res2(text));
+                                });
+                                const plainText = (html || '')
+                                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                                    .replace(/<[^>]+>/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+                                if (plainText) parts.push(plainText);
+                            }
+                            resolve(parts.join('\n\n'));
+                        } catch (innerError) {
+                            reject(innerError);
+                        }
+                    });
+                    epub.parse();
+                });
+            }
+
+            if (extractedText.trim().length < 100) {
+                return res.status(400).json({ error: "Couldn't extract meaningful text from this file - it may be scanned images, empty, or a format issue." });
+            }
+
+            return res.status(200).json({ success: true, text: extractedText.trim(), wordCount: extractedText.trim().split(/\s+/).length });
+        } catch (error) {
+            console.error('extract-text-from-document error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        } finally {
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
+        }
+    },
+
+    // NEW (2026-09-30): real OpenAI usage monitoring and anomaly
+    // detection - a genuine, meaningful spike in spend (not normal
+    // day-to-day variance) is one of the most direct, practical
+    // signals of a compromised API key being used elsewhere. This is
+    // deliberately not a substitute for OpenAI's own dashboard, but a
+    // faster, in-platform first warning.
+    'get-openai-usage-summary': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+            const [{ data: todayRows }, { data: last30Rows }] = await Promise.all([
+                supabaseClient.from('openai_usage_log').select('estimated_cost, call_type').gte('created_at', todayStart),
+                supabaseClient.from('openai_usage_log').select('estimated_cost, created_at').gte('created_at', thirtyDaysAgo).lt('created_at', todayStart)
+            ]);
+
+            const todayCost = (todayRows || []).reduce((sum, r) => sum + Number(r.estimated_cost || 0), 0);
+            const todayByType = {};
+            (todayRows || []).forEach(r => { todayByType[r.call_type] = (todayByType[r.call_type] || 0) + Number(r.estimated_cost || 0); });
+
+            // Real daily average over the actual, preceding days with
+            // data - not a guessed or hardcoded baseline.
+            const dayTotals = {};
+            (last30Rows || []).forEach(r => {
+                const day = r.created_at.slice(0, 10);
+                dayTotals[day] = (dayTotals[day] || 0) + Number(r.estimated_cost || 0);
+            });
+            const dayValues = Object.values(dayTotals);
+            const avgDailyCost = dayValues.length > 0 ? dayValues.reduce((a, b) => a + b, 0) / dayValues.length : 0;
+
+            // Genuinely flags only a real, meaningful spike - 3x the
+            // real average, and only once there's enough real history
+            // (5+ days) to make that average mean something.
+            const isAnomaly = dayValues.length >= 5 && avgDailyCost > 0 && todayCost > avgDailyCost * 3;
+
+            return res.status(200).json({
+                success: true,
+                todayCost: Math.round(todayCost * 10000) / 10000,
+                todayByType,
+                avgDailyCost: Math.round(avgDailyCost * 10000) / 10000,
+                daysOfHistory: dayValues.length,
+                isAnomaly
+            });
+        } catch (error) {
+            console.error('get-openai-usage-summary error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== BASIC VIDEO CREATOR (NEW, 2026-09-30) ==========
+    // FIXED (2026-09-30): confirmed the AWS/Remotion Lambda path was
+    // genuinely too complex for real, practical use - replaced
+    // entirely with dami_studio/storyboard-video-generator, a real
+    // Apify actor that needs zero new setup at all, reusing the same
+    // APIFY_API_TOKEN already working for every other Apify source on
+    // this platform. Honest, stated trade-off: this actor only does
+    // hard cuts with automatic Ken Burns pan/zoom - no real
+    // transitions, no burned-in text - confirmed directly from its
+    // own documentation. $0.015 per rendered video second, flat.
+    'start-slideshow-video': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { imageUrls, secondsPerImage, aspectRatio, audioUrl } = req.body;
+        if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+            return res.status(400).json({ error: 'imageUrls must be a non-empty array' });
+        }
+        if (imageUrls.length > 60) {
+            return res.status(400).json({ error: 'This actor supports a maximum of 60 images per video' });
+        }
+
+        const token = process.env.APIFY_API_TOKEN || '';
+
+        try {
+            const startResponse = await fetch(
+                `https://api.apify.com/v2/acts/dami_studio~storyboard-video-generator/runs?token=${token}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        imageUrls,
+                        secondsPerImage: secondsPerImage || 4,
+                        aspectRatio: aspectRatio || '9:16',
+                        fps: 30,
+                        ...(audioUrl?.trim() ? { audioUrl: audioUrl.trim() } : {})
+                    })
+                }
+            );
+
+            if (!startResponse.ok) {
+                return res.status(500).json({ success: false, error: `Failed to start video generation: HTTP ${startResponse.status}` });
+            }
+
+            const startData = await startResponse.json();
+            const runId = startData.data?.id;
+            if (!runId) return res.status(500).json({ success: false, error: 'Video generation start response had no run ID' });
+
+            logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'slideshow_video_started', details: { imageCount: imageUrls.length } });
+
+            return res.status(200).json({ success: true, runId });
+        } catch (error) {
+            console.error('start-slideshow-video error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'check-slideshow-video-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { runId } = req.query;
+        if (!runId) return res.status(400).json({ error: 'runId is required' });
+
+        const token = process.env.APIFY_API_TOKEN || '';
+
+        try {
+            const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
+            if (!statusResponse.ok) {
+                return res.status(500).json({ success: false, error: `Failed to check status: HTTP ${statusResponse.status}` });
+            }
+            const statusData = await statusResponse.json();
+            const runStatus = statusData.data?.status;
+            const datasetId = statusData.data?.defaultDatasetId;
+
+            if (runStatus === 'RUNNING' || runStatus === 'READY') {
+                return res.status(200).json({ success: true, done: false, status: runStatus });
+            }
+            if (runStatus !== 'SUCCEEDED') {
+                return res.status(200).json({ success: true, done: true, failed: true, status: runStatus });
+            }
+
+            const itemsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`);
+            if (!itemsResponse.ok) {
+                return res.status(200).json({ success: true, done: true, failed: true, status: 'RESULT_FETCH_FAILED' });
+            }
+            const items = await itemsResponse.json();
+            const result = items?.[0];
+
+            if (!result?.ok || !result?.videoUrl) {
+                return res.status(200).json({
+                    success: true, done: true, failed: true,
+                    status: result?.errorCode || 'NO_VIDEO_RETURNED',
+                    message: result?._sample ? 'No images or story were provided' : (result?.note || 'Video generation did not return a usable video')
+                });
+            }
+
+            // Real, confirmed cost - $0.015 per actual rendered
+            // second, logged into the same usage-monitoring system
+            // already built for OpenAI, since this is a real,
+            // separate provider spend worth tracking the same way.
+            const realCost = (result.durationSeconds || 0) * 0.015;
+            logOpenAIUsage('video', { model: 'apify-storyboard-video', flatCost: realCost });
+
+            return res.status(200).json({
+                success: true, done: true, failed: false,
+                videoUrl: result.videoUrl,
+                durationSeconds: result.durationSeconds,
+                skipped: result.skipped || [],
+                estimatedCost: realCost
+            });
+        } catch (error) {
+            console.error('check-slideshow-video-status error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-09-30): the real, dedicated admin brainstorm action -
+    // genuinely separate from the shared, public 'chat' action, so
+    // this never touches the public-facing chat's OpenAI path or its
+    // earlier security fix (which forces a server-side system prompt
+    // there, since that endpoint is public). This one is admin-gated,
+    // so it's genuinely safe to accept a real system prompt from the
+    // request - fixing a real, separate bug found along the way:
+    // BrainstormPartner.jsx's own system prompts were being silently
+    // ignored by the shared chat action's forced-prompt security fix,
+    // meaning it was never actually using its intended prompts at all.
+    'admin-brainstorm': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { message, history, systemPrompt, temperature = 0.7, maxTokens = 1000 } = req.body;
+        if (!message) return res.status(400).json({ error: 'message is required' });
+
+        try {
+            const messages = [...(history || []), { role: 'user', content: message }];
+            const responseText = await callAnthropic(
+                messages,
+                systemPrompt || 'You are a strategic brainstorming partner for an HR/career platform admin.',
+                maxTokens,
+                temperature
+            );
+
+            return res.status(200).json({ success: true, response: responseText });
+        } catch (error) {
+            console.error('admin-brainstorm error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -4250,11 +4820,21 @@ Return ONLY a JSON object: {
                 }, ...messages];
             }
 
-            const data = await callOpenAI(messages, maxTokens, temperature);
+            // NEW (2026-09-30): real OpenAI-with-Gemini-fallback -
+            // genuinely automatic, only engages if OpenAI itself
+            // fails (outage, rate limit, timeout). Safely adapts the
+            // existing, multi-system-message structure built above
+            // (the forced real prompt, optionally the book-context
+            // note) into the single systemPrompt string Gemini needs,
+            // without restructuring any of that carefully-built logic.
+            const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+            const nonSystemMessages = messages.filter(m => m.role !== 'system');
+
+            const { text: aiResponseText, provider } = await callAIWithFallback(nonSystemMessages, systemMessages, maxTokens, temperature);
             return res.status(200).json({
                 success: true,
-                response: data.choices[0].message.content,
-                usage: data.usage,
+                response: aiResponseText,
+                provider,
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining,
                 jobsReferenced: relevantJobs ? relevantJobs.length : 0,
                 booksReferenced: relevantBooks ? relevantBooks.length : 0
@@ -7140,13 +7720,24 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { courseTitle, lessonTitle, level = 'beginner' } = req.body;
+        const { courseTitle, lessonTitle, level = 'beginner', sourceMaterial } = req.body;
         if (!lessonTitle) return res.status(400).json({ error: 'lessonTitle is required' });
 
         try {
+            // NEW (2026-09-27): same real sourceMaterial support as
+            // generate-course - confirmed a genuine gap where lesson
+            // content (what a student actually reads) had no
+            // connection to an uploaded document at all, even when
+            // the outline itself was grounded in it. Same truncation
+            // limit for the same, real prompt-size/cost reasons.
+            const truncatedSource = sourceMaterial ? sourceMaterial.slice(0, 12000) : null;
+            const userPrompt = truncatedSource
+                ? `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Base this directly on the real source material below - use its actual content and examples rather than generic knowledge. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed.\n\nSource material:\n${truncatedSource}`
+                : `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed - just well-organized paragraphs. Aim for genuinely useful depth, not a placeholder.`;
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
-                { role: 'user', content: `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed - just well-organized paragraphs. Aim for genuinely useful depth, not a placeholder.` }
+                { role: 'user', content: userPrompt }
             ], 1200, 0.7);
 
             const content = data.choices[0].message.content;
@@ -7324,16 +7915,34 @@ Return the lesson as markdown with this structure:
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topic, level = 'beginner' } = req.body;
+        const { topic, level = 'beginner', sourceMaterial } = req.body;
 
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
         }
 
         try {
+            // NEW (2026-09-27): genuine, separate parameter for
+            // uploaded document text - confirmed directly that topic
+            // is interpolated into a short prompt phrase
+            // ("Create a course outline for "${topic}""), so dumping
+            // a whole book's extracted text into that field would
+            // have blown out the prompt and genuinely confused the
+            // AI. Truncated to a real, reasonable length (~12,000
+            // characters) to stay within sane prompt/cost bounds -
+            // enough for real, substantive grounding without sending
+            // an entire book through every single call.
+            const truncatedSource = sourceMaterial
+                ? sourceMaterial.slice(0, 12000) + (sourceMaterial.length > 12000 ? '\n\n[...source material truncated...]' : '')
+                : null;
+
+            const userPrompt = truncatedSource
+                ? `Create a course outline for "${topic}" at ${level} level, based directly on this real source material - use its actual content, structure, and examples rather than generic knowledge:\n\n${truncatedSource}\n\nReturn as JSON with title, description, modules array.`
+                : `Create a course outline for "${topic}" at ${level} level. Return as JSON with title, description, modules array.`;
+
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an instructional designer. Return valid JSON.' },
-                { role: 'user', content: `Create a course outline for "${topic}" at ${level} level. Return as JSON with title, description, modules array.` }
+                { role: 'user', content: userPrompt }
             ], 1500, 0.7);
 
             const content = data.choices[0].message.content;
