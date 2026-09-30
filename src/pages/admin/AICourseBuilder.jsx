@@ -42,7 +42,8 @@ import {
     Brain, Wand2, Image, Music, FileQuestion, Award, TrendingUp,
     Eye, Globe, Shield, Zap, Settings, DollarSign, Star,
     ChevronRight, ChevronLeft, PlayCircle, List, Layout,
-    Heart, Share2, Copy, Download, Calendar, Briefcase, Palette, Clipboard
+    Heart, Share2, Copy, Download, Calendar, Briefcase, Palette, Clipboard,
+    Upload, FileText
 } from 'lucide-react';
 
 // ============================================
@@ -84,6 +85,12 @@ export default function AICourseBuilder() {
     
     // Form State
     const [topic, setTopic] = useState('');
+    // NEW (2026-09-27): the direct document-upload pathway - lets an
+    // admin ground a course in a real, uploaded DOC/PDF/EPUB rather
+    // than a topic string alone.
+    const [sourceDocumentText, setSourceDocumentText] = useState('');
+    const [sourceDocumentName, setSourceDocumentName] = useState('');
+    const [extractingDocument, setExtractingDocument] = useState(false);
     const [level, setLevel] = useState('intermediate');
     const [durationHours, setDurationHours] = useState(5);
     const [targetAudience, setTargetAudience] = useState('');
@@ -181,6 +188,45 @@ export default function AICourseBuilder() {
         }
     }
 
+    // NEW (2026-09-27): the direct document-upload pathway the user
+    // asked for - extracts real text from an uploaded DOC/PDF/EPUB,
+    // stored separately from topic (which stays a short phrase) since
+    // the backend genuinely treats these as two different things now.
+    async function handleDocumentUpload(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setExtractingDocument(true);
+        setError('');
+        try {
+            const fileBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            const data = await authenticatedFetch('extract-text-from-document', {
+                fileBase64,
+                fileName: file.name
+            });
+
+            setSourceDocumentText(data.text);
+            setSourceDocumentName(file.name);
+            if (!topic.trim()) {
+                // Genuinely just a convenience default - the admin can
+                // still change it; never silently overrides a topic
+                // they already typed.
+                setTopic(file.name.replace(/\.[^.]+$/, ''));
+            }
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setExtractingDocument(false);
+            e.target.value = '';
+        }
+    }
+
     async function previewCourse() {
         if (!topic.trim()) {
             setError('Please enter a course topic');
@@ -199,7 +245,7 @@ export default function AICourseBuilder() {
             // FIXED (2026-08-29): confirmed real, reported 401 - this
             // action requires admin authorization, and this call never
             // sent one.
-            const data = await authenticatedFetch('generate-course', { topic, level });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined });
             
             if (data.success) {
                 setGeneratedOutline(data.outline);
@@ -236,7 +282,7 @@ export default function AICourseBuilder() {
         
         try {
             // FIXED (2026-08-29): same confirmed regression.
-            const data = await authenticatedFetch('generate-course', { topic, level });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined });
             
             if (!data.success) {
                 throw new Error(data.error || 'Failed to generate course outline');
@@ -284,7 +330,8 @@ export default function AICourseBuilder() {
                     const contentResult = await authenticatedFetch('generate-lesson-content', {
                         courseTitle: outline.title || topic,
                         lessonTitle: mod.title || `Module ${i + 1}`,
-                        level
+                        level,
+                        sourceMaterial: sourceDocumentText || undefined
                     });
                     if (contentResult.success && contentResult.content) {
                         content = contentResult.content;
@@ -513,6 +560,41 @@ export default function AICourseBuilder() {
                                 required
                                 disabled={loading}
                             />
+                        </div>
+
+                        {/* NEW (2026-09-27): direct document upload -
+                            grounds the course in a real, uploaded
+                            file's actual content rather than topic
+                            alone. */}
+                        <div>
+                            <label className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition text-sm">
+                                {extractingDocument ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                {extractingDocument ? 'Extracting text...' : 'Optional: Upload a DOC, PDF, or EPUB to base this course on'}
+                                <input
+                                    type="file"
+                                    accept=".pdf,.docx,.epub"
+                                    onChange={handleDocumentUpload}
+                                    disabled={extractingDocument || loading}
+                                    className="hidden"
+                                />
+                            </label>
+                            {sourceDocumentText && (
+                                <div className="mt-2 flex items-center justify-between gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                    <p className="text-emerald-300 text-xs flex items-center gap-1.5">
+                                        <FileText className="w-3.5 h-3.5" /> {sourceDocumentName} — {sourceDocumentText.split(/\s+/).length.toLocaleString()} words extracted
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setSourceDocumentText(''); setSourceDocumentName(''); }}
+                                        className="text-emerald-400 hover:text-white transition flex-shrink-0"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+                            <p className="text-xs text-slate-500 mt-1">
+                                Text only — images inside the document aren't extracted. Old .doc files aren't supported, only .docx.
+                            </p>
                         </div>
                         
                         {/* Level & Duration & Category */}
