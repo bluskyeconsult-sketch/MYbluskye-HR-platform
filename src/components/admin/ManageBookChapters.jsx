@@ -20,7 +20,7 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
     const [draftTitle, setDraftTitle] = useState('');
     const [draftContent, setDraftContent] = useState('');
     const [saving, setSaving] = useState(false);
-    const [detecting, setDetecting] = useState(false);
+    const [detecting, setDetecting] = useState(null);
     const [detectError, setDetectError] = useState(null);
 
     useEffect(() => {
@@ -32,15 +32,15 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
         return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` };
     }
 
-    async function handleAutoDetect() {
-        if (chapters.length > 0 && !confirm('This will replace all existing chapters with ones detected from the uploaded PDF. Continue?')) {
+    async function handleAutoDetect(source) {
+        if (chapters.length > 0 && !confirm(`This will replace all existing chapters with ones detected from the uploaded ${source.toUpperCase()}. Continue?`)) {
             return;
         }
-        setDetecting(true);
+        setDetecting(source);
         setDetectError(null);
         try {
             const headers = await authHeaders();
-            const response = await fetch('/api/index?action=extract-chapters-from-pdf', {
+            const response = await fetch(`/api/index?action=extract-chapters-from-${source}`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({ bookId })
@@ -48,12 +48,12 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
             const data = await response.json();
             if (!data.success) throw new Error(data.error);
 
-            toast.success(`Detected and saved ${data.detectedCount} chapters from the uploaded PDF.`);
+            toast.success(`Detected and saved ${data.detectedCount} chapters from the uploaded ${source.toUpperCase()}.`);
             loadChapters();
         } catch (err) {
             setDetectError(err.message);
         } finally {
-            setDetecting(false);
+            setDetecting(null);
         }
     }
 
@@ -189,14 +189,24 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
                         )}
 
                         {!activeChapterId && (
-                            <button
-                                onClick={handleAutoDetect}
-                                disabled={detecting}
-                                className="w-full mb-3 py-2.5 bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 rounded-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-                            >
-                                {detecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                                {detecting ? 'Detecting chapters from PDF...' : 'Auto-Detect Chapters from Uploaded PDF'}
-                            </button>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                                <button
+                                    onClick={() => handleAutoDetect('epub')}
+                                    disabled={!!detecting}
+                                    className="py-2.5 bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 rounded-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                                >
+                                    {detecting === 'epub' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                    {detecting === 'epub' ? 'Detecting...' : 'Auto-Detect from EPUB'}
+                                </button>
+                                <button
+                                    onClick={() => handleAutoDetect('pdf')}
+                                    disabled={!!detecting}
+                                    className="py-2.5 bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 rounded-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                                >
+                                    {detecting === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                    {detecting === 'pdf' ? 'Detecting...' : 'Auto-Detect from PDF'}
+                                </button>
+                            </div>
                         )}
 
                         {detectError && (
