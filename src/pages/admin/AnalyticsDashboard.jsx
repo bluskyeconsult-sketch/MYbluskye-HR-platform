@@ -282,16 +282,21 @@ export default function AnalyticsDashboard() {
             .order('start_time', { ascending: false })
             .limit(50);
         
-        // FIXED (2026-09-05): confirmed via direct schema query - city,
-        // country, and ip_address don't exist on analytics_sessions at
-        // all. Removed rather than left defaulting to 'Unknown' forever,
-        // which would have looked like real, working data.
+        // FIXED (2026-09-30): confirmed these columns genuinely DO
+        // exist and ARE populated - loadLocationStats above already
+        // proved this on 2026-09-20, and the backend's track-page-view
+        // action genuinely inserts ip_address/country/city on every
+        // new session. This mapping was simply never updated after
+        // that confirmation to actually include them.
         const visitors = (sessions || []).map(session => ({
             time: session.start_time,
             device: session.device_type || 'desktop',
             browser: session.browser || 'unknown',
             pages: session.page_count || 0,
-            duration: session.duration_seconds || 0
+            duration: session.duration_seconds || 0,
+            ipAddress: session.ip_address || null,
+            country: session.country || null,
+            city: session.city || null
         }));
         
         setRecentVisitors(visitors);
@@ -547,6 +552,8 @@ export default function AnalyticsDashboard() {
                                 <thead className="bg-slate-800/50 sticky top-0">
                                     <tr>
                                         <th className="px-3 py-2 text-left text-white">Time</th>
+                                        <th className="px-3 py-2 text-left text-white">IP Address</th>
+                                        <th className="px-3 py-2 text-left text-white">Location</th>
                                         <th className="px-3 py-2 text-left text-white">Browser</th>
                                         <th className="px-3 py-2 text-left text-white">Device</th>
                                         <th className="px-3 py-2 text-left text-white">Pages</th>
@@ -556,17 +563,19 @@ export default function AnalyticsDashboard() {
                                     {filteredVisitors.map((visitor, idx) => (
                                         <tr key={idx} className="border-b border-slate-800 hover:bg-slate-800/30">
                                             <td className="px-3 py-2 text-slate-400 text-xs">{new Date(visitor.time).toLocaleString()}</td>
-                                            {/* FIXED (2026-09-05): Location column removed - city/country/ip
-                                                don't exist anywhere in this system, confirmed via direct
-                                                schema query. Showing browser instead, a field that
-                                                genuinely exists on this table. */}
+                                            {/* FIXED (2026-09-30): confirmed these columns genuinely
+                                                DO exist and ARE populated - the Sept 5 removal was
+                                                based on a schema check that a later, separate fix
+                                                (loadLocationStats, Sept 20) already proved outdated. */}
+                                            <td className="px-3 py-2 text-slate-400 text-xs font-mono">{visitor.ipAddress || '—'}</td>
+                                            <td className="px-3 py-2 text-slate-400 text-xs">{[visitor.city, visitor.country].filter(Boolean).join(', ') || '—'}</td>
                                             <td className="px-3 py-2 capitalize">{visitor.browser}</td>
                                             <td className="px-3 py-2 capitalize">{visitor.device}</td>
                                             <td className="px-3 py-2">{visitor.pages} pages</td>
                                         </tr>
                                     ))}
                                     {filteredVisitors.length === 0 && (
-                                        <tr><td colSpan="4" className="px-3 py-8 text-center text-slate-400">No visitor data available</td></tr>
+                                        <tr><td colSpan="6" className="px-3 py-8 text-center text-slate-400">No visitor data available</td></tr>
                                     )}
                                 </tbody>
                             </table>
