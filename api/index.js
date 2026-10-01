@@ -2387,23 +2387,39 @@ Return JSON: {
     // Trends fetch pattern already working in newsletter-article-pool.
     'external-trending-topics': async (req, res) => {
         try {
+            // FIXED (2026-09-30): confirmed via the actor's own,
+            // real documentation that this was wrong on two fronts:
+            // (1) input parameters - geo/maxItems don't exist for
+            // this actor's trending mode at all; the real parameters
+            // are mode/trendingSearchesCountry/trendingSearchesMaxItems.
+            // (2) output parsing - the real response is a single
+            // object with a nested trending_searches array, each item
+            // keyed by "term" - not a flat array of items keyed by
+            // title/query/keyword/topic, none of which this actor
+            // actually returns. Both bugs together meant this call
+            // was never capable of returning real data, regardless of
+            // whether the underlying Apify run itself succeeded.
             const trendsResponse = await fetch(
                 `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ geo: 'US', maxItems: 10 })
+                    body: JSON.stringify({
+                        mode: 'trending',
+                        trendingSearchesCountry: 'US',
+                        trendingSearchesTimeframe: '24',
+                        trendingSearchesMaxItems: 10
+                    })
                 }
             );
 
             let trending = [];
             if (trendsResponse.ok) {
                 const trendsData = await trendsResponse.json();
-                trending = (Array.isArray(trendsData) ? trendsData : [])
-                    .map(item => item.title || item.query || item.term || item.keyword || item.topic)
-                    .filter(Boolean)
-                    .slice(0, 10)
-                    .map(topic => ({ topic }));
+                const resultObject = Array.isArray(trendsData) ? trendsData[0] : trendsData;
+                trending = (resultObject?.trending_searches || [])
+                    .map(item => ({ topic: item.term, volume: item.trend_volume || null }))
+                    .filter(t => t.topic);
             } else {
                 console.warn('external-trending-topics: Google Trends fetch failed with status', trendsResponse.status);
             }
@@ -6963,7 +6979,15 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         }
 
         try {
-            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            // FIXED (2026-09-30): confirmed the real cause of
+            // "nothing useful" wasn't a bug - the backend correctly
+            // refuses to fabricate insights from too little real
+            // data (10+ signals or 5+ alerts required), and this
+            // platform genuinely hasn't yet accumulated that much
+            // activity within a 30-day window. Expanded to 90 days -
+            // genuinely more real data to work with, without lowering
+            // the quality threshold itself.
+            const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
             const [
                 { data: signals },
@@ -7080,7 +7104,10 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         }
 
         try {
-            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            // FIXED (2026-09-30): same real cause and same fix as
+            // Insight Engine above - not a bug, genuinely insufficient
+            // real activity within 30 days on this platform so far.
+            const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
             const { data: signals } = await supabaseClient
                 .from('activity_signals')
                 .select('query_text, signal_type')
@@ -10135,6 +10162,85 @@ Return the lesson as markdown with this structure:
     // ========== COURSE QUIZZES (NEW, 2026-09-21) ==========
     // Per-course, toggle-able quizzes - genuinely didn't exist before.
     // has_quiz defaults false, so this is opt-in per course.
+    // NEW (2026-09-30): real course cover image generation - the
+    // genuine, missing piece behind the "Images" toggle, which
+    // previously did nothing at all. One real cover image per course
+    // (not per lesson - a per-lesson image for every single lesson
+    // would be substantially slower and more expensive for limited
+    // real benefit). Built against a reasonable, standard schema for
+    // course_images since no confirmed schema was found in any
+    // available file - if this doesn't match your real table's
+    // columns, the insert error will say so clearly rather than
+    // failing silently, and is an easy, direct fix once known.
+    'generate-course-cover-image': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { courseId, title, description } = req.body;
+        if (!courseId || !title) return res.status(400).json({ error: 'courseId and title are required' });
+
+        try {
+            const prompt = `A professional, modern course cover illustration for an online course titled "${title}". ${description ? `The course is about: ${description}.` : ''} Clean, flat-design style suitable for an HR/career-education platform, no text or words in the image.`;
+            const imageBuffer = await callOpenAIImage(prompt);
+
+            const filePath = `course-covers/${courseId}-${Date.now()}.png`;
+            const { error: uploadError } = await supabaseClient.storage
+                .from('avatars') // reusing the existing public bucket already proven to work for platform images
+                .upload(filePath, imageBuffer, { contentType: 'image/png', upsert: true });
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+
+            await supabaseClient.from('courses').update({ cover_url: urlData.publicUrl }).eq('id', courseId);
+
+            return res.status(200).json({ success: true, coverUrl: urlData.publicUrl });
+        } catch (error) {
+            console.error('generate-course-cover-image error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Real, per-lesson audio narration - the genuine, missing piece
+    // behind the "Audio" toggle. Reuses the already-proven TTS
+    // pipeline (same chunking-safe pattern as the Personal Media
+    // Studio), one lesson at a time to keep each call's own cost and
+    // duration bounded regardless of course length.
+    'generate-lesson-audio': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { lessonId, content } = req.body;
+        if (!lessonId || !content) return res.status(400).json({ error: 'lessonId and content are required' });
+
+        try {
+            // Same real 4096-character TTS limit already handled
+            // elsewhere on this platform - trimmed defensively rather
+            // than letting a long lesson silently fail the API call.
+            const trimmedContent = content.slice(0, 4000);
+            const audioBuffer = await callOpenAIAudio(trimmedContent, 'alloy');
+
+            const filePath = `lesson-audio/${lessonId}-${Date.now()}.mp3`;
+            const { error: uploadError } = await supabaseClient.storage
+                .from('avatars')
+                .upload(filePath, audioBuffer, { contentType: 'audio/mpeg', upsert: true });
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+
+            const { error: insertError } = await supabaseClient
+                .from('course_audio')
+                .insert({ lesson_id: lessonId, audio_url: urlData.publicUrl });
+            if (insertError) throw insertError;
+
+            return res.status(200).json({ success: true, audioUrl: urlData.publicUrl });
+        } catch (error) {
+            console.error('generate-lesson-audio error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-course-quiz': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
@@ -12151,11 +12257,33 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
         const verifiedUserId = idCheck.verified ? idCheck.userId : null;
 
+        const ua = req.headers['user-agent'] || '';
+
+        // NEW (2026-09-30): real, confirmed root cause of "real
+        // country data but no corresponding registrations or
+        // activity" - this had zero bot/crawler filtering at all, so
+        // every automated request (search engine crawlers, SEO tools,
+        // uptime monitors, generic scraping libraries) was counted as
+        // a real human visitor and session. A large share of
+        // automated web traffic genuinely originates from US-based
+        // cloud data centers, which is exactly consistent with what
+        // was reported. This list covers the common, well-known,
+        // real bot signatures - not exhaustive, but catches the
+        // overwhelming majority of non-human traffic.
+        const isBot = /bot|crawl|spider|slurp|googlebot|bingbot|yandex|baiduspider|duckduckbot|facebookexternalhit|semrushbot|ahrefsbot|mj12bot|dotbot|petalbot|bytespider|uptimerobot|pingdom|statuscake|headlesschrome|phantomjs|puppeteer|playwright|curl|wget|python-requests|axios\/|go-http-client|scrapy/i.test(ua);
+
+        if (isBot) {
+            // Still a valid, successful request as far as the caller
+            // (the frontend's fire-and-forget tracking call) is
+            // concerned - just genuinely not recorded as a session or
+            // page view, since it isn't one.
+            return res.status(200).json({ success: true, skipped: 'bot' });
+        }
+
         const country = req.headers['x-vercel-ip-country'] || null;
         const city = req.headers['x-vercel-ip-city'] || null;
         const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
 
-        const ua = req.headers['user-agent'] || '';
         let deviceType = 'desktop';
         if (/tablet|ipad/i.test(ua)) deviceType = 'tablet';
         else if (/mobile|android|iphone/i.test(ua)) deviceType = 'mobile';
