@@ -426,6 +426,46 @@ export default function SystemHealthDashboard() {
         }
 
         // ============================================
+        // NEW (2026-09-30): Real Activity Verification
+        // ============================================
+        // Genuinely different from every check above - those verify
+        // a service responds (infrastructure health). This verifies
+        // real, recent usage is actually happening (activity health)
+        // - directly answers "is anyone really using the site" rather
+        // than "is the backend reachable", which is the real, honest
+        // gap this was missing.
+        try {
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const start = Date.now();
+
+            const [newUsers, pageViews, newSessions, applications] = await Promise.all([
+                supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', oneDayAgo),
+                supabase.from('analytics_page_views').select('id', { count: 'exact', head: true }).gte('created_at', oneDayAgo),
+                supabase.from('analytics_sessions').select('id', { count: 'exact', head: true }).gte('start_time', oneDayAgo),
+                supabase.from('job_applications').select('id', { count: 'exact', head: true }).gte('created_at', oneDayAgo)
+            ]);
+
+            data.realActivity = {
+                newUsers: newUsers.count || 0,
+                pageViews: pageViews.count || 0,
+                sessions: newSessions.count || 0,
+                applications: applications.count || 0
+            };
+
+            const totalActivity = (newUsers.count || 0) + (pageViews.count || 0) + (newSessions.count || 0) + (applications.count || 0);
+            checks.push({
+                name: 'Real Activity (24h)',
+                status: totalActivity > 0 ? 'healthy' : 'degraded',
+                responseTime: Date.now() - start,
+                details: `${newUsers.count || 0} new signups, ${newSessions.count || 0} real sessions, ${pageViews.count || 0} page views, ${applications.count || 0} applications - all in the last 24 hours`,
+                icon: Users,
+                metric: totalActivity > 0 ? `${totalActivity} events` : 'no activity'
+            });
+        } catch (err) {
+            checks.push({ name: 'Real Activity (24h)', status: 'error', responseTime: 0, details: err.message, icon: Users, metric: 'error' });
+        }
+
+        // ============================================
         // Calculate Overall Status
         // ============================================
         const hasCritical = checks.some(c => c.status === 'critical');
