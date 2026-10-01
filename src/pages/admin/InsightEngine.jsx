@@ -26,6 +26,13 @@ export default function InsightEngine() {
     const [dataPoints, setDataPoints] = useState(null);
     const [error, setError] = useState(null);
     const [message, setMessage] = useState(null);
+    // NEW (2026-09-30): real, current global trends, wired into
+    // Insight Engine's own activity-based clues (so the AI's
+    // suggestions genuinely reflect what's trending globally right
+    // now, not just internal activity), plus the standalone
+    // "What's Trending" button for a quick, direct look.
+    const [globalTrends, setGlobalTrends] = useState(null);
+    const [loadingTrends, setLoadingTrends] = useState(false);
 
     async function generateClues() {
         setLoading(true);
@@ -54,11 +61,30 @@ export default function InsightEngine() {
 
             setClues(result.clues);
             setDataPoints(result.dataPoints);
+            if (result.globalTrends) setGlobalTrends(result.globalTrends);
         } catch (err) {
             console.error('Insight generation failed:', err);
             setError(err.message);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function loadGlobalTrends() {
+        setLoadingTrends(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch(`${API_BASE}?action=whats-trending-globally`, {
+                headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error || 'Failed to load trends');
+            setGlobalTrends(result.trending || []);
+        } catch (err) {
+            console.error('Loading global trends failed:', err);
+            setError(err.message);
+        } finally {
+            setLoadingTrends(false);
         }
     }
 
@@ -70,17 +96,27 @@ export default function InsightEngine() {
                         <Sparkles className="w-6 h-6 text-primary-400" /> Insight Engine
                     </h1>
                     <p className="text-slate-400 text-sm mt-1">
-                        Real user activity, converted into actionable clues for what to build next.
+                        Real user activity, converted into actionable clues for what to build next — now combined with real, current global trending data.
                     </p>
                 </div>
-                <button
-                    onClick={generateClues}
-                    disabled={loading}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
-                >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                    {loading ? 'Analyzing real activity...' : 'Generate Clues'}
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={loadGlobalTrends}
+                        disabled={loadingTrends}
+                        className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg hover:bg-slate-700 transition disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {loadingTrends ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                        What's Trending
+                    </button>
+                    <button
+                        onClick={generateClues}
+                        disabled={loading}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        {loading ? 'Analyzing real activity...' : 'Generate Clues'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -101,6 +137,26 @@ export default function InsightEngine() {
                     <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> {dataPoints.signalsAnalyzed} recent chat/search signals</span>
                     <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {dataPoints.alertsAnalyzed} active job alerts</span>
                     <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {dataPoints.regionsRepresented} regions represented</span>
+                </div>
+            )}
+
+            {globalTrends && (
+                <div className="mb-6 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                    <p className="text-white font-medium text-sm mb-3 flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-primary-400" /> What's Trending Globally Right Now
+                    </p>
+                    {globalTrends.length === 0 ? (
+                        <p className="text-slate-500 text-sm">No trending data available right now - try again shortly.</p>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            {globalTrends.map((t, idx) => (
+                                <span key={idx} className="px-3 py-1.5 bg-slate-800 rounded-full text-sm text-slate-300 flex items-center gap-1.5">
+                                    {t.topic}
+                                    {t.volume && <span className="text-slate-500 text-xs">({t.volume})</span>}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
