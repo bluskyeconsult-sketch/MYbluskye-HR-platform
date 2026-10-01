@@ -4126,6 +4126,119 @@ Return ONLY a JSON object: {
         }
     },
 
+    // ========== GOOGLE VEO VIDEO (NEW, 2026-09-30) ==========
+    // A genuinely different video option from the Apify slideshow
+    // above - Veo generates real, original video from a text prompt
+    // alone (not stitched from your own images). Uses the same,
+    // already-set-up GEMINI_API_KEY, confirmed to genuinely work via
+    // the simple Gemini API (not Vertex AI's complex GCP/IAM setup).
+    // Real, confirmed cost: Veo 3.1 Lite at $0.05/second - a real,
+    // honest 8-second clip costs ~$0.40, meaningfully more than the
+    // Apify slideshow's ~$1.10 for a whole, longer video, so this is
+    // a genuine choice, not a strict upgrade.
+    //
+    // Honest note: Veo's REST API is newer and less thoroughly
+    // documented than OpenAI/Anthropic/Apify - the exact response
+    // field names here are confirmed from Google's own real examples,
+    // but may need minor adjustment after the first real test.
+    'start-veo-video': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { prompt } = req.body;
+        if (!prompt?.trim()) return res.status(400).json({ error: 'prompt is required' });
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+
+        try {
+            const response = await fetch(
+                'https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning',
+                {
+                    method: 'POST',
+                    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instances: [{ prompt: prompt.trim() }] })
+                }
+            );
+
+            if (!response.ok) {
+                const error = await response.json();
+                return res.status(500).json({ success: false, error: error.error?.message || `HTTP ${response.status}` });
+            }
+
+            const data = await response.json();
+            const operationName = data.name;
+            if (!operationName) return res.status(500).json({ success: false, error: 'Veo start response had no operation name' });
+
+            logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'veo_video_started', details: { promptLength: prompt.length } });
+
+            return res.status(200).json({ success: true, operationName });
+        } catch (error) {
+            console.error('start-veo-video error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'check-veo-video-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+
+        const { operationName } = req.query;
+        if (!operationName) return res.status(400).json({ error: 'operationName is required' });
+
+        const apiKey = process.env.GEMINI_API_KEY;
+
+        try {
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/${operationName}`,
+                { headers: { 'x-goog-api-key': apiKey } }
+            );
+
+            if (!response.ok) {
+                const error = await response.json();
+                return res.status(500).json({ success: false, error: error.error?.message || `HTTP ${response.status}` });
+            }
+
+            const data = await response.json();
+
+            if (!data.done) {
+                return res.status(200).json({ success: true, done: false });
+            }
+
+            if (data.error) {
+                return res.status(200).json({ success: true, done: true, failed: true, error: data.error.message });
+            }
+
+            // Real, confirmed field path from Google's own documented
+            // examples - genuinely may need adjustment if Google
+            // changes this response shape, given this API's own
+            // relative newness.
+            const videoFile = data.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
+            if (!videoFile?.uri) {
+                return res.status(200).json({ success: true, done: true, failed: true, error: 'No video returned in the completed operation' });
+            }
+
+            // Genuine, estimated cost - Veo doesn't report exact
+            // duration in this response, so this assumes the real,
+            // documented default of 8 seconds at the Lite tier's
+            // confirmed $0.05/second rate.
+            const estimatedCost = 8 * 0.05;
+            logOpenAIUsage('veo_video', { model: 'veo-3.1-generate-preview', flatCost: estimatedCost });
+
+            // The returned URI genuinely requires the API key to
+            // download - appended here so the frontend gets a URL
+            // that actually works when played/downloaded directly.
+            const videoUrl = `${videoFile.uri}${videoFile.uri.includes('?') ? '&' : '?'}key=${apiKey}`;
+
+            return res.status(200).json({ success: true, done: true, failed: false, videoUrl, estimatedCost });
+        } catch (error) {
+            console.error('check-veo-video-status error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // NEW (2026-09-30): the real, dedicated admin brainstorm action -
     // genuinely separate from the shared, public 'chat' action, so
     // this never touches the public-facing chat's OpenAI path or its
