@@ -17,6 +17,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import toast from 'react-hot-toast';
 import { useCapability } from '../../hooks/useCapability';
 import StaffPermissionsModal from '../../components/admin/StaffPermissionsModal';
 import { 
@@ -37,6 +38,7 @@ export default function AdminUsers() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [roleFilter, setRoleFilter] = useState('all');
+    const [tierFilter, setTierFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedUser, setSelectedUser] = useState(null);
     const [showRoleModal, setShowRoleModal] = useState(false);
@@ -78,7 +80,7 @@ export default function AdminUsers() {
 
     useEffect(() => {
         filterUsers();
-    }, [users, searchTerm, roleFilter, statusFilter]);
+    }, [users, searchTerm, roleFilter, tierFilter, statusFilter]);
 
     async function loadUsers() {
         setLoading(true);
@@ -115,6 +117,40 @@ export default function AdminUsers() {
         setStats({ total, active, suspended, admins, jobSeekers, employers });
     }
 
+    // NEW (2026-09-30): real CSV export, reusing the same, proven
+    // pattern already used for article exports elsewhere on this
+    // platform. Exports whatever is currently filtered (search, role,
+    // tier, status all apply) - filter to a single tier first to
+    // export just that tier, or leave filters on "all" to export
+    // everyone.
+    function exportUsersToCSV() {
+        if (filteredUsers.length === 0) {
+            toast.error('No users match the current filters to export');
+            return;
+        }
+        const headers = ['Email', 'Full Name', 'Tier', 'Role', 'Status', 'Phone', 'Created At'];
+        const rows = filteredUsers.map(u => [
+            `"${(u.email || '').replace(/"/g, '""')}"`,
+            `"${(u.full_name || '').replace(/"/g, '""')}"`,
+            u.tier || 'free',
+            u.user_type || '',
+            u.is_suspended ? 'suspended' : 'active',
+            `"${(u.phone || '').replace(/"/g, '""')}"`,
+            u.created_at ? new Date(u.created_at).toLocaleDateString() : ''
+        ]);
+        const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const tierLabel = tierFilter === 'all' ? 'all-tiers' : tierFilter;
+        a.download = `users_${tierLabel}_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`Exported ${filteredUsers.length} user${filteredUsers.length === 1 ? '' : 's'}`);
+    }
+
     function filterUsers() {
         let filtered = [...users];
         
@@ -129,6 +165,10 @@ export default function AdminUsers() {
         
         if (roleFilter !== 'all') {
             filtered = filtered.filter(u => u.user_type === roleFilter);
+        }
+
+        if (tierFilter !== 'all') {
+            filtered = filtered.filter(u => (u.tier || 'free') === tierFilter);
         }
         
         if (statusFilter === 'active') {
@@ -371,6 +411,19 @@ export default function AdminUsers() {
                         <option value="tester">Testers</option>
                     </select>
                     <select
+                        value={tierFilter}
+                        onChange={(e) => setTierFilter(e.target.value)}
+                        className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                        <option value="all">All Tiers</option>
+                        <option value="free">Free</option>
+                        <option value="registered">Registered</option>
+                        <option value="professional">Professional</option>
+                        <option value="employer">Employer</option>
+                        <option value="business">Business</option>
+                        <option value="tester">Tester</option>
+                    </select>
+                    <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
                         className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -379,11 +432,19 @@ export default function AdminUsers() {
                         <option value="active">Active</option>
                         <option value="suspended">Suspended</option>
                     </select>
-                    {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
+                    <button
+                        onClick={exportUsersToCSV}
+                        className="px-3 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm flex items-center gap-1.5 transition"
+                        title="Export the currently filtered users to CSV"
+                    >
+                        <Download className="w-4 h-4" /> Export CSV
+                    </button>
+                    {(searchTerm || roleFilter !== 'all' || tierFilter !== 'all' || statusFilter !== 'all') && (
                         <button
                             onClick={() => {
                                 setSearchTerm('');
                                 setRoleFilter('all');
+                                setTierFilter('all');
                                 setStatusFilter('all');
                             }}
                             className="px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition text-sm"
@@ -608,11 +669,12 @@ export default function AdminUsers() {
                     <div className="text-center py-12 text-slate-400">
                         <Users className="w-12 h-12 mx-auto mb-3 text-slate-600" />
                         <p>No users found matching your criteria</p>
-                        {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
+                        {(searchTerm || roleFilter !== 'all' || tierFilter !== 'all' || statusFilter !== 'all') && (
                             <button
                                 onClick={() => {
                                     setSearchTerm('');
                                     setRoleFilter('all');
+                                    setTierFilter('all');
                                     setStatusFilter('all');
                                 }}
                                 className="mt-3 text-sm text-primary-400 hover:underline"
