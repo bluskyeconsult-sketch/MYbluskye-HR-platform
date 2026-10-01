@@ -61,6 +61,7 @@ export default function GlobalTrendsWidget() {
                         >
                             <Search className="w-3 h-3 text-slate-500" />
                             {t.topic}
+                            {t.volume && <span className="text-slate-500 text-xs">({t.volume})</span>}
                         </a>
                     ))}
                 </div>
