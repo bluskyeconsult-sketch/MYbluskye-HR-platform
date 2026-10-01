@@ -63,10 +63,20 @@ export default function CourseEditor() {
     }, [id]);
 
     async function loadCourse() {
+        // FIXED (2026-09-30): confirmed the real, genuine cause of
+        // "sometimes pulls the last chapters before the earlier
+        // ones" - this nested relation query had zero ordering
+        // applied to course_lessons at all. Postgres doesn't
+        // guarantee any particular row order for a nested relation
+        // unless explicitly told to - it was effectively returning
+        // rows in whatever order the database happened to have them,
+        // which is exactly why this was intermittent rather than
+        // consistently broken.
         const { data } = await supabase
             .from('courses')
             .select('*, course_lessons(*, course_audio(*), course_images(*))')
             .eq('id', id)
+            .order('sort_order', { foreignTable: 'course_lessons', ascending: true })
             .single();
         
         if (data) {
