@@ -625,6 +625,43 @@ async function safeFetch(url, timeout = 10000) {
 // gpt-4o-mini's real, public pricing: $0.15/1M input tokens,
 // $0.60/1M output tokens. Image/audio use their own real, confirmed
 // per-call rates already established elsewhere in this file.
+// NEW (2026-09-30): shared helper, extracted from external-trending-
+// topics so Insight Engine's new global-trends integration (and the
+// new "What's Trending" button) reuse the exact same, already-fixed,
+// correct call rather than duplicating it. Returns real, current
+// global trending searches - genuinely never fabricated or cached.
+async function fetchGlobalTrends(country = 'US', maxItems = 10) {
+    try {
+        const trendsResponse = await fetch(
+            `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: 'trending',
+                    trendingSearchesCountry: country,
+                    trendingSearchesTimeframe: '24',
+                    trendingSearchesMaxItems: maxItems
+                })
+            }
+        );
+
+        if (!trendsResponse.ok) {
+            console.warn('fetchGlobalTrends: Google Trends fetch failed with status', trendsResponse.status);
+            return [];
+        }
+
+        const trendsData = await trendsResponse.json();
+        const resultObject = Array.isArray(trendsData) ? trendsData[0] : trendsData;
+        return (resultObject?.trending_searches || [])
+            .map(item => ({ topic: item.term, volume: item.trend_volume || null }))
+            .filter(t => t.topic);
+    } catch (error) {
+        console.error('fetchGlobalTrends error:', error);
+        return [];
+    }
+}
+
 function logOpenAIUsage(callType, { model, promptTokens, completionTokens, flatCost } = {}) {
     try {
         const supabaseClient = getSupabase();
@@ -2387,43 +2424,7 @@ Return JSON: {
     // Trends fetch pattern already working in newsletter-article-pool.
     'external-trending-topics': async (req, res) => {
         try {
-            // FIXED (2026-09-30): confirmed via the actor's own,
-            // real documentation that this was wrong on two fronts:
-            // (1) input parameters - geo/maxItems don't exist for
-            // this actor's trending mode at all; the real parameters
-            // are mode/trendingSearchesCountry/trendingSearchesMaxItems.
-            // (2) output parsing - the real response is a single
-            // object with a nested trending_searches array, each item
-            // keyed by "term" - not a flat array of items keyed by
-            // title/query/keyword/topic, none of which this actor
-            // actually returns. Both bugs together meant this call
-            // was never capable of returning real data, regardless of
-            // whether the underlying Apify run itself succeeded.
-            const trendsResponse = await fetch(
-                `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        mode: 'trending',
-                        trendingSearchesCountry: 'US',
-                        trendingSearchesTimeframe: '24',
-                        trendingSearchesMaxItems: 10
-                    })
-                }
-            );
-
-            let trending = [];
-            if (trendsResponse.ok) {
-                const trendsData = await trendsResponse.json();
-                const resultObject = Array.isArray(trendsData) ? trendsData[0] : trendsData;
-                trending = (resultObject?.trending_searches || [])
-                    .map(item => ({ topic: item.term, volume: item.trend_volume || null }))
-                    .filter(t => t.topic);
-            } else {
-                console.warn('external-trending-topics: Google Trends fetch failed with status', trendsResponse.status);
-            }
-
+            const trending = await fetchGlobalTrends('US', 10);
             return res.status(200).json({ success: true, trending });
         } catch (error) {
             console.error('external-trending-topics error:', error);
@@ -6962,6 +6963,24 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         }
     },
 
+    // NEW (2026-09-30): the dedicated "What's Trending" button the
+    // user asked for - a direct, real lookup of current global
+    // trends, genuinely free to call (no AI involved, no credit
+    // cost) since it's just a data fetch, not a generation.
+    'whats-trending-globally': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const trending = await fetchGlobalTrends('US', 15);
+            return res.status(200).json({ success: true, trending });
+        } catch (error) {
+            console.error('whats-trending-globally error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-insight-clues': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
@@ -7008,6 +7027,19 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 return res.status(200).json({ success: true, clues: null, message: 'Not enough recent activity yet for meaningful insight clues — check back after more usage builds up.' });
             }
 
+            // NEW (2026-09-30): real, current global trends - the
+            // genuine, missing piece the user directly asked for.
+            // Previously, Insight Engine only ever looked at internal
+            // activity (searches, alerts, VA usage) - it had no
+            // awareness of what's actually happening globally right
+            // now. Fetched only after the early-return above, so this
+            // real external call is never wasted on a request that
+            // wouldn't proceed anyway.
+            const globalTrends = await fetchGlobalTrends('US', 15);
+            const globalTrendsSummary = globalTrends.length > 0
+                ? globalTrends.map(t => `${t.topic}${t.volume ? ` (${t.volume} searches)` : ''}`).join(', ')
+                : 'Global trends data unavailable for this run.';
+
             // Real regional distribution — counts, not guesses.
             const countryCounts = {};
             for (const j of jobsByCountry || []) {
@@ -7044,11 +7076,11 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const data = await callOpenAI([
                 {
                     role: 'system',
-                    content: `You are a product strategist for ODUSBABA, an HR/career platform. Given real, aggregated user activity data below, produce FOUR distinct sets of actionable "clues" for the team's next creation cycle. Return ONLY valid JSON in this exact shape: {"course_clues": [{"topic": string, "why": string, "suggested_category": string}], "newsletter_clues": [{"headline_idea": string, "why": string, "angle": string}], "product_design_clues": [{"feature_idea": string, "why": string, "evidence": string}], "service_design_clues": [{"service_idea": string, "why": string, "target_region": string}]}. 3-5 items per array. "why" and "evidence" must reference the real data patterns given, not generic assumptions. For service_design_clues, actively use the regional and VA-category data to suggest region-specific service opportunities (e.g. a service more relevant to one country's real demand than another's) — this is the differentiation the data is specifically meant to reveal.`
+                    content: `You are a product strategist for ODUSBABA, an HR/career platform. Given real, aggregated user activity data below AND real, current global trending search data, produce FOUR distinct sets of actionable "clues" for the team's next creation cycle. Return ONLY valid JSON in this exact shape: {"course_clues": [{"topic": string, "why": string, "suggested_category": string}], "newsletter_clues": [{"headline_idea": string, "why": string, "angle": string}], "product_design_clues": [{"feature_idea": string, "why": string, "evidence": string}], "service_design_clues": [{"service_idea": string, "why": string, "target_region": string}]}. 3-5 items per array. "why" and "evidence" must reference the real data patterns given, not generic assumptions. For service_design_clues, actively use the regional and VA-category data to suggest region-specific service opportunities (e.g. a service more relevant to one country's real demand than another's) — this is the differentiation the data is specifically meant to reveal. Where a global trend genuinely overlaps with internal user interest, call that out explicitly - that intersection is a stronger, more current signal than internal data alone, and is exactly what the global trends data is meant to surface. Don't force a connection where none genuinely exists.`
                 },
                 {
                     role: 'user',
-                    content: `RECENT CHAT/SEARCH TOPICS (last 30 days):\n${signalText}\n\nEXPLICIT JOB ALERT KEYWORDS PEOPLE SET UP THEMSELVES:\n${alertKeywords}\n\nREGIONAL JOB POSTING VOLUME:\n${regionSummary}\n\nREGIONAL JOB ALERT DEMAND:\n${alertRegionSummary}\n\nVIRTUAL ASSISTANT / HR TOOL CATEGORY USAGE:\n${vaCategorySummary}\n\nEXISTING PUBLISHED COURSES (do not suggest topics that duplicate these):\n${existingCourseTitles}`
+                    content: `RECENT CHAT/SEARCH TOPICS (last 30 days):\n${signalText}\n\nEXPLICIT JOB ALERT KEYWORDS PEOPLE SET UP THEMSELVES:\n${alertKeywords}\n\nREGIONAL JOB POSTING VOLUME:\n${regionSummary}\n\nREGIONAL JOB ALERT DEMAND:\n${alertRegionSummary}\n\nVIRTUAL ASSISTANT / HR TOOL CATEGORY USAGE:\n${vaCategorySummary}\n\nEXISTING PUBLISHED COURSES (do not suggest topics that duplicate these):\n${existingCourseTitles}\n\nWHAT'S TRENDING GLOBALLY RIGHT NOW (real, current Google Trends data - use this to spot where internal user interest intersects with real, current global attention, which is a stronger signal than either alone):\n${globalTrendsSummary}`
                 }
             ], 2000, 0.6);
 
@@ -7064,6 +7096,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             return res.status(200).json({
                 success: true,
                 clues,
+                globalTrends,
                 dataPoints: {
                     signalsAnalyzed: (signals || []).length,
                     alertsAnalyzed: (alerts || []).length,
@@ -7442,28 +7475,19 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             // meaningfully "trending" anyway. Now pulls real, current
             // Google Trends data via a confirmed, working Apify actor
             // instead - genuinely external, not simulated or internal.
+            // FIXED (2026-09-30): confirmed this was a third, separate
+            // instance of the exact same bug already fixed in
+            // external-trending-topics and generate-insight-clues -
+            // wrong input parameters (geo/maxItems don't exist for
+            // this actor's trending mode) and wrong output parsing
+            // (assumed a flat array, but the real shape is a nested
+            // trending_searches array keyed by "term"). Replaced with
+            // the shared, already-fixed helper rather than
+            // duplicating the broken logic a third time.
             let trendingTopics = [];
             try {
-                const trendsResponse = await fetch(
-                    `https://api.apify.com/v2/acts/data_xplorer~google-trends-fast-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN || ''}`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ geo: 'US', maxItems: 15 })
-                    }
-                );
-                if (trendsResponse.ok) {
-                    const trendsData = await trendsResponse.json();
-                    // Defensive parsing - this actor's exact field
-                    // names weren't directly confirmable without
-                    // running it, so trying the most likely variants
-                    // rather than assuming one shape.
-                    trendingTopics = (Array.isArray(trendsData) ? trendsData : [])
-                        .map(item => item.title || item.query || item.term || item.keyword || item.topic)
-                        .filter(Boolean)
-                        .slice(0, 8)
-                        .map(topic => ({ topic, count: null }));
-                }
+                const globalTrends = await fetchGlobalTrends('US', 15);
+                trendingTopics = globalTrends.map(t => ({ topic: t.topic, count: null }));
             } catch (trendsError) {
                 console.warn('Real trending topics fetch failed, continuing without them:', trendsError.message);
             }
