@@ -340,14 +340,63 @@ export default function AICourseBuilder() {
                     console.warn(`Lesson content generation failed for "${mod.title}", falling back to outline text:`, contentErr);
                 }
                 
-                await supabase.from('course_lessons').insert({
-                    course_id: newCourse.id,
-                    title: mod.title || `Module ${i + 1}`,
-                    content,
-                    sort_order: i,
-                    duration_minutes: Math.round((durationHours * 60) / Math.max(modules.length, 1)),
-                    is_free: i === 0
-                });
+                // FIXED (2026-09-30): now captures the real, inserted
+                // lesson ID (needed so audio generation below can
+                // genuinely link to the correct lesson) - previously
+                // discarded the insert result entirely.
+                const { data: newLesson } = await supabase
+                    .from('course_lessons')
+                    .insert({
+                        course_id: newCourse.id,
+                        title: mod.title || `Module ${i + 1}`,
+                        content,
+                        sort_order: i,
+                        duration_minutes: Math.round((durationHours * 60) / Math.max(modules.length, 1)),
+                        is_free: i === 0
+                    })
+                    .select()
+                    .single();
+
+                // NEW (2026-09-30): real audio generation - the
+                // genuinely missing piece behind the Audio toggle.
+                // Wrapped in its own try/catch so one lesson's audio
+                // failure never blocks the rest of the course from
+                // being created.
+                if (includeAudio && newLesson?.id) {
+                    setGenerationStatus(`Generating audio for lesson ${i + 1}/${modules.length}...`);
+                    try {
+                        await authenticatedFetch('generate-lesson-audio', { lessonId: newLesson.id, content });
+                    } catch (audioErr) {
+                        console.warn(`Audio generation failed for lesson "${mod.title}":`, audioErr);
+                    }
+                }
+            }
+
+            // NEW (2026-09-30): real cover image generation - the
+            // genuinely missing piece behind the Images toggle.
+            if (includeImages) {
+                setGenerationStatus('Generating course cover image...');
+                try {
+                    await authenticatedFetch('generate-course-cover-image', {
+                        courseId: newCourse.id,
+                        title: outline.title || topic,
+                        description: outline.description
+                    });
+                } catch (imageErr) {
+                    console.warn('Course cover image generation failed:', imageErr);
+                }
+            }
+
+            // NEW (2026-09-30): wires in the quiz generation action
+            // that already genuinely existed and worked - it just was
+            // never actually called from here before.
+            if (includeQuizzes) {
+                setGenerationStatus('Generating quiz...');
+                try {
+                    await authenticatedFetch('generate-course-quiz', { courseId: newCourse.id });
+                } catch (quizErr) {
+                    console.warn('Quiz generation failed:', quizErr);
+                }
             }
             
             setGenerationProgress(100);
@@ -471,16 +520,16 @@ export default function AICourseBuilder() {
                         <Sparkles className="w-4 h-4 text-primary-400" />
                         AI Automation Features
                     </h3>
-                    {/* FIXED (2026-08-22): a prior header comment claimed a
-                        "not yet functional" note existed near these toggles
-                        — it didn't. These are checked by default and look
-                        fully working with zero indication otherwise, while
-                        the real backend (generate-course) only returns a
-                        text outline — no images, audio, or quizzes are
-                        actually generated regardless of these settings. */}
+                    {/* FIXED (2026-09-30): Images, Audio, and Quizzes are
+                        now genuinely wired to real generation (see
+                        generate-course-cover-image, generate-lesson-audio,
+                        and the now-connected generate-course-quiz in
+                        handleGenerateCourse). Assignments remains the one
+                        honest exception - no table or generation logic
+                        exists for it anywhere on this platform yet. */}
                     <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                         <p className="text-amber-400 text-xs">
-                            ⚠️ These toggles are not yet functional — the AI currently generates a course outline only (title, description, modules). Images, audio, and quizzes are not auto-generated regardless of these settings.
+                            ⚠️ Images, Audio, and Quizzes are now genuinely generated when enabled. Assignments is not yet built - no assignment feature exists on this platform yet regardless of this toggle.
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-6">
@@ -865,7 +914,7 @@ export default function AICourseBuilder() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>Quizzes and assignments are added manually in the editor — not yet auto-generated</span>
+                                <span>Quizzes are now genuinely auto-generated when enabled above — assignments still need to be added manually in the editor</span>
                             </li>
                         </ul>
                         <ul className="space-y-2">
@@ -883,7 +932,7 @@ export default function AICourseBuilder() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                <span>The feature toggles above do not yet affect generation — images/audio/quizzes still manual, for now</span>
+                                <span>Images, audio, and quizzes above now genuinely affect generation — assignments remains manual, with no auto-generation built yet</span>
                             </li>
                         </ul>
                     </div>
