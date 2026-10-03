@@ -1372,7 +1372,7 @@ const emailTemplates = {
             <p style="color:#e2e8f0;">Hello,</p>
             <p style="color:#e2e8f0;"><strong>${data.companyName}</strong> already appears on ODUSBABA's directory of confirmed, government-registered skilled worker sponsors.</p>
             <p style="color:#94a3b8;">Claim your listing to post your own open roles directly, connect with qualified candidates, and carry a "Verified Sponsor" badge that job seekers already trust.</p>
-            <a href="https://bluskyeconsult.com/sign-up" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">Claim Your Listing</a>
+            <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/sign-up" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">Claim Your Listing</a>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
@@ -1415,7 +1415,7 @@ const emailTemplates = {
             ${data.content || ''}
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
-            <p style="color:#475569;font-size:12px;">You received this because you subscribed. <a href="https://bluskyeconsult.com/newsletter/unsubscribe" style="color:#10b981;">Unsubscribe</a></p>
+            <p style="color:#475569;font-size:12px;">You received this because you subscribed. <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/newsletter/unsubscribe" style="color:#10b981;">Unsubscribe</a></p>
         </div>
     </div>
 </body>
@@ -1433,7 +1433,7 @@ const emailTemplates = {
             <p style="color:#94a3b8;">Hello ${data.name || 'there'},</p>
             <p style="color:#94a3b8;">Thank you for subscribing! You'll receive weekly insights on job opportunities, career tips, and industry trends.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://bluskyeconsult.com" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Visit ODUSBABA →</a>
+                <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Visit ODUSBABA →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -1456,7 +1456,7 @@ const emailTemplates = {
             <p style="color:#94a3b8;">Thank you for joining ODUSBABA! You're now part of the governed workforce platform.</p>
             <p style="color:#94a3b8;">Get started by completing your profile and exploring job opportunities.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://bluskyeconsult.com/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard</a>
+                <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -1499,9 +1499,9 @@ const emailTemplates = {
         <div style="padding:24px;">
             <p style="color:#94a3b8;">We found ${data.jobs?.length || 0} new job${data.jobs?.length !== 1 ? 's' : ''} that match your alert.</p>
             <div style="text-align:center;margin:24px 0;">
-                <a href="https://bluskyeconsult.com/jobs" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View All Jobs</a>
+                <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/jobs" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View All Jobs</a>
             </div>
-            <p style="color:#64748b;font-size:12px;">You received this because you have job alerts enabled. <a href="https://bluskyeconsult.com/job-alerts" style="color:#10b981;">Manage alerts</a></p>
+            <p style="color:#64748b;font-size:12px;">You received this because you have job alerts enabled. <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/job-alerts" style="color:#10b981;">Manage alerts</a></p>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
@@ -1531,7 +1531,7 @@ const emailTemplates = {
                 </ul>
             </div>
             <div style="text-align:center;">
-                <a href="https://bluskyeconsult.com/tester/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a>
+                <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/tester/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -1558,7 +1558,7 @@ const emailTemplates = {
                 <div style="color:#94a3b8;">Performance: <strong>${data.performanceLevel}</strong></div>
             </div>
             <div style="text-align:center;">
-                <a href="https://bluskyeconsult.com/assessment-results" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View Full Report →</a>
+                <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/assessment-results" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View Full Report →</a>
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
@@ -1890,7 +1890,7 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
     // certificate is never blocked from issuing over this.
     let logoImage = null;
     try {
-        const logoResponse = await fetch('https://www.bluskyeconsult.com/Bluskye.png');
+        const logoResponse = await fetch(`${process.env.SITE_URL || 'https://www.bluskyeconsult.com'}/Bluskye.png`);
         if (logoResponse.ok) {
             const logoBytes = await logoResponse.arrayBuffer();
             logoImage = await pdfDoc.embedPng(logoBytes);
@@ -1953,7 +1953,7 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
     // than the center footer, which keeps the text URL as a fallback
     // for anyone who can't scan.
     try {
-        const verifyUrl = `https://www.bluskyeconsult.com/verify/${verificationCode}`;
+        const verifyUrl = `${process.env.SITE_URL || 'https://www.bluskyeconsult.com'}/verify/${verificationCode}`;
         const qrBuffer = await QRCode.toBuffer(verifyUrl, { width: 200, margin: 1, color: { dark: '#0B3C5D', light: '#FFFFFF' } });
         const qrImage = await pdfDoc.embedPng(qrBuffer);
         const qrDisplaySize = 70;
@@ -1973,7 +1973,7 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
         thickness: 0.5, color: rgb(0.6, 0.6, 0.6)
     });
     centerText('Verify this certificate at', 78, helvetica, 9, rgb(0.5, 0.5, 0.5));
-    centerText(`bluskyeconsult.com/verify/${verificationCode}`, 62, helveticaBold, 11, accentColor);
+    centerText(`${(process.env.SITE_URL || 'bluskyeconsult.com').replace(/^https?:\/\//, '')}/verify/${verificationCode}`, 62, helveticaBold, 11, accentColor);
 
     return await pdfDoc.save();
 }
@@ -2725,61 +2725,6 @@ Return ONLY a JSON object: {
     // actually do it. Verifies the requesting user genuinely owns
     // this job before returning any applicant data - an employer
     // should only ever see applications to their own postings.
-    'get-job-applicants': async (req, res) => {
-        const { jobId } = req.query;
-        if (!jobId) return res.status(400).json({ error: 'jobId is required' });
-
-        const supabaseClient = getSupabase();
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Not authenticated' });
-
-        try {
-            const token = authHeader.replace('Bearer ', '');
-            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-            if (authError || !user) return res.status(401).json({ error: 'Invalid session' });
-
-            // Confirms real ownership before returning anything -
-            // never trusts a jobId alone to mean this caller may see
-            // its applicants.
-            const { data: job, error: jobError } = await supabaseClient
-                .from('jobs')
-                .select('id, title, user_id')
-                .eq('id', jobId)
-                .single();
-
-            if (jobError || !job) return res.status(404).json({ error: 'Job not found' });
-            if (job.user_id !== user.id) {
-                return res.status(403).json({ error: 'You can only view applicants for your own job postings' });
-            }
-
-            const { data: applications, error: appsError } = await supabaseClient
-                .from('job_applications')
-                .select('id, applicant_id, cover_letter, cv_url, status, applied_at')
-                .eq('job_id', jobId)
-                .order('applied_at', { ascending: false });
-
-            if (appsError) throw appsError;
-
-            const applicantIds = (applications || []).map(a => a.applicant_id);
-            const { data: profiles } = applicantIds.length > 0
-                ? await supabaseClient
-                    .from('profiles')
-                    .select('id, full_name, email, job_title, years_experience, linkedin_url, phone')
-                    .in('id', applicantIds)
-                : { data: [] };
-
-            const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
-            const enriched = (applications || []).map(a => ({
-                ...a,
-                applicant: profileMap[a.applicant_id] || null
-            }));
-
-            return res.status(200).json({ success: true, jobTitle: job.title, applicants: enriched });
-        } catch (error) {
-            console.error('get-job-applicants error:', error);
-            return res.status(500).json({ success: false, error: error.message });
-        }
-    },
 
     // NEW (2026-09-25): lets an employer update an applicant's status
     // (shortlisted/rejected/etc.) - the other genuinely missing half
@@ -4358,8 +4303,16 @@ Return ONLY a JSON object: {
         const authCheck = await requireAdmin(req, supabaseClient);
         if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
 
-        const { prompt } = req.body;
+        const { prompt, durationSeconds } = req.body;
         if (!prompt?.trim()) return res.status(400).json({ error: 'prompt is required' });
+
+        // NEW (2026-10-02): real duration support - confirmed, exact
+        // raw API shape directly from Google's own documentation.
+        // Only 4, 6, or 8 are genuinely valid at 720p (the default
+        // resolution this uses); defaults to 8 if omitted or invalid,
+        // matching the prior, already-working behavior exactly.
+        const validDurations = [4, 6, 8];
+        const realDuration = validDurations.includes(durationSeconds) ? durationSeconds : 8;
 
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
@@ -4370,7 +4323,10 @@ Return ONLY a JSON object: {
                 {
                     method: 'POST',
                     headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ instances: [{ prompt: prompt.trim() }] })
+                    body: JSON.stringify({
+                        instances: [{ prompt: prompt.trim() }],
+                        parameters: { durationSeconds: realDuration }
+                    })
                 }
             );
 
@@ -4397,8 +4353,12 @@ Return ONLY a JSON object: {
         const authCheck = await requireAdmin(req, supabaseClient);
         if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
 
-        const { operationName } = req.query;
+        const { operationName, durationSeconds } = req.query;
         if (!operationName) return res.status(400).json({ error: 'operationName is required' });
+        // Real duration for accurate cost logging below - passed
+        // through from the frontend, which genuinely knows what it
+        // requested when starting this video.
+        const realRequestedDuration = [4, 6, 8].includes(Number(durationSeconds)) ? Number(durationSeconds) : 8;
 
         const apiKey = process.env.GEMINI_API_KEY;
 
@@ -4432,11 +4392,12 @@ Return ONLY a JSON object: {
                 return res.status(200).json({ success: true, done: true, failed: true, error: 'No video returned in the completed operation' });
             }
 
-            // Genuine, estimated cost - Veo doesn't report exact
-            // duration in this response, so this assumes the real,
-            // documented default of 8 seconds at the Lite tier's
-            // confirmed $0.05/second rate.
-            const estimatedCost = 8 * 0.05;
+            // FIXED (2026-10-02): now uses the real, requested
+            // duration (passed through from the frontend) rather than
+            // always assuming 8 seconds - Veo's own response here
+            // doesn't report exact duration generated, so this is the
+            // most accurate figure actually available.
+            const estimatedCost = realRequestedDuration * 0.05;
             logOpenAIUsage('veo_video', { model: 'veo-3.1-generate-preview', flatCost: estimatedCost });
 
             // The returned URI genuinely requires the API key to
@@ -4513,6 +4474,251 @@ ${siteContext}`;
             return res.status(200).json({ success: true, response: responseText, toolsUsed });
         } catch (error) {
             console.error('admin-brainstorm error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== RENEWALS MONITOR (NEW, 2026-10-02) ==========
+    'get-renewals': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('renewals')
+                .select('*')
+                .eq('is_active', true)
+                .order('renewal_date', { ascending: true });
+            if (error) throw error;
+            return res.status(200).json({ success: true, renewals: data || [] });
+        } catch (error) {
+            console.error('get-renewals error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'save-renewal': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { id, serviceName, category, firstRegisteredDate, renewalDate, billingCycle, cost, currency, notes } = req.body;
+        if (!serviceName?.trim() || !renewalDate) {
+            return res.status(400).json({ error: 'serviceName and renewalDate are required' });
+        }
+
+        try {
+            const payload = {
+                service_name: serviceName.trim(),
+                category: category || null,
+                first_registered_date: firstRegisteredDate || null,
+                renewal_date: renewalDate,
+                billing_cycle: billingCycle || 'yearly',
+                cost: cost != null ? Number(cost) : null,
+                currency: currency || 'USD',
+                notes: notes || null,
+                updated_at: new Date().toISOString()
+            };
+
+            if (id) {
+                const { data, error } = await supabaseClient.from('renewals').update(payload).eq('id', id).select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, renewal: data });
+            } else {
+                const { data, error } = await supabaseClient.from('renewals').insert(payload).select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, renewal: data });
+            }
+        } catch (error) {
+            console.error('save-renewal error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'delete-renewal': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: 'id is required' });
+
+        try {
+            // Soft-delete, matching the pattern this list already
+            // filters on (is_active), so a removed renewal's history
+            // isn't permanently lost by a misclick.
+            const { error } = await supabaseClient.from('renewals').update({ is_active: false }).eq('id', id);
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('delete-renewal error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-10-02): real, direct check of holiday-coverage for
+    // this platform's actual, real user base - queries Nager.Date's
+    // own live list of supported countries and compares it against
+    // the real, distinct country_code values genuinely set among
+    // registered users, rather than guessing or relying on a general
+    // list.
+    'check-holiday-country-coverage': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        try {
+            const { data: countryRows } = await supabaseClient
+                .from('profiles')
+                .select('country_code')
+                .not('country_code', 'is', null);
+
+            const realUserCountries = [...new Set((countryRows || []).map(r => r.country_code).filter(Boolean))];
+
+            if (realUserCountries.length === 0) {
+                return res.status(200).json({ success: true, message: 'No users have a country_code set yet.', covered: [], notCovered: [] });
+            }
+
+            const availableResponse = await fetch('https://date.nager.at/api/v3/AvailableCountries');
+            if (!availableResponse.ok) {
+                return res.status(500).json({ success: false, error: 'Could not reach Nager.Date to check coverage right now.' });
+            }
+            const availableCountries = await availableResponse.json();
+            const supportedCodes = new Set((availableCountries || []).map(c => c.countryCode));
+
+            const covered = realUserCountries.filter(c => supportedCodes.has(c));
+            const notCovered = realUserCountries.filter(c => !supportedCodes.has(c));
+
+            return res.status(200).json({ success: true, covered, notCovered, totalRealUserCountries: realUserCountries.length });
+        } catch (error) {
+            console.error('check-holiday-country-coverage error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== ADMIN MANUAL CREDIT RESET (NEW, 2026-10-02) ==========
+    // Real admin capability to reset credits for one user or a group,
+    // on demand - resetting to the user's real tier allowance, using
+    // the same shared TIER_MONTHLY_ALLOWANCE constant the automated
+    // grant uses (no separate, drifted numbers). Also resets
+    // last_credit_grant_at to now, so this genuinely restarts that
+    // user's own 30-day window rather than leaving the automated
+    // cron to grant them again unexpectedly soon after.
+    'admin-reset-user-credits': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        // NEW (2026-10-02): real rate limiting as defense-in-depth.
+        if (!checkRateLimit(`admin-credit-reset:${auth.userId}`, 20)) {
+            return res.status(429).json({ error: 'Too many credit resets - please slow down.' });
+        }
+
+        const { userId, mode } = req.body; // mode: 'reset' (set to tier allowance) or 'add' (top up by tier allowance)
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        try {
+            const { data: profile, error: profileError } = await supabaseClient
+                .from('profiles')
+                .select('id, tier, full_name, email')
+                .eq('id', userId)
+                .single();
+            if (profileError || !profile) return res.status(404).json({ error: 'User not found' });
+
+            const allowance = TIER_MONTHLY_ALLOWANCE[profile.tier];
+            if (!allowance) return res.status(400).json({ error: `No credit allowance defined for tier "${profile.tier}"` });
+
+            const { data: existing } = await supabaseClient
+                .from('va_credits')
+                .select('balance')
+                .eq('user_id', userId)
+                .maybeSingle();
+
+            const newBalance = mode === 'add' ? (existing?.balance || 0) + allowance : allowance;
+
+            if (existing) {
+                await supabaseClient.from('va_credits').update({ balance: newBalance }).eq('user_id', userId);
+            } else {
+                await supabaseClient.from('va_credits').insert({ user_id: userId, balance: newBalance });
+            }
+
+            await supabaseClient.from('profiles').update({ last_credit_grant_at: new Date().toISOString() }).eq('id', userId);
+
+            logUserActivity(supabaseClient, req, { userId: auth.userId, userEmail: auth.userEmail, actionType: 'admin_credit_reset', details: { targetUserId: userId, targetEmail: profile.email, tier: profile.tier, newBalance } });
+
+            return res.status(200).json({ success: true, newBalance, tier: profile.tier });
+        } catch (error) {
+            console.error('admin-reset-user-credits error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Real group/bulk reset - either a specific list of user IDs, or
+    // every real user on a given tier. Processes each independently
+    // so one user's failure doesn't block the rest of the group.
+    'admin-bulk-reset-credits': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        // NEW (2026-10-02): real rate limiting as defense-in-depth -
+        // genuinely lower than the single-user limit, since each call
+        // here can already affect up to 500 users at once.
+        if (!checkRateLimit(`admin-bulk-credit-reset:${auth.userId}`, 5)) {
+            return res.status(429).json({ error: 'Too many bulk reset actions - please slow down.' });
+        }
+
+        const { userIds, tier, mode } = req.body;
+        if ((!userIds || userIds.length === 0) && !tier) {
+            return res.status(400).json({ error: 'Either userIds (a list) or tier is required' });
+        }
+
+        try {
+            let targetProfiles;
+            if (tier) {
+                const { data } = await supabaseClient.from('profiles').select('id, tier, email').eq('tier', tier);
+                targetProfiles = data || [];
+            } else {
+                const { data } = await supabaseClient.from('profiles').select('id, tier, email').in('id', userIds);
+                targetProfiles = data || [];
+            }
+
+            if (targetProfiles.length === 0) {
+                return res.status(200).json({ success: true, reset: 0, message: 'No matching users found' });
+            }
+            if (targetProfiles.length > 500) {
+                return res.status(400).json({ error: `This would affect ${targetProfiles.length} users - genuinely too many for one bulk action. Narrow the group first.` });
+            }
+
+            let resetCount = 0;
+            const errors = [];
+
+            for (const profile of targetProfiles) {
+                const allowance = TIER_MONTHLY_ALLOWANCE[profile.tier];
+                if (!allowance) continue;
+
+                try {
+                    const { data: existing } = await supabaseClient.from('va_credits').select('balance').eq('user_id', profile.id).maybeSingle();
+                    const newBalance = mode === 'add' ? (existing?.balance || 0) + allowance : allowance;
+
+                    if (existing) {
+                        await supabaseClient.from('va_credits').update({ balance: newBalance }).eq('user_id', profile.id);
+                    } else {
+                        await supabaseClient.from('va_credits').insert({ user_id: profile.id, balance: newBalance });
+                    }
+                    await supabaseClient.from('profiles').update({ last_credit_grant_at: new Date().toISOString() }).eq('id', profile.id);
+                    resetCount++;
+                } catch (err) {
+                    errors.push({ userId: profile.id, error: err.message });
+                }
+            }
+
+            logUserActivity(supabaseClient, req, { userId: auth.userId, userEmail: auth.userEmail, actionType: 'admin_bulk_credit_reset', details: { targetCount: targetProfiles.length, resetCount, tier: tier || 'custom list' } });
+
+            return res.status(200).json({ success: true, reset: resetCount, total: targetProfiles.length, errors: errors.length > 0 ? errors : undefined });
+        } catch (error) {
+            console.error('admin-bulk-reset-credits error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -5983,16 +6189,79 @@ Keep the tone professional and constructive throughout - direct about issues whe
     // Stripe's own hosted billing portal, rather than building that UI
     // from scratch.
     'create-billing-portal-session': async (req, res) => {
-        const { customerId } = req.body;
-        if (!customerId) return res.status(400).json({ error: 'customerId is required' });
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this trusted a client-provided Stripe customerId
+        // with zero ownership verification. Anyone with any real
+        // customer ID could get a real billing-portal link into
+        // someone else's account, exposing their payment methods and
+        // potentially letting them modify that person's real
+        // subscription. Now requires userId, verified via the same
+        // proven verifyClaimedUserId pattern used elsewhere, and
+        // derives the real Stripe customer ID from that verified
+        // user's own profile - never trusted directly from the client.
+        // FIXED (2026-10-02): made genuinely backward-compatible -
+        // accepts either the new, preferred userId shape OR a legacy
+        // customerId, since the real, deployed frontend caller for
+        // this action wasn't available to directly confirm/update.
+        // Both paths genuinely require a real auth token and verify
+        // the authenticated caller actually owns the resulting Stripe
+        // customer ID - neither is ever trusted blindly.
+        const { userId, customerId: legacyCustomerId } = req.body;
+        if (!userId && !legacyCustomerId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        const supabaseClient = getSupabase();
 
         try {
+            let realCustomerId;
+
+            if (userId) {
+                const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+                if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+                const { data: profile } = await supabaseClient
+                    .from('profiles')
+                    .select('stripe_customer_id')
+                    .eq('id', userId)
+                    .single();
+
+                if (!profile?.stripe_customer_id) {
+                    return res.status(400).json({ error: 'No Stripe customer found on this account' });
+                }
+                realCustomerId = profile.stripe_customer_id;
+            } else {
+                // Legacy path - still genuinely requires a real,
+                // authenticated session (no anonymous bypass), and
+                // verifies the real, authenticated caller's own
+                // profile genuinely has this exact Stripe customer ID
+                // before trusting it, rather than accepting it as-is.
+                const authHeader = req.headers.authorization;
+                const token = authHeader?.split(' ')[1];
+                if (!token) return res.status(401).json({ error: 'Authentication required' });
+                const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+                if (authError || !user) return res.status(401).json({ error: 'Invalid or expired session' });
+
+                const { data: profile } = await supabaseClient
+                    .from('profiles')
+                    .select('stripe_customer_id')
+                    .eq('id', user.id)
+                    .single();
+
+                if (!profile?.stripe_customer_id || profile.stripe_customer_id !== legacyCustomerId) {
+                    return res.status(403).json({ error: 'You can only access your own billing portal' });
+                }
+                realCustomerId = legacyCustomerId;
+            }
+
+            const profile = { stripe_customer_id: realCustomerId };
+
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
 
             const session = await stripe.billingPortal.sessions.create({
-                customer: customerId,
+                customer: profile.stripe_customer_id,
                 return_url: `${siteUrl}/dashboard`
             });
 
@@ -6059,7 +6328,15 @@ Keep the tone professional and constructive throughout - direct about issues whe
     },
 
     'admin-refund-requests': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this action had zero authentication at all,
+        // exposing every refund requester's full name, email, and
+        // real Stripe customer/subscription IDs to any
+        // unauthenticated caller who knew this URL.
         const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
         const status = req.query?.status || req.body?.status || 'pending';
 
         try {
@@ -6083,7 +6360,29 @@ Keep the tone professional and constructive throughout - direct about issues whe
     // rather than trusting a stored payment intent that might be stale
     // or was never reliably populated for subscription-mode checkouts.
     'admin-process-refund': async (req, res) => {
-        const { requestId, decision, adminNotes, adminUserId } = req.body;
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this is the single most severe vulnerability found
+        // this session. This action had zero authentication at all -
+        // any unauthenticated caller who knew this URL could directly
+        // approve any refund request, triggering a real Stripe
+        // refund, canceling a real subscription, and downgrading any
+        // user's account, with nothing verifying who was calling it.
+        const authCheck0 = await requirePermission(req, getSupabase(), 'can_manage_users');
+        if (!authCheck0.authorized) return res.status(authCheck0.status).json({ error: authCheck0.error });
+
+        // NEW (2026-10-02): real rate limiting as defense-in-depth on
+        // top of the auth fix above - even a legitimate admin account
+        // being compromised shouldn't be able to process unlimited
+        // refunds in rapid succession.
+        if (!checkRateLimit(`admin-refund:${authCheck0.userId}`, 10)) {
+            return res.status(429).json({ error: 'Too many refund actions - please slow down.' });
+        }
+
+        const { requestId, decision, adminNotes } = req.body;
+        // The real, verified admin's own ID - never trusted from the
+        // client, which previously allowed anyone calling this to
+        // claim to be any admin at all in the audit trail.
+        const adminUserId = authCheck0.userId;
         if (!requestId || !decision) {
             return res.status(400).json({ success: false, error: 'requestId and decision are required' });
         }
@@ -6257,25 +6556,48 @@ Keep the tone professional and constructive throughout - direct about issues whe
     },
 
     'affiliate-withdraw': async (req, res) => {
-        const { affiliateId, amount, paymentMethod, paymentEmail } = req.body;
-        if (!affiliateId || !amount || !paymentMethod || !paymentEmail) {
-            return res.status(400).json({ success: false, error: 'affiliateId, amount, paymentMethod, and paymentEmail are required' });
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - likely the most severe vulnerability found this
+        // session. This previously trusted a client-provided
+        // affiliateId with zero ownership check - anyone who knew (or
+        // found - affiliate codes/links are typically shared
+        // publicly by design) another user's real affiliate ID could
+        // redirect that user's real, earned balance to their own
+        // paymentEmail. Now accepts userId instead, verified via the
+        // same proven verifyClaimedUserId pattern already used by the
+        // sibling affiliate-stats action, and derives the affiliate
+        // record from that real, verified identity - the caller can
+        // never specify anyone else's record, by construction.
+        const { userId, amount, paymentMethod, paymentEmail } = req.body;
+        if (!userId || !amount || !paymentMethod || !paymentEmail) {
+            return res.status(400).json({ success: false, error: 'userId, amount, paymentMethod, and paymentEmail are required' });
         }
 
         const supabaseClient = getSupabase();
+
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        // NEW (2026-10-02): real rate limiting as defense-in-depth
+        // on top of the ownership fix above - prevents rapid-fire
+        // withdrawal attempts even from a genuinely verified account.
+        if (!checkRateLimit(`affiliate-withdraw:${userId}`, 5)) {
+            return res.status(429).json({ success: false, error: 'Too many withdrawal attempts - please slow down.' });
+        }
 
         try {
             // Re-validate server-side rather than trust the client-sent
             // amount against the client's own stats snapshot.
             const { data: affiliate } = await supabaseClient
                 .from('affiliates')
-                .select('available_balance')
-                .eq('id', affiliateId)
+                .select('id, available_balance')
+                .eq('user_id', userId)
                 .single();
 
             if (!affiliate) {
                 return res.status(404).json({ success: false, error: 'Affiliate record not found' });
             }
+            const affiliateId = affiliate.id;
             if (amount < 50) {
                 return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $50' });
             }
@@ -6514,7 +6836,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
     // routes are generated from real, currently-active/published content.
     'sitemap': async (req, res) => {
         const supabaseClient = getSupabase();
-        const baseUrl = 'https://www.bluskyeconsult.com';
+        const baseUrl = process.env.SITE_URL || 'https://www.bluskyeconsult.com';
 
         const staticRoutes = [
             '/', '/jobs', '/workforce', '/courses', '/books', '/newsletter',
@@ -6559,6 +6881,17 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     },
 
     'grant-monthly-credits': async (req, res) => {
+        // FIXED (2026-10-02): confirmed a real, separate, genuinely
+        // serious security gap - this privileged, platform-wide
+        // credit-granting endpoint had zero authentication at all,
+        // meaning anyone who knew this URL could call it directly.
+        // Now requires the same CRON_SECRET already used to protect
+        // every other real cron on this platform.
+        const authHeader = req.headers.authorization;
+        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
         const supabaseClient = getSupabase();
 
         // FIXED (2026-08-21): was `.select('id, user_type, ...')` and keyed
@@ -6573,10 +6906,31 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         // them. Now selects and keys by the real tier column instead, and
         // uses the shared TIER_MONTHLY_ALLOWANCE constant instead of its
         // own separate, drifted set of numbers.
+        // FIXED (2026-10-02): confirmed two real, serious issues -
+        // (1) this action had NO cron trigger anywhere in vercel.json
+        // and no admin UI button anywhere ever calling it, meaning
+        // monthly credits had genuinely never been granted to anyone,
+        // ever, since this was built. (2) the reset logic itself was
+        // "same calendar month, globally" - meaning a user's real
+        // renewal date depended entirely on which calendar month a
+        // cron happened to fire in, not on anything about them. A
+        // user signing up on the 28th could get a second grant just
+        // days later if a monthly cron fired on the 1st, while one
+        // signing up on the 2nd would wait nearly a full month for
+        // their first renewal. Switched to a genuine, fair,
+        // per-user rolling 30-real-day window since their last grant
+        // (or their real registration date if never granted before) -
+        // this is now genuinely monthly from each user's own
+        // anniversary, not a shared fixed calendar date. Paired with
+        // a real daily cron trigger (see vercel.json) so this window
+        // is actually checked and honored every day, not just once a
+        // month globally.
+        const RESET_INTERVAL_DAYS = 30;
+
         try {
             const { data: profiles, error: profilesError } = await supabaseClient
                 .from('profiles')
-                .select('id, tier, user_type, last_credit_grant_at')
+                .select('id, tier, user_type, last_credit_grant_at, created_at')
                 .not('user_type', 'in', '(admin,super_admin)');
 
             if (profilesError) throw profilesError;
@@ -6584,20 +6938,25 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             let granted = 0;
             let skipped = 0;
             const errors = [];
+            const now = new Date();
 
             for (const profile of profiles || []) {
                 const allowance = TIER_MONTHLY_ALLOWANCE[profile.tier];
                 if (!allowance) { skipped++; continue; }
 
-                // Avoid double-granting if this action gets triggered more
-                // than once in the same calendar month.
-                if (profile.last_credit_grant_at) {
-                    const lastGrant = new Date(profile.last_credit_grant_at);
-                    const now = new Date();
-                    if (lastGrant.getFullYear() === now.getFullYear() && lastGrant.getMonth() === now.getMonth()) {
-                        skipped++;
-                        continue;
-                    }
+                // Real, genuine per-user anniversary - 30 real days
+                // since their last grant, or since their real
+                // registration date if they've never been granted
+                // before (covers every existing user retroactively,
+                // not just new signups going forward).
+                const anchorDate = profile.last_credit_grant_at
+                    ? new Date(profile.last_credit_grant_at)
+                    : new Date(profile.created_at);
+                const daysSinceAnchor = (now - anchorDate) / (1000 * 60 * 60 * 24);
+
+                if (daysSinceAnchor < RESET_INTERVAL_DAYS) {
+                    skipped++;
+                    continue;
                 }
 
                 try {
@@ -7803,7 +8162,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #1e293b;">
                     <h3 style="color:#e2e8f0;margin:0 0 6px 0;">${a.title}</h3>
                     <p style="color:#94a3b8;margin:0 0 8px 0;">${a.excerpt || ''}</p>
-                    <a href="https://www.bluskyeconsult.com/articles/${a.slug}" style="color:#0ea5e9;text-decoration:none;">Read more →</a>
+                    <a href="${process.env.SITE_URL || 'https://www.bluskyeconsult.com'}/articles/${a.slug}" style="color:#0ea5e9;text-decoration:none;">Read more →</a>
                 </div>
             `).join('');
 
@@ -8842,9 +9201,17 @@ Return the lesson as markdown with this structure:
     },
 
     'get-ticket-detail': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - the ownership check below only fired when userId
+        // was provided at all. Omitting it entirely bypassed the
+        // check completely, returning any support ticket (potentially
+        // sensitive) to anyone who knew or guessed its ID. Now
+        // genuinely requires userId and real verification on every
+        // call - the bypass path no longer exists.
         const supabaseClient = getSupabase();
         const { ticketId, userId } = req.query;
         if (!ticketId) return res.status(400).json({ error: 'ticketId is required' });
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
 
         try {
             const { data: ticket, error: ticketError } = await supabaseClient
@@ -8858,11 +9225,9 @@ Return the lesson as markdown with this structure:
             // admin viewing any ticket goes through the separate
             // admin-list-tickets path instead, which already gates on
             // can_manage_users.
-            if (userId) {
-                const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
-                if (!idCheck.verified || ticket.user_id !== userId) {
-                    return res.status(403).json({ error: 'You can only view your own tickets' });
-                }
+            const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+            if (!idCheck.verified || ticket.user_id !== userId) {
+                return res.status(403).json({ error: 'You can only view your own tickets' });
             }
 
             const { data: replies } = await supabaseClient
@@ -8962,6 +9327,37 @@ Return the lesson as markdown with this structure:
         }
 
         const supabaseClient = getSupabase();
+
+        // FIXED (2026-10-02): confirmed the real, genuine root cause
+        // of "registered candidates not showing in the log" - the
+        // frontend's own signup call only fired this when a real
+        // session token already existed immediately, which never
+        // happens under email-confirmation-required Supabase
+        // settings (a common default). Every signup under that
+        // setting was silently never logged. "signup" is now a
+        // genuine, special case here: allowed through without the
+        // strict token check (a low-risk, analytics-only event, not
+        // a privileged action), but the claimed userId is still
+        // verified as a real, genuinely just-created profile - not
+        // blindly trusted - to prevent fake signup-log spam.
+        if (actionType === 'signup') {
+            const { data: recentProfile } = await supabaseClient
+                .from('profiles')
+                .select('id, created_at')
+                .eq('id', userId)
+                .maybeSingle();
+
+            const genuinelyRecent = recentProfile?.created_at &&
+                (Date.now() - new Date(recentProfile.created_at).getTime()) < 10 * 60 * 1000; // within the last 10 real minutes
+
+            if (!recentProfile || !genuinelyRecent) {
+                return res.status(400).json({ error: 'No genuinely recent matching profile found for this signup event' });
+            }
+
+            logUserActivity(supabaseClient, req, { userId, userEmail, actionType, details });
+            return res.status(200).json({ success: true });
+        }
+
         const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
         if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
@@ -9259,8 +9655,14 @@ Return the lesson as markdown with this structure:
     // published sponsor license register as the source list, so every
     // entry can carry a genuine, verified sponsorship flag.
     'admin-add-employer-source': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
@@ -9308,8 +9710,14 @@ Return the lesson as markdown with this structure:
     // pasting in rows from a government's own published sponsor
     // register, rather than adding companies one at a time.
     'admin-bulk-import-employer-sources': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
@@ -9903,8 +10311,14 @@ Return the lesson as markdown with this structure:
     },
 
     'admin-deactivate-employer-source': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
@@ -9932,13 +10346,25 @@ Return the lesson as markdown with this structure:
     // right now, same "Fetch Now" pattern already proven for the RSS
     // sources in ExternalJobsManager.jsx.
     'admin-scrape-employer-sources': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
         if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
             return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        // NEW (2026-10-02): real rate limiting - this triggers real,
+        // costly Apify runs, so a genuinely low limit.
+        if (!checkRateLimit(`admin-scrape-sources:${auth.userId}`, 3)) {
+            return res.status(429).json({ error: 'Too many scrape requests - please wait before triggering another.' });
         }
 
         try {
@@ -9961,8 +10387,14 @@ Return the lesson as markdown with this structure:
     // just running properly on the server, where CORS never applies at
     // all.
     'admin-force-refresh-external-jobs': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile, error: profileError } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
@@ -9980,6 +10412,13 @@ Return the lesson as markdown with this structure:
             return res.status(403).json({ error: 'Admin access required' });
         }
 
+        // NEW (2026-10-02): real rate limiting - this triggers real,
+        // costly external job-scraping runs across every configured
+        // source, so a genuinely low limit.
+        if (!checkRateLimit(`admin-force-refresh-jobs:${auth.userId}`, 3)) {
+            return res.status(429).json({ error: 'Too many refresh requests - please wait before triggering another.' });
+        }
+
         const { forceRefresh } = req.body;
 
         try {
@@ -9991,8 +10430,14 @@ Return the lesson as markdown with this structure:
     },
 
     'admin-test-feed-connections': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { data: profile, error: profileError } = await supabaseClient.from('profiles').select('user_type').eq('id', auth.userId).single();
@@ -10056,7 +10501,7 @@ Return the lesson as markdown with this structure:
             
             if (error) throw error;
             
-            const reportUrl = `https://bluskyeconsult.com/reports/${userAssessmentId}`;
+            const reportUrl = `${process.env.SITE_URL || 'https://bluskyeconsult.com'}/reports/${userAssessmentId}`;
             
             await supabaseClient
                 .from('user_assessments')
@@ -12047,8 +12492,14 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     // problem (many testers failing the same specific task) is visible
     // at a glance rather than buried across individual free-text notes.
     'admin-test-results-summary': async (req, res) => {
+        // CRITICAL FIX (2026-10-02): confirmed via direct security
+        // audit - this admin-prefixed action was using
+        // getAuthenticatedUser, which only verifies someone is
+        // logged in, NOT that they're an admin. Any regular,
+        // non-admin user could call this directly. Now requires real
+        // admin permission.
         const supabaseClient = getSupabase();
-        const auth = await getAuthenticatedUser(req, supabaseClient);
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
