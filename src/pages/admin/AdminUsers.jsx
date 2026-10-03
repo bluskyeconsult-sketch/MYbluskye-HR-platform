@@ -95,6 +95,7 @@ export default function AdminUsers() {
             calculateStats(data || []);
         } catch (err) {
             console.error('Error loading users:', err);
+            toast.error('Failed to load users: ' + err.message);
         } finally {
             setLoading(false);
         }
@@ -245,6 +246,52 @@ export default function AdminUsers() {
     // pattern already proven correct for updateUserRole above (rather
     // than the previously-broken /api/index?action=admin-* pattern this
     // file's own comment documents as dead).
+    // NEW (2026-10-02): real admin credit reset - resets to the
+    // user's own tier allowance via the real, server-side,
+    // permission-gated action, rather than manually typing a number
+    // into the raw balance field above.
+    // NEW (2026-10-02): real group/bulk credit reset - "a group of
+    // users" via a real, specific tier, genuinely resetting every
+    // user currently on that tier in one action.
+    async function bulkResetByTier() {
+        if (tierFilter === 'all') {
+            toast.error('Select a specific tier above first, then bulk-reset that group');
+            return;
+        }
+        if (!confirm(`Reset credits for every real user on the "${tierFilter}" tier? This cannot be undone.`)) return;
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=admin-bulk-reset-credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+                body: JSON.stringify({ tier: tierFilter, mode: 'reset' })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            toast.success(`Reset credits for ${data.reset} of ${data.total} users on the "${tierFilter}" tier`);
+        } catch (err) {
+            toast.error(err.message);
+        }
+    }
+
+    async function resetUserCredits(userId, mode = 'reset') {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=admin-reset-user-credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+                body: JSON.stringify({ userId, mode })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            toast.success(`Credits ${mode === 'add' ? 'topped up' : 'reset'} to ${data.newBalance} (${data.tier} tier)`);
+            setManageForm(prev => prev ? { ...prev, va_credits_balance: data.newBalance } : prev);
+        } catch (err) {
+            toast.error(err.message);
+        }
+    }
+
     async function saveManagedProfile() {
         if (!manageForm) return;
         setSavingManage(true);
@@ -295,6 +342,29 @@ export default function AdminUsers() {
         return (
             <span className={`px-2 py-1 rounded-full text-xs ${colorMap[role.color]}`}>
                 {role.label}
+            </span>
+        );
+    }
+
+    // NEW (2026-10-02): confirmed a real, genuine gap during review -
+    // tier was editable in the Manage User modal, filterable, and
+    // exportable, but never actually displayed anywhere in the user
+    // list itself. An admin had no way to see at a glance which tier
+    // any user was on without opening each one individually.
+    function getTierBadge(tier) {
+        const tierColors = {
+            free: 'bg-slate-500/20 text-slate-400',
+            registered: 'bg-blue-500/20 text-blue-400',
+            professional: 'bg-purple-500/20 text-purple-400',
+            employer: 'bg-emerald-500/20 text-emerald-400',
+            business: 'bg-amber-500/20 text-amber-400',
+            tester: 'bg-pink-500/20 text-pink-400'
+        };
+        const realTier = tier || 'free';
+        const label = realTier.charAt(0).toUpperCase() + realTier.slice(1);
+        return (
+            <span className={`px-2 py-1 rounded-full text-xs ${tierColors[realTier] || tierColors.free}`}>
+                {label}
             </span>
         );
     }
@@ -439,6 +509,13 @@ export default function AdminUsers() {
                     >
                         <Download className="w-4 h-4" /> Export CSV
                     </button>
+                    <button
+                        onClick={bulkResetByTier}
+                        className="px-3 py-2 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-300 rounded-lg text-sm flex items-center gap-1.5 transition"
+                        title="Reset credits for every user on the selected tier - pick a specific tier above first"
+                    >
+                        <RefreshCw className="w-4 h-4" /> Reset Tier Credits
+                    </button>
                     {(searchTerm || roleFilter !== 'all' || tierFilter !== 'all' || statusFilter !== 'all') && (
                         <button
                             onClick={() => {
@@ -478,6 +555,7 @@ export default function AdminUsers() {
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                     {getRoleBadge(user.user_type)}
+                                    {getTierBadge(user.tier)}
                                     {user.is_tester && (
                                         <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
                                             <Star className="w-2.5 h-2.5" /> Tester
@@ -547,7 +625,7 @@ export default function AdminUsers() {
                             <tr>
                                 <th className="px-4 py-3 text-left text-white text-sm font-semibold">User</th>
                                 <th className="px-4 py-3 text-left text-white text-sm font-semibold">Email</th>
-                                <th className="px-4 py-3 text-left text-white text-sm font-semibold">Role</th>
+                                <th className="px-4 py-3 text-left text-white text-sm font-semibold">Role / Tier</th>
                                 <th className="px-4 py-3 text-left text-white text-sm font-semibold">Joined</th>
                                 <th className="px-4 py-3 text-left text-white text-sm font-semibold">Status</th>
                                 <th className="px-4 py-3 text-left text-white text-sm font-semibold">Actions</th>
@@ -577,6 +655,7 @@ export default function AdminUsers() {
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-1.5">
                                             {getRoleBadge(user.user_type)}
+                                            {getTierBadge(user.tier)}
                                             {/* NEW (2026-08-23): is_tester is the real flag now —
                                                 worth showing directly rather than only using it
                                                 silently to gate the "end tester status" button. */}
@@ -888,6 +967,7 @@ export default function AdminUsers() {
                                         <option value="professional">Professional</option>
                                         <option value="employer">Employer</option>
                                         <option value="business">Business</option>
+                                        <option value="tester">Tester</option>
                                     </select>
                                 </div>
                                 <div>
@@ -923,6 +1003,22 @@ export default function AdminUsers() {
                                         onChange={(e) => setManageForm({ ...manageForm, va_credits_balance: parseInt(e.target.value) || 0 })}
                                         className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                                     />
+                                    <div className="flex gap-2 mt-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => resetUserCredits(manageForm.id, 'reset')}
+                                            className="text-xs px-2 py-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition"
+                                        >
+                                            Reset to tier allowance
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => resetUserCredits(manageForm.id, 'add')}
+                                            className="text-xs px-2 py-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition"
+                                        >
+                                            Top up by tier allowance
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
