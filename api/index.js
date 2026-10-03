@@ -720,6 +720,13 @@ async function callAnthropic(messages, systemPrompt, maxTokens = 1000, temperatu
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('Anthropic API key not configured (ANTHROPIC_API_KEY missing)');
 
+    // FIXED (2026-10-02): confirmed, real Anthropic API change -
+    // models released after Claude Opus 4.6 (claude-sonnet-5 included)
+    // no longer accept the temperature parameter at all; sending it
+    // is rejected outright with a 400 "temperature is deprecated for
+    // this model" error. Genuinely removed from the request body -
+    // the function still accepts a temperature argument so no caller
+    // needs to change, it's just no longer sent to the API.
     const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -730,7 +737,6 @@ async function callAnthropic(messages, systemPrompt, maxTokens = 1000, temperatu
         body: JSON.stringify({
             model: 'claude-sonnet-5',
             max_tokens: maxTokens,
-            temperature,
             system: systemPrompt,
             messages
         })
