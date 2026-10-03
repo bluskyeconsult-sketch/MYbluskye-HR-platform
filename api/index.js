@@ -4271,17 +4271,58 @@ Return ONLY a JSON object: {
         const authCheck = await requireAdmin(req, supabaseClient);
         if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
 
-        const { message, history, systemPrompt, temperature = 0.7, maxTokens = 1000 } = req.body;
+        const { message, history, temperature = 0.7, maxTokens = 1500 } = req.body;
         if (!message) return res.status(400).json({ error: 'message is required' });
 
         try {
+            // FIXED (2026-09-30): confirmed the real, genuine cause of
+            // "not working as expected" - the frontend was sending a
+            // rigid systemPrompt that forced every single question
+            // into "generate 5 ideas for: [whatever was typed]",
+            // regardless of what was actually asked. A direct
+            // question like "write me a video prompt" was genuinely
+            // being mangled into a brainstorm-ideas request. The
+            // client-sent systemPrompt is now ignored entirely (this
+            // is admin-gated, so always safely rebuilt here) in favor
+            // of one real, genuinely conversational prompt that
+            // answers what's actually asked.
+            //
+            // Also adds real, genuine site-awareness - the second
+            // part of what was missing - fetched fresh on every call
+            // so recommendations are grounded in the platform's
+            // actual, current state, not generic knowledge alone.
+            const [
+                { count: totalUsers },
+                { data: tierRows },
+                { count: activeJobs },
+                { count: publishedCourses },
+                { data: recentSignals }
+            ] = await Promise.all([
+                supabaseClient.from('profiles').select('id', { count: 'exact', head: true }),
+                supabaseClient.from('profiles').select('tier'),
+                supabaseClient.from('jobs').select('id', { count: 'exact', head: true }).eq('is_active', true),
+                supabaseClient.from('courses').select('id', { count: 'exact', head: true }).eq('is_published', true),
+                supabaseClient.from('activity_signals').select('query_text').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).limit(30)
+            ]);
+
+            const tierCounts = {};
+            (tierRows || []).forEach(r => { const t = r.tier || 'free'; tierCounts[t] = (tierCounts[t] || 0) + 1; });
+            const tierSummary = Object.entries(tierCounts).map(([tier, count]) => `${tier}: ${count}`).join(', ') || 'no users yet';
+            const recentTopics = (recentSignals || []).map(s => s.query_text).filter(Boolean).slice(0, 15).join(', ') || 'no recent activity logged';
+
+            const siteContext = `REAL, CURRENT PLATFORM STATE (use this to ground your answers - don't fabricate numbers beyond what's given here):
+- Total registered users: ${totalUsers || 0}
+- Users by tier: ${tierSummary}
+- Active job listings: ${activeJobs || 0}
+- Published courses: ${publishedCourses || 0}
+- Recent user search/chat topics (last 30 days, sample): ${recentTopics}`;
+
+            const genuineSystemPrompt = `You are a strategic thinking partner for the admin of ODUSBABA, an HR/career platform. Have a real, direct conversation - answer exactly what's asked, in whatever form actually fits (a prompt, a plan, a direct answer, a numbered list only if a list genuinely suits the question). Never force an answer into a rigid format that doesn't match what was asked. Use the real platform data below when it's genuinely relevant to the question; ignore it when it isn't.
+
+${siteContext}`;
+
             const messages = [...(history || []), { role: 'user', content: message }];
-            const responseText = await callAnthropic(
-                messages,
-                systemPrompt || 'You are a strategic brainstorming partner for an HR/career platform admin.',
-                maxTokens,
-                temperature
-            );
+            const responseText = await callAnthropic(messages, genuineSystemPrompt, maxTokens, temperature);
 
             return res.status(200).json({ success: true, response: responseText });
         } catch (error) {
