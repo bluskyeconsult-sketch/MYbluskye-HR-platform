@@ -101,7 +101,11 @@ export default function BrainstormPartner() {
                 throw new Error(data.error || 'No response received');
             }
 
-            const assistantMessage = { role: 'assistant', content: data.response, timestamp: new Date().toISOString() };
+            // NEW (2026-10-02): honest, visible confirmation when
+            // Claude genuinely looked something up via a real tool
+            // call, rather than answering from the fixed snapshot or
+            // general knowledge alone.
+            const assistantMessage = { role: 'assistant', content: data.response, toolsUsed: data.toolsUsed, timestamp: new Date().toISOString() };
             setConversation(prev => [...prev, assistantMessage]);
         } catch (err) {
             console.error('Brainstorm error:', err);
@@ -227,6 +231,11 @@ export default function BrainstormPartner() {
                                                     <div className="flex items-center gap-2">
                                                         <Brain className="w-4 h-4 text-amber-400" />
                                                         <span className="text-xs font-medium text-amber-400">Brainstorm Partner</span>
+                                                        {msg.toolsUsed && (
+                                                            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full" title="This answer looked up real, current site data">
+                                                                looked this up
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="flex gap-1">
                                                         <button onClick={() => copyToClipboard(msg.content, idx)} className="p-1 hover:bg-slate-700 rounded" title="Copy response">
