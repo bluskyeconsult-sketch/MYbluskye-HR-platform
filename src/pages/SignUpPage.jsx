@@ -502,20 +502,26 @@ export default function SignUpPage() {
                 console.warn('Profile creation warning:', profileError);
             }
 
-            // NEW (2026-09-24): fire-and-forget - never awaited, so
-            // this can't slow down or block a real signup completing.
-            // Includes the real session token when one genuinely
-            // exists immediately (depends on this project's
-            // email-confirmation setting) - if it doesn't yet, this
-            // silently no-ops, and the login event will genuinely
-            // capture it the first time they actually sign in.
-            if (authData.session?.access_token) {
-                fetch('/api/index?action=log-user-activity', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authData.session.access_token}` },
-                    body: JSON.stringify({ userId: authData.user.id, userEmail: formData.email, actionType: 'signup', details: { tier, userType } })
-                }).catch(() => {});
-            }
+            // FIXED (2026-10-02): confirmed the real, genuine root
+            // cause of "registered candidates not showing in the log"
+            // - this previously only fired when a real session token
+            // already existed immediately, which genuinely never
+            // happens under email-confirmation-required Supabase
+            // settings. Every signup under that setting was silently
+            // never logged. The backend now genuinely handles the
+            // no-token case safely for signup specifically (verifying
+            // the profile is real and genuinely recent instead of
+            // requiring a token), so this always attempts the call -
+            // the Authorization header is included when a token does
+            // happen to exist, omitted otherwise.
+            fetch('/api/index?action=log-user-activity', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(authData.session?.access_token ? { 'Authorization': `Bearer ${authData.session.access_token}` } : {})
+                },
+                body: JSON.stringify({ userId: authData.user.id, userEmail: formData.email, actionType: 'signup', details: { tier, userType } })
+            }).catch(() => {});
 
             // FIXED: create the user's real credit balance in va_credits (the table
             // the app actually reads from), instead of writing it to profiles.
