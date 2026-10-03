@@ -21,7 +21,7 @@ export default function EditProfilePage() {
     const [form, setForm] = useState({
         full_name: '', bio: '', phone: '', location: '', country_code: '',
         job_title: '', linkedin_url: '', github_url: '', years_experience: '',
-        avatar_url: ''
+        avatar_url: '', date_of_birth: ''
     });
 
     useEffect(() => {
@@ -53,7 +53,8 @@ export default function EditProfilePage() {
                 linkedin_url: data.linkedin_url || '',
                 github_url: data.github_url || '',
                 years_experience: data.years_experience ?? '',
-                avatar_url: data.avatar_url || ''
+                avatar_url: data.avatar_url || '',
+                date_of_birth: data.date_of_birth || ''
             });
         }
         setLoading(false);
@@ -140,6 +141,7 @@ export default function EditProfilePage() {
                     github_url: form.github_url || null,
                     years_experience: form.years_experience === '' ? null : parseInt(form.years_experience),
                     avatar_url: form.avatar_url || null,
+                    date_of_birth: form.date_of_birth || null,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', userId);
@@ -280,6 +282,17 @@ export default function EditProfilePage() {
                         onChange={(e) => setForm({ ...form, years_experience: e.target.value })}
                         className="w-32 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                     />
+                </div>
+
+                <div>
+                    <label className="block text-sm text-slate-400 mb-1">Date of Birth (optional)</label>
+                    <input
+                        type="date"
+                        value={form.date_of_birth}
+                        onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+                        className="w-48 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Only used to send you a birthday message - never shown publicly.</p>
                 </div>
 
                 <button
