@@ -53,6 +53,8 @@
     "mammoth": "^1.8.0",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
     "react-countup": "^6.4.2",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
