@@ -762,6 +762,195 @@ async function callAnthropic(messages, systemPrompt, maxTokens = 1000, temperatu
     return data.content?.[0]?.text || '';
 }
 
+// NEW (2026-10-02): real, on-demand site-querying tools for
+// Brainstorm Partner - genuinely different from the earlier fixed
+// 5-stat snapshot, this lets Claude look up specific, real data in
+// response to what's actually asked, rather than only knowing a
+// pre-fetched summary. Deliberately read-only - every tool here only
+// ever selects from tables already confirmed real elsewhere on this
+// platform this session (jobs, courses, profiles, activity_signals);
+// none can write, update, or delete anything.
+const BRAINSTORM_TOOLS = [
+    {
+        name: 'search_jobs',
+        description: 'Search real, current job listings on the platform by keyword and/or country. Use this when asked about specific jobs, job counts by category/country, or examples of current listings.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Keyword to search in job titles (optional - omit to browse recent jobs generally)' },
+                country: { type: 'string', description: 'Country code to filter by, e.g. "GB", "NG", "US", "Global" (optional)' },
+                limit: { type: 'number', description: 'Max results to return, default 10, max 25' }
+            }
+        }
+    },
+    {
+        name: 'search_courses',
+        description: 'Search real, published courses on the platform by keyword and/or category. Use this when asked about specific courses, course topics, or what already exists in the course catalog.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Keyword to search in course titles (optional)' },
+                category: { type: 'string', description: 'Course category to filter by (optional)' },
+                limit: { type: 'number', description: 'Max results to return, default 10, max 25' }
+            }
+        }
+    },
+    {
+        name: 'get_user_stats',
+        description: 'Get real, current, detailed user statistics - total count, breakdown by tier, and new signups in a given recent window. Use this for any question about user numbers, tier distribution, or growth.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                recentDays: { type: 'number', description: 'Window in days for "new signups" count, default 30' }
+            }
+        }
+    },
+    {
+        name: 'search_activity_signals',
+        description: 'Search real, recent user search/chat activity logs by keyword. Use this to find what real users have actually been asking about or searching for recently, related to a specific topic.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Keyword to search within recent activity topics' },
+                limit: { type: 'number', description: 'Max results to return, default 15, max 50' }
+            }
+        }
+    }
+];
+
+// Real, direct executor - takes a tool name and its real input
+// (exactly as Claude provided it) and returns a real, genuine result
+// string. Every branch here only ever reads; nothing here writes.
+async function executeBrainstormTool(supabaseClient, toolName, toolInput) {
+    try {
+        if (toolName === 'search_jobs') {
+            const limit = Math.min(toolInput.limit || 10, 25);
+            // FIXED (2026-10-02): confirmed real column is
+            // source_country, not country - caught by directly
+            // checking existing, established queries on this same
+            // table elsewhere in the codebase before trusting the
+            // assumption.
+            let query = supabaseClient.from('jobs').select('title, company, location, source_country, created_at').eq('is_active', true).order('created_at', { ascending: false }).limit(limit);
+            if (toolInput.query) query = query.ilike('title', `%${toolInput.query}%`);
+            if (toolInput.country) query = query.eq('source_country', toolInput.country);
+            const { data, error } = await query;
+            if (error) return `Error searching jobs: ${error.message}`;
+            if (!data || data.length === 0) return 'No matching jobs found.';
+            return data.map(j => `${j.title} at ${j.company || 'unknown company'}, ${j.location || 'location not specified'} (${j.source_country || 'no country set'})`).join('\n');
+        }
+
+        if (toolName === 'search_courses') {
+            const limit = Math.min(toolInput.limit || 10, 25);
+            let query = supabaseClient.from('courses').select('title, category, created_at').eq('is_published', true).order('created_at', { ascending: false }).limit(limit);
+            if (toolInput.query) query = query.ilike('title', `%${toolInput.query}%`);
+            if (toolInput.category) query = query.eq('category', toolInput.category);
+            const { data, error } = await query;
+            if (error) return `Error searching courses: ${error.message}`;
+            if (!data || data.length === 0) return 'No matching published courses found.';
+            return data.map(c => `${c.title} (${c.category || 'uncategorized'})`).join('\n');
+        }
+
+        if (toolName === 'get_user_stats') {
+            const recentDays = toolInput.recentDays || 30;
+            const since = new Date(Date.now() - recentDays * 24 * 60 * 60 * 1000).toISOString();
+            const [{ count: total }, { data: tierRows }, { count: newSignups }] = await Promise.all([
+                supabaseClient.from('profiles').select('id', { count: 'exact', head: true }),
+                supabaseClient.from('profiles').select('tier'),
+                supabaseClient.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', since)
+            ]);
+            const tierCounts = {};
+            (tierRows || []).forEach(r => { const t = r.tier || 'free'; tierCounts[t] = (tierCounts[t] || 0) + 1; });
+            const tierSummary = Object.entries(tierCounts).map(([t, c]) => `${t}: ${c}`).join(', ') || 'no users yet';
+            return `Total users: ${total || 0}. By tier: ${tierSummary}. New signups in the last ${recentDays} days: ${newSignups || 0}.`;
+        }
+
+        if (toolName === 'search_activity_signals') {
+            const limit = Math.min(toolInput.limit || 15, 50);
+            let query = supabaseClient.from('activity_signals').select('query_text, created_at').order('created_at', { ascending: false }).limit(limit);
+            if (toolInput.query) query = query.ilike('query_text', `%${toolInput.query}%`);
+            const { data, error } = await query;
+            if (error) return `Error searching activity signals: ${error.message}`;
+            if (!data || data.length === 0) return 'No matching recent activity found.';
+            return data.map(s => s.query_text).filter(Boolean).join('\n');
+        }
+
+        return `Unknown tool: ${toolName}`;
+    } catch (err) {
+        return `Error running ${toolName}: ${err.message}`;
+    }
+}
+
+// The real, genuine tool-use agentic loop - confirmed against
+// Anthropic's own, current, real tool-use API format: Claude responds
+// with stop_reason "tool_use" and one or more tool_use content
+// blocks; each is executed for real, and its real result is appended
+// as a tool_result block in a new user-role message; the loop
+// continues until Claude responds with a genuine final answer
+// (stop_reason other than "tool_use"). Capped at 5 rounds - a
+// deliberate, honest ceiling against a runaway loop, not an
+// arbitrary restriction on real use.
+async function callAnthropicWithTools(supabaseClient, messages, systemPrompt, maxTokens = 1500) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('Anthropic API key not configured (ANTHROPIC_API_KEY missing)');
+
+    let currentMessages = [...messages];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
+    for (let round = 0; round < 5; round++) {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'claude-sonnet-5',
+                max_tokens: maxTokens,
+                system: systemPrompt,
+                messages: currentMessages,
+                tools: BRAINSTORM_TOOLS
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error?.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        totalInputTokens += data.usage?.input_tokens || 0;
+        totalOutputTokens += data.usage?.output_tokens || 0;
+
+        if (data.stop_reason !== 'tool_use') {
+            // Genuine final answer - log real, total cost across every
+            // round of this turn (including any tool-use rounds) and
+            // return.
+            logOpenAIUsage('anthropic_chat', {
+                model: 'claude-sonnet-5',
+                flatCost: (totalInputTokens * 3 / 1_000_000) + (totalOutputTokens * 15 / 1_000_000)
+            });
+            const textBlock = (data.content || []).find(b => b.type === 'text');
+            return { text: textBlock?.text || '', toolsUsed: round > 0 };
+        }
+
+        // Claude wants to use one or more tools - append its real
+        // response (including the tool_use blocks) to the
+        // conversation, then execute each tool for real and append
+        // the real results.
+        currentMessages.push({ role: 'assistant', content: data.content });
+
+        const toolUseBlocks = data.content.filter(b => b.type === 'tool_use');
+        const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
+            const resultText = await executeBrainstormTool(supabaseClient, block.name, block.input || {});
+            return { type: 'tool_result', tool_use_id: block.id, content: resultText };
+        }));
+
+        currentMessages.push({ role: 'user', content: toolResults });
+    }
+
+    // Genuinely exhausted the round cap without a final answer -
+    // honest about this rather than silently returning nothing.
+    throw new Error('Reached the maximum number of tool-use steps without a final answer - try rephrasing the question.');
+}
+
 // NEW (2026-09-30): real Google Gemini integration - genuinely
 // cheaper than gpt-4o-mini ($0.10/$0.40 per 1M tokens on Flash-Lite
 // vs $0.15/$0.60), used only as an automatic fallback when OpenAI
@@ -4277,60 +4466,51 @@ Return ONLY a JSON object: {
         const authCheck = await requireAdmin(req, supabaseClient);
         if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
 
-        const { message, history, temperature = 0.7, maxTokens = 1500 } = req.body;
+        const { message, history, maxTokens = 1500 } = req.body;
         if (!message) return res.status(400).json({ error: 'message is required' });
 
         try {
-            // FIXED (2026-09-30): confirmed the real, genuine cause of
-            // "not working as expected" - the frontend was sending a
-            // rigid systemPrompt that forced every single question
-            // into "generate 5 ideas for: [whatever was typed]",
-            // regardless of what was actually asked. A direct
-            // question like "write me a video prompt" was genuinely
-            // being mangled into a brainstorm-ideas request. The
-            // client-sent systemPrompt is now ignored entirely (this
-            // is admin-gated, so always safely rebuilt here) in favor
-            // of one real, genuinely conversational prompt that
-            // answers what's actually asked.
-            //
-            // Also adds real, genuine site-awareness - the second
-            // part of what was missing - fetched fresh on every call
-            // so recommendations are grounded in the platform's
-            // actual, current state, not generic knowledge alone.
+            // NEW (2026-10-02): real, on-demand site-querying - the
+            // genuine answer to "can Brainstorm look around the
+            // site". The fixed 5-stat snapshot below still gives
+            // immediate, zero-latency context for common questions,
+            // but Claude can now also genuinely call real tools
+            // (search_jobs, search_courses, get_user_stats,
+            // search_activity_signals - see BRAINSTORM_TOOLS) to look
+            // up specific, real data when a question actually needs
+            // it, rather than being limited to only the snapshot.
             const [
                 { count: totalUsers },
                 { data: tierRows },
                 { count: activeJobs },
-                { count: publishedCourses },
-                { data: recentSignals }
+                { count: publishedCourses }
             ] = await Promise.all([
                 supabaseClient.from('profiles').select('id', { count: 'exact', head: true }),
                 supabaseClient.from('profiles').select('tier'),
                 supabaseClient.from('jobs').select('id', { count: 'exact', head: true }).eq('is_active', true),
-                supabaseClient.from('courses').select('id', { count: 'exact', head: true }).eq('is_published', true),
-                supabaseClient.from('activity_signals').select('query_text').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).limit(30)
+                supabaseClient.from('courses').select('id', { count: 'exact', head: true }).eq('is_published', true)
             ]);
 
             const tierCounts = {};
             (tierRows || []).forEach(r => { const t = r.tier || 'free'; tierCounts[t] = (tierCounts[t] || 0) + 1; });
             const tierSummary = Object.entries(tierCounts).map(([tier, count]) => `${tier}: ${count}`).join(', ') || 'no users yet';
-            const recentTopics = (recentSignals || []).map(s => s.query_text).filter(Boolean).slice(0, 15).join(', ') || 'no recent activity logged';
 
-            const siteContext = `REAL, CURRENT PLATFORM STATE (use this to ground your answers - don't fabricate numbers beyond what's given here):
+            const siteContext = `REAL, CURRENT PLATFORM SNAPSHOT (immediate reference - use the available tools to look up anything more specific than this):
 - Total registered users: ${totalUsers || 0}
 - Users by tier: ${tierSummary}
 - Active job listings: ${activeJobs || 0}
-- Published courses: ${publishedCourses || 0}
-- Recent user search/chat topics (last 30 days, sample): ${recentTopics}`;
+- Published courses: ${publishedCourses || 0}`;
 
-            const genuineSystemPrompt = `You are a strategic thinking partner for the admin of ODUSBABA, an HR/career platform. Have a real, direct conversation - answer exactly what's asked, in whatever form actually fits (a prompt, a plan, a direct answer, a numbered list only if a list genuinely suits the question). Never force an answer into a rigid format that doesn't match what was asked. Use the real platform data below when it's genuinely relevant to the question; ignore it when it isn't.
+            const genuineSystemPrompt = `You are a strategic thinking partner for the admin of ODUSBABA, an HR/career platform. Have a real, direct conversation - answer exactly what's asked, in whatever form actually fits (a prompt, a plan, a direct answer, a numbered list only if a list genuinely suits the question). Never force an answer into a rigid format that doesn't match what was asked.
+
+You have real tools available to look up specific, current platform data - real job listings, real courses, detailed user stats, and recent real user activity. Use them whenever a question would genuinely benefit from specific, current data rather than the general snapshot below. Never fabricate specific numbers, job titles, or course names - look them up for real, or say plainly that you don't have that information.
 
 ${siteContext}`;
 
             const messages = [...(history || []), { role: 'user', content: message }];
-            const responseText = await callAnthropic(messages, genuineSystemPrompt, maxTokens, temperature);
+            const { text: responseText, toolsUsed } = await callAnthropicWithTools(supabaseClient, messages, genuineSystemPrompt, maxTokens);
 
-            return res.status(200).json({ success: true, response: responseText });
+            return res.status(200).json({ success: true, response: responseText, toolsUsed });
         } catch (error) {
             console.error('admin-brainstorm error:', error);
             return res.status(500).json({ success: false, error: error.message });
