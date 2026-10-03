@@ -686,6 +686,7 @@ const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistan
 const CustomHRToolManager = lazy(() => import('./pages/admin/CustomHRToolManager'));
 const OpenAIUsageMonitor = lazy(() => import('./pages/admin/OpenAIUsageMonitor'));
 const VideoCreator = lazy(() => import('./pages/admin/VideoCreator'));
+const RenewalsMonitor = lazy(() => import('./pages/admin/RenewalsMonitor'));
 const PersonalMediaStudio = lazy(() => import('./pages/admin/PersonalMediaStudio'));
 const AdminSupportTickets = lazy(() => import('./pages/admin/AdminSupportTickets'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
@@ -942,6 +943,7 @@ function AppContent() {
                             <Route path="/admin/hr-tool-builder" element={<ProtectedRoute requireAdmin><AdminLayout><CustomHRToolManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/openai-usage" element={<ProtectedRoute requireAdmin><AdminLayout><OpenAIUsageMonitor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/video-creator" element={<ProtectedRoute requireAdmin><AdminLayout><VideoCreator /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/renewals" element={<ProtectedRoute requireAdmin><AdminLayout><RenewalsMonitor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/personal-media-studio" element={<ProtectedRoute requireAdmin><AdminLayout><PersonalMediaStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/support-tickets" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSupportTickets /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
