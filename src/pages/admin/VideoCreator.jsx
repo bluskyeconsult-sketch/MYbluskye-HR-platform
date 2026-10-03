@@ -36,6 +36,10 @@ export default function VideoCreator() {
 
     // Veo-specific state
     const [veoPrompt, setVeoPrompt] = useState('');
+    // NEW (2026-10-02): real duration choice - Veo 3.1 genuinely
+    // supports 4, 6, or 8 seconds at 720p; previously always defaulted
+    // to 8 since no duration was ever sent at all.
+    const [veoDuration, setVeoDuration] = useState(8);
     const [veoRendering, setVeoRendering] = useState(false);
     const [veoStatus, setVeoStatus] = useState('');
     const [veoVideo, setVeoVideo] = useState(null);
@@ -179,7 +183,7 @@ export default function VideoCreator() {
             const startResponse = await fetch('/api/index?action=start-veo-video', {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ prompt: veoPrompt.trim() })
+                body: JSON.stringify({ prompt: veoPrompt.trim(), durationSeconds: veoDuration })
             });
             const startData = await startResponse.json();
             if (!startData.success) throw new Error(startData.error);
@@ -199,7 +203,7 @@ export default function VideoCreator() {
                     }
 
                     const statusHeaders = await authHeaders();
-                    const statusResponse = await fetch(`/api/index?action=check-veo-video-status&operationName=${encodeURIComponent(operationName)}`, { headers: statusHeaders });
+                    const statusResponse = await fetch(`/api/index?action=check-veo-video-status&operationName=${encodeURIComponent(operationName)}&durationSeconds=${veoDuration}`, { headers: statusHeaders });
                     const statusData = await statusResponse.json();
                     if (!statusData.success) throw new Error(statusData.error || 'Status check failed');
 
@@ -384,8 +388,19 @@ export default function VideoCreator() {
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm mb-3"
                     disabled={veoRendering}
                 />
+                <label className="block text-sm text-slate-400 mb-2">Duration</label>
+                <select
+                    value={veoDuration}
+                    onChange={(e) => setVeoDuration(Number(e.target.value))}
+                    disabled={veoRendering}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm mb-3"
+                >
+                    <option value={4}>4 seconds</option>
+                    <option value={6}>6 seconds</option>
+                    <option value={8}>8 seconds (Veo's real maximum per clip)</option>
+                </select>
                 <p className="text-slate-500 text-xs">
-                    Estimated cost: ~$0.40 for a real, 8-second clip ($0.05/second)
+                    Estimated cost: ~${(veoDuration * 0.05).toFixed(2)} for this {veoDuration}-second clip ($0.05/second)
                 </p>
             </div>
 
