@@ -14,7 +14,7 @@ import {
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
     Activity, Shield, ShieldCheck, BarChart3, UserCheck, Lightbulb, DollarSign,
     FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
-    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy, Bell, Image, Video, Calendar
+    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy, Bell, Image, Video, Calendar, FolderOpen
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -59,6 +59,7 @@ const ADMIN_NAV = [
         { path: '/admin/renewals', label: 'Renewals Monitor', icon: Calendar },
         { path: '/admin/personal-media-studio', label: 'Media Studio', icon: Image },
         { path: '/admin/video-creator', label: 'Video Creator', icon: Video },
+        { path: '/admin/media-library', label: 'Media Library', icon: FolderOpen },
         { path: '/admin/support-tickets', label: 'Support Tickets', icon: LifeBuoy },
         { path: '/admin/skills', label: 'Skills', icon: Flag },
     ]},
