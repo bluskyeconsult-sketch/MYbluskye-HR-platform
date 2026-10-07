@@ -118,11 +118,24 @@ export default function AffiliateDashboard() {
         setError(null);
         
         try {
+            // FIXED (2026-10-02): matches the backend's new, secure
+            // contract (see admin-process-refund-class fix in
+            // index.js) - sends the real, verified user's own ID and
+            // a real auth header, exactly the same pattern already
+            // used by loadAffiliateData above, rather than trusting a
+            // client-provided affiliateId with no ownership check.
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Your session has expired - please sign in again.');
+            const { data: { session } } = await supabase.auth.getSession();
+
             const response = await fetch('/api/index?action=affiliate-withdraw', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                },
                 body: JSON.stringify({
-                    affiliateId: affiliate.id,
+                    userId: user.id,
                     amount: amount,
                     paymentMethod: withdrawMethod,
                     paymentEmail: withdrawEmail
