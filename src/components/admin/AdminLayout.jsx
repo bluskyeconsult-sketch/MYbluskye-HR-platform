@@ -14,7 +14,7 @@ import {
     Mail, Globe, Database, Book, ClipboardList, Bot, Sparkles, Flag,
     Activity, Shield, ShieldCheck, BarChart3, UserCheck, Lightbulb, DollarSign,
     FlaskConical, KeyRound, ChevronLeft, Menu, X, Building2, Brain,
-    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy, Bell, Image, Video, Calendar, FolderOpen
+    Network, Share2, Gauge, FileSearch, MessageSquare, Eye, Stethoscope, Megaphone, Wrench, LifeBuoy, Bell, Image, Video, Calendar, FolderOpen, UserPlus
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -65,6 +65,7 @@ const ADMIN_NAV = [
     ]},
     { section: 'Communications', items: [
         { path: '/admin/newsletter', label: 'Newsletter', icon: Mail },
+        { path: '/admin/invitations', label: 'Invite People', icon: UserPlus },
         { path: '/admin/email-test', label: 'Email Test', icon: Mail },
         { path: '/admin/knowledge-sources', label: 'Knowledge Sources', icon: Database },
     ]},
