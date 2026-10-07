@@ -854,13 +854,13 @@ async function executeBrainstormTool(supabaseClient, toolName, toolInput) {
             // checking existing, established queries on this same
             // table elsewhere in the codebase before trusting the
             // assumption.
-            let query = supabaseClient.from('jobs').select('title, company, location, source_country, created_at').eq('is_active', true).order('created_at', { ascending: false }).limit(limit);
+            let query = supabaseClient.from('jobs').select('title, company, location, country_code, created_at').eq('is_active', true).order('created_at', { ascending: false }).limit(limit);
             if (toolInput.query) query = query.ilike('title', `%${toolInput.query}%`);
-            if (toolInput.country) query = query.eq('source_country', toolInput.country);
+            if (toolInput.country) query = query.eq('country_code', toolInput.country);
             const { data, error } = await query;
             if (error) return `Error searching jobs: ${error.message}`;
             if (!data || data.length === 0) return 'No matching jobs found.';
-            return data.map(j => `${j.title} at ${j.company || 'unknown company'}, ${j.location || 'location not specified'} (${j.source_country || 'no country set'})`).join('\n');
+            return data.map(j => `${j.title} at ${j.company || 'unknown company'}, ${j.location || 'location not specified'} (${j.country_code || 'no country set'})`).join('\n');
         }
 
         if (toolName === 'search_courses') {
@@ -2714,6 +2714,24 @@ Return JSON: {
                 virtual_assistant: `This platform's existing AI virtual assistants typically price around $5.99-$14.99 per use, reflecting a single, focused task completed in minutes.`,
                 hr_tool: `This platform's HR tools are typically included within paid subscription tiers (Professional $39.99/mo, Employer $199.99/mo, Business $549.99/mo) rather than priced individually - if this is a standalone, pay-per-use tool, price it similarly to the virtual assistants above ($5-15 range) unless it's genuinely more complex.`
             };
+
+            // FIXED (2026-10-07): replace the hardcoded price ranges with
+            // the platform's REAL current prices (min / median / max),
+            // read live from the database. Falls back to the static text
+            // above only if there are too few priced items to be meaningful.
+            try {
+                const src = { book: ['books', 'ebook_price'], course: ['courses', 'price'], virtual_assistant: ['virtual_assistants', 'price'] }[itemType];
+                if (src) {
+                    const { data: rows } = await supabaseClient.from(src[0]).select(src[1]).gt(src[1], 0).limit(500);
+                    const vals = (rows || []).map(r => Number(r[src[1]])).filter(n => n > 0).sort((a, b) => a - b);
+                    if (vals.length >= 3) {
+                        const med = vals[Math.floor(vals.length / 2)];
+                        contextByType[itemType] = `This platform currently sells ${vals.length} paid ${itemType.replace('_', ' ')}s priced between $${vals[0]} and $${vals[vals.length - 1]}, with a median of $${med}. (Real, live figures from the platform's own catalog.)`;
+                    }
+                }
+            } catch (ctxErr) {
+                console.warn('suggest-price live context failed, using static fallback:', ctxErr.message);
+            }
 
             const data = await callOpenAI([
                 {
@@ -7802,7 +7820,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 supabaseClient.from('job_alerts').select('keywords, country_code, job_type').eq('is_active', true).limit(300),
                 supabaseClient.from('courses').select('title, category').eq('is_published', true),
                 supabaseClient.from('va_tasks').select('va_id, virtual_assistants(category)').gte('created_at', since).limit(500),
-                supabaseClient.from('jobs').select('source_country').eq('is_active', true).gte('created_at', since).limit(1000)
+                supabaseClient.from('jobs').select('country_code').eq('is_active', true).gte('created_at', since).limit(1000)
             ]);
 
             if ((!signals || signals.length < 10) && (!alerts || alerts.length < 5)) {
@@ -7826,8 +7844,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             // Real regional distribution — counts, not guesses.
             const countryCounts = {};
             for (const j of jobsByCountry || []) {
-                if (!j.source_country) continue;
-                countryCounts[j.source_country] = (countryCounts[j.source_country] || 0) + 1;
+                if (!j.country_code) continue;
+                countryCounts[j.country_code] = (countryCounts[j.country_code] || 0) + 1;
             }
             const alertCountryCounts = {};
             for (const a of alerts || []) {
@@ -7986,6 +8004,32 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // to rule out (or bypass, if it's real) any stale bundle/cache
     // issue affecting the old path - a completely new action name and
     // new page cannot possibly inherit cached state from before.
+    // NEW (2026-10-07): server-side, exact status counts for the external
+    // jobs manager. The browser-side version read the table through RLS
+    // and Supabase's default 1000-row cap, so counts could under-report
+    // (or show 0) even though the fetch had really inserted rows.
+    'external-jobs-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const countOf = async (status) => {
+                let q = supabaseClient.from('external_jobs').select('id', { count: 'exact', head: true });
+                if (status) q = q.eq('status', status);
+                const { count, error } = await q;
+                if (error) throw error;
+                return count || 0;
+            };
+            const [pending, approved, rejected, total] = await Promise.all([
+                countOf('pending_approval'), countOf('approved'), countOf('rejected'), countOf(null)
+            ]);
+            return res.status(200).json({ success: true, stats: { pending, approved, rejected, total, bySource: {} } });
+        } catch (error) {
+            console.error('external-jobs-stats error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'pending-jobs-v2': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
@@ -10620,7 +10664,17 @@ Return the lesson as markdown with this structure:
 
         try {
             const result = await fetchExternalJobs(!!forceRefresh);
-            return res.status(200).json({ success: true, inserted: result.totalAdded, results: result.results });
+            // NEW: report what is REALLY in the database now, so the
+            // admin can reconcile "added N" against the Pending tab.
+            let pendingNow = null, statusBreakdown = null;
+            try {
+                const { data: rows } = await supabaseClient.from('external_jobs').select('status').limit(20000);
+                statusBreakdown = {};
+                for (const r of rows || []) statusBreakdown[r.status || 'null'] = (statusBreakdown[r.status || 'null'] || 0) + 1;
+                pendingNow = statusBreakdown['pending_approval'] || 0;
+            } catch (e) { console.warn('post-fetch status count failed:', e.message); }
+            const duplicates = (result.results || []).reduce((n, r) => n + (r.duplicates || 0), 0);
+            return res.status(200).json({ success: true, inserted: result.totalAdded, duplicates, pendingNow, statusBreakdown, results: result.results });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
