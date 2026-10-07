@@ -575,7 +575,19 @@ function buildInviteContent(body) {
     if (bullets.length === 0) return { error: 'Add at least one benefit.' };
     let testerCode = body.testerCode ? stripCtl(body.testerCode, 32).toUpperCase() : '';
     if (testerCode && !/^[A-Z0-9-]{4,32}$/.test(testerCode)) return { error: 'Invite code may only contain letters, numbers and dashes.' };
-    return { tier, testerCode, content: { subject, headline, intro, closing, bullets, ctaLabel: d.ctaLabel } };
+    // Richer sections (v2): preheader, onboarding steps, plan snapshot, P.S.
+    const preheader = stripCtl(body.preheader ?? d.preheader, 200).replace(/[\r\n]+/g, ' ');
+    const stepsTitle = stripCtl(body.stepsTitle ?? d.stepsTitle, 80);
+    const stepsIn = Array.isArray(body.steps) ? body.steps : d.steps;
+    const steps = stepsIn.slice(0, 5).map(x => ({ title: stripCtl(x?.title, 100), text: stripCtl(x?.text, 200) })).filter(x => x.title);
+    const snapIn = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : d.snapshot;
+    const snapshot = {
+        title: stripCtl(snapIn?.title, 80),
+        note: stripCtl(snapIn?.note, 200),
+        rows: (Array.isArray(snapIn?.rows) ? snapIn.rows : []).slice(0, 10).map(r => ({ label: stripCtl(r?.label, 60), value: stripCtl(r?.value, 100) })).filter(r => r.label && r.value)
+    };
+    const ps = stripCtl(body.ps ?? d.ps, 600);
+    return { tier, testerCode, content: { subject, headline, intro, closing, bullets, ctaLabel: d.ctaLabel, preheader, stepsTitle, steps, snapshot, ps } };
 }
 
 // Returns the set of lowercase emails (from the given list) present in a table's `email` column.
@@ -1305,7 +1317,12 @@ function getTransporter() {
     return nodemailer.createTransport({
         host: process.env.VITE_SMTP_HOST || process.env.SMTP_HOST,
         port: parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465'),
-        secure: true,
+        // FIXED (2026-10-07): was hardcoded secure:true, which can only work
+        // on port 465. Your own setup guide suggests port 587 (STARTTLS),
+        // which would fail every send with secure:true. Port 465 uses
+        // implicit TLS; 587/25 start plain and upgrade, so secure must be
+        // false there. 465 behaviour is unchanged.
+        secure: parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465') === 465,
         auth: {
             user: process.env.VITE_EMAIL_USER || process.env.SMTP_USER,
             pass: process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD
@@ -8116,6 +8133,39 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         return res.status(200).json({ success: true, subject: rendered.subject, html: rendered.html });
     },
 
+    // NEW (2026-10-07): checks the email connection the invitations use
+    // (the SMTP_* / VITE_SMTP_* variables in Vercel). Reports WHICH
+    // settings are present and whether the server accepts a login - never
+    // returns the password or username.
+    'invite-smtp-check': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`invite-smtp-check:${auth.userId}`, 10)) return res.status(429).json({ error: 'Too many checks - please wait.' });
+        const host = process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || null;
+        const port = parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465');
+        const user = process.env.VITE_EMAIL_USER || process.env.SMTP_USER || null;
+        const pass = process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD || null;
+        const sender = process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || null;
+        const report = {
+            host, port, secure: port === 465,
+            userSet: !!user, passwordSet: !!pass,
+            senderAddress: sender || 'noreply@bluskyeconsult.com (default - set SMTP_SENDER_EMAIL to change)',
+            replyToConfigured: !!process.env.INVITE_REPLY_TO,
+            postalAddressConfigured: !!process.env.INVITE_POSTAL_ADDRESS,
+            siteUrl: inviteSiteUrl(), dailyCap: INVITE_DAILY_CAP
+        };
+        if (!host || !user || !pass) {
+            return res.status(200).json({ success: true, connected: false, error: 'SMTP is not fully configured in Vercel (need host, user and password).', ...report });
+        }
+        try {
+            await getTransporter().verify();
+            return res.status(200).json({ success: true, connected: true, ...report });
+        } catch (error) {
+            return res.status(200).json({ success: true, connected: false, error: String(error.message).slice(0, 200), ...report });
+        }
+    },
+
     'invite-send-test': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
@@ -8174,6 +8224,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const { data: campaign, error: cErr } = await supabaseClient.from('invitation_campaigns').insert({
                 name, target_tier: built.tier, subject: built.content.subject, headline: built.content.headline,
                 intro: built.content.intro, bullets: built.content.bullets, closing: built.content.closing || null,
+                extras: { preheader: built.content.preheader, stepsTitle: built.content.stepsTitle, steps: built.content.steps, snapshot: built.content.snapshot, ps: built.content.ps },
                 tester_code: built.testerCode || null, lawful_basis: body.lawfulBasis, created_by: auth.userId
             }).select().single();
             if (cErr) throw cErr;
@@ -8308,7 +8359,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     await sendInviteEmail(transporter, {
                         to: inv.email, firstName: inv.first_name, token: inv.token, isReminder: mode === 'reminder',
                         testerCode: campaign.tester_code,
-                        content: { subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel }
+                        content: { subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel, ...(campaign.extras || {}) }
                     });
                     const patch = mode === 'reminder' ? { reminder_sent_at: new Date().toISOString() } : { status: 'sent', sent_at: new Date().toISOString(), last_error: null };
                     await supabaseClient.from('invitations').update(patch).eq('id', inv.id);
