@@ -1407,14 +1407,20 @@ async function saveJobToDatabase(job, sponsorship) {
     try {
         const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
         
-        const { data: existing } = await supabase
+        // FIXED (2026-10-07): the check used substring(0,150) while the
+        // insert stores up to 500 chars, so long titles never matched
+        // (duplicates), and maybeSingle() errors when 2+ rows match,
+        // silently letting yet another duplicate through. Now compares
+        // the same stored value and uses limit(1).
+        const { data: existingRows } = await supabase
             .from('external_jobs')
             .select('id')
-            .eq('title', job.title.substring(0, 150))
-            .eq('source_name', job.source_name)
+            .eq('title', (job.title || '').substring(0, 500))
+            .eq('source_name', (job.source_name || '').substring(0, 500))
             .gte('created_at', sevenDaysAgo)
-            .maybeSingle();
-        
+            .limit(1);
+        const existing = existingRows?.[0];
+
         if (existing) {
             return { status: 'exists', id: existing.id };
         }
@@ -1534,6 +1540,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
         try {
             const { jobs, error: fetchIssue } = await parseRSSFeed(source.url, source.name, source.country);
             let added = 0;
+            let duplicates = 0;
             let errorCount = 0;
             let lastError = null;
             const sourceJobs = [];
@@ -1544,6 +1551,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'exists') {
+                    duplicates++;
                 } else if (saveResult.status === 'error') {
                     // FIXED (2026-09-13): confirmed real bug - this was
                     // previously completely silent. If every single
@@ -1568,6 +1577,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
                     source: source.name,
                     found: jobs.length,
                     added,
+                    duplicates,
                     errorCount,
                     lastError: errorCount > 0 ? lastError : undefined,
                     status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
@@ -1587,6 +1597,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 ? await fetchFromApifyAsync(source)
                 : await fetchFromAPI(source);
             let added = 0;
+            let duplicates = 0;
             let errorCount = 0;
             let lastError = null;
             const sourceJobs = [];
@@ -1597,6 +1608,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'exists') {
+                    duplicates++;
                 } else if (saveResult.status === 'error') {
                     errorCount++;
                     lastError = saveResult.error;
@@ -1614,6 +1627,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
                     source: source.name,
                     found: jobs.length,
                     added,
+                    duplicates,
                     errorCount,
                     lastError: errorCount > 0 ? lastError : undefined,
                     status: (jobs.length === 0 && fetchIssue) ? 'failed' : 'success',
@@ -1631,6 +1645,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
         try {
             const nigeriaJobs = await scrapeNigeriaFCSC();
             let added = 0;
+            let duplicates = 0;
             let errorCount = 0;
             let lastError = null;
             const sourceJobs = [];
@@ -1641,6 +1656,8 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 if (saveResult.status === 'added') {
                     sourceJobs.push(job);
                     added++;
+                } else if (saveResult.status === 'exists') {
+                    duplicates++;
                 } else if (saveResult.status === 'error') {
                     errorCount++;
                     lastError = saveResult.error;
@@ -1649,7 +1666,7 @@ export async function fetchExternalJobs(forceRefresh = false) {
                 await delay(100);
             }
 
-            return { jobs: sourceJobs, result: { source: 'Federal Civil Service Commission Nigeria', found: nigeriaJobs.length, added, errorCount, lastError: errorCount > 0 ? lastError : undefined, status: 'success' } };
+            return { jobs: sourceJobs, result: { source: 'Federal Civil Service Commission Nigeria', found: nigeriaJobs.length, added, duplicates, errorCount, lastError: errorCount > 0 ? lastError : undefined, status: 'success' } };
         } catch (error) {
             console.error('  ❌ Error with Nigeria FCSC:', error.message);
             return { jobs: [], result: { source: 'Federal Civil Service Commission Nigeria', error: error.message, status: 'failed' } };
