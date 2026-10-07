@@ -20,6 +20,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import { 
     Save, Eye, Plus, Trash2, Sparkles, Loader2, 
     Image, Volume2, FileText, ChevronDown, ChevronUp,
@@ -517,6 +518,13 @@ export default function CourseEditor() {
                                         onChange={(e) => setCourse({ ...course, price: parseFloat(e.target.value) || 0 })}
                                         className="w-full pl-7 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                                         placeholder="0.00"
+                                    />
+                                    <SuggestPriceButton
+                                        itemType="course"
+                                        name={course.title}
+                                        description={course.description}
+                                        category={course.category}
+                                        onApply={(suggested) => setCourse({ ...course, price: suggested })}
                                     />
                                 </div>
                             )}
