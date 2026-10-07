@@ -662,6 +662,30 @@ async function fetchGlobalTrends(country = 'US', maxItems = 10) {
     }
 }
 
+// NEW (2026-10-03): the real, central media-library logging helper -
+// every generation point on the platform calls this once, right
+// after a real file is actually stored, so there's finally one real,
+// queryable record of everything generated anywhere. Fire-and-forget,
+// matching the same pattern already proven for usage/activity
+// logging elsewhere - never blocks or fails the actual generation.
+function logToMediaLibrary(supabaseClient, { userId, mediaType, source, url, fileName, fileSizeBytes, relatedResourceType, relatedResourceId, estimatedCost }) {
+    try {
+        supabaseClient.from('media_library').insert({
+            user_id: userId || null,
+            media_type: mediaType,
+            source,
+            url,
+            file_name: fileName || null,
+            file_size_bytes: fileSizeBytes || null,
+            related_resource_type: relatedResourceType || null,
+            related_resource_id: relatedResourceId || null,
+            estimated_cost: estimatedCost || 0
+        }).then(() => {}, (err) => console.warn('media_library insert failed (non-blocking):', err.message));
+    } catch (err) {
+        console.warn('logToMediaLibrary failed (non-blocking):', err.message);
+    }
+}
+
 function logOpenAIUsage(callType, { model, promptTokens, completionTokens, flatCost } = {}) {
     try {
         const supabaseClient = getSupabase();
@@ -3350,10 +3374,37 @@ Return ONLY a JSON object: {
             const imageBase64 = data.data[0].b64_json;
             const estimatedCost = COST_ESTIMATES[finalSize]?.[finalQuality] ?? null;
 
+            // FIXED (2026-10-03): confirmed a real, deeper gap - this
+            // never stored the image anywhere at all, only returning
+            // an ephemeral base64 string, lost the moment the
+            // response left this function unless manually downloaded.
+            // Now genuinely uploaded to real storage first.
+            const imageBuffer = Buffer.from(imageBase64, 'base64');
+            const filePath = `personal-studio/${Date.now()}.png`;
+            let permanentUrl = null;
+            try {
+                const { error: uploadError } = await supabaseClient.storage
+                    .from('avatars')
+                    .upload(filePath, imageBuffer, { contentType: 'image/png', upsert: true });
+                if (!uploadError) {
+                    const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+                    permanentUrl = urlData?.publicUrl;
+                }
+            } catch (storageErr) {
+                console.warn('Personal image storage upload failed (non-blocking):', storageErr.message);
+            }
+
             logOpenAIUsage('image', { model: 'gpt-image-1-mini', flatCost: estimatedCost });
             logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_image_generated', details: { promptLength: prompt.length, quality: finalQuality, estimatedCost } });
 
-            return res.status(200).json({ success: true, image: `data:image/png;base64,${imageBase64}`, estimatedCost });
+            if (permanentUrl) {
+                logToMediaLibrary(supabaseClient, {
+                    userId: authCheck.userId, mediaType: 'image', source: 'personal_studio_image',
+                    url: permanentUrl, fileName: filePath, estimatedCost
+                });
+            }
+
+            return res.status(200).json({ success: true, image: `data:image/png;base64,${imageBase64}`, url: permanentUrl, estimatedCost });
         } catch (error) {
             console.error('generate-personal-image error:', error);
             return res.status(500).json({ success: false, error: error.message });
@@ -3416,10 +3467,34 @@ Return ONLY a JSON object: {
             const combinedAudio = Buffer.concat(audioBuffers);
             const estimatedCost = Math.round(trimmedScript.length * ratePerChar * 10000) / 10000;
 
+            // FIXED (2026-10-03): confirmed the same real gap as the
+            // image action above - never stored anywhere, only
+            // returned as an ephemeral base64 string.
+            const filePath = `personal-studio/${Date.now()}.mp3`;
+            let permanentUrl = null;
+            try {
+                const { error: uploadError } = await supabaseClient.storage
+                    .from('avatars')
+                    .upload(filePath, combinedAudio, { contentType: 'audio/mpeg', upsert: true });
+                if (!uploadError) {
+                    const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+                    permanentUrl = urlData?.publicUrl;
+                }
+            } catch (storageErr) {
+                console.warn('Personal audio storage upload failed (non-blocking):', storageErr.message);
+            }
+
             logOpenAIUsage('audio', { model, flatCost: estimatedCost });
             logUserActivity(supabaseClient, req, { userId: authCheck.userId, actionType: 'personal_audio_generated', details: { scriptLength: script.length, chunks: chunks.length, model, estimatedCost } });
 
-            return res.status(200).json({ success: true, audio: `data:audio/mpeg;base64,${combinedAudio.toString('base64')}`, estimatedCost });
+            if (permanentUrl) {
+                logToMediaLibrary(supabaseClient, {
+                    userId: authCheck.userId, mediaType: 'audio', source: 'personal_studio_audio',
+                    url: permanentUrl, fileName: filePath, estimatedCost
+                });
+            }
+
+            return res.status(200).json({ success: true, audio: `data:audio/mpeg;base64,${combinedAudio.toString('base64')}`, url: permanentUrl, estimatedCost });
         } catch (error) {
             console.error('generate-personal-audio error:', error);
             return res.status(500).json({ success: false, error: error.message });
@@ -3524,6 +3599,11 @@ Return ONLY a JSON object: {
             if (!result?.success || !result?.videoKvsUrl) {
                 return res.status(200).json({ success: true, done: true, failed: true, status: 'NO_VIDEO_RETURNED', message: result?.message });
             }
+
+            logToMediaLibrary(supabaseClient, {
+                userId: authCheck.userId, mediaType: 'video', source: 'personal_studio_video',
+                url: result.videoKvsUrl, estimatedCost: 1.10
+            });
 
             return res.status(200).json({ success: true, done: true, failed: false, videoUrl: result.videoKvsUrl, estimatedCost: 1.10 });
         } catch (error) {
@@ -4270,6 +4350,11 @@ Return ONLY a JSON object: {
             const realCost = (result.durationSeconds || 0) * 0.015;
             logOpenAIUsage('video', { model: 'apify-storyboard-video', flatCost: realCost });
 
+            logToMediaLibrary(supabaseClient, {
+                userId: authCheck.userId, mediaType: 'video', source: 'video_creator_apify',
+                url: result.videoUrl, estimatedCost: realCost
+            });
+
             return res.status(200).json({
                 success: true, done: true, failed: false,
                 videoUrl: result.videoUrl,
@@ -4404,6 +4489,28 @@ Return ONLY a JSON object: {
             // download - appended here so the frontend gets a URL
             // that actually works when played/downloaded directly.
             const videoUrl = `${videoFile.uri}${videoFile.uri.includes('?') ? '&' : '?'}key=${apiKey}`;
+
+            // SECURITY FIX: never store the keyed URL (it embeds the API key
+            // and Google's links expire). Copy the video into our own storage
+            // and log that permanent, key-free URL instead.
+            try {
+                const dl = await fetch(videoUrl);
+                if (dl.ok) {
+                    const buf = Buffer.from(await dl.arrayBuffer());
+                    const vPath = `media-library/veo-${Date.now()}.mp4`;
+                    const { error: vErr } = await supabaseClient.storage
+                        .from('avatars').upload(vPath, buf, { contentType: 'video/mp4', upsert: true });
+                    if (!vErr) {
+                        const { data: vUrl } = supabaseClient.storage.from('avatars').getPublicUrl(vPath);
+                        logToMediaLibrary(supabaseClient, {
+                            userId: authCheck.userId, mediaType: 'video', source: 'video_creator_veo',
+                            url: vUrl.publicUrl, fileName: vPath, fileSizeBytes: buf.length, estimatedCost
+                        });
+                    } else console.warn('Veo library upload failed:', vErr.message);
+                }
+            } catch (libErr) {
+                console.warn('Veo library copy failed (non-blocking):', libErr.message);
+            }
 
             return res.status(200).json({ success: true, done: true, failed: false, videoUrl, estimatedCost });
         } catch (error) {
@@ -4719,6 +4826,96 @@ ${siteContext}`;
             return res.status(200).json({ success: true, reset: resetCount, total: targetProfiles.length, errors: errors.length > 0 ? errors : undefined });
         } catch (error) {
             console.error('admin-bulk-reset-credits error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ========== MEDIA LIBRARY (NEW, 2026-10-03) ==========
+    // NEW: two-step save for browser-rendered media (Free FFmpeg tab).
+    // Step 1 hands the browser a signed upload URL so the file goes straight
+    // to storage (avoids Vercel's request-body limit); step 2 logs it.
+    'prepare-library-upload': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const path = `media-library/free-${auth.userId}-${Date.now()}.mp4`;
+            const { data, error } = await supabaseClient.storage.from('avatars').createSignedUploadUrl(path);
+            if (error) throw error;
+            return res.status(200).json({ success: true, path, token: data.token });
+        } catch (error) {
+            console.error('prepare-library-upload error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'confirm-library-upload': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { path, fileSizeBytes } = req.body || {};
+        // Only accept paths this caller was issued - no arbitrary URLs.
+        if (typeof path !== 'string' || !path.startsWith(`media-library/free-${auth.userId}-`) || !path.endsWith('.mp4')) {
+            return res.status(400).json({ error: 'Invalid path' });
+        }
+        const { data } = supabaseClient.storage.from('avatars').getPublicUrl(path);
+        logToMediaLibrary(supabaseClient, {
+            userId: auth.userId, mediaType: 'video', source: 'personal_studio_video',
+            url: data.publicUrl, fileName: path, fileSizeBytes: Number(fileSizeBytes) || null, estimatedCost: 0
+        });
+        return res.status(200).json({ success: true, url: data.publicUrl });
+    },
+
+    'get-media-library': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { mediaType, source, limit } = req.query;
+        const realLimit = Math.min(Number(limit) || 100, 200);
+
+        try {
+            let query = supabaseClient
+                .from('media_library')
+                .select('*')
+                .eq('is_deleted', false)
+                .order('created_at', { ascending: false })
+                .limit(realLimit);
+
+            if (mediaType && mediaType !== 'all') query = query.eq('media_type', mediaType);
+            if (source && source !== 'all') query = query.eq('source', source);
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            const totalCost = (data || []).reduce((sum, item) => sum + Number(item.estimated_cost || 0), 0);
+
+            return res.status(200).json({ success: true, items: data || [], totalCost: Math.round(totalCost * 10000) / 10000 });
+        } catch (error) {
+            console.error('get-media-library error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'delete-media-item': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_view_analytics');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: 'id is required' });
+
+        try {
+            // Soft-delete, matching the pattern already proven
+            // elsewhere (renewals) - a removed item's real history
+            // isn't permanently lost by a misclick, and the real
+            // storage file itself is left untouched (this only
+            // removes it from the library view, not the actual file).
+            const { error } = await supabaseClient.from('media_library').update({ is_deleted: true }).eq('id', id);
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('delete-media-item error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -10890,6 +11087,13 @@ Return the lesson as markdown with this structure:
 
             await supabaseClient.from('courses').update({ cover_url: urlData.publicUrl }).eq('id', courseId);
 
+            logToMediaLibrary(supabaseClient, {
+                userId: auth.userId, mediaType: 'image', source: 'course_cover',
+                url: urlData.publicUrl, fileName: filePath,
+                relatedResourceType: 'course', relatedResourceId: courseId,
+                estimatedCost: 0.006
+            });
+
             return res.status(200).json({ success: true, coverUrl: urlData.publicUrl });
         } catch (error) {
             console.error('generate-course-cover-image error:', error);
@@ -10929,6 +11133,13 @@ Return the lesson as markdown with this structure:
                 .from('course_audio')
                 .insert({ lesson_id: lessonId, audio_url: urlData.publicUrl });
             if (insertError) throw insertError;
+
+            logToMediaLibrary(supabaseClient, {
+                userId: auth.userId, mediaType: 'audio', source: 'lesson_audio',
+                url: urlData.publicUrl, fileName: filePath,
+                relatedResourceType: 'lesson', relatedResourceId: lessonId,
+                estimatedCost: trimmedContent.length * 0.000015
+            });
 
             return res.status(200).json({ success: true, audioUrl: urlData.publicUrl });
         } catch (error) {
