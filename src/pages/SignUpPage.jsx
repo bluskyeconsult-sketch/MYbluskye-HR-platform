@@ -187,7 +187,8 @@ export default function SignUpPage() {
     const [tierDowngraded, setTierDowngraded] = useState(false);
 
     // NEW (2026-08-21): invite code state — required input during testing_mode.
-    const [inviteCode, setInviteCode] = useState('');
+    // NEW (2026-10-07): invitation emails link here with ?code=... so the invite code is pre-filled.
+    const [inviteCode, setInviteCode] = useState(() => { try { return (new URLSearchParams(window.location.search).get('code') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 32); } catch { return ''; } });
     const [codeError, setCodeError] = useState('');
     // NEW (2026-08-21): reads TesterVisibilitySettings.jsx's real
     // require_invite_code config key (that admin page already writes this
