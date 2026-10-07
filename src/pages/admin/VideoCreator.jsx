@@ -43,6 +43,7 @@ export default function VideoCreator() {
     const [freeProgress, setFreeProgress] = useState(0);
     const [freeVideoUrl, setFreeVideoUrl] = useState(null);
     const [freeError, setFreeError] = useState(null);
+    const [freeSaveState, setFreeSaveState] = useState('idle');
     const ffmpegRef = useRef(null);
 
     const [images, setImages] = useState([]);
@@ -160,12 +161,31 @@ export default function VideoCreator() {
             const url = URL.createObjectURL(blob);
 
             setFreeVideoUrl(url);
+            setFreeSaveState('idle');
             setFreeProgress(100);
         } catch (err) {
             console.error('Free video render error:', err);
             setFreeError(err.message || 'Rendering failed - try fewer or smaller images');
         } finally {
             setFreeLoading(false);
+        }
+    }
+
+    async function handleSaveFreeToLibrary() {
+        setFreeSaveState('saving');
+        try {
+            const blob = await (await fetch(freeVideoUrl)).blob();
+            const headers = await authHeaders();
+            const prep = await (await fetch('/api/index?action=prepare-library-upload', { method: 'POST', headers, body: '{}' })).json();
+            if (!prep.success) throw new Error(prep.error || 'Could not prepare upload');
+            const { error: upErr } = await supabase.storage.from('avatars').uploadToSignedUrl(prep.path, prep.token, blob, { contentType: 'video/mp4' });
+            if (upErr) throw upErr;
+            const conf = await (await fetch('/api/index?action=confirm-library-upload', { method: 'POST', headers, body: JSON.stringify({ path: prep.path, fileSizeBytes: blob.size }) })).json();
+            if (!conf.success) throw new Error(conf.error || 'Could not log upload');
+            setFreeSaveState('saved');
+        } catch (err) {
+            console.error('Save to library error:', err);
+            setFreeSaveState('error');
         }
     }
 
@@ -478,6 +498,13 @@ export default function VideoCreator() {
                     >
                         <Download className="w-4 h-4" /> Download
                     </a>
+                    <button
+                        onClick={handleSaveFreeToLibrary}
+                        disabled={freeSaveState === 'saving' || freeSaveState === 'saved'}
+                        className="mt-2 w-full py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition text-sm disabled:opacity-60"
+                    >
+                        {freeSaveState === 'saving' ? 'Saving...' : freeSaveState === 'saved' ? 'Saved to Media Library ✓' : freeSaveState === 'error' ? 'Save failed - retry' : 'Save to Media Library'}
+                    </button>
                 </div>
             )}
             </>
