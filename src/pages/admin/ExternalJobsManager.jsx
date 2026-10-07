@@ -142,7 +142,10 @@ export default function ExternalJobsManager() {
         try {
             let data;
             if (activeTab === 'pending') {
-                data = await getPendingExternalJobs();
+                // Server-side read (service role) - avoids browser RLS and
+                // the 1000-row cap that made Pending under-report.
+                const pendingRes = await authenticatedFetch('pending-jobs-v2', {});
+                data = pendingRes.jobs || [];
             } else if (activeTab === 'approved') {
                 const { data: approved } = await supabase
                     .from('external_jobs')
@@ -174,8 +177,13 @@ export default function ExternalJobsManager() {
     }
 
     async function loadStats() {
-        const statsData = await getExternalJobsStats();
-        setStats(statsData);
+        try {
+            const res = await authenticatedFetch('external-jobs-stats', {});
+            setStats(res.stats);
+        } catch (err) {
+            console.warn('Server stats failed, falling back to client stats:', err.message);
+            setStats(await getExternalJobsStats());
+        }
     }
 
     function filterJobs() {
@@ -211,7 +219,7 @@ export default function ExternalJobsManager() {
         
         try {
             const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
-            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Added ${result.inserted} new jobs` });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `${result.inserted} new job(s) added, ${result.duplicates || 0} skipped as duplicates. Pending now: ${result.pendingNow ?? 'unknown'}.` });
             await loadJobs();
             await loadStats();
         } catch (error) {
@@ -257,14 +265,14 @@ export default function ExternalJobsManager() {
     }
 
     async function handleForceRefresh() {
-        if (!confirm('⚠️ WARNING: This will clear ALL pending external jobs and fetch fresh data. Continue?')) return;
+        if (!confirm('⚠️ WARNING: This will re-run every job source now (it does NOT delete pending jobs; jobs already seen in the last 7 days are skipped). Continue?')) return;
         
         setSyncing(true);
         setSyncResult(null);
         
         try {
             const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: true });
-            setSyncResult({ success: true, inserted: result.inserted, results: result.results, forceRefresh: true, message: `Force refresh complete. Added ${result.inserted} jobs.` });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, forceRefresh: true, message: `Force refresh complete. ${result.inserted} new job(s) added, ${result.duplicates || 0} skipped as duplicates already seen in the last 7 days. Pending now: ${result.pendingNow ?? 'unknown'}.` });
             await loadJobs();
             await loadStats();
         } catch (error) {
