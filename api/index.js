@@ -28,6 +28,7 @@ import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/e
 // server, blocked only because of where the code was running) was never
 // actually visible before now.
 import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
+import { INVITE_TIERS, getTierDefaults, renderInviteEmail } from '../src/services/inviteEmailTemplates.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import EPub from 'epub';
@@ -542,6 +543,74 @@ async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllo
 // queryable record - the log was genuinely empty for this before.
 // Fire-and-forget, non-blocking - a logging failure should never
 // break the actual action the user is trying to perform.
+
+// ========== INVITATION CAMPAIGN HELPERS (NEW 2026-10-07) ==========
+const INVITE_EMAIL_RE = /^[A-Za-z0-9._%+\-']+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}$/;
+const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const INVITE_MAX_CONTACTS = 500;
+const INVITE_DAILY_CAP = Math.max(1, parseInt(process.env.INVITE_DAILY_CAP || '200') || 200);
+const INVITE_REMINDER_AFTER_DAYS = 5;
+const INVITE_LAWFUL_BASES = ['existing_relationship', 'consent', 'business_contact', 'personal_network'];
+
+function inviteSiteUrl() { return (process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, ''); }
+function inviteApiUrl(action, token) { return `${inviteSiteUrl()}/api/index?action=${action}&t=${encodeURIComponent(token)}`; }
+function cleanInviteName(n) { return String(n || '').replace(/[<>"\r\n\t\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); }
+function stripCtl(s, max) { return String(s ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, max); }
+function inviteCreditsMap() {
+    return { registered: TIER_MONTHLY_ALLOWANCE.registered, professional: TIER_MONTHLY_ALLOWANCE.professional, employer: TIER_MONTHLY_ALLOWANCE.employer, business: TIER_MONTHLY_ALLOWANCE.business };
+}
+
+// Validates admin-supplied message fields and merges with tier defaults.
+function buildInviteContent(body) {
+    const tier = String(body.tier || body.targetTier || '');
+    if (!INVITE_TIERS.includes(tier)) return { error: 'Choose a target tier.' };
+    const d = getTierDefaults(tier, { credits: inviteCreditsMap() });
+    const subject = stripCtl(body.subject ?? d.subject, 150).replace(/[\r\n]+/g, ' ');
+    const headline = stripCtl(body.headline ?? d.headline, 150).replace(/[\r\n]+/g, ' ');
+    const intro = stripCtl(body.intro ?? d.intro, 3000);
+    const closing = stripCtl(body.closing ?? d.closing, 1500);
+    if (!subject || !headline || !intro) return { error: 'Subject, headline and intro are required.' };
+    let bullets = Array.isArray(body.bullets) ? body.bullets : d.bullets;
+    bullets = bullets.slice(0, 8).map(b => ({ title: stripCtl(b?.title, 80), text: stripCtl(b?.text, 300) })).filter(b => b.title && b.text);
+    if (bullets.length === 0) return { error: 'Add at least one benefit.' };
+    let testerCode = body.testerCode ? stripCtl(body.testerCode, 32).toUpperCase() : '';
+    if (testerCode && !/^[A-Z0-9-]{4,32}$/.test(testerCode)) return { error: 'Invite code may only contain letters, numbers and dashes.' };
+    return { tier, testerCode, content: { subject, headline, intro, closing, bullets, ctaLabel: d.ctaLabel } };
+}
+
+// Returns the set of lowercase emails (from the given list) present in a table's `email` column.
+async function inviteLookupEmails(supabaseClient, table, emails) {
+    const found = new Set();
+    for (let i = 0; i < emails.length; i += 200) {
+        const chunk = emails.slice(i, i + 200);
+        if (!chunk.length) continue;
+        const { data, error } = await supabaseClient.from(table).select('email').in('email', chunk);
+        if (error) throw error;
+        for (const r of data || []) if (r.email) found.add(String(r.email).toLowerCase());
+    }
+    return found;
+}
+
+async function sendInviteEmail(transporter, { to, firstName, token, content, testerCode, isReminder, isTest }) {
+    const signupUrl = isTest ? `${inviteSiteUrl()}/sign-up` : inviteApiUrl('invite-click', token);
+    const unsubscribeUrl = isTest ? `${inviteSiteUrl()}/` : inviteApiUrl('invite-unsubscribe', token);
+    const rendered = renderInviteEmail({
+        content, firstName, signupUrl, unsubscribeUrl, testerCode,
+        postalAddress: process.env.INVITE_POSTAL_ADDRESS, isReminder: !!isReminder, siteUrl: inviteSiteUrl()
+    });
+    const fromAddr = process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com';
+    const mail = {
+        from: `"Joseph Odugboye | ODUSBABA" <${fromAddr}>`,
+        to,
+        subject: (isTest ? '[TEST] ' : '') + rendered.subject,
+        html: rendered.html,
+        text: rendered.text
+    };
+    if (process.env.INVITE_REPLY_TO) mail.replyTo = process.env.INVITE_REPLY_TO;
+    if (!isTest) mail.headers = { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+    await transporter.sendMail(mail);
+}
+
 async function logUserActivity(supabaseClient, req, { userId, userEmail = null, actionType, details = {} }) {
     try {
         await supabaseClient.from('user_activity_log').insert({
@@ -8004,6 +8073,330 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
     // to rule out (or bypass, if it's real) any stale bundle/cache
     // issue affecting the old path - a completely new action name and
     // new page cannot possibly inherit cached state from before.
+    // ========== INVITATION CAMPAIGNS (NEW 2026-10-07) ==========
+    // Admin uploads a contact list, picks a target tier, and sends a
+    // tier-specific invitation. Safety layer is built in, not optional:
+    //  - admin-only (can_manage_communications); lawful-basis attestation required
+    //  - every address validated, de-duplicated and screened against
+    //    existing members + a GLOBAL suppression (do-not-email) list
+    //  - hard daily send cap (INVITE_DAILY_CAP, default 200) to protect the
+    //    SMTP sender reputation, sent in small batches the page loops over
+    //  - one-click unsubscribe (List-Unsubscribe headers + footer link),
+    //    honoured immediately and permanently across all campaigns
+    //  - reminders limited to ONE per person, never to people who already
+    //    clicked, registered or unsubscribed
+    //  - tracking is click-only; no invisible open-tracking pixels
+
+    'invite-defaults': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const tier = String(req.query.tier || '');
+        if (!INVITE_TIERS.includes(tier)) return res.status(400).json({ error: 'Unknown tier' });
+        return res.status(200).json({
+            success: true,
+            defaults: getTierDefaults(tier, { credits: inviteCreditsMap() }),
+            replyToConfigured: !!process.env.INVITE_REPLY_TO,
+            postalAddressConfigured: !!process.env.INVITE_POSTAL_ADDRESS,
+            dailyCap: INVITE_DAILY_CAP
+        });
+    },
+
+    'invite-preview': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const built = buildInviteContent(req.body || {});
+        if (built.error) return res.status(400).json({ error: built.error });
+        const rendered = renderInviteEmail({
+            content: built.content, firstName: 'Alex',
+            signupUrl: `${inviteSiteUrl()}/sign-up`, unsubscribeUrl: `${inviteSiteUrl()}/`,
+            testerCode: built.testerCode, postalAddress: process.env.INVITE_POSTAL_ADDRESS, siteUrl: inviteSiteUrl()
+        });
+        return res.status(200).json({ success: true, subject: rendered.subject, html: rendered.html });
+    },
+
+    'invite-send-test': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`invite-test:${auth.userId}`, 10)) return res.status(429).json({ error: 'Too many test sends - please wait.' });
+        const built = buildInviteContent(req.body || {});
+        if (built.error) return res.status(400).json({ error: built.error });
+        try {
+            const { data: me } = await supabaseClient.from('profiles').select('email, first_name').eq('id', auth.userId).single();
+            if (!me?.email) return res.status(400).json({ error: 'Your admin profile has no email address on record.' });
+            await sendInviteEmail(getTransporter(), {
+                to: me.email, firstName: me.first_name || 'Alex', token: null, content: built.content,
+                testerCode: built.testerCode, isReminder: false, isTest: true
+            });
+            return res.status(200).json({ success: true, sentTo: me.email });
+        } catch (error) {
+            console.error('invite-send-test error:', error.message);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'invite-campaign-create': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`invite-create:${auth.userId}`, 20)) return res.status(429).json({ error: 'Too many requests - please wait.' });
+
+        const body = req.body || {};
+        const name = String(body.name || '').trim().slice(0, 120);
+        if (!name) return res.status(400).json({ error: 'Give the campaign a name.' });
+        if (body.attest !== true) return res.status(400).json({ error: 'You must confirm you have a lawful basis to contact these people.' });
+        if (!INVITE_LAWFUL_BASES.includes(body.lawfulBasis)) return res.status(400).json({ error: 'Choose why you are entitled to contact these people.' });
+        const built = buildInviteContent(body);
+        if (built.error) return res.status(400).json({ error: built.error });
+        if (!Array.isArray(body.contacts) || body.contacts.length === 0) return res.status(400).json({ error: 'Add at least one contact.' });
+        if (body.contacts.length > INVITE_MAX_CONTACTS) return res.status(400).json({ error: `Maximum ${INVITE_MAX_CONTACTS} contacts per campaign.` });
+
+        try {
+            // Validate, normalise and de-duplicate.
+            const invalid = [], seen = new Set(), valid = [];
+            for (const c of body.contacts) {
+                const email = String(c?.email || '').trim().toLowerCase();
+                if (!email || email.length > 254 || /[\r\n\s<>]/.test(email) || !INVITE_EMAIL_RE.test(email)) { invalid.push(String(c?.email || '').slice(0, 80)); continue; }
+                if (seen.has(email)) continue;
+                seen.add(email);
+                valid.push({ email, firstName: cleanInviteName(c?.firstName) });
+            }
+            const emails = valid.map(v => v.email);
+            const members = await inviteLookupEmails(supabaseClient, 'profiles', emails);
+            const suppressed = await inviteLookupEmails(supabaseClient, 'email_suppression', emails);
+            const accepted = valid.filter(v => !members.has(v.email) && !suppressed.has(v.email));
+            if (accepted.length === 0) {
+                return res.status(400).json({ error: 'No eligible contacts remain after removing invalid, already-registered and unsubscribed addresses.', invalid, alreadyMembers: members.size, suppressed: suppressed.size });
+            }
+
+            const { data: campaign, error: cErr } = await supabaseClient.from('invitation_campaigns').insert({
+                name, target_tier: built.tier, subject: built.content.subject, headline: built.content.headline,
+                intro: built.content.intro, bullets: built.content.bullets, closing: built.content.closing || null,
+                tester_code: built.testerCode || null, lawful_basis: body.lawfulBasis, created_by: auth.userId
+            }).select().single();
+            if (cErr) throw cErr;
+
+            const rows = accepted.map(a => ({
+                campaign_id: campaign.id, email: a.email, first_name: a.firstName || null,
+                token: crypto.randomBytes(24).toString('base64url')
+            }));
+            const { error: iErr } = await supabaseClient.from('invitations').insert(rows);
+            if (iErr) {
+                await supabaseClient.from('invitation_campaigns').delete().eq('id', campaign.id);
+                throw iErr;
+            }
+
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'invite_campaign_created', details: { campaignId: campaign.id, tier: built.tier, contacts: rows.length, lawfulBasis: body.lawfulBasis } });
+            return res.status(200).json({
+                success: true, campaignId: campaign.id, accepted: rows.length,
+                invalid, invalidCount: invalid.length, alreadyMembers: members.size, suppressed: suppressed.size
+            });
+        } catch (error) {
+            console.error('invite-campaign-create error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'invite-campaign-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const { data: campaigns, error } = await supabaseClient.from('invitation_campaigns')
+                .select('id, name, target_tier, subject, lawful_basis, tester_code, created_at')
+                .order('created_at', { ascending: false }).limit(30);
+            if (error) throw error;
+
+            const ids = (campaigns || []).map(c => c.id);
+            let invites = [];
+            if (ids.length) {
+                const { data: inv, error: invErr } = await supabaseClient.from('invitations')
+                    .select('campaign_id, email, status, sent_at, reminder_sent_at, clicked_at').in('campaign_id', ids).limit(15000);
+                if (invErr) throw invErr;
+                invites = inv || [];
+            }
+            const members = await inviteLookupEmails(supabaseClient, 'profiles', [...new Set(invites.map(i => i.email))]);
+            const remindCutoff = Date.now() - INVITE_REMINDER_AFTER_DAYS * 86400000;
+
+            const stats = {};
+            for (const c of campaigns || []) stats[c.id] = { total: 0, pending: 0, sent: 0, failed: 0, unsubscribed: 0, skipped: 0, clicked: 0, registered: 0, reminded: 0, canRemind: 0 };
+            for (const i of invites) {
+                const s = stats[i.campaign_id]; if (!s) continue;
+                s.total++;
+                s[i.status] = (s[i.status] || 0) + 1;
+                if (i.clicked_at) s.clicked++;
+                if (i.reminder_sent_at) s.reminded++;
+                if (members.has(i.email)) s.registered++;
+                if (i.status === 'sent' && !i.reminder_sent_at && !i.clicked_at && !members.has(i.email) && i.sent_at && new Date(i.sent_at).getTime() <= remindCutoff) s.canRemind++;
+            }
+
+            const since = new Date(Date.now() - 86400000).toISOString();
+            const [{ count: sentA }, { count: sentB }, { count: suppressionCount }] = await Promise.all([
+                supabaseClient.from('invitations').select('id', { count: 'exact', head: true }).gte('sent_at', since),
+                supabaseClient.from('invitations').select('id', { count: 'exact', head: true }).gte('reminder_sent_at', since),
+                supabaseClient.from('email_suppression').select('email', { count: 'exact', head: true })
+            ]);
+
+            return res.status(200).json({
+                success: true,
+                campaigns: (campaigns || []).map(c => ({ ...c, stats: stats[c.id] })),
+                sentLast24h: (sentA || 0) + (sentB || 0), dailyCap: INVITE_DAILY_CAP,
+                suppressionCount: suppressionCount || 0,
+                replyToConfigured: !!process.env.INVITE_REPLY_TO,
+                postalAddressConfigured: !!process.env.INVITE_POSTAL_ADDRESS
+            });
+        } catch (error) {
+            console.error('invite-campaign-list error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Sends one small batch. The admin page calls this repeatedly until
+    // nothing remains (or the daily cap is hit), so no single request can
+    // time out and the run can be stopped or resumed at any point.
+    'invite-send-batch': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { campaignId } = req.body || {};
+        const mode = req.body?.mode === 'reminder' ? 'reminder' : 'invite';
+        const batchSize = Math.min(Math.max(parseInt(req.body?.batchSize) || 10, 1), 20);
+        if (!campaignId || typeof campaignId !== 'string') return res.status(400).json({ error: 'campaignId required' });
+
+        try {
+            const { data: campaign } = await supabaseClient.from('invitation_campaigns').select('*').eq('id', campaignId).single();
+            if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+            const since = new Date(Date.now() - 86400000).toISOString();
+            const [{ count: a }, { count: b }] = await Promise.all([
+                supabaseClient.from('invitations').select('id', { count: 'exact', head: true }).gte('sent_at', since),
+                supabaseClient.from('invitations').select('id', { count: 'exact', head: true }).gte('reminder_sent_at', since)
+            ]);
+            const remainingCap = Math.max(0, INVITE_DAILY_CAP - ((a || 0) + (b || 0)));
+
+            let q = supabaseClient.from('invitations').select('*').eq('campaign_id', campaignId);
+            if (mode === 'invite') q = q.eq('status', 'pending');
+            else q = q.eq('status', 'sent').is('reminder_sent_at', null).is('clicked_at', null)
+                .lte('sent_at', new Date(Date.now() - INVITE_REMINDER_AFTER_DAYS * 86400000).toISOString());
+            const { data: candidates, error: cErr } = await q.order('created_at').limit(INVITE_MAX_CONTACTS);
+            if (cErr) throw cErr;
+
+            // Re-screen right before sending: someone may have registered or unsubscribed since upload.
+            const emails = (candidates || []).map(c => c.email);
+            const members = await inviteLookupEmails(supabaseClient, 'profiles', emails);
+            const suppressed = await inviteLookupEmails(supabaseClient, 'email_suppression', emails);
+            const eligible = [];
+            for (const c of candidates || []) {
+                if (suppressed.has(c.email)) {
+                    if (mode === 'invite' || c.status === 'pending') await supabaseClient.from('invitations').update({ status: 'unsubscribed' }).eq('id', c.id);
+                } else if (members.has(c.email)) {
+                    if (mode === 'invite') await supabaseClient.from('invitations').update({ status: 'skipped', last_error: 'already registered' }).eq('id', c.id);
+                } else eligible.push(c);
+            }
+
+            const take = Math.min(batchSize, remainingCap, eligible.length);
+            if (take === 0) {
+                return res.status(200).json({ success: true, sent: 0, failed: 0, remaining: eligible.length, capReached: remainingCap === 0 && eligible.length > 0, dailyCap: INVITE_DAILY_CAP });
+            }
+
+            const transporter = getTransporter();
+            let sent = 0, failed = 0;
+            for (const inv of eligible.slice(0, take)) {
+                try {
+                    await sendInviteEmail(transporter, {
+                        to: inv.email, firstName: inv.first_name, token: inv.token, isReminder: mode === 'reminder',
+                        testerCode: campaign.tester_code,
+                        content: { subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel }
+                    });
+                    const patch = mode === 'reminder' ? { reminder_sent_at: new Date().toISOString() } : { status: 'sent', sent_at: new Date().toISOString(), last_error: null };
+                    await supabaseClient.from('invitations').update(patch).eq('id', inv.id);
+                    sent++;
+                } catch (sendErr) {
+                    failed++;
+                    // Store a short, non-sensitive reason only.
+                    await supabaseClient.from('invitations').update(mode === 'reminder' ? { last_error: `reminder: ${String(sendErr.message).slice(0, 180)}`, reminder_sent_at: new Date().toISOString() } : { status: 'failed', last_error: String(sendErr.message).slice(0, 200) }).eq('id', inv.id);
+                }
+                await new Promise(r => setTimeout(r, 350));
+            }
+
+            const remaining = eligible.length - take;
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'invite_batch_sent', details: { campaignId, mode, sent, failed } });
+            return res.status(200).json({ success: true, sent, failed, remaining, capReached: remaining > 0 && remainingCap - take <= 0, dailyCap: INVITE_DAILY_CAP });
+        } catch (error) {
+            console.error('invite-send-batch error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'invite-retry-failed': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { campaignId } = req.body || {};
+        if (!campaignId) return res.status(400).json({ error: 'campaignId required' });
+        const { data, error } = await supabaseClient.from('invitations').update({ status: 'pending', last_error: null }).eq('campaign_id', campaignId).eq('status', 'failed').select('id');
+        if (error) return res.status(500).json({ success: false, error: error.message });
+        return res.status(200).json({ success: true, requeued: (data || []).length });
+    },
+
+    // PUBLIC: recipient clicks the button in the email. Records the click,
+    // then redirects to the signup page. The destination is built entirely
+    // server-side from fixed values - never from request input - so this
+    // cannot be abused as an open redirect.
+    'invite-click': async (req, res) => {
+        const site = inviteSiteUrl();
+        const fallback = () => { res.writeHead(302, { Location: `${site}/sign-up` }); return res.end(); };
+        if (!checkRateLimit(`invite-click:${getClientIp(req)}`, 60)) return fallback();
+        const token = String(req.query.t || '');
+        if (!INVITE_TOKEN_RE.test(token)) return fallback();
+        try {
+            const supabaseClient = getSupabase();
+            const { data: inv } = await supabaseClient.from('invitations')
+                .select('id, click_count, clicked_at, invitation_campaigns(target_tier, tester_code)').eq('token', token).maybeSingle();
+            if (!inv) return fallback();
+            await supabaseClient.from('invitations').update({ click_count: (inv.click_count || 0) + 1, clicked_at: inv.clicked_at || new Date().toISOString() }).eq('id', inv.id);
+            const tier = inv.invitation_campaigns?.target_tier || 'invite';
+            const code = inv.invitation_campaigns?.tester_code;
+            const dest = `${site}/sign-up?utm_source=invite&utm_medium=email&utm_campaign=${encodeURIComponent(tier)}${code ? `&code=${encodeURIComponent(code)}` : ''}`;
+            res.writeHead(302, { Location: dest });
+            return res.end();
+        } catch (e) {
+            console.warn('invite-click failed (non-blocking):', e.message);
+            return fallback();
+        }
+    },
+
+    // PUBLIC: unsubscribe. GET shows a confirm button (so email link
+    // scanners that "click" every link cannot unsubscribe people by
+    // accident); POST (the button, or a mail client's one-click
+    // List-Unsubscribe-Post) performs it. Adds the address to the global
+    // suppression list so NO campaign ever emails it again.
+    'invite-unsubscribe': async (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Frame-Options', 'DENY');
+        const page = (title, msg, btn) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;"><div style="max-width:440px;margin:12vh auto;background:#fff;padding:32px;border-radius:14px;text-align:center;box-shadow:0 4px 24px rgba(15,23,42,.08);"><h2 style="color:#0B3C5D;margin:0 0 12px;">${title}</h2><p style="color:#475569;line-height:1.6;">${msg}</p>${btn || ''}</div></body></html>`;
+        const token = String(req.query.t || '');
+        if (!INVITE_TOKEN_RE.test(token) || !checkRateLimit(`invite-unsub:${getClientIp(req)}`, 30)) {
+            return res.status(200).send(page('Link not valid', 'This unsubscribe link is invalid or has expired. If you keep receiving emails you do not want, reply to one and we will remove you.'));
+        }
+        if (req.method !== 'POST') {
+            return res.status(200).send(page('Unsubscribe', 'Click below to stop receiving invitations from BluSkye Integrated Consult.', `<form method="POST" action="${inviteApiUrl('invite-unsubscribe', token).replace(/&/g, '&amp;')}"><button type="submit" style="margin-top:12px;background:#0B3C5D;color:#fff;border:0;padding:12px 26px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">Confirm unsubscribe</button></form>`));
+        }
+        try {
+            const supabaseClient = getSupabase();
+            const { data: inv } = await supabaseClient.from('invitations').select('email').eq('token', token).maybeSingle();
+            if (inv?.email) {
+                await supabaseClient.from('email_suppression').upsert({ email: inv.email, reason: 'unsubscribed', source: 'invite_link' }, { onConflict: 'email' });
+                await supabaseClient.from('invitations').update({ status: 'unsubscribed' }).eq('email', inv.email).eq('status', 'pending');
+            }
+        } catch (e) { console.error('invite-unsubscribe error:', e.message); }
+        // Same message whether or not the token matched - reveals nothing about who is on a list.
+        return res.status(200).send(page('You are unsubscribed', 'You will not receive any more invitations from us. Sorry to see you go.'));
+    },
+
     // NEW (2026-10-07): server-side, exact status counts for the external
     // jobs manager. The browser-side version read the table through RLS
     // and Supabase's default 1000-row cap, so counts could under-report
@@ -13515,7 +13908,8 @@ export default async function handler(req, res) {
             name: 'ODUSBABA API',
             version: '7.1.0',
             description: 'Professional Consolidated API - Full site functionality',
-            available_actions: Object.keys(handlers),
+            // HARDENED (2026-10-07): no longer publishes every action name to anonymous callers.
+            available_actions_count: Object.keys(handlers).length,
             timestamp: new Date().toISOString()
         });
     }
