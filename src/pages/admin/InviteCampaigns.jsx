@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
-import { Mail, Send, Users, Briefcase, Building2, Building, Upload, Loader2, Eye, RefreshCw, ShieldCheck, AlertTriangle, CheckCircle2, Plus, Trash2, Square, Bell } from 'lucide-react';
+import { Mail, Send, Users, Briefcase, Building2, Building, Upload, Loader2, Eye, RefreshCw, ShieldCheck, AlertTriangle, CheckCircle2, Plus, Trash2, Square, Bell, Server } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const TIERS = [
@@ -75,6 +75,8 @@ export default function InviteCampaigns() {
     const [loadingList, setLoadingList] = useState(false);
     const [run, setRun] = useState(null); // { campaignId, mode, sent, failed, remaining, note }
     const stopRef = useRef(false);
+    const [smtp, setSmtp] = useState(null);
+    const [smtpBusy, setSmtpBusy] = useState(false);
 
     const parsed = useMemo(() => parseContacts(contactsText), [contactsText]);
 
@@ -93,7 +95,7 @@ export default function InviteCampaigns() {
         try {
             const res = await authenticatedFetch(`invite-defaults&tier=${key}`);
             const d = res.defaults;
-            setForm({ subject: d.subject, headline: d.headline, intro: d.intro, closing: d.closing || '', bullets: d.bullets.map(b => ({ ...b })) });
+            setForm({ subject: d.subject, preheader: d.preheader || '', headline: d.headline, intro: d.intro, closing: d.closing || '', ps: d.ps || '', bullets: d.bullets.map(b => ({ ...b })), stepsTitle: d.stepsTitle || '', steps: (d.steps || []).map(x => ({ ...x })), snapshot: { title: d.snapshot?.title || '', note: d.snapshot?.note || '', rows: (d.snapshot?.rows || []).map(r => ({ ...r })) } });
             setMeta({ replyToConfigured: res.replyToConfigured, postalAddressConfigured: res.postalAddressConfigured, dailyCap: res.dailyCap });
             setEdited(false);
             setPreviewHtml('');
@@ -104,6 +106,21 @@ export default function InviteCampaigns() {
     function setBullet(i, k, v) { setForm(f => ({ ...f, bullets: f.bullets.map((b, j) => j === i ? { ...b, [k]: v } : b) })); setEdited(true); setPreviewHtml(''); }
     function addBullet() { setForm(f => ({ ...f, bullets: [...f.bullets, { title: '', text: '' }].slice(0, 8) })); setEdited(true); }
     function removeBullet(i) { setForm(f => ({ ...f, bullets: f.bullets.filter((_, j) => j !== i) })); setEdited(true); setPreviewHtml(''); }
+
+    function setStep(i, k, v) { setForm(f => ({ ...f, steps: f.steps.map((x, j) => j === i ? { ...x, [k]: v } : x) })); setEdited(true); setPreviewHtml(''); }
+    function addStep() { setForm(f => ({ ...f, steps: [...f.steps, { title: '', text: '' }].slice(0, 5) })); setEdited(true); }
+    function removeStep(i) { setForm(f => ({ ...f, steps: f.steps.filter((_, j) => j !== i) })); setEdited(true); setPreviewHtml(''); }
+    function setSnap(k, v) { setForm(f => ({ ...f, snapshot: { ...f.snapshot, [k]: v } })); setEdited(true); setPreviewHtml(''); }
+    function setRow(i, k, v) { setForm(f => ({ ...f, snapshot: { ...f.snapshot, rows: f.snapshot.rows.map((r, j) => j === i ? { ...r, [k]: v } : r) } })); setEdited(true); setPreviewHtml(''); }
+    function addRow() { setForm(f => ({ ...f, snapshot: { ...f.snapshot, rows: [...f.snapshot.rows, { label: '', value: '' }].slice(0, 10) } })); setEdited(true); }
+    function removeRow(i) { setForm(f => ({ ...f, snapshot: { ...f.snapshot, rows: f.snapshot.rows.filter((_, j) => j !== i) } })); setEdited(true); setPreviewHtml(''); }
+
+    async function checkSmtp() {
+        setSmtpBusy(true);
+        try { setSmtp(await authenticatedFetch('invite-smtp-check', {})); }
+        catch (e) { toast.error(e.message); }
+        finally { setSmtpBusy(false); }
+    }
 
     async function onFile(e) {
         const file = e.target.files?.[0];
@@ -192,6 +209,21 @@ export default function InviteCampaigns() {
                 ))}
             </div>
 
+            <div className="mb-6 p-3 rounded-xl border border-slate-700 bg-slate-800/40">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm text-slate-300"><Server className="w-4 h-4 text-primary-400" /> Email connection (uses the SMTP settings in Vercel)</div>
+                    <button onClick={checkSmtp} disabled={smtpBusy} className="text-xs px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-1.5 disabled:opacity-50">{smtpBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Check connection</button>
+                </div>
+                {smtp && (
+                    <div className="mt-3 text-xs text-slate-400 space-y-1">
+                        <div className={smtp.connected ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{smtp.connected ? 'Connected: your mail server accepted the login.' : `Not connected: ${smtp.error}`}</div>
+                        <div>Server: <span className="text-slate-200">{smtp.host || 'not set'}</span> &middot; Port: <span className="text-slate-200">{smtp.port}</span> ({smtp.secure ? 'SSL' : 'STARTTLS'}) &middot; Login set: <span className="text-slate-200">{smtp.userSet && smtp.passwordSet ? 'yes' : 'NO'}</span></div>
+                        <div>Emails are sent from: <span className="text-slate-200">{smtp.senderAddress}</span></div>
+                        <div>Replies go to: <span className="text-slate-200">{smtp.replyToConfigured ? 'your INVITE_REPLY_TO address' : 'NOT SET (set INVITE_REPLY_TO)'}</span> &middot; Footer address: <span className="text-slate-200">{smtp.postalAddressConfigured ? 'set' : 'NOT SET (set INVITE_POSTAL_ADDRESS)'}</span></div>
+                    </div>
+                )}
+            </div>
+
             {tab === 'new' && (
                 <div className="space-y-8">
                     {/* 1 AUDIENCE */}
@@ -232,6 +264,7 @@ export default function InviteCampaigns() {
                             <p className="text-slate-400 text-xs mb-3">Written for this tier using your real plan limits. Edit anything. <code className="text-slate-300">{'{{firstName}}'}</code> is replaced with each person's first name (or "there").</p>
                             <div className="space-y-3">
                                 <div><label className="text-xs text-slate-400">Subject line</label><input className={inputCls} value={form.subject} onChange={e => setField('subject', e.target.value)} maxLength={150} /></div>
+                                <div><label className="text-xs text-slate-400">Preview text (the grey line shown beside the subject in the inbox)</label><input className={inputCls} value={form.preheader} onChange={e => setField('preheader', e.target.value)} maxLength={200} /></div>
                                 <div><label className="text-xs text-slate-400">Headline</label><input className={inputCls} value={form.headline} onChange={e => setField('headline', e.target.value)} maxLength={150} /></div>
                                 <div><label className="text-xs text-slate-400">Opening</label><textarea rows={6} className={inputCls} value={form.intro} onChange={e => setField('intro', e.target.value)} /></div>
                                 <div>
@@ -249,7 +282,42 @@ export default function InviteCampaigns() {
                                         {form.bullets.length < 8 && <button onClick={addBullet} className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add benefit</button>}
                                     </div>
                                 </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">"Get started" steps</label>
+                                    <input className={inputCls + ' mt-1 mb-2'} placeholder="Section title" value={form.stepsTitle} onChange={e => setField('stepsTitle', e.target.value)} maxLength={80} />
+                                    <div className="space-y-2">
+                                        {form.steps.map((x, i) => (
+                                            <div key={i} className="flex gap-2 items-start">
+                                                <div className="flex-1 grid sm:grid-cols-3 gap-2">
+                                                    <input className={inputCls} placeholder="Step" value={x.title} onChange={e => setStep(i, 'title', e.target.value)} maxLength={100} />
+                                                    <input className={inputCls + ' sm:col-span-2'} placeholder="Short detail (optional)" value={x.text} onChange={e => setStep(i, 'text', e.target.value)} maxLength={200} />
+                                                </div>
+                                                <button onClick={() => removeStep(i)} className="p-2 text-slate-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                            </div>
+                                        ))}
+                                        {form.steps.length < 5 && <button onClick={addStep} className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add step</button>}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Plan at a glance (table)</label>
+                                    <input className={inputCls + ' mt-1 mb-2'} placeholder="Table title" value={form.snapshot.title} onChange={e => setSnap('title', e.target.value)} maxLength={80} />
+                                    <div className="space-y-2">
+                                        {form.snapshot.rows.map((r, i) => (
+                                            <div key={i} className="flex gap-2 items-start">
+                                                <div className="flex-1 grid grid-cols-2 gap-2">
+                                                    <input className={inputCls} placeholder="Label" value={r.label} onChange={e => setRow(i, 'label', e.target.value)} maxLength={60} />
+                                                    <input className={inputCls} placeholder="Value" value={r.value} onChange={e => setRow(i, 'value', e.target.value)} maxLength={100} />
+                                                </div>
+                                                <button onClick={() => removeRow(i)} className="p-2 text-slate-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                            </div>
+                                        ))}
+                                        {form.snapshot.rows.length < 10 && <button onClick={addRow} className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
+                                    </div>
+                                    <input className={inputCls + ' mt-2'} placeholder="Small note under the table" value={form.snapshot.note} onChange={e => setSnap('note', e.target.value)} maxLength={200} />
+                                    <p className="text-[11px] text-slate-500 mt-1">Prices and limits here are copied from your Pricing page. Check them against the live Pricing page before sending.</p>
+                                </div>
                                 <div><label className="text-xs text-slate-400">Closing</label><textarea rows={3} className={inputCls} value={form.closing} onChange={e => setField('closing', e.target.value)} /></div>
+                                <div><label className="text-xs text-slate-400">P.S. (optional)</label><textarea rows={2} className={inputCls} value={form.ps} onChange={e => setField('ps', e.target.value)} maxLength={600} /></div>
                                 <div><label className="text-xs text-slate-400">Invite code to include (optional - needed only if tester registration is switched on)</label><input className={inputCls} value={testerCode} onChange={e => { setTesterCode(e.target.value); setPreviewHtml(''); }} placeholder="e.g. ABCD2345" maxLength={32} /></div>
                             </div>
                             <div className="flex flex-wrap gap-2 mt-4">
