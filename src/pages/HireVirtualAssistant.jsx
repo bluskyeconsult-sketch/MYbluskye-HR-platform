@@ -70,6 +70,18 @@ const CATEGORIES = [
 // MAIN COMPONENT
 // ============================================
 
+// NEW (2026-10-08): shoppers need to see WHAT a VA does first. The task/role
+// (title) leads in bold; the persona name, when it adds something different,
+// is shown small underneath. If a VA has no separate title, its name is
+// used as the headline and no persona line is shown.
+function vaLabels(va) {
+    const title = (va?.title || '').trim();
+    const name = (va?.name || '').trim();
+    const task = title || name;
+    const person = title && name && name.toLowerCase() !== title.toLowerCase() ? name : '';
+    return { task, person };
+}
+
 export default function HireVirtualAssistant() {
     const [virtualAssistants, setVirtualAssistants] = useState([]);
     const [loadingVAs, setLoadingVAs] = useState(true);
@@ -451,7 +463,8 @@ export default function HireVirtualAssistant() {
 
     const filteredVAs = useMemo(() => {
         return virtualAssistants.filter(va => {
-            const matchesSearch = va.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            const matchesSearch = (va.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                 (va.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                                  va.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                  (va.longDescription && va.longDescription.toLowerCase().includes(searchTerm.toLowerCase()));
             const matchesCategory = selectedCategory === 'all' || va.category === selectedCategory;
@@ -695,7 +708,9 @@ export default function HireVirtualAssistant() {
                                                 )}
                                             </div>
                                         </div>
-                                        <h3 className="text-base sm:text-lg font-semibold text-white mb-1">{va.name}</h3>
+                                        <h3 className="text-base sm:text-lg font-bold text-white leading-snug">{vaLabels(va).task}</h3>
+                                        {vaLabels(va).person && <p className="text-[10px] sm:text-[11px] text-slate-500 mb-1">Assistant: {vaLabels(va).person}</p>}
+                                        {!vaLabels(va).person && <div className="mb-1" />}
                                         <p className="text-slate-400 text-xs sm:text-sm mb-2 sm:mb-3 line-clamp-2">{va.description}</p>
                                         <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 mb-2 sm:mb-3">
                                             {/* FIXED (2026-08-23): rating/reviews were hardcoded
@@ -761,14 +776,17 @@ export default function HireVirtualAssistant() {
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-2xl sm:text-3xl">{selectedVA.icon}</span>
-                                            <h3 className="text-lg sm:text-xl font-bold text-white">{selectedVA.name}</h3>
+                                            <div>
+                                                <h3 className="text-lg sm:text-xl font-bold text-white leading-snug">{vaLabels(selectedVA).task}</h3>
+                                                {vaLabels(selectedVA).person && <p className="text-[11px] text-slate-500">Assistant: {vaLabels(selectedVA).person}</p>}
+                                            </div>
                                             <span className="text-xs sm:text-sm text-primary-400 font-medium">
                                                 ({selectedVA.execution_type === 'conversational' ? '2 credits per message' : '1 credit per use'})
                                             </span>
                                         </div>
                                         <p className="text-slate-400 text-xs sm:text-sm mt-1">{selectedVA.longDescription}</p>
                                     </div>
-                                    <ShareMenu title={selectedVA.name} text={`Check out this VA: ${selectedVA.name} on ODUSBABA`} />
+                                    <ShareMenu title={vaLabels(selectedVA).task} text={`Check out this VA: ${vaLabels(selectedVA).task} on ODUSBABA`} />
                                     <button
                                         onClick={() => {
                                             setSelectedVA(null);
@@ -939,7 +957,7 @@ export default function HireVirtualAssistant() {
                                                 <div className="flex items-center gap-2 sm:gap-3">
                                                     <div className="text-2xl sm:text-3xl">{va?.icon || '🤖'}</div>
                                                     <div>
-                                                        <h3 className="text-white font-semibold text-sm sm:text-base">{va?.name || task.va_name || task.va_id}</h3>
+                                                        <h3 className="text-white font-bold text-sm sm:text-base">{va ? vaLabels(va).task : (task.va_name || task.va_id)}</h3>
                                                         <p className="text-[10px] sm:text-xs text-slate-500">{new Date(task.created_at).toLocaleString()}</p>
                                                     </div>
                                                 </div>
