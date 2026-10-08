@@ -60,6 +60,7 @@ const ADMIN_NAV = [
         { path: '/admin/personal-media-studio', label: 'Media Studio', icon: Image },
         { path: '/admin/video-creator', label: 'Video Creator', icon: Video },
         { path: '/admin/media-library', label: 'Media Library', icon: FolderOpen },
+        { path: '/admin/page-backdrops', label: 'Page Backdrops', icon: Image },
         { path: '/admin/support-tickets', label: 'Support Tickets', icon: LifeBuoy },
         { path: '/admin/skills', label: 'Skills', icon: Flag },
     ]},
