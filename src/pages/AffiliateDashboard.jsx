@@ -24,6 +24,7 @@ import {
 export default function AffiliateDashboard() {
     const navigate = useNavigate();
     const [affiliate, setAffiliate] = useState(null);
+    const [program, setProgram] = useState(null);
     const [stats, setStats] = useState({ clicks: 0, signups: 0, earnings: 0, available: 0 });
     const [recentSignups, setRecentSignups] = useState([]);
     const [withdrawals, setWithdrawals] = useState([]);
@@ -69,7 +70,8 @@ export default function AffiliateDashboard() {
             
             if (!result.success) throw new Error(result.error);
             
-            const { affiliate: affiliateData, stats: statsData, signups, withdrawals: withdrawalsData } = result.data;
+            const { affiliate: affiliateData, stats: statsData, signups, withdrawals: withdrawalsData, program: programData } = result.data;
+            setProgram(programData || null);
             
             setAffiliate(affiliateData);
             setStats(statsData);
@@ -194,7 +196,12 @@ export default function AffiliateDashboard() {
         );
     }
 
-    const commissionRate = affiliate?.commission_rate || 10;
+    // The real plan comes from the server (single source of truth shared with the
+    // Stripe webhook). The old line here defaulted to 10%, which understated the
+    // 20% first-payment rate the webhook actually pays.
+    const firstPct = program?.firstPaymentPct ?? 20;
+    const recurringPct = program?.recurringPct ?? 10;
+    const testingMode = !!program?.testingMode;
     const isActive = affiliate?.status === 'active';
     // FIXED (2026-08-23): affiliate.tier is never set anywhere in the real
     // backend (the affiliate-stats handler's insert only creates clicks/
@@ -293,13 +300,20 @@ export default function AffiliateDashboard() {
                     </div>
                 </div>
 
+                {testingMode && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 mb-6">
+                        <p className="text-emerald-400 font-semibold text-sm">Testing phase: no commission yet</p>
+                        <p className="text-slate-300 text-sm mt-1">ODUSBABA is in its testing phase and every plan is free, so there are no payments to earn commission on. Your referrals are still recorded. Commission switches on automatically once paid plans go live.</p>
+                    </div>
+                )}
+
                 {/* Commission Rate Card */}
                 <div className="bg-gradient-to-r from-primary-900/20 to-sky-900/20 border border-primary-500/30 rounded-xl p-5 mb-8">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                         <div>
-                            <p className="text-slate-400 text-sm">Your Commission Rate</p>
-                            <p className="text-3xl font-bold text-white">{commissionRate}%</p>
-                            <p className="text-slate-400 text-xs mt-1">on every successful referral</p>
+                            <p className="text-slate-400 text-sm">Your Commission</p>
+                            <p className="text-3xl font-bold text-white">{firstPct}% <span className="text-lg text-slate-400">then {recurringPct}%</span></p>
+                            <p className="text-slate-400 text-xs mt-1">{firstPct}% of a referred person's first payment, then {recurringPct}% of every renewal while they stay subscribed</p>
                         </div>
                         <div className="text-right">
                             <p className="text-slate-400 text-sm">Next Tier: {nextTier}</p>
@@ -340,7 +354,7 @@ export default function AffiliateDashboard() {
                         </div>
                     </div>
                     <p className="text-xs text-slate-500 mt-3">
-                        Share this link with friends and earn {commissionRate}% commission on their purchases!
+                        Share this link with friends and earn {firstPct}% of their first payment, then {recurringPct}% of every renewal!
                     </p>
                     
                     {/* Social Share Buttons */}
