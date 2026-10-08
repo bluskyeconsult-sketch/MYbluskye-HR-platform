@@ -29,6 +29,7 @@ import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/e
 // actually visible before now.
 import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
 import { INVITE_TIERS, getTierDefaults, renderInviteEmail } from '../src/services/inviteEmailTemplates.js';
+import { AFFILIATE_PLAN } from '../src/services/affiliatePlan.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import EPub from 'epub';
@@ -603,16 +604,36 @@ async function inviteLookupEmails(supabaseClient, table, emails) {
     return found;
 }
 
-async function sendInviteEmail(transporter, { to, firstName, token, content, testerCode, isReminder, isTest }) {
+// Reads the same testing_mode switch the signup page uses (system_config).
+// While ON, paid plans are granted free at signup and no real payment ever
+// reaches Stripe, so no affiliate commission can accrue. Defaults to OFF if
+// the key is missing or unreadable (so emails never promise free access
+// that isn't really on).
+async function isTestingModeOn(supabaseClient) {
+    try {
+        const { data } = await supabaseClient.from('system_config').select('config_value').eq('config_key', 'testing_mode').maybeSingle();
+        return data?.config_value === 'enabled';
+    } catch { return false; }
+}
+
+function inviteSender() {
+    return {
+        senderName: String(process.env.INVITE_SENDER_NAME || 'Joseph Odugboye').replace(/["<>\r\n]/g, '').slice(0, 60),
+        senderTitle: String(process.env.INVITE_SENDER_TITLE || 'Founder, BluSkye Integrated Consult').replace(/[<>\r\n]/g, '').slice(0, 100)
+    };
+}
+
+async function sendInviteEmail(transporter, { to, firstName, token, content, testerCode, isReminder, isTest, tier, testingMode }) {
     const signupUrl = isTest ? `${inviteSiteUrl()}/sign-up` : inviteApiUrl('invite-click', token);
     const unsubscribeUrl = isTest ? `${inviteSiteUrl()}/` : inviteApiUrl('invite-unsubscribe', token);
     const rendered = renderInviteEmail({
         content, firstName, signupUrl, unsubscribeUrl, testerCode,
-        postalAddress: process.env.INVITE_POSTAL_ADDRESS, isReminder: !!isReminder, siteUrl: inviteSiteUrl()
+        postalAddress: process.env.INVITE_POSTAL_ADDRESS, isReminder: !!isReminder, siteUrl: inviteSiteUrl(),
+        tier, testingMode: !!testingMode, ...inviteSender()
     });
     const fromAddr = process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com';
     const mail = {
-        from: `"Joseph Odugboye | ODUSBABA" <${fromAddr}>`,
+        from: `"${inviteSender().senderName} | ODUSBABA" <${fromAddr}>`,
         to,
         subject: (isTest ? '[TEST] ' : '') + rendered.subject,
         html: rendered.html,
@@ -6809,7 +6830,12 @@ Keep the tone professional and constructive throughout - direct about issues whe
                         user_id: userId,
                         affiliate_code: code,
                         referral_link: `${siteUrl}/sign-up?ref=${code}`,
-                        status: 'pending',
+                        // FIXED (2026-10-07): was 'pending', but nothing in the system ever
+                        // approved a pending affiliate, and the Stripe webhook only pays
+                        // commission to status 'active' - so no affiliate could ever have
+                        // earned anything. New affiliates are now active immediately.
+                        // (Set status to 'suspended' by hand to block someone.)
+                        status: 'active',
                         total_clicks: 0,
                         total_signups: 0,
                         total_earnings: 0,
@@ -6823,12 +6849,23 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 affiliate = newAffiliate;
             }
 
+            // Self-heal: affiliates created before this fix are stuck on 'pending'.
+            if (affiliate.status === 'pending') {
+                await supabaseClient.from('affiliates').update({ status: 'active' }).eq('id', affiliate.id);
+                affiliate.status = 'active';
+            }
+
             const { data: signups } = await supabaseClient
                 .from('profiles')
                 .select('full_name, created_at')
                 .eq('referred_by_affiliate_code', affiliate.affiliate_code)
                 .order('created_at', { ascending: false })
                 .limit(20);
+            // total_signups on the affiliates row is never incremented anywhere;
+            // count real referred profiles instead so the number is true.
+            const { count: referredCount } = await supabaseClient
+                .from('profiles').select('id', { count: 'exact', head: true })
+                .eq('referred_by_affiliate_code', affiliate.affiliate_code);
 
             const { data: withdrawals } = await supabaseClient
                 .from('affiliate_withdrawals')
@@ -6842,12 +6879,17 @@ Keep the tone professional and constructive throughout - direct about issues whe
                     affiliate,
                     stats: {
                         clicks: affiliate.total_clicks || 0,
-                        signups: affiliate.total_signups || 0,
+                        signups: referredCount ?? affiliate.total_signups ?? 0,
                         earnings: affiliate.total_earnings || 0,
                         available: affiliate.available_balance || 0
                     },
                     signups: signups || [],
-                    withdrawals: withdrawals || []
+                    withdrawals: withdrawals || [],
+                    program: {
+                        firstPaymentPct: AFFILIATE_PLAN.firstPaymentPct,
+                        recurringPct: AFFILIATE_PLAN.recurringPct,
+                        testingMode: await isTestingModeOn(supabaseClient)
+                    }
                 }
             });
         } catch (error) {
@@ -8115,7 +8157,9 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             defaults: getTierDefaults(tier, { credits: inviteCreditsMap() }),
             replyToConfigured: !!process.env.INVITE_REPLY_TO,
             postalAddressConfigured: !!process.env.INVITE_POSTAL_ADDRESS,
-            dailyCap: INVITE_DAILY_CAP
+            dailyCap: INVITE_DAILY_CAP,
+            testingMode: await isTestingModeOn(supabaseClient),
+            affiliatePlan: AFFILIATE_PLAN
         });
     },
 
@@ -8128,7 +8172,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         const rendered = renderInviteEmail({
             content: built.content, firstName: 'Alex',
             signupUrl: `${inviteSiteUrl()}/sign-up`, unsubscribeUrl: `${inviteSiteUrl()}/`,
-            testerCode: built.testerCode, postalAddress: process.env.INVITE_POSTAL_ADDRESS, siteUrl: inviteSiteUrl()
+            testerCode: built.testerCode, postalAddress: process.env.INVITE_POSTAL_ADDRESS, siteUrl: inviteSiteUrl(),
+            tier: built.tier, testingMode: await isTestingModeOn(supabaseClient), ...inviteSender()
         });
         return res.status(200).json({ success: true, subject: rendered.subject, html: rendered.html });
     },
@@ -8178,7 +8223,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             if (!me?.email) return res.status(400).json({ error: 'Your admin profile has no email address on record.' });
             await sendInviteEmail(getTransporter(), {
                 to: me.email, firstName: me.first_name || 'Alex', token: null, content: built.content,
-                testerCode: built.testerCode, isReminder: false, isTest: true
+                testerCode: built.testerCode, isReminder: false, isTest: true,
+                tier: built.tier, testingMode: await isTestingModeOn(supabaseClient)
             });
             return res.status(200).json({ success: true, sentTo: me.email });
         } catch (error) {
@@ -8353,12 +8399,13 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             }
 
             const transporter = getTransporter();
+            const testingMode = await isTestingModeOn(supabaseClient);
             let sent = 0, failed = 0;
             for (const inv of eligible.slice(0, take)) {
                 try {
                     await sendInviteEmail(transporter, {
                         to: inv.email, firstName: inv.first_name, token: inv.token, isReminder: mode === 'reminder',
-                        testerCode: campaign.tester_code,
+                        testerCode: campaign.tester_code, tier: campaign.target_tier, testingMode,
                         content: { subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel, ...(campaign.extras || {}) }
                     });
                     const patch = mode === 'reminder' ? { reminder_sent_at: new Date().toISOString() } : { status: 'sent', sent_at: new Date().toISOString(), last_error: null };
@@ -8410,7 +8457,14 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             await supabaseClient.from('invitations').update({ click_count: (inv.click_count || 0) + 1, clicked_at: inv.clicked_at || new Date().toISOString() }).eq('id', inv.id);
             const tier = inv.invitation_campaigns?.target_tier || 'invite';
             const code = inv.invitation_campaigns?.tester_code;
-            const dest = `${site}/sign-up?utm_source=invite&utm_medium=email&utm_campaign=${encodeURIComponent(tier)}${code ? `&code=${encodeURIComponent(code)}` : ''}`;
+            // Preselect the right plan on the signup page. Outside testing mode a
+            // paid plan can't be granted without payment, so everyone lands on the
+            // free Registered plan (signup otherwise defaults to the browse-only
+            // Free plan, which has no job applications). In testing mode the
+            // invited tier is granted free, so we preselect it.
+            const testing = await isTestingModeOn(supabaseClient);
+            const signupTier = testing && ['professional', 'employer', 'business'].includes(tier) ? tier : 'registered';
+            const dest = `${site}/sign-up?utm_source=invite&utm_medium=email&utm_campaign=${encodeURIComponent(tier)}&tier=${signupTier}${code ? `&code=${encodeURIComponent(code)}` : ''}`;
             res.writeHead(302, { Location: dest });
             return res.end();
         } catch (e) {
