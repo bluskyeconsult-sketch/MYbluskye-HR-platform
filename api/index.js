@@ -3445,6 +3445,172 @@ Return ONLY a JSON object: {
     // here - confirmed directly that OpenAI discontinued the Sora API
     // on 2026-09-24, two days before this was built. Building against
     // a shut-down API would fail on every call.
+    // ============================================
+    // PAGE AMBIENCE (2026-10-08)
+    // Faded background imagery behind page content. Images are generated
+    // ONCE with the existing gpt-image-1-mini integration, stored in the
+    // public 'avatars' bucket, and reused until an admin replaces them.
+    // ============================================
+    'ambience-get': async (req, res) => {
+        try {
+            const ip = getClientIp(req);
+            if (!checkRateLimit(`ambience-get:${ip}`, 60)) return res.status(429).json({ error: 'Too many requests' });
+            const supabaseClient = getSupabase();
+            const [{ data: cfg }, { data: rows }] = await Promise.all([
+                supabaseClient.from('system_config').select('config_value').eq('config_key', 'page_ambience').maybeSingle(),
+                supabaseClient.from('page_backdrops').select('theme, image_url').eq('is_active', true).order('sort_order', { ascending: true }).order('created_at', { ascending: true }).limit(200)
+            ]);
+            const scope = ['off', 'public', 'all'].includes(cfg?.config_value) ? cfg.config_value : 'public';
+            const themes = {};
+            for (const r of rows || []) {
+                (themes[r.theme] = themes[r.theme] || []).push(r.image_url);
+            }
+            res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+            return res.status(200).json({ success: true, scope, themes });
+        } catch (error) {
+            return res.status(200).json({ success: true, scope: 'off', themes: {} });
+        }
+    },
+
+    'ambience-admin-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const [{ data: cfg }, { data: rows, error }] = await Promise.all([
+            supabaseClient.from('system_config').select('config_value').eq('config_key', 'page_ambience').maybeSingle(),
+            supabaseClient.from('page_backdrops').select('*').order('theme').order('sort_order').order('created_at').limit(500)
+        ]);
+        if (error) return res.status(500).json({ error: error.message });
+        const scope = ['off', 'public', 'all'].includes(cfg?.config_value) ? cfg.config_value : 'public';
+        return res.status(200).json({ success: true, scope, backdrops: rows || [] });
+    },
+
+    'ambience-generate': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`ambience-generate:${auth.userId}`, 20)) return res.status(429).json({ error: 'Too many generations - try again shortly' });
+
+        const theme = String(req.body?.theme || '').trim();
+        if (!/^[a-z0-9-]{2,30}$/.test(theme)) return res.status(400).json({ error: 'Invalid theme' });
+        const prompt = String(req.body?.prompt || '').trim().slice(0, 900);
+        if (prompt.length < 10) return res.status(400).json({ error: 'A prompt of at least 10 characters is required' });
+        const quality = req.body?.quality === 'medium' ? 'medium' : 'low';
+        const cost = quality === 'medium' ? 0.015 : 0.006;
+
+        try {
+            const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+            if (!apiKey) throw new Error('OpenAI API key not configured');
+            const fullPrompt = `${prompt}. Candid documentary-style photograph, natural light, realistic people, shallow depth of field, muted colours. No text, no logos, no watermarks, no readable signage.`;
+            const response = await fetch('https://api.openai.com/v1/images/generations', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: 'gpt-image-1-mini', prompt: fullPrompt, n: 1, size: '1536x1024', quality })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error?.message || `HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            const buffer = Buffer.from(data.data[0].b64_json, 'base64');
+            const filePath = `ambience/${theme}-${Date.now()}.png`;
+            const { error: uploadError } = await supabaseClient.storage.from('avatars').upload(filePath, buffer, { contentType: 'image/png', upsert: false });
+            if (uploadError) throw uploadError;
+            const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+
+            const { data: row, error: insErr } = await supabaseClient.from('page_backdrops').insert({
+                theme, image_url: urlData.publicUrl, prompt, estimated_cost: cost, created_by: auth.userId, is_active: true
+            }).select().single();
+            if (insErr) throw insErr;
+
+            logOpenAIUsage('image', { model: 'gpt-image-1-mini', flatCost: cost });
+            logToMediaLibrary(supabaseClient, { userId: auth.userId, mediaType: 'image', source: 'page_ambience', url: urlData.publicUrl, fileName: filePath, fileSizeBytes: buffer.length, estimatedCost: cost });
+            return res.status(200).json({ success: true, backdrop: row, estimatedCost: cost });
+        } catch (error) {
+            console.error('ambience-generate error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Upload your own designed image (admin). Uses a signed upload URL so the
+    // file goes straight to storage (avoids the ~4.5MB serverless body limit).
+    'ambience-prepare-upload': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const theme = String(req.body?.theme || '').trim();
+        if (!/^[a-z0-9-]{2,30}$/.test(theme)) return res.status(400).json({ error: 'Invalid theme' });
+        const ext = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png' }[req.body?.contentType];
+        if (!ext) return res.status(400).json({ error: 'Only JPEG, PNG or WebP images are allowed' });
+        try {
+            const path = `ambience/upload-${auth.userId}-${theme}-${Date.now()}.${ext}`;
+            const { data, error } = await supabaseClient.storage.from('avatars').createSignedUploadUrl(path);
+            if (error) throw error;
+            return res.status(200).json({ success: true, path, token: data.token });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'ambience-confirm-upload': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { path } = req.body || {};
+        const m = typeof path === 'string' && path.match(/^ambience\/upload-([0-9a-f-]{36})-([a-z0-9-]{2,30})-\d+\.(webp|jpg|png)$/i);
+        if (!m || m[1] !== auth.userId) return res.status(400).json({ error: 'Invalid path' });
+        try {
+            const file = path.split('/')[1];
+            const { data: found } = await supabaseClient.storage.from('avatars').list('ambience', { search: file, limit: 5 });
+            const obj = (found || []).find(f => f.name === file);
+            if (!obj) return res.status(400).json({ error: 'Upload not found - please try again' });
+            const size = Number(obj.metadata?.size || 0);
+            if (size > 3 * 1024 * 1024) {
+                await supabaseClient.storage.from('avatars').remove([path]);
+                return res.status(400).json({ error: 'Image is over 3MB after processing' });
+            }
+            const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(path);
+            const { data: row, error } = await supabaseClient.from('page_backdrops').insert({
+                theme: m[2], image_url: urlData.publicUrl, prompt: 'Uploaded image', estimated_cost: 0, created_by: auth.userId, is_active: true
+            }).select().single();
+            if (error) throw error;
+            logToMediaLibrary(supabaseClient, { userId: auth.userId, mediaType: 'image', source: 'page_ambience', url: urlData.publicUrl, fileName: path, fileSizeBytes: size || null, estimatedCost: 0 });
+            return res.status(200).json({ success: true, backdrop: row });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'ambience-update': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { id, isActive, remove, scope } = req.body || {};
+        try {
+            if (scope !== undefined) {
+                if (!['off', 'public', 'all'].includes(scope)) return res.status(400).json({ error: 'Invalid scope' });
+                const { data: existing } = await supabaseClient.from('system_config').select('config_key').eq('config_key', 'page_ambience').maybeSingle();
+                const q = existing
+                    ? supabaseClient.from('system_config').update({ config_value: scope }).eq('config_key', 'page_ambience')
+                    : supabaseClient.from('system_config').insert({ config_key: 'page_ambience', config_value: scope });
+                const { error } = await q;
+                if (error) throw error;
+                return res.status(200).json({ success: true, scope });
+            }
+            if (!id || !/^[0-9a-f-]{36}$/i.test(String(id))) return res.status(400).json({ error: 'Valid id required' });
+            if (remove === true) {
+                const { error } = await supabaseClient.from('page_backdrops').delete().eq('id', id);
+                if (error) throw error;
+                return res.status(200).json({ success: true });
+            }
+            const { error } = await supabaseClient.from('page_backdrops').update({ is_active: !!isActive }).eq('id', id);
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'generate-personal-image': async (req, res) => {
         const supabaseClient = getSupabase();
         const authCheck = await requireAdmin(req, supabaseClient);
@@ -6818,11 +6984,11 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const visitorHash = crypto.createHash('sha256').update(`${salt}|${ip}|${ua.slice(0, 120)}`).digest('hex').slice(0, 32);
 
             const since = new Date(Date.now() - 86400000).toISOString();
-            const { data: recent } = await supabaseClient.from('affiliate_clicks').select('id')
+            const { data: recent } = await supabaseClient.from('affiliate_link_clicks').select('id')
                 .eq('affiliate_id', affiliate.id).eq('visitor_hash', visitorHash).gte('created_at', since).limit(1);
             if (recent && recent.length) return ok();
 
-            await supabaseClient.from('affiliate_clicks').insert({ affiliate_id: affiliate.id, visitor_hash: visitorHash });
+            await supabaseClient.from('affiliate_link_clicks').insert({ affiliate_id: affiliate.id, visitor_hash: visitorHash });
         } catch (e) {
             console.warn('affiliate-track-click failed (non-blocking):', e.message);
         }
@@ -6904,12 +7070,12 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const { count: referredCount } = await supabaseClient
                 .from('profiles').select('id', { count: 'exact', head: true })
                 .eq('referred_by_affiliate_code', affiliate.affiliate_code);
-            // Real click count from affiliate_clicks (falls back to the old
+            // Real click count from affiliate_link_clicks (falls back to the old
             // column if that table hasn't been created yet).
             let clickCount = null;
             try {
                 const { count: c, error: cErr } = await supabaseClient
-                    .from('affiliate_clicks').select('id', { count: 'exact', head: true }).eq('affiliate_id', affiliate.id);
+                    .from('affiliate_link_clicks').select('id', { count: 'exact', head: true }).eq('affiliate_id', affiliate.id);
                 if (!cErr) clickCount = c;
             } catch { /* table not created yet */ }
 
@@ -12949,6 +13115,9 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 return {
                     id: va.id,
                     name: va.name,
+                    // NEW (2026-10-08): the task/role the VA performs. The UI leads
+                    // with this in bold; name (often a persona) is shown small.
+                    title: va.title || null,
                     category: va.category,
                     icon: VA_CATEGORY_ICONS[va.category] || '🤖',
                     price: va.price,
@@ -13396,14 +13565,23 @@ Give specific, actionable advice grounded in exactly what the person shares - re
                 return res.status(200).json({ success: true, message: 'Already enrolled', enrolled: true });
             }
             
-            await supabaseClient.from('course_enrollments').insert({
+            // FIXED (2026-10-08): the insert result was never checked, so a
+            // failed insert still returned "Enrolled successfully" and the
+            // learner was told they were enrolled when no row existed.
+            const { error: insertError } = await supabaseClient.from('course_enrollments').insert({
                 user_id: userId,
                 course_id: courseId,
                 enrolled_at: new Date().toISOString(),
                 progress: 0,
                 status: 'active'
             });
-            
+            if (insertError) {
+                // A concurrent request may have just created it - treat as success.
+                if (insertError.code === '23505') return res.status(200).json({ success: true, message: 'Already enrolled', enrolled: true });
+                console.error('enroll-course insert error:', insertError);
+                return res.status(500).json({ success: false, error: 'Could not enrol you in this course. Please try again.' });
+            }
+
             return res.status(200).json({ success: true, message: 'Enrolled successfully' });
         } catch (error) {
             return res.status(500).json({ error: error.message });
