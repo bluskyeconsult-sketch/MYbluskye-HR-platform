@@ -39,6 +39,7 @@
 
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { AFFILIATE_PLAN } from '../src/services/affiliatePlan.js';
 
 export const config = {
     api: {
@@ -275,14 +276,15 @@ export default async function handler(req, res) {
                     if (referredProfile?.referred_by_affiliate_code) {
                         const { data: affiliate } = await supabase
                             .from('affiliates')
-                            .select('id, available_balance, total_earnings')
+                            .select('id, user_id, available_balance, total_earnings')
                             .eq('affiliate_code', referredProfile.referred_by_affiliate_code)
                             .eq('status', 'active')
                             .single();
 
-                        if (affiliate && session.amount_total) {
+                        // Self-referral guard: nobody earns commission on their own payment.
+                        if (affiliate && affiliate.user_id !== userId && session.amount_total) {
                             const paidAmount = session.amount_total / 100; // Stripe amounts are in cents
-                            const commissionRate = 0.20; // 20% on first payment — see the Affiliate Plan
+                            const commissionRate = AFFILIATE_PLAN.firstPaymentPct / 100; // see src/services/affiliatePlan.js
                             const commissionAmount = Math.round(paidAmount * commissionRate * 100) / 100;
 
                             await supabase.from('affiliate_commissions').insert({
@@ -323,8 +325,9 @@ export default async function handler(req, res) {
             }
 
             // NEW (2026-08-16): Affiliate Plan — 10% recurring commission
-            // for months 2-12 of a referred user's subscription. Fires on
-            // every successful renewal invoice, not just the first
+            // on EVERY renewal of a referred user's subscription (no 12-month cap,
+            // matching the Products page: "for as long as they stay subscribed").
+            // Fires on every successful renewal invoice, not just the first
             // payment (that's checkout.session.completed above, at 20%).
             // Must be added to your Stripe webhook's subscribed events —
             // it doesn't fire unless the webhook endpoint is configured
@@ -345,14 +348,14 @@ export default async function handler(req, res) {
                     if (profile?.referred_by_affiliate_code) {
                         const { data: affiliate } = await supabase
                             .from('affiliates')
-                            .select('id, available_balance, total_earnings')
+                            .select('id, user_id, available_balance, total_earnings')
                             .eq('affiliate_code', profile.referred_by_affiliate_code)
                             .eq('status', 'active')
                             .single();
 
-                        if (affiliate && invoice.amount_paid) {
+                        if (affiliate && affiliate.user_id !== profile.id && invoice.amount_paid) {
                             const paidAmount = invoice.amount_paid / 100;
-                            const commissionRate = 0.10; // 10% recurring — see the Affiliate Plan
+                            const commissionRate = AFFILIATE_PLAN.recurringPct / 100; // see src/services/affiliatePlan.js
                             const commissionAmount = Math.round(paidAmount * commissionRate * 100) / 100;
 
                             await supabase.from('affiliate_commissions').insert({
