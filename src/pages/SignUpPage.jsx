@@ -159,6 +159,22 @@ export default function SignUpPage() {
     // signups were never attributed to the affiliate who sent them.
     const [searchParams] = useSearchParams();
     const referralCode = searchParams.get('ref');
+
+    // NEW (2026-10-07): count this visit as a click on the affiliate's link - once per
+    // browser session, fire-and-forget (never blocks or breaks signup).
+    useEffect(() => {
+        if (!referralCode) return;
+        try {
+            const key = `aff_click_${referralCode}`;
+            if (sessionStorage.getItem(key)) return;
+            sessionStorage.setItem(key, '1');
+        } catch { /* storage blocked - still count once per page load */ }
+        fetch('/api/index?action=affiliate-track-click', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: referralCode })
+        }).catch(() => {});
+    }, [referralCode]);
     
     const [formData, setFormData] = useState({
         email: '',
