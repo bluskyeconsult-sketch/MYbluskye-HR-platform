@@ -34,6 +34,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
+import { authenticatedFetch } from '../lib/authFetch';
+import ShareMenu from '../components/ShareMenu';
 import ContentRenderer from '../components/ContentRenderer';
 import { BookOpen, Clock, CheckCircle, Circle, Loader2, AlertCircle, ChevronLeft, ChevronRight, Award, Users, Star, X } from 'lucide-react';
 
@@ -48,6 +50,9 @@ export default function CourseDetail() {
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [issuingCertificate, setIssuingCertificate] = useState(false);
+    // NEW (2026-09-24): genuine, earned share prompt - only appears
+    // after a real certificate is actually issued, not a cold ask.
+    const [showSharePrompt, setShowSharePrompt] = useState(false);
     // NEW (2026-09-21): quiz-taking state - genuinely didn't exist
     // before, since courses had no quizzes at all until now.
     const [showQuiz, setShowQuiz] = useState(false);
@@ -101,19 +106,42 @@ export default function CourseDetail() {
                 .maybeSingle();
 
             if (!enrollmentData) {
-                const { data: newEnrollment, error: enrollError } = await supabase
-                    .from('course_enrollments')
-                    .insert({
-                        user_id: authUser.id,
-                        course_id: id,
-                        enrolled_at: new Date().toISOString(),
-                        progress: 0,
-                        status: 'active'
-                    })
-                    .select()
-                    .single();
-                if (enrollError) throw enrollError;
-                enrollmentData = newEnrollment;
+                // FIXED (2026-10-08): enrol through the backend first. A direct
+                // browser insert depends on the row-level-security policy for
+                // the learner's account type and silently failed for some
+                // profiles; the backend verifies the user and writes reliably.
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    await fetch('/api/index?action=enroll-course', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+                        },
+                        body: JSON.stringify({ userId: authUser.id, courseId: id })
+                    });
+                } catch (e) {
+                    console.warn('Backend enrol failed, trying direct insert:', e.message);
+                }
+                const { data: again } = await supabase
+                    .from('course_enrollments').select('*')
+                    .eq('user_id', authUser.id).eq('course_id', id).maybeSingle();
+                enrollmentData = again;
+                if (!enrollmentData) {
+                    const { data: newEnrollment, error: enrollError } = await supabase
+                        .from('course_enrollments')
+                        .insert({
+                            user_id: authUser.id,
+                            course_id: id,
+                            enrolled_at: new Date().toISOString(),
+                            progress: 0,
+                            status: 'active'
+                        })
+                        .select()
+                        .single();
+                    if (enrollError) throw enrollError;
+                    enrollmentData = newEnrollment;
+                }
             }
             setEnrollment(enrollmentData);
             setCompletedLessonIds(enrollmentData.completed_lesson_ids || []);
@@ -205,21 +233,31 @@ export default function CourseDetail() {
     async function handleGetCertificate() {
         setIssuingCertificate(true);
         try {
-            const issueResponse = await fetch('/api/index?action=issue-certificate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, courseId: id })
-            });
-            const issueData = await issueResponse.json();
+            // FIXED (2026-10-08): was sent without the auth token, so the backend's
+            // identity check rejected it and certificates could never be issued.
+            const issueData = await authenticatedFetch('issue-certificate', { userId: user.id, courseId: id });
             if (!issueData.success) throw new Error(issueData.error || 'Could not issue certificate');
 
             window.open(`/api/index?action=download-certificate&certificateId=${issueData.certificateId}`, '_blank');
+            setShowSharePrompt(true);
         } catch (error) {
             alert('Failed to get certificate: ' + error.message);
         } finally {
             setIssuingCertificate(false);
         }
     }
+
+    // FIXED (2026-10-08): these three were declared further down, AFTER the
+    // quiz useEffect below that lists isCompleted in its dependency array.
+    // A dependency array is evaluated during render, so reading a const
+    // before its declaration threw "Cannot access 'isCompleted' before
+    // initialization" on EVERY render of this page - the app-wide error
+    // boundary then showed "Something Went Wrong" for every learner the
+    // moment they enrolled or opened a course. They only depend on state,
+    // so they are safe to compute here, before any effect or early return.
+    const progress = enrollment?.progress || 0;
+    const isCompleted = progress === 100 || enrollment?.status === 'completed' || !!enrollment?.completed_at;
+    const hasLessons = lessons.length > 0;
 
     // NEW (2026-09-21): checks whether this learner has already
     // passed the quiz - reads course_quiz_attempts directly (its own
@@ -262,12 +300,8 @@ export default function CourseDetail() {
         const answers = quizQuestions.map((_, i) => quizAnswers[i] ?? -1);
         setSubmittingQuiz(true);
         try {
-            const response = await fetch('/api/index?action=submit-course-quiz', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, courseId: id, answers })
-            });
-            const data = await response.json();
+            // FIXED (2026-10-08): same missing auth token as the certificate call.
+            const data = await authenticatedFetch('submit-course-quiz', { userId: user.id, courseId: id, answers });
             if (!data.success) throw new Error(data.error || 'Could not submit quiz');
 
             setQuizResult(data);
@@ -326,10 +360,6 @@ export default function CourseDetail() {
             </div>
         );
     }
-
-    const progress = enrollment?.progress || 0;
-    const isCompleted = progress === 100 || enrollment?.status === 'completed' || !!enrollment?.completed_at;
-    const hasLessons = lessons.length > 0;
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-8 md:py-12">
@@ -550,6 +580,32 @@ export default function CourseDetail() {
                     );
                 })()}
             </AnimatePresence>
+
+            {/* NEW (2026-09-24): genuine, earned share prompt - only
+                shown right after a real certificate was actually
+                issued, never a cold ask. */}
+            {showSharePrompt && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-sm w-full p-6 text-center">
+                        <Award className="w-12 h-12 text-primary-400 mx-auto mb-3" />
+                        <p className="text-white text-lg font-semibold mb-1">Certificate earned!</p>
+                        <p className="text-slate-400 text-sm mb-4">Let people know what you accomplished.</p>
+                        <div className="flex justify-center mb-4">
+                            <ShareMenu
+                                title={`I just completed ${course?.title}!`}
+                                text={`I just earned a certificate for completing "${course?.title}" on ODUSBABA.`}
+                                url={typeof window !== 'undefined' ? window.location.href : ''}
+                            />
+                        </div>
+                        <button
+                            onClick={() => setShowSharePrompt(false)}
+                            className="text-slate-500 hover:text-slate-300 text-sm transition"
+                        >
+                            Maybe later
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* NEW (2026-09-21): the quiz-taking modal - genuinely
                 didn't exist before, since courses had no quizzes at
