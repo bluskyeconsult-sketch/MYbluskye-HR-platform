@@ -620,7 +620,7 @@ export default function HomePage() {
                                     <p className="text-slate-400 text-sm line-clamp-3">{course.description}</p>
                                     <div className="mt-4 flex items-center justify-between">
                                         <span className="text-primary-400 text-sm font-medium">
-                                            {course.is_free ? 'Free' : `£${course.price}`}
+                                            {course.is_free ? 'Free' : `$${course.price}`}
                                         </span>
                                         <span className="flex items-center text-primary-400 text-sm font-medium">
                                             View course <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition" />
