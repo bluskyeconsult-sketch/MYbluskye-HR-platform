@@ -68,7 +68,7 @@ export default function InviteCampaigns() {
     const [attest, setAttest] = useState(false);
     const [previewHtml, setPreviewHtml] = useState('');
     const [busy, setBusy] = useState('');
-    const [meta, setMeta] = useState({ replyToConfigured: true, postalAddressConfigured: true, dailyCap: 200 });
+    const [meta, setMeta] = useState({ replyToConfigured: true, postalAddressConfigured: true, dailyCap: 200, testingMode: null });
 
     // ---- campaigns state
     const [list, setList] = useState(null);
@@ -96,7 +96,7 @@ export default function InviteCampaigns() {
             const res = await authenticatedFetch(`invite-defaults&tier=${key}`);
             const d = res.defaults;
             setForm({ subject: d.subject, preheader: d.preheader || '', headline: d.headline, intro: d.intro, closing: d.closing || '', ps: d.ps || '', bullets: d.bullets.map(b => ({ ...b })), stepsTitle: d.stepsTitle || '', steps: (d.steps || []).map(x => ({ ...x })), snapshot: { title: d.snapshot?.title || '', note: d.snapshot?.note || '', rows: (d.snapshot?.rows || []).map(r => ({ ...r })) } });
-            setMeta({ replyToConfigured: res.replyToConfigured, postalAddressConfigured: res.postalAddressConfigured, dailyCap: res.dailyCap });
+            setMeta({ replyToConfigured: res.replyToConfigured, postalAddressConfigured: res.postalAddressConfigured, dailyCap: res.dailyCap, testingMode: res.testingMode });
             setEdited(false);
             setPreviewHtml('');
         } catch (e) { toast.error(e.message); }
@@ -261,6 +261,13 @@ export default function InviteCampaigns() {
                                 <h2 className="text-white font-semibold">3. The message</h2>
                                 <button onClick={() => { setEdited(false); chooseTier(tier); }} className="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Reset to default</button>
                             </div>
+                            {meta.testingMode !== null && (
+                                <div className={`mb-3 text-xs p-3 rounded-lg border ${meta.testingMode ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-slate-700 bg-slate-800/40 text-slate-300'}`}>
+                                    {meta.testingMode
+                                        ? <>Testing mode is <strong>ON</strong>. Emails to Professional, Employer and Business invitees will say the plan is free during the testing phase, and every email will say there is no referral commission yet. Both switch automatically when you turn testing mode off.</>
+                                        : <>Testing mode is <strong>OFF</strong>. Emails will show normal plan prices and the live referral commission (20% first payment, 10% renewals). Invitees are directed to the free Registered plan.</>}
+                                </div>
+                            )}
                             <p className="text-slate-400 text-xs mb-3">Written for this tier using your real plan limits. Edit anything. <code className="text-slate-300">{'{{firstName}}'}</code> is replaced with each person's first name (or "there").</p>
                             <div className="space-y-3">
                                 <div><label className="text-xs text-slate-400">Subject line</label><input className={inputCls} value={form.subject} onChange={e => setField('subject', e.target.value)} maxLength={150} /></div>
