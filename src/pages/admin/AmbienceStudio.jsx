@@ -4,7 +4,8 @@
 // and reused until replaced. Also holds the rollout switch.
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Sparkles, Trash2, Eye, EyeOff, ImageIcon } from 'lucide-react';
+import { Loader2, Sparkles, Trash2, Eye, EyeOff, ImageIcon, Upload } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 import { authenticatedFetch } from '../../lib/authFetch';
 
@@ -51,6 +52,23 @@ const SCOPES = [
     { v: 'all', t: 'Phase 2 - every page', d: 'All public pages and user dashboards. Admin, exam-taking and reading pages stay clean.' },
 ];
 
+// Resize to max 1920px on the long edge and re-encode as WebP in the browser:
+// keeps pages fast and strips EXIF/location data from photos.
+async function prepareImage(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Use a JPEG, PNG or WebP image');
+    if (file.size > 25 * 1024 * 1024) throw new Error('File is over 25MB');
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1920 / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    if (w < 800) throw new Error('Image is too small - use at least 1200px wide');
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/webp', 0.82));
+    if (!blob) throw new Error('Could not process this image');
+    return blob;
+}
+
 export default function AmbienceStudio() {
     const [rows, setRows] = useState([]);
     const [scope, setScope] = useState('public');
@@ -77,6 +95,21 @@ export default function AmbienceStudio() {
             setRows(r => [...r, d.backdrop]);
             toast.success(`Created (about $${d.estimatedCost.toFixed(3)})`);
         } catch (e) { toast.error(e.message || 'Generation failed'); }
+        finally { setBusy(''); }
+    };
+
+    const upload = async (theme, file) => {
+        if (!file) return;
+        setBusy(`${theme}|upload`);
+        try {
+            const blob = await prepareImage(file);
+            const prep = await authenticatedFetch('ambience-prepare-upload', { theme, contentType: 'image/webp' });
+            const { error: upErr } = await supabase.storage.from('avatars').uploadToSignedUrl(prep.path, prep.token, blob, { contentType: 'image/webp' });
+            if (upErr) throw upErr;
+            const d = await authenticatedFetch('ambience-confirm-upload', { path: prep.path });
+            setRows(r => [...r, d.backdrop]);
+            toast.success('Image added');
+        } catch (e) { toast.error(e.message || 'Upload failed'); }
         finally { setBusy(''); }
     };
 
@@ -171,6 +204,11 @@ export default function AmbienceStudio() {
                                     {busy === `${t.key}|${custom[t.key]}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Generate
                                 </button>
                             </div>
+                            <label className={`inline-flex items-center gap-1 text-sm rounded border border-dashed border-slate-600 px-3 py-1.5 cursor-pointer hover:border-slate-400 ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
+                                {busy === `${t.key}|upload` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Upload your own image (JPEG, PNG or WebP)
+                                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; upload(t.key, f); }} />
+                            </label>
                         </div>
                     </section>
                 );
