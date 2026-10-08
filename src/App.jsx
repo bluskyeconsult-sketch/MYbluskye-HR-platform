@@ -30,6 +30,7 @@
 //    sense for a logged-in user.
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import PageAmbience from './components/PageAmbience';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 
@@ -689,6 +690,7 @@ const VideoCreator = lazy(() => import('./pages/admin/VideoCreator'));
 const RenewalsMonitor = lazy(() => import('./pages/admin/RenewalsMonitor'));
 const InviteCampaigns = lazy(() => import('./pages/admin/InviteCampaigns'));
 const MediaLibrary = lazy(() => import('./pages/admin/MediaLibrary'));
+const AmbienceStudio = lazy(() => import('./pages/admin/AmbienceStudio'));
 const PersonalMediaStudio = lazy(() => import('./pages/admin/PersonalMediaStudio'));
 const AdminSupportTickets = lazy(() => import('./pages/admin/AdminSupportTickets'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
@@ -855,7 +857,8 @@ function AppContent() {
                 (set by Navbar's own ResizeObserver) instead of a
                 guessed, hardcoded pixel value - correct regardless of
                 screen size or the navbar wrapping to two lines. */}
-            <div style={{ paddingTop: 'var(--navbar-height, 4rem)' }}>
+            <PageAmbience />
+            <div style={{ paddingTop: 'var(--navbar-height, 4rem)', position: 'relative', zIndex: 1 }}>
                 <ScrollingBanner />
                 <WorkforceConsentPrompt />
                 <FraudSafetyBanner />
@@ -947,6 +950,7 @@ function AppContent() {
                             <Route path="/admin/video-creator" element={<ProtectedRoute requireAdmin><AdminLayout><VideoCreator /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/renewals" element={<ProtectedRoute requireAdmin><AdminLayout><RenewalsMonitor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/invitations" element={<ProtectedRoute requireAdmin><AdminLayout><InviteCampaigns /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/page-backdrops" element={<ProtectedRoute requireAdmin><AdminLayout><AmbienceStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/media-library" element={<ProtectedRoute requireAdmin><AdminLayout><MediaLibrary /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/personal-media-studio" element={<ProtectedRoute requireAdmin><AdminLayout><PersonalMediaStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/support-tickets" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSupportTickets /></AdminLayout></ProtectedRoute>} />
