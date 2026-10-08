@@ -15,6 +15,7 @@
 // api/index.js, reusing the existing callOpenAI() pattern.
 
 import { useState, useEffect } from 'react';
+import { authenticatedFetch } from '../lib/authFetch';
 import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
 import PageEdgeBanner from '../components/PageEdgeBanner';
@@ -52,13 +53,9 @@ export default function HRToolsPage() {
         setCustomToolLoading(true);
         setCustomToolOutput('');
         try {
-            const response = await fetch('/api/index?action=execute-custom-hr-tool', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ toolId: activeCustomTool.id, input: customToolInput, userId: user?.id })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
+            // FIXED (2026-10-08): was sent without the auth token, so every custom
+            // HR tool run was rejected by the backend identity check.
+            const data = await authenticatedFetch('execute-custom-hr-tool', { toolId: activeCustomTool.id, input: customToolInput, userId: user?.id });
             setCustomToolOutput(data.result);
         } catch (err) {
             setCustomToolOutput(`Error: ${err.message}`);
