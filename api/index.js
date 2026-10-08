@@ -6791,6 +6791,44 @@ Keep the tone professional and constructive throughout - direct about issues whe
     // visit, matching the Affiliate Plan defined earlier this session
     // (starts 'pending', admin approves before earning — see
     // AffiliateManagement.jsx).
+    // NEW (2026-10-07): PUBLIC - records a click on an affiliate referral link.
+    // Referral links point straight at /sign-up?ref=CODE (a frontend page), so
+    // the signup page calls this once when it loads with a ?ref= code.
+    //  - counts UNIQUE visitors: the same visitor on the same link within
+    //    24 hours is one click (stops refresh-spamming inflating the figure)
+    //  - the visitor is stored only as a salted one-way hash of their IP
+    //  - bots/crawlers are ignored; unknown codes are ignored silently
+    //  - always answers the same way, so it can't be used to discover which
+    //    affiliate codes exist
+    'affiliate-track-click': async (req, res) => {
+        const ok = () => res.status(200).json({ success: true });
+        try {
+            const ip = getClientIp(req);
+            if (!checkRateLimit(`affiliate-click:${ip}`, 30)) return ok();
+            const code = String(req.body?.code || '').trim().toUpperCase();
+            if (!/^[A-Z0-9]{4,16}$/.test(code)) return ok();
+            const ua = String(req.headers['user-agent'] || '');
+            if (!ua || /bot|crawl|spider|slurp|facebookexternalhit|headlesschrome|phantomjs|puppeteer|playwright|curl|wget|python-requests|axios\/|go-http-client|scrapy|uptimerobot|pingdom/i.test(ua)) return ok();
+
+            const supabaseClient = getSupabase();
+            const { data: affiliate } = await supabaseClient.from('affiliates').select('id, status').eq('affiliate_code', code).maybeSingle();
+            if (!affiliate || affiliate.status === 'suspended') return ok();
+
+            const salt = process.env.AFFILIATE_CLICK_SALT || process.env.INTERNAL_SERVICE_SECRET || 'odusbaba-affiliate';
+            const visitorHash = crypto.createHash('sha256').update(`${salt}|${ip}|${ua.slice(0, 120)}`).digest('hex').slice(0, 32);
+
+            const since = new Date(Date.now() - 86400000).toISOString();
+            const { data: recent } = await supabaseClient.from('affiliate_clicks').select('id')
+                .eq('affiliate_id', affiliate.id).eq('visitor_hash', visitorHash).gte('created_at', since).limit(1);
+            if (recent && recent.length) return ok();
+
+            await supabaseClient.from('affiliate_clicks').insert({ affiliate_id: affiliate.id, visitor_hash: visitorHash });
+        } catch (e) {
+            console.warn('affiliate-track-click failed (non-blocking):', e.message);
+        }
+        return ok();
+    },
+
     'affiliate-stats': async (req, res) => {
         const { userId } = req.body;
         if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
@@ -6866,6 +6904,14 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const { count: referredCount } = await supabaseClient
                 .from('profiles').select('id', { count: 'exact', head: true })
                 .eq('referred_by_affiliate_code', affiliate.affiliate_code);
+            // Real click count from affiliate_clicks (falls back to the old
+            // column if that table hasn't been created yet).
+            let clickCount = null;
+            try {
+                const { count: c, error: cErr } = await supabaseClient
+                    .from('affiliate_clicks').select('id', { count: 'exact', head: true }).eq('affiliate_id', affiliate.id);
+                if (!cErr) clickCount = c;
+            } catch { /* table not created yet */ }
 
             const { data: withdrawals } = await supabaseClient
                 .from('affiliate_withdrawals')
@@ -6878,7 +6924,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 data: {
                     affiliate,
                     stats: {
-                        clicks: affiliate.total_clicks || 0,
+                        clicks: clickCount ?? affiliate.total_clicks ?? 0,
                         signups: referredCount ?? affiliate.total_signups ?? 0,
                         earnings: affiliate.total_earnings || 0,
                         available: affiliate.available_balance || 0
