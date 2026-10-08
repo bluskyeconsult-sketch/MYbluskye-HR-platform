@@ -165,7 +165,9 @@ export default function SignUpPage() {
         password: '',
         confirmPassword: '',
         full_name: '',
-        selectedTier: 'free',
+        // NEW (2026-10-07): invitation emails link here with ?tier=... so the invited plan
+        // is preselected (otherwise signup defaults to the browse-only Free plan).
+        selectedTier: (() => { try { const t = new URLSearchParams(window.location.search).get('tier'); return ['registered', 'professional', 'employer', 'business'].includes(t) ? t : 'free'; } catch { return 'free'; } })(),
         company_name: ''
     });
     const [showPassword, setShowPassword] = useState(false);
