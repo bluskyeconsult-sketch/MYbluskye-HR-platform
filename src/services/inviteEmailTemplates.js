@@ -14,6 +14,8 @@
 // SECURITY: every admin-editable string is HTML-escaped before it enters
 // the email, so a typo or pasted snippet can never inject markup/scripts.
 
+import { AFFILIATE_PLAN } from './affiliatePlan.js';
+
 export const INVITE_TIERS = ['job_seeker', 'professional', 'employer', 'business'];
 
 export const TIER_LABELS = {
@@ -31,6 +33,9 @@ export const PLAN_FACTS = {
     business:     { plan: 'Business',     price: '$549.99 / month  ·  $5,499.99 / year',  assessments: 100, posts: 'Unlimited', seats: '5 users', alerts: 'Unlimited' }
 };
 
+// Employer: cost per job post if all 20 monthly posts are used (derived, never typed).
+export const EMPLOYER_PER_POST = Math.round(199.99 / 20);
+
 export function escapeHtml(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -47,7 +52,7 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
             subject: '{{firstName}}, your free AI career toolkit is ready',
             preheader: 'Verified jobs, a 24/7 AI career advisor, CV tools and certificates. Free to join.',
             headline: 'Your next career move, with an AI in your corner',
-            intro: `Hi {{firstName}},\n\n${WHO} I built it because too many capable people lose opportunities to a weak CV, a scam job advert, or simply not knowing where they stand.\n\nODUSBABA brings verified jobs, practical AI tools and real learning into one place. A free account takes about a minute, and I would love you to try it.`,
+            intro: `Hi {{firstName}},\n\n${WHO} It brings verified jobs, practical AI tools and real learning into one place.\n\nA free account takes about a minute, and I would like to invite you to try it.`,
             bullets: [
                 { title: 'Verified jobs, fewer dead ends', text: 'Browse opportunities from trusted employers and official government portals across 8 countries, including sponsor-verified employers.' },
                 { title: 'AI career assistants', text: `A CV Optimizer, Cover Letter Writer, Salary Coach, LinkedIn makeover and more, with ${c('registered')} free AI credits every month.` },
@@ -74,8 +79,8 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 ],
                 note: 'Need more later? You can upgrade to Professional at any time.'
             },
-            closing: `There is no cost to join. If you try it and have any thoughts, just reply to this email. I read every message.`,
-            ps: `P.S. Not sure where to begin? Reply and tell me the role you are aiming for, and I will point you to the best first step.`,
+            closing: `There is no cost to join. If you have any questions, just reply to this email and the ODUSBABA team will get back to you.`,
+            ps: `P.S. Not sure where to begin? Try the CV Optimizer first. It is the quickest way to see what ODUSBABA can do for you.`,
             ctaLabel: 'Create my free account'
         },
 
@@ -83,7 +88,7 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
             subject: '{{firstName}}, a platform built to make you stand out',
             preheader: 'Unlimited applications, a visible Trust Score, verified skills and a network that responds.',
             headline: 'Stand out where it counts',
-            intro: `Hi {{firstName}},\n\n${WHO} The Professional plan is for people whose careers depend on being seen as credible: verified skills, a visible Trust Score, and a network that actually responds.\n\nI would love you to see the difference for yourself.`,
+            intro: `Hi {{firstName}},\n\n${WHO} The Professional plan is for people whose careers depend on being seen as credible: verified skills, a visible Trust Score, and a network that actually responds.\n\nI would like to invite you to try it.`,
             bullets: [
                 { title: 'Unlimited applications, saved jobs and alerts', text: 'Apply as widely as you like and never miss a relevant opening.' },
                 { title: 'A visible Trust Score', text: 'Every skill is authenticated through AI and human review, so employers see proof, not just claims.' },
@@ -112,16 +117,16 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 ],
                 note: 'Start free as a Registered member and upgrade only when you feel the difference.'
             },
-            closing: `Questions about which plan fits you? Just reply to this email and I will help personally.`,
+            closing: `Questions about which plan fits you? Reply to this email and the ODUSBABA team will help.`,
             ps: `P.S. Your first step costs nothing. Create the free account, look around, and decide afterwards.`,
             ctaLabel: 'Explore ODUSBABA'
         },
 
         employer: {
             subject: '{{firstName}}, hire faster with AI doing the heavy lifting',
-            preheader: 'Post up to 20 jobs a month, manage applicants and screen smarter. Built to cost far less than job-board fees.',
+            preheader: 'Post up to 20 jobs a month, manage applicants and screen smarter with AI.',
             headline: 'Hire faster, with AI doing the heavy lifting',
-            intro: `Hi {{firstName}},\n\n${WHO} For hiring teams it brings job posting, applicant management and AI-assisted screening into one place, with employer verification built in so candidates trust you and you can trust them.\n\nIt is priced to cost far less than traditional per-posting job-board fees, and I would like you to experience it first-hand.`,
+            intro: `Hi {{firstName}},\n\n${WHO} For hiring teams it brings job posting, applicant management and AI-assisted screening into one place, with employer verification built in so candidates trust you and you can trust them.\n\nPosting 20 jobs a month on the Employer plan works out at about $${EMPLOYER_PER_POST} per job post, and you can explore the platform with a free account before you commit to anything.`,
             bullets: [
                 { title: 'Post up to 20 jobs a month', text: 'Reach candidates without paying per listing.' },
                 { title: 'Every applicant in one place', text: 'Review and manage applications without juggling inboxes and spreadsheets.' },
@@ -142,6 +147,7 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 rows: [
                     { label: 'Price', value: f.employer.price },
                     { label: 'Job posts', value: f.employer.posts },
+                    { label: 'Cost per post (using all 20)', value: `about $${EMPLOYER_PER_POST}` },
                     { label: 'View and manage applicants', value: 'Yes' },
                     { label: 'Company profile', value: 'Yes' },
                     { label: 'AI credits', value: `${c('employer')} every month` },
@@ -150,16 +156,16 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 ],
                 note: 'Start with a free account to explore. Upgrade when you are ready to post.'
             },
-            closing: `If you tell me the roles you are hiring for, I will gladly walk you through the best way to set them up.`,
-            ps: `P.S. Just reply to this email with the roles you are hiring for and I will personally help you get your first posting live.`,
+            closing: `Reply to this email with the roles you are hiring for and the ODUSBABA team will help you get set up.`,
+            ps: `P.S. You can create a free account and explore before you decide on a plan.`,
             ctaLabel: 'See what ODUSBABA can do for hiring'
         },
 
         business: {
             subject: '{{firstName}}, one platform for your whole hiring operation',
-            preheader: 'Unlimited postings, team seats, API access and 200 AI credits a month, with a direct line to the founder.',
+            preheader: 'Unlimited postings, team seats, API access and high-volume AI, with dedicated support.',
             headline: 'One platform for your whole hiring operation',
-            intro: `Hi {{firstName}},\n\n${WHO} The Business plan is designed for organisations that hire continuously and want their team, their data and their AI tools working together, at a lower cost than traditional enterprise job boards.\n\nI would welcome the chance to show you around personally.`,
+            intro: `Hi {{firstName}},\n\n${WHO} The Business plan is designed for organisations that hire continuously and want their team, their data and their AI tools working together.\n\nReply to this email if you would like a walkthrough for your team.`,
             bullets: [
                 { title: 'Unlimited job postings', text: 'Hire at the pace your business needs, with no posting caps.' },
                 { title: 'Bring your whole team', text: 'Team accounts for up to 5 users, all working from one place.' },
@@ -167,12 +173,12 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 { title: 'High-volume AI support', text: `${c('business')} AI credits every month for AI assistants and the 24/7 ODUSBABA advisor.` },
                 { title: `${f.business.assessments} assessments a month`, text: 'Standardised skills and psychometric screening across every hire.' },
                 { title: 'Applicants, company profile and unlimited alerts', text: 'Everything in the Employer plan, without the limits.' },
-                { title: 'A direct line to the founder', text: 'Personal onboarding. Reply to this email and I will walk you and your team through it.' }
+                { title: 'Dedicated support', text: 'Business customers get dedicated support. Reply to this email to arrange a walkthrough for your team.' }
             ],
             stepsTitle: 'A simple way to start',
             steps: [
                 { title: 'Create your free account', text: 'Explore the platform with no commitment.' },
-                { title: 'Reply to book a personal walkthrough', text: 'I will show you how it fits your hiring process.' },
+                { title: 'Reply to arrange a walkthrough', text: 'The ODUSBABA team will show you how it fits your hiring process.' },
                 { title: 'Roll out to your team', text: 'Add colleagues and start posting.' }
             ],
             snapshot: {
@@ -188,8 +194,8 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                 ],
                 note: 'Not sure which plan fits? Reply and we will work it out together.'
             },
-            closing: `I would be glad to understand how your organisation hires today and show you where ODUSBABA can save you time and cost.`,
-            ps: `P.S. A 20-minute walkthrough is usually enough to see if it fits. Just reply and suggest a time.`,
+            closing: `Reply to this email and the ODUSBABA team will show you where ODUSBABA can save your organisation time.`,
+            ps: `P.S. A short walkthrough is usually enough to see whether it fits. Reply to this email to arrange one.`,
             ctaLabel: 'Explore the Business experience'
         }
     };
@@ -206,7 +212,7 @@ function personalise(str, firstName) {
     return String(str ?? '').replace(/\{\{\s*firstName\s*\}\}/gi, firstName || 'there');
 }
 
-export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUrl, testerCode, postalAddress, isReminder = false, siteUrl }) {
+export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUrl, testerCode, postalAddress, isReminder = false, siteUrl, tier = '', testingMode = false, senderName = 'Joseph Odugboye', senderTitle = 'Founder, BluSkye Integrated Consult' }) {
     const name = firstName ? String(firstName).slice(0, 60) : '';
     const subject = personalise(isReminder ? `Reminder: ${content.subject}` : content.subject, name).replace(/[\r\n]+/g, ' ').slice(0, 200); // header-injection safe
     const headline = personalise(content.headline, name);
@@ -219,6 +225,17 @@ export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUr
     const steps = isReminder ? [] : (Array.isArray(content.steps) ? content.steps.slice(0, 5) : []);
     const snapshot = isReminder ? null : content.snapshot;
     const ctaLabel = content.ctaLabel || 'Create my account';
+
+    // ---- Automatic blocks. These are NOT editable text on purpose: they are
+    // generated from live system state so they can never go stale.
+    const plan = PLAN_FACTS[tier];
+    const paidTier = tier === 'professional' || tier === 'employer' || tier === 'business';
+    const showTesting = !isReminder && testingMode && paidTier && plan;
+    const testingText = showTesting ? `While ODUSBABA is in its testing phase you can try the ${plan.plan} plan at no cost. Standard plan prices, shown above, apply once testing ends.` : '';
+    const affiliateTitle = 'Refer people and earn';
+    const affiliateText = testingMode
+        ? `ODUSBABA has a referral programme: you earn ${AFFILIATE_PLAN.firstPaymentPct}% of a referred person's first payment, plus ${AFFILIATE_PLAN.recurringPct}% of every renewal for as long as they stay subscribed. While we are in the testing phase every plan is free, so there is no commission yet. Your referrals are still recorded, and commission switches on automatically once paid plans go live.`
+        : `Share your personal referral link from your dashboard and earn ${AFFILIATE_PLAN.firstPaymentPct}% of the first payment of everyone who subscribes, plus ${AFFILIATE_PLAN.recurringPct}% of every renewal for as long as they stay subscribed.`;
 
     const section = (title) => `<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;color:#0f766e;margin:0 0 10px;">${escapeHtml(title)}</div>`;
 
@@ -260,11 +277,13 @@ export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUr
   <tr><td style="padding:0 32px;">${isReminder ? '' : section('Why people use ODUSBABA')}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${bulletsHtml}</table></td></tr>
   ${stepsHtml}
   ${snapshotHtml}
+  ${showTesting ? `<tr><td style="padding:22px 32px 0;"><div style="padding:14px 16px;background:#ecfdf5;border:1px solid #10b981;border-radius:10px;"><div style="font-weight:700;color:#047857;font-size:15px;">Free during our testing phase</div><div style="color:#065f46;font-size:14px;line-height:1.55;margin-top:3px;">${escapeHtml(testingText)}</div></div></td></tr>` : ''}
+  ${isReminder ? '' : `<tr><td style="padding:16px 32px 0;"><div style="padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;"><div style="font-weight:700;color:#0B3C5D;font-size:15px;">${escapeHtml(affiliateTitle)}</div><div style="color:#475569;font-size:14px;line-height:1.55;margin-top:3px;">${escapeHtml(affiliateText)}</div></div></td></tr>`}
   <tr><td style="padding:26px 32px 6px;text-align:center;">
      <a href="${escapeHtml(signupUrl)}" style="display:inline-block;background:#0B3C5D;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 34px;border-radius:10px;">${escapeHtml(ctaLabel)} &rarr;</a>
      ${codeHtml}
   </td></tr>
-  <tr><td style="padding:22px 32px 6px;">${closing ? textToHtml(closing) : ''}<p style="margin:0 0 14px;color:#334155;font-size:16px;">Warm regards,<br><strong>Joseph Odugboye</strong><br><span style="color:#64748b;font-size:14px;">Founder, BluSkye Integrated Consult</span></p>${ps ? `<p style="margin:0;color:#475569;font-size:14px;line-height:1.6;font-style:italic;">${escapeHtml(ps).replace(/\n/g, '<br>')}</p>` : ''}</td></tr>
+  <tr><td style="padding:22px 32px 6px;">${closing ? textToHtml(closing) : ''}<p style="margin:0 0 14px;color:#334155;font-size:16px;">Warm regards,<br><strong>${escapeHtml(senderName)}</strong><br><span style="color:#64748b;font-size:14px;">${escapeHtml(senderTitle)}</span></p>${ps ? `<p style="margin:0;color:#475569;font-size:14px;line-height:1.6;font-style:italic;">${escapeHtml(ps).replace(/\n/g, '<br>')}</p>` : ''}</td></tr>
   <tr><td style="padding:24px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">
      <p style="margin:0 0 6px;color:#64748b;font-size:12px;line-height:1.6;">You are receiving this one-time invitation from BluSkye Integrated Consult because we believe ODUSBABA may be relevant to you. We will not add you to any mailing list unless you register.</p>
      ${postalAddress ? `<p style="margin:0 0 6px;color:#64748b;font-size:12px;">${escapeHtml(postalAddress)}</p>` : ''}
@@ -278,9 +297,11 @@ export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUr
         ...bullets.map(b => `- ${personalise(b.title, name)}: ${personalise(b.text, name)}`), '',
         ...(steps.length ? [content.stepsTitle || 'Get started', ...steps.map((s, i) => `${i + 1}. ${s.title}${s.text ? ' - ' + s.text : ''}`), ''] : []),
         ...(rows.length ? [snapshot.title || 'At a glance', ...rows.map(r => `${r.label}: ${r.value}`), snapshot.note || '', ''] : []),
+        ...(showTesting ? ['FREE DURING OUR TESTING PHASE', testingText, ''] : []),
+        ...(isReminder ? [] : [affiliateTitle.toUpperCase(), affiliateText, '']),
         `${ctaLabel}: ${signupUrl}`,
         testerCode ? `Your invite code: ${testerCode}` : '',
-        '', closing, '', 'Warm regards,', 'Joseph Odugboye', 'Founder, BluSkye Integrated Consult', '',
+        '', closing, '', 'Warm regards,', senderName, senderTitle, '',
         ps, '',
         postalAddress || '',
         `Unsubscribe: ${unsubscribeUrl}`
