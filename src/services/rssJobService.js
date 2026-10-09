@@ -341,7 +341,7 @@ const API_SOURCES = {
         // per sync is a deliberately conservative starting cap,
         // easy to raise later once real value/cost is observed.
         body: { maxItems: APIFY_MAX_ITEMS_PER_SOURCE },
-        timeout: 120000, // genuinely more headroom for the full start+poll+fetch cycle
+        timeout: 150000, // raised 2026-10-09 (120s was not enough); a still-running scrape is now kept and collected next refresh
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['visa', 'sponsorship', 'relocation', 'work permit'],
@@ -1251,6 +1251,38 @@ async function scrapeNigeriaFCSC() {
 // due to client timeout or network conditions" over infrastructure
 // like this - several short, separate requests (start, poll, fetch)
 // are genuinely more robust than one long one.
+// NEW (2026-10-09): remembers an Apify run that was still RUNNING when we
+// stopped waiting. Before this, a slow scrape (Jobberman) timed out and the
+// run kept going - and billing - at Apify with its results thrown away, then
+// the NEXT refresh started a second paid run, which also timed out. Now the
+// run id is kept, and the next refresh collects that run's results instead
+// of starting another.
+const APIFY_PENDING_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+
+async function getPendingApifyRun(key) {
+    try {
+        const { data } = await supabase.from('system_config').select('config_value').eq('config_key', key).maybeSingle();
+        const v = data?.config_value;
+        if (v && typeof v === 'object' && v.runId && v.startedAt && Date.now() - new Date(v.startedAt).getTime() < APIFY_PENDING_MAX_AGE_MS) return v;
+    } catch { /* treat as none */ }
+    return null;
+}
+
+async function setPendingApifyRun(key, value) {
+    try {
+        const { data: existing } = await supabase.from('system_config').select('config_key').eq('config_key', key).maybeSingle();
+        if (value === null) {
+            if (existing) await supabase.from('system_config').delete().eq('config_key', key);
+        } else if (existing) {
+            await supabase.from('system_config').update({ config_value: value }).eq('config_key', key);
+        } else {
+            await supabase.from('system_config').insert({ config_key: key, config_value: value });
+        }
+    } catch (e) {
+        console.warn('Could not store pending Apify run (non-blocking):', e.message);
+    }
+}
+
 async function fetchFromApifyAsync(source) {
     if (!source.is_active) return { jobs: [], error: 'Source is disabled' };
 
@@ -1258,38 +1290,58 @@ async function fetchFromApifyAsync(source) {
     const maxWaitMs = source.timeout || 90000;
     const pollIntervalMs = 4000;
     const startTime = Date.now();
+    const pendingKey = `apify_pending_${String(source.actorId).replace(/[^a-zA-Z0-9_~-]/g, '_')}`;
 
     try {
-        // Start the run - returns immediately with a run ID, rather
-        // than waiting for the actor to finish on this one request.
-        const startResponse = await fetch(
-            `https://api.apify.com/v2/acts/${source.actorId}/runs?token=${token}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(source.body || {})
+        let runId = null;
+        let runStatus = null;
+        let datasetId = null;
+        let resumed = false;
+
+        // 1) Is there an earlier run of this actor still in flight (or finished)?
+        const pending = await getPendingApifyRun(pendingKey);
+        if (pending) {
+            const prevResp = await fetch(`https://api.apify.com/v2/actor-runs/${pending.runId}?token=${token}`);
+            if (prevResp.ok) {
+                const prev = (await prevResp.json()).data;
+                if (prev && ['RUNNING', 'READY', 'SUCCEEDED'].includes(prev.status)) {
+                    runId = pending.runId;
+                    runStatus = prev.status;
+                    datasetId = prev.defaultDatasetId || pending.datasetId;
+                    resumed = true;
+                }
             }
-        );
-
-        if (!startResponse.ok) {
-            return { jobs: [], error: `Failed to start Apify run: HTTP ${startResponse.status}` };
+            if (!resumed) await setPendingApifyRun(pendingKey, null); // failed/aborted/expired: start fresh
         }
 
-        const startData = await startResponse.json();
-        const runId = startData.data?.id;
+        // 2) Otherwise start a new run - returns immediately with a run ID.
         if (!runId) {
-            return { jobs: [], error: 'Apify run start response had no run ID' };
+            const startResponse = await fetch(
+                `https://api.apify.com/v2/acts/${source.actorId}/runs?token=${token}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(source.body || {})
+                }
+            );
+            if (!startResponse.ok) {
+                return { jobs: [], error: `Failed to start Apify run: HTTP ${startResponse.status}` };
+            }
+            const startData = await startResponse.json();
+            runId = startData.data?.id;
+            if (!runId) {
+                return { jobs: [], error: 'Apify run start response had no run ID' };
+            }
+            runStatus = startData.data.status;
+            datasetId = startData.data.defaultDatasetId;
         }
 
-        // Poll the run's own status periodically - each request here
-        // is short-lived, rather than one connection held open for
-        // the entire duration.
-        let runStatus = startData.data.status;
-        let datasetId = startData.data.defaultDatasetId;
-
+        // 3) Poll with short requests rather than one long connection.
         while (runStatus === 'RUNNING' || runStatus === 'READY') {
             if (Date.now() - startTime > maxWaitMs) {
-                return { jobs: [], error: `Timed out after ${maxWaitMs}ms waiting for Apify run to finish (last status: ${runStatus})` };
+                // Do NOT abandon silently: remember the run so the next refresh collects it.
+                await setPendingApifyRun(pendingKey, { runId, datasetId, startedAt: (resumed ? undefined : new Date(startTime).toISOString()) || new Date().toISOString() });
+                return { jobs: [], error: `Still running at Apify after ${Math.round(maxWaitMs / 1000)}s - the run was kept, and its results will be collected automatically on the next refresh (no second paid run is started).` };
             }
             await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
 
@@ -1301,16 +1353,17 @@ async function fetchFromApifyAsync(source) {
         }
 
         if (runStatus !== 'SUCCEEDED') {
+            await setPendingApifyRun(pendingKey, null);
             return { jobs: [], error: `Apify run finished with status: ${runStatus}` };
         }
 
-        // Fetch the finished dataset - genuinely separate, short
-        // request, only once the run is confirmed done.
+        // 4) Fetch the finished dataset.
         const itemsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`);
         if (!itemsResponse.ok) {
             return { jobs: [], error: `Failed to fetch dataset items: HTTP ${itemsResponse.status}` };
         }
         const data = await itemsResponse.json();
+        await setPendingApifyRun(pendingKey, null); // collected - clear the marker
 
         if (source.parseFunction && typeof source.parseFunction === 'function') {
             try {
