@@ -4082,7 +4082,14 @@ Return ONLY a JSON object: {
                 .order('order_index', { ascending: true });
 
             if (error) throw error;
-            return res.status(200).json({ success: true, chapters: data || [] });
+            const chNum = (t) => { const m = /(?:chapter|ch\.?)\s*(\d+)/i.exec(t || ''); return m ? parseInt(m[1], 10) : null; };
+            const ordered = [...(data || [])].sort((a, b) => {
+                const d = (a.order_index ?? 0) - (b.order_index ?? 0);
+                if (d !== 0) return d;
+                const na = chNum(a.title), nb = chNum(b.title);
+                return (na !== null && nb !== null && na !== nb) ? na - nb : 0;
+            });
+            return res.status(200).json({ success: true, chapters: ordered });
         } catch (error) {
             console.error('get-book-chapters error:', error);
             return res.status(500).json({ success: false, error: error.message });
@@ -4256,6 +4263,24 @@ Return ONLY a JSON object: {
                 if (content.length > 50) {
                     detectedChapters.push({ title: rawTitle.slice(0, 200), content });
                 }
+            }
+
+            // A "Chapter N" line can also appear in a table of contents or
+            // inside body text. Keep only the fullest section for each
+            // heading so a stray reference can't create a duplicate or
+            // out-of-order chapter; original reading order is preserved.
+            {
+                const keyOf = (t) => (/^chapter\s+(\S+)/i.exec(t) || [])[1]?.toLowerCase();
+                const best = new Map();
+                detectedChapters.forEach((c, idx) => {
+                    const k = keyOf(c.title);
+                    if (!k) return;
+                    if (!best.has(k) || c.content.length > detectedChapters[best.get(k)].content.length) best.set(k, idx);
+                });
+                const keep = new Set(best.values());
+                const filtered = detectedChapters.filter((c, idx) => !keyOf(c.title) || keep.has(idx));
+                detectedChapters.length = 0;
+                detectedChapters.push(...filtered);
             }
 
             if (detectedChapters.length < 2) {
