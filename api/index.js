@@ -13998,6 +13998,26 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         const city = req.headers['x-vercel-ip-city'] || null;
         const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
 
+        // NEW (2026-10-09): the owner/staff were being counted as visitors
+        // (about a third of all recorded page views were /admin pages).
+        // Skip (1) any admin-area path, (2) any signed-in admin/staff, and
+        // (3) IPs listed in the optional ANALYTICS_IGNORE_IPS env var
+        // (comma-separated, e.g. your own home/office IP). Same quiet
+        // success response as the bot filter - tracking never errors.
+        if (/^\/(admin|secure-admin)(\/|$)/i.test(pageUrl)) {
+            return res.status(200).json({ success: true, skipped: 'admin-path' });
+        }
+        const ignoredIps = (process.env.ANALYTICS_IGNORE_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
+        if (ignoredIps.includes(ip)) {
+            return res.status(200).json({ success: true, skipped: 'ignored-ip' });
+        }
+        if (verifiedUserId) {
+            const { data: who } = await supabaseClient.from('profiles').select('user_type').eq('id', verifiedUserId).maybeSingle();
+            if (who && (who.user_type === 'admin' || who.user_type === 'super_admin')) {
+                return res.status(200).json({ success: true, skipped: 'admin-user' });
+            }
+        }
+
         let deviceType = 'desktop';
         if (/tablet|ipad/i.test(ua)) deviceType = 'tablet';
         else if (/mobile|android|iphone/i.test(ua)) deviceType = 'mobile';
