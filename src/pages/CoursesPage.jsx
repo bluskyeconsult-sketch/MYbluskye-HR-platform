@@ -307,30 +307,23 @@ export default function CoursesPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12">
+        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-5 sm:py-6">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
-                {/* Header */}
-                <div className="text-center mb-8">
-                    <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
-                        <GraduationCap className="w-10 h-10 text-white" />
-                    </div>
-                    <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
+                {/* COMPACTED (2026-10-09): icon tile removed, smaller title,
+                    one-line description; search sits directly under it and the
+                    info banner moved below the filters. */}
+                <div className="text-center mb-4">
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">
                         Professional Courses
                     </h1>
-                    <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                    <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">
                         Advance your career with expert-led courses in HR, leadership, and professional development.
                     </p>
                 </div>
 
-                <PageEdgeBanner>
-                    Not sure where to start? Ask ODUSBABA AI below — recommendations are based on your actual
-                    goals, not a generic list. Complete a course fully and you get a real, permanent, shareable
-                    certificate — no login required for anyone you send the link to.
-                </PageEdgeBanner>
-
                 {/* Search and Filters */}
-                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="flex flex-col sm:flex-row gap-4 mb-4">
                     <div className="flex-1 relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
                         <input
@@ -355,8 +348,15 @@ export default function CoursesPage() {
                     </div>
                 </div>
 
+
+                <div className="mb-4"><PageEdgeBanner>
+                    Not sure where to start? Ask ODUSBABA AI below — recommendations are based on your actual
+                    goals, not a generic list. Complete a course fully and you get a real, permanent, shareable
+                    certificate — no login required for anyone you send the link to.
+                </PageEdgeBanner></div>
+
                 {/* Category Filters */}
-                <div className="flex flex-wrap gap-2 mb-6">
+                <div className="flex flex-wrap gap-2 mb-4">
                     {categories.map(cat => {
                         const Icon = cat.icon;
                         return (
