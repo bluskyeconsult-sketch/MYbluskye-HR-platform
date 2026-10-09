@@ -55,6 +55,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 // null-fallback Suspense below - behaviour is otherwise unchanged.
 const VisitorEngagementPrompt = lazy(() => import('./components/VisitorEngagementPrompt'));
 const TermsPopup = lazy(() => import('./components/TermsPopup'));
+// NEW (2026-10-09): mobile-app install prompt + service worker registration
+const InstallAppPrompt = lazy(() => import('./components/InstallAppPrompt'));
 const BrainstormPartner = lazy(() => import('./components/BrainstormPartner'));
 const ODUSBABAChat = lazy(() => import('./components/ODUSBABAChat'));
 // NEW (2026-08-16): every screenshot from this entire session showed
@@ -1084,6 +1086,7 @@ function AppContent() {
                 <ODUSBABAChat />
                 <VisitorEngagementPrompt />
                 <TermsPopup />
+                <InstallAppPrompt />
                 {isTeamMember && <BrainstormPartner />}
             </Suspense>
             <div style={{ position: 'relative', zIndex: 1 }}>
