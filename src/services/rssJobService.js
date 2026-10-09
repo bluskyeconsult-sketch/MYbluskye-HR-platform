@@ -218,37 +218,6 @@ const RSS_FEEDS = {
         sponsorship_keywords: ['Visa Sponsorship', 'Work Visa', 'Sponsorship']
     },
     
-    // USA - Government (Priority 2)
-    // FIXED (2026-09-21): confirmed via direct research that the old
-    // URL here was never a genuine, working feed - usajobs.gov/rss
-    // doesn't exist at all (source of the real 404). The actual,
-    // official USAJobs API lives at data.usajobs.gov/api/search and
-    // requires Authorization-Key and User-Agent headers, not a plain
-    // RSS fetch. Reuses the USAJOBS_API_KEY and USAJOBS_USER_AGENT
-    // env vars already provisioned in this platform's own Vercel
-    // setup - they just weren't being used by this source at all.
-    USA_USAJOBS: {
-        name: 'USAJobs',
-        country: 'US',
-        url: 'https://data.usajobs.gov/api/Search?ResultsPerPage=25',
-        type: 'api',
-        // Read at request time (getter), trimmed, so a variable added
-        // or corrected in Vercel is picked up and stray spaces/quotes
-        // pasted with the value cannot cause a 401. The manual Host
-        // header was removed - fetch sets it from the URL itself.
-        get headers() {
-            const clean = (v) => String(v || '').trim().replace(/^["']|["']$/g, '').trim();
-            return {
-                'Authorization-Key': clean(process.env.USAJOBS_API_KEY),
-                'User-Agent': clean(process.env.USAJOBS_USER_AGENT),
-                'Accept': 'application/json'
-            };
-        },
-        is_active: true,
-        priority: 2,
-        sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship'],
-        parseFunction: parseUsaJobsResponse
-    },
     
     // FIXED (2026-09-13): confirmed via direct research that
     // bund.de/rss/jobs was never a genuine, working jobs feed at all -
@@ -302,6 +271,42 @@ const RSS_FEEDS = {
 // ============================================
 
 const API_SOURCES = {
+    // MOVED (2026-10-09): this entry used to sit in RSS_FEEDS, so the
+    // refresh fetched it through the plain RSS path, which sends browser
+    // headers only - the Authorization-Key and registered User-Agent below
+    // were never sent, hence the permanent HTTP 401. API_SOURCES goes
+    // through fetchFromAPI, which sends source.headers and parses JSON.
+    // USA - Government (Priority 2)
+    // FIXED (2026-09-21): confirmed via direct research that the old
+    // URL here was never a genuine, working feed - usajobs.gov/rss
+    // doesn't exist at all (source of the real 404). The actual,
+    // official USAJobs API lives at data.usajobs.gov/api/search and
+    // requires Authorization-Key and User-Agent headers, not a plain
+    // RSS fetch. Reuses the USAJOBS_API_KEY and USAJOBS_USER_AGENT
+    // env vars already provisioned in this platform's own Vercel
+    // setup - they just weren't being used by this source at all.
+    USA_USAJOBS: {
+        name: 'USAJobs',
+        country: 'US',
+        url: 'https://data.usajobs.gov/api/Search?ResultsPerPage=25',
+        type: 'api',
+        // Read at request time (getter), trimmed, so a variable added
+        // or corrected in Vercel is picked up and stray spaces/quotes
+        // pasted with the value cannot cause a 401. The manual Host
+        // header was removed - fetch sets it from the URL itself.
+        get headers() {
+            const clean = (v) => String(v || '').trim().replace(/^["']|["']$/g, '').trim();
+            return {
+                'Authorization-Key': clean(process.env.USAJOBS_API_KEY),
+                'User-Agent': clean(process.env.USAJOBS_USER_AGENT),
+                'Accept': 'application/json'
+            };
+        },
+        is_active: true,
+        priority: 2,
+        sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship'],
+        parseFunction: parseUsaJobsResponse
+    },
     // NEW (2026-09-18): confirmed via fresh research that
     // remoteok.com/api is a genuinely still-live, free, public JSON
     // endpoint (no auth, no key) - the platform's old RSS path was
