@@ -354,11 +354,36 @@ function Navbar() {
                         pair reads as one lockup. Navbar height is measured
                         dynamically (ResizeObserver) so the page offset adjusts
                         by itself. */}
-                    <a href="/" className="flex flex-col items-center justify-center shrink-0 text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
+                    {/* EXPERIMENT (2026-10-09): wordmark now OVERLAYS the empty
+                        lower edge of the logo instead of sitting under it. The
+                        SVG text uses textLength=100 in a 100-wide viewBox, so
+                        the word always stretches to exactly the logo's width
+                        at any size. Dark outline (paint-order stroke) keeps it
+                        readable over the artwork. To go back to the stacked
+                        version, restore the previous <a> block. */}
+                    <a href="/" className="relative inline-block shrink-0 text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
                         <Logo size="2xl" showText={false} />
-                        <span className="-mt-2 pb-1 text-sm sm:text-base font-extrabold uppercase tracking-[0.2em] pl-[0.2em] leading-none text-white">
-                            ODUSBABA
-                        </span>
+                        <svg
+                            viewBox="0 0 100 20"
+                            className="absolute left-0 right-0 bottom-0 w-full h-auto pointer-events-none"
+                            aria-hidden="true"
+                        >
+                            <text
+                                x="0" y="16"
+                                textLength="100"
+                                lengthAdjust="spacing"
+                                fontSize="17"
+                                fontWeight="800"
+                                fill="currentColor"
+                                stroke="#0f172a"
+                                strokeWidth="3.5"
+                                strokeLinejoin="round"
+                                paintOrder="stroke"
+                                style={{ fontFamily: 'inherit', letterSpacing: 0 }}
+                            >
+                                ODUSBABA
+                            </text>
+                        </svg>
                     </a>
 
                     <div className="hidden md:flex items-center gap-5">
