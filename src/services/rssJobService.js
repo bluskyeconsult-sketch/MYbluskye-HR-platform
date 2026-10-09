@@ -230,7 +230,7 @@ const RSS_FEEDS = {
     USA_USAJOBS: {
         name: 'USAJobs',
         country: 'US',
-        url: 'https://data.usajobs.gov/api/search?ResultsPerPage=25',
+        url: 'https://data.usajobs.gov/api/Search?ResultsPerPage=25',
         type: 'api',
         // Read at request time (getter), trimmed, so a variable added
         // or corrected in Vercel is picked up and stray spaces/quotes
@@ -2207,6 +2207,9 @@ export async function testRSSConnection() {
     const results = [];
     
     for (const [_, source] of Object.entries(RSS_FEEDS)) {
+        // Inactive sources are switched off on purpose - pinging them only
+        // produced misleading red failures in the Test Feeds report.
+        if (source.is_active === false) continue;
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
