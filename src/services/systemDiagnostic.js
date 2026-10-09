@@ -1,126 +1,67 @@
 // src/services/systemDiagnostic.js
-// Run this to see EXACTLY what's broken
+// REWRITTEN (2026-10-09). The old version could not work:
+//  - it read row counts from `data.count`, but Supabase returns the count
+//    on the response itself (`count`), so every count showed 0;
+//  - it called /api/test-openai, which does not exist (the site has one
+//    router, /api/index?action=...);
+//  - it pulled full rows (select('*')) from jobs into the console report.
+// This version uses the real endpoints and prints only counts and statuses.
+// Nothing here modifies data. Run from the browser console while signed in:
+//   const { runFullDiagnostic } = await import('/src/services/systemDiagnostic.js');
+//   await runFullDiagnostic();
+// (For routine use, Admin -> Diagnostics -> "Run Diagnostics" is simpler.)
 
 import { supabase } from '../lib/supabase';
+
+async function countRows(table) {
+  const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
+  return { exists: !error, count: error ? null : (count ?? 0), error: error?.message || null };
+}
 
 export async function runFullDiagnostic() {
   const results = {
     timestamp: new Date().toISOString(),
-    database: { status: 'unknown', error: null, tables: {} },
-    ai: { status: 'unknown', error: null },
-    jobs: { status: 'unknown', error: null },
-    assessments: { status: 'unknown', error: null },
-    auth: { status: 'unknown', error: null }
+    database: { tables: {} },
+    config: { status: 'unknown', error: null },
+    server: { status: 'unknown', error: null },
+    auth: { hasSession: false, userEmail: null }
   };
 
-  // 1. TEST DATABASE CONNECTION & TABLES
-  console.log('🔍 TESTING DATABASE...');
-  
-  // Test jobs table
-  const { data: jobsData, error: jobsError } = await supabase
-    .from('jobs')
-    .select('count', { count: 'exact', head: true });
-  
-  results.database.tables.jobs = {
-    exists: !jobsError || jobsError.message.includes('relation') === false,
-    error: jobsError?.message || null,
-    count: jobsData?.count || 0
-  };
-  
-  // Test assessments table
-  const { data: assessmentsData, error: assessmentsError } = await supabase
-    .from('assessments')
-    .select('id, title, question_count')
-    .limit(3);
-  
-  results.database.tables.assessments = {
-    exists: !assessmentsError,
-    error: assessmentsError?.message || null,
-    sampleCount: assessmentsData?.length || 0,
-    sample: assessmentsData || []
-  };
-  
-  // Test questions table (critical for assessments)
-  const { data: questionsData, error: questionsError } = await supabase
-    .from('assessment_questions')
-    .select('count', { count: 'exact', head: true });
-  
-  results.database.tables.assessment_questions = {
-    exists: !questionsError,
-    error: questionsError?.message || null,
-    totalQuestions: questionsData?.count || 0
-  };
-  
-  // Test profiles table
-  const { error: profilesError } = await supabase
-    .from('profiles')
-    .select('count', { count: 'exact', head: true });
-  
-  results.database.tables.profiles = {
-    exists: !profilesError,
-    error: profilesError?.message || null
-  };
-
-  // 2. TEST AI SERVICE (Direct OpenAI call)
-  console.log('🤖 TESTING AI SERVICE...');
-  
-  try {
-    const aiTestResponse = await fetch('/api/test-openai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ test: true })
-    });
-    
-    const aiResult = await aiTestResponse.json();
-    results.ai = {
-      status: aiTestResponse.ok ? 'working' : 'failed',
-      statusCode: aiTestResponse.status,
-      response: aiResult,
-      error: aiResult.error || null
-    };
-  } catch (err) {
-    results.ai = {
-      status: 'error',
-      error: err.message,
-      tip: 'Check if /api/test-openai endpoint exists'
-    };
+  // 1. Database tables (counts only)
+  for (const table of ['profiles', 'jobs', 'assessments', 'assessment_questions']) {
+    results.database.tables[table] = await countRows(table);
   }
 
-  // 3. TEST JOB FETCHING
-  console.log('💼 TESTING JOB SERVICE...');
-  
-  const { data: jobs, error: fetchError } = await supabase
-    .from('jobs')
-    .select('*')
-    .limit(5);
-  
-  results.jobs = {
-    canFetch: !fetchError,
-    error: fetchError?.message || null,
-    sampleCount: jobs?.length || 0,
-    sample: jobs || []
-  };
+  // 2. Server configuration (OpenAI key, email, etc.) via the real endpoint
+  try {
+    const res = await fetch('/api/index?action=system-config-health');
+    const body = await res.json();
+    results.config = { status: res.ok && body.success ? 'ok' : 'failed', statusCode: res.status, detail: body };
+  } catch (err) {
+    results.config = { status: 'error', error: err.message };
+  }
 
-  // 4. TEST AUTH
-  console.log('🔐 TESTING AUTH...');
-  
+  // 3. Auth state, then the admin-only server diagnostics if signed in
   const { data: { session } } = await supabase.auth.getSession();
-  results.auth = {
-    hasSession: !!session,
-    userEmail: session?.user?.email || null,
-    error: null
-  };
+  results.auth = { hasSession: !!session, userEmail: session?.user?.email || null };
 
-  // 5. PRINT FULL REPORT
-  console.log('=' .repeat(60));
-  console.log('📊 SYSTEM DIAGNOSTIC REPORT');
-  console.log('=' .repeat(60));
+  if (session?.access_token) {
+    try {
+      const res = await fetch('/api/index?action=run-diagnostics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }
+      });
+      const body = await res.json();
+      results.server = res.ok && body.success
+        ? { status: body.healthy ? 'healthy' : 'issues', checks: body.checks }
+        : { status: 'failed', statusCode: res.status, error: body.error || null };
+    } catch (err) {
+      results.server = { status: 'error', error: err.message };
+    }
+  } else {
+    results.server = { status: 'skipped', error: 'Sign in as an admin to run the server checks.' };
+  }
+
   console.log(JSON.stringify(results, null, 2));
-  
-  // 6. RETURN FOR PROGRAMMATIC USE
   return results;
 }
-
-// Run this in browser console: 
-// import { runFullDiagnostic } from './src/services/systemDiagnostic.js'
-// await runFullDiagnostic()
