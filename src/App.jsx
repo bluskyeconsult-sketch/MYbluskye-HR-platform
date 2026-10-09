@@ -45,14 +45,18 @@ import { supabase } from './lib/supabase';
 import FraudSafetyBanner from './components/FraudSafetyBanner';
 import CookieConsent from './components/CookieConsent';
 import ScrollingBanner from './components/ScrollingBanner';
-import VisitorEngagementPrompt from './components/VisitorEngagementPrompt';
 import WorkforceConsentPrompt from './components/WorkforceConsentPrompt';
-import TermsPopup from './components/TermsPopup';
-import BrainstormPartner from './components/BrainstormPartner';
 import { useCapability } from './hooks/useCapability';
 import { GovernanceProvider } from './contexts/GovernanceContext';
 import ErrorBoundary from './components/ErrorBoundary';
-import ODUSBABAChat from './components/ODUSBABAChat';
+// PERF (2026-10-09): these four are not needed to paint the first screen,
+// so they load as separate chunks after the page is visible instead of
+// inflating the initial download for every visitor. Rendered inside a
+// null-fallback Suspense below - behaviour is otherwise unchanged.
+const VisitorEngagementPrompt = lazy(() => import('./components/VisitorEngagementPrompt'));
+const TermsPopup = lazy(() => import('./components/TermsPopup'));
+const BrainstormPartner = lazy(() => import('./components/BrainstormPartner'));
+const ODUSBABAChat = lazy(() => import('./components/ODUSBABAChat'));
 // NEW (2026-08-16): every screenshot from this entire session showed
 // "ODUSBABA" as plain text — the live Navbar never once attempted to show
 // an image logo. Logo.jsx existed as a separate, correctly-built component
@@ -174,7 +178,7 @@ function NewsletterSignup() {
 // AI CHAT (Legacy - kept for backward compatibility)
 // ============================================
 function AIChat() {
-    return <ODUSBABAChat />;
+    return <Suspense fallback={null}><ODUSBABAChat /></Suspense>;
 }
 
 // ============================================
@@ -804,7 +808,11 @@ function useAnalyticsTracking() {
             sessionStorage.setItem('odusbaba_session_id', sessionId);
         }
 
-        (async () => {
+        // PERF (2026-10-09): analytics is not urgent - deferred ~1.5s so it
+        // never competes with the page's own first requests. Not cancelled
+        // on navigation, so the page view still records.
+        const pagePath = location.pathname;
+        setTimeout(async () => {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
                 await fetch('/api/index?action=track-page-view', {
@@ -812,14 +820,14 @@ function useAnalyticsTracking() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         sessionId,
-                        pageUrl: location.pathname,
+                        pageUrl: pagePath,
                         userId: user?.id || null
                     })
                 });
             } catch (err) {
                 console.warn('Analytics tracking failed:', err);
             }
-        })();
+        }, 1500);
     }, [location.pathname]);
 }
 
@@ -1039,11 +1047,13 @@ function AppContent() {
             <div style={{ position: 'relative', zIndex: 1 }}>
                 <NewsletterSignup />
             </div>
-            <ODUSBABAChat />
             <CookieConsent />
-            <VisitorEngagementPrompt />
-            <TermsPopup />
-            {isTeamMember && <BrainstormPartner />}
+            <Suspense fallback={null}>
+                <ODUSBABAChat />
+                <VisitorEngagementPrompt />
+                <TermsPopup />
+                {isTeamMember && <BrainstormPartner />}
+            </Suspense>
             <div style={{ position: 'relative', zIndex: 1 }}>
                 <Footer />
             </div>
