@@ -44,6 +44,7 @@ export default function VideoCreator() {
     const [freeVideoUrl, setFreeVideoUrl] = useState(null);
     const [freeError, setFreeError] = useState(null);
     const [freeSaveState, setFreeSaveState] = useState('idle');
+    const [freeAudio, setFreeAudio] = useState(null);
     const ffmpegRef = useRef(null);
 
     const [images, setImages] = useState([]);
@@ -115,6 +116,17 @@ export default function VideoCreator() {
         e.target.value = '';
     }
 
+    // NEW (2026-10-09): order matters for screenshots - move left / right
+    function moveFreeImage(index, dir) {
+        setFreeImages(prev => {
+            const j = index + dir;
+            if (j < 0 || j >= prev.length) return prev;
+            const next = [...prev];
+            [next[index], next[j]] = [next[j], next[index]];
+            return next;
+        });
+    }
+
     function removeFreeImage(index) {
         setFreeImages(prev => {
             URL.revokeObjectURL(prev[index].previewUrl);
@@ -137,26 +149,72 @@ export default function VideoCreator() {
             const ffmpeg = await loadFreeFFmpeg();
 
             setFreeLoadingMessage('Preparing images...');
-            // Real, consistent output dimensions - FFmpeg genuinely
-            // requires every input frame to share the same
-            // resolution; scale+pad handles images of different
-            // sizes/aspect ratios without distorting them.
+            // FIXED (2026-10-09): every upload used to be written as
+            // img{n}.jpg no matter what it really was. Screenshots are
+            // normally PNG, and FFmpeg then fails to decode them, which
+            // produced a blank video. Each file now keeps its REAL
+            // extension, and a concat list is used so PNG, JPG and WEBP
+            // can be mixed freely in one video.
+            const extFor = (f) => {
+                const t = (f.type || '').toLowerCase();
+                if (t.includes('png')) return 'png';
+                if (t.includes('webp')) return 'webp';
+                if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
+                const m = /\.([a-z0-9]+)$/i.exec(f.name || '');
+                return m ? m[1].toLowerCase() : 'jpg';
+            };
+            // Each image is first converted to one identical 1280x720 PNG.
+            // (FFmpeg's concat list picks ONE decoder from the first file,
+            // so mixing PNG/JPG/WEBP directly makes later images fail.
+            // Normalising first avoids that and sizes everything equally.
+            // Navy #0F172A bars fill any space around a non-16:9 image.)
+            const names = [];
             for (let i = 0; i < freeImages.length; i++) {
-                const data = await fetchFile(freeImages[i].file);
-                await ffmpeg.writeFile(`img${i}.jpg`, data);
+                setFreeLoadingMessage(`Preparing image ${i + 1} of ${freeImages.length}...`);
+                const inName = `in${i}.${extFor(freeImages[i].file)}`;
+                const outName = `n${i}.png`;
+                await ffmpeg.writeFile(inName, await fetchFile(freeImages[i].file));
+                await ffmpeg.exec([
+                    '-i', inName,
+                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0F172A,format=rgb24',
+                    '-frames:v', '1',
+                    outName
+                ]);
+                await ffmpeg.deleteFile(inName).catch(() => {});
+                names.push(outName);
             }
+            // concat list: each image for N seconds. The last image is
+            // listed twice (FFmpeg ignores the final duration otherwise).
+            let list = '';
+            names.forEach((n) => { list += `file '${n}'\nduration ${freeSecondsPerImage}\n`; });
+            list += `file '${names[names.length - 1]}'\n`;
+            await ffmpeg.writeFile('list.txt', list);
+
+            const args = ['-f', 'concat', '-safe', '0', '-i', 'list.txt'];
+            if (freeAudio) {
+                const aExt = (/\.([a-z0-9]+)$/i.exec(freeAudio.name || '') || [])[1] || 'mp3';
+                await ffmpeg.writeFile(`audio.${aExt.toLowerCase()}`, await fetchFile(freeAudio));
+                args.push('-i', `audio.${aExt.toLowerCase()}`);
+            }
+            args.push(
+                // navy (#0F172A) bars instead of black where an image does not fill 16:9
+                '-vf', 'format=yuv420p',
+                '-t', String(freeImages.length * freeSecondsPerImage),
+                '-r', '30',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-movflags', '+faststart'
+            );
+            if (freeAudio) args.push('-c:a', 'aac', '-b:a', '160k', '-shortest');
+            args.push('output.mp4');
 
             setFreeLoadingMessage('Rendering your video...');
-            await ffmpeg.exec([
-                '-framerate', `1/${freeSecondsPerImage}`,
-                '-i', 'img%d.jpg',
-                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p',
-                '-c:v', 'libx264',
-                '-r', '30',
-                'output.mp4'
-            ]);
+            await ffmpeg.exec(args);
 
             const data = await ffmpeg.readFile('output.mp4');
+            if (!data || data.length < 2000) {
+                throw new Error('The video came out empty. Try PNG or JPG screenshots (not HEIC), fewer images, or reload the page and try again.');
+            }
             const blob = new Blob([data.buffer], { type: 'video/mp4' });
             const url = URL.createObjectURL(blob);
 
@@ -606,6 +664,11 @@ export default function VideoCreator() {
                         {freeImages.map((img, i) => (
                             <div key={i} className="relative group">
                                 <img src={img.previewUrl} alt="" className="w-full aspect-square object-cover rounded-lg" />
+                                <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] rounded px-1">{i + 1}</span>
+                                <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                    <button onClick={() => moveFreeImage(i, -1)} disabled={freeLoading || i === 0} className="bg-black/70 text-white text-[10px] rounded px-1 disabled:opacity-30" aria-label="Move earlier">&larr;</button>
+                                    <button onClick={() => moveFreeImage(i, 1)} disabled={freeLoading || i === freeImages.length - 1} className="bg-black/70 text-white text-[10px] rounded px-1 disabled:opacity-30" aria-label="Move later">&rarr;</button>
+                                </div>
                                 <button
                                     onClick={() => removeFreeImage(i)}
                                     disabled={freeLoading}
@@ -633,6 +696,16 @@ export default function VideoCreator() {
                 <p className="text-slate-500 text-xs mt-3">
                     Total length: ~{freeImages.length * freeSecondsPerImage} seconds · Cost: $0.00
                 </p>
+
+                <label className="block text-sm text-slate-400 mt-4 mb-2">Narration or music (optional, MP3 / WAV / M4A)</label>
+                <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setFreeAudio(e.target.files?.[0] || null)}
+                    disabled={freeLoading}
+                    className="w-full text-sm text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-300"
+                />
+                {freeAudio && <p className="text-slate-500 text-xs mt-2">{freeAudio.name} - the video ends when the audio or the images end, whichever is shorter.</p>}
             </div>
 
             {freeError && <p className="text-red-400 text-sm mb-4">{freeError}</p>}
