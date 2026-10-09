@@ -135,13 +135,13 @@ function NewsletterSignup() {
                 <div className="text-center">
                     <h3 className="text-white font-semibold mb-2">Subscribe to Newsletter</h3>
                     <p className="text-slate-400 text-sm mb-4">Get latest jobs, courses, and career tips</p>
-                    <form onSubmit={handleSubscribe} className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
+                    <form onSubmit={handleSubscribe} className="max-w-2xl mx-auto flex flex-col sm:flex-row gap-3">
                         <input
                             type="text"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Your name (optional)"
-                            className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                            className="flex-1 min-w-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
                         />
                         <input
                             type="email"
@@ -149,12 +149,12 @@ function NewsletterSignup() {
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="Your email *"
                             required
-                            className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                            className="flex-1 min-w-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
                         />
                         <button
                             type="submit"
                             disabled={loading}
-                            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                            className="w-full sm:w-auto shrink-0 whitespace-nowrap px-6 py-2 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
                         >
                             {loading ? '...' : 'Subscribe'}
                         </button>
