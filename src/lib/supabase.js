@@ -104,10 +104,12 @@ if (typeof window !== 'undefined') {
     window.supabase = supabase;
 }
 
-// Freeze in production to prevent modifications
-if (import.meta.env.PROD && supabase && typeof Object.freeze === 'function') {
-    Object.freeze(supabase);
-}
+// REMOVED (2026-10-10): the client was frozen here in production.
+// supabase-js assigns `this.changedAccessToken` on the client object
+// whenever a token changes, and a frozen object rejects that write,
+// which is exactly the sign-in error "Cannot add property
+// changedAccessToken, object is not extensible". The client must stay
+// extensible.
 
 // ============================================
 // AUTH STORAGE MANAGEMENT
