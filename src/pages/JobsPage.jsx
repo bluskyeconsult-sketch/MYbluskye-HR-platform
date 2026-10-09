@@ -99,15 +99,6 @@ export default function JobsPage() {
     const [salaryRange, setSalaryRange] = useState({ min: '', max: '' });
     const [showVisaOnly, setShowVisaOnly] = useState(false);
     const [lastFetchTime, setLastFetchTime] = useState(null);
-    // Tag note starts closed; remembered per browser (safe if storage blocked)
-    const [showTagNote, setShowTagNote] = useState(() => {
-        try { return localStorage.getItem('jobs_tag_note_open') === '1'; } catch { return false; }
-    });
-    function toggleTagNote() {
-        const next = !showTagNote;
-        setShowTagNote(next);
-        try { localStorage.setItem('jobs_tag_note_open', next ? '1' : '0'); } catch {}
-    }
 
     // ============================================
     // USER FUNCTIONS
@@ -497,24 +488,14 @@ export default function JobsPage() {
 
                     <JobAlertsBanner />
 
-                    {/* About-these-tags note: closed by default, choice remembered */}
-                    <div className="mt-2 max-w-2xl mx-auto text-center">
-                        <button
-                            type="button"
-                            onClick={toggleTagNote}
-                            className="text-[11px] sm:text-xs text-primary-400 hover:text-primary-300 underline underline-offset-2"
-                        >
-                            {showTagNote ? 'Hide' : 'About "Visa Sponsorship" and "Verified" tags'}
-                        </button>
-                        {showTagNote && (
-                            <PageEdgeBanner>
-                                Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
-                                career pages of employers cross-referenced against real sponsor license registers — not
-                                generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
-                                live results pulled directly from these sources.
-                            </PageEdgeBanner>
-                        )}
-                    </div>
+                    {/* PageEdgeBanner is position:fixed (floats at the side, takes no
+                        space in the layout), so it is rendered as-is. */}
+                    <PageEdgeBanner>
+                        Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
+                        career pages of employers cross-referenced against real sponsor license registers — not
+                        generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
+                        live results pulled directly from these sources.
+                    </PageEdgeBanner>
                 </div>
             </div>
 
