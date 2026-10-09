@@ -356,7 +356,7 @@ function Navbar() {
                         by itself. */}
                     <a href="/" className="flex flex-col items-center justify-center shrink-0 text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
                         <Logo size="2xl" showText={false} />
-                        <span className="-mt-1 pb-0.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.28em] pl-[0.28em] leading-none text-slate-300">
+                        <span className="-mt-2 pb-1 text-sm sm:text-base font-extrabold uppercase tracking-[0.2em] pl-[0.2em] leading-none text-white">
                             ODUSBABA
                         </span>
                     </a>
