@@ -232,10 +232,17 @@ const RSS_FEEDS = {
         country: 'US',
         url: 'https://data.usajobs.gov/api/search?ResultsPerPage=25',
         type: 'api',
-        headers: {
-            'Authorization-Key': process.env.USAJOBS_API_KEY || '',
-            'User-Agent': process.env.USAJOBS_USER_AGENT || '',
-            'Host': 'data.usajobs.gov'
+        // Read at request time (getter), trimmed, so a variable added
+        // or corrected in Vercel is picked up and stray spaces/quotes
+        // pasted with the value cannot cause a 401. The manual Host
+        // header was removed - fetch sets it from the URL itself.
+        get headers() {
+            const clean = (v) => String(v || '').trim().replace(/^["']|["']$/g, '').trim();
+            return {
+                'Authorization-Key': clean(process.env.USAJOBS_API_KEY),
+                'User-Agent': clean(process.env.USAJOBS_USER_AGENT),
+                'Accept': 'application/json'
+            };
         },
         is_active: true,
         priority: 2,
@@ -1399,7 +1406,16 @@ async function fetchFromAPI(source) {
         // while every existing source keeps the same default it always
         // had.
         const timeoutId = setTimeout(() => controller.abort(), source.timeout || REQUEST_TIMEOUT);
-        
+
+        // Clear message instead of a bare 401 when a keyed API has no
+        // credentials configured on the server.
+        const srcHeaders = source.headers || {};
+        if ('Authorization-Key' in srcHeaders && (!srcHeaders['Authorization-Key'] || !srcHeaders['User-Agent'])) {
+            clearTimeout(timeoutId);
+            const missing = [!srcHeaders['Authorization-Key'] && 'USAJOBS_API_KEY', !srcHeaders['User-Agent'] && 'USAJOBS_USER_AGENT'].filter(Boolean).join(' and ');
+            return { jobs: [], error: `Missing ${missing} in Vercel (Production) - add it and redeploy` };
+        }
+
         // NEW (2026-09-18): optional method/body support - needed for
         // Apify's run-sync-get-dataset-items endpoint, which requires
         // a POST with a JSON input body (the actor's search
