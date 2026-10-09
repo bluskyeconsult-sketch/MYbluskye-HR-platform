@@ -129,7 +129,7 @@ export default function AnalyticsDashboard() {
             supabase.from('profiles').select('*', { count: 'exact', head: true }),
             supabase.from('jobs').select('*', { count: 'exact', head: true }),
             supabase.from('job_applications').select('*', { count: 'exact', head: true }),
-            supabase.from('analytics_page_views').select('*', { count: 'exact', head: true }).gte('created_at', cutoff)
+            supabase.from('analytics_page_views').select('*', { count: 'exact', head: true }).gte('created_at', cutoff).not('page_path', 'like', '/admin%').not('page_path', 'like', '/secure-admin%')
         ]);
         
         // FIXED (2026-09-04): confirmed via direct schema query that
@@ -140,7 +140,9 @@ export default function AnalyticsDashboard() {
         const { data: uniqueData } = await supabase
             .from('analytics_page_views')
             .select('session_id')
-            .gte('created_at', cutoff);
+            .gte('created_at', cutoff)
+            .not('page_path', 'like', '/admin%')
+            .not('page_path', 'like', '/secure-admin%');
         
         const uniqueVisitors = new Set(uniqueData?.map(v => v.session_id) || []).size;
         
@@ -184,7 +186,9 @@ export default function AnalyticsDashboard() {
         const { data: pages } = await supabase
             .from('analytics_page_views')
             .select('page_path, time_on_page')
-            .gte('created_at', cutoff);
+            .gte('created_at', cutoff)
+            .not('page_path', 'like', '/admin%')
+            .not('page_path', 'like', '/secure-admin%');
         
         const pageStats = {};
         (pages || []).forEach(p => {
