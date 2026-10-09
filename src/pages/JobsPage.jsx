@@ -99,6 +99,15 @@ export default function JobsPage() {
     const [salaryRange, setSalaryRange] = useState({ min: '', max: '' });
     const [showVisaOnly, setShowVisaOnly] = useState(false);
     const [lastFetchTime, setLastFetchTime] = useState(null);
+    // Tag note starts closed; remembered per browser (safe if storage blocked)
+    const [showTagNote, setShowTagNote] = useState(() => {
+        try { return localStorage.getItem('jobs_tag_note_open') === '1'; } catch { return false; }
+    });
+    function toggleTagNote() {
+        const next = !showTagNote;
+        setShowTagNote(next);
+        try { localStorage.setItem('jobs_tag_note_open', next ? '1' : '0'); } catch {}
+    }
 
     // ============================================
     // USER FUNCTIONS
@@ -445,50 +454,21 @@ export default function JobsPage() {
         <div className="min-h-screen bg-slate-950">
             {/* Hero Section */}
             <div className="bg-gradient-to-r from-primary-900/30 via-slate-900 to-slate-950 border-b border-slate-800">
-                <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12 sm:px-6 lg:px-8">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20">
-                        <Briefcase className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4 text-center">
+                <div className="max-w-7xl mx-auto px-4 py-4 sm:py-5 sm:px-6 lg:px-8">
+                    {/* COMPACTED (2026-10-09): icon tile removed, title and
+                        description tightened, and the search bar moved up so
+                        the job list is visible sooner. The banners now sit
+                        BELOW the search bar. */}
+                    <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-1 text-center">
                         Verified Job Marketplace
                     </h1>
-                    {/* FIXED (2026-09-18): the "7 countries" figure is
-                        now stale too - genuinely expanded this session
-                        to include West Africa (Nigeria, Kenya, South
-                        Africa via Jobberman/BrighterMonday/Careers24),
-                        the wider EU via EURES, and dedicated
-                        visa-sponsorship-focused listings, beyond the
-                        original 7. Rewritten to describe the real
-                        breadth honestly without a specific number that
-                        will keep going stale as sources change. */}
-                    <p className="text-sm sm:text-base text-slate-300 text-center max-w-2xl mx-auto">
-                        Real job listings sourced from official government portals, verified employer career
-                        pages, and trusted job boards across the UK, Europe, Africa, North America, and Australia,
-                        plus global remote opportunities.
+                    <p className="text-xs sm:text-sm text-slate-300 text-center max-w-2xl mx-auto">
+                        Real listings from official government portals, verified employer pages and trusted job boards
+                        across the UK, Europe, Africa, North America and Australia, plus global remote roles.
                     </p>
-                    
-                    {/* Intelligence Banner */}
-                    <div className="mt-3 sm:mt-4 p-3 bg-gradient-to-r from-primary-900/20 to-sky-900/20 border border-primary-500/30 rounded-xl max-w-2xl mx-auto">
-                        <div className="flex items-center gap-3">
-                            <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-primary-400 flex-shrink-0" />
-                            <div>
-                                <p className="text-white text-xs sm:text-sm font-medium">ODUSBABA Job Intelligence</p>
-                                <p className="text-slate-400 text-[10px] sm:text-xs">Every job is verified for salary fairness, visa eligibility, and fraud signals</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <JobAlertsBanner />
-
-                    <PageEdgeBanner>
-                        Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
-                        career pages of employers cross-referenced against real sponsor license registers — not
-                        generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
-                        live results pulled directly from these sources.
-                    </PageEdgeBanner>
 
                     {/* Search Bar */}
-                    <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
+                    <div className="mt-3 flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
                         <div className="flex-1 relative">
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />
                             <input
@@ -507,6 +487,33 @@ export default function JobsPage() {
                             Filters
                             {hasActiveFilters && <span className="w-2 h-2 bg-primary-500 rounded-full"></span>}
                         </button>
+                    </div>
+
+                    {/* Intelligence strip (was a 3-line box) */}
+                    <p className="mt-3 text-center text-[11px] sm:text-xs text-slate-400 flex items-center justify-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+                        <span><span className="text-white font-medium">ODUSBABA Job Intelligence</span> · verified for salary fairness, visa eligibility and fraud signals</span>
+                    </p>
+
+                    <JobAlertsBanner />
+
+                    {/* About-these-tags note: closed by default, choice remembered */}
+                    <div className="mt-2 max-w-2xl mx-auto text-center">
+                        <button
+                            type="button"
+                            onClick={toggleTagNote}
+                            className="text-[11px] sm:text-xs text-primary-400 hover:text-primary-300 underline underline-offset-2"
+                        >
+                            {showTagNote ? 'Hide' : 'About "Visa Sponsorship" and "Verified" tags'}
+                        </button>
+                        {showTagNote && (
+                            <PageEdgeBanner>
+                                Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
+                                career pages of employers cross-referenced against real sponsor license registers — not
+                                generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
+                                live results pulled directly from these sources.
+                            </PageEdgeBanner>
+                        )}
                     </div>
                 </div>
             </div>
