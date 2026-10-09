@@ -28,6 +28,7 @@ export default function AdminDiagnostics() {
     const [refreshing, setRefreshing] = useState(false);
     const [isAuthorized, setIsAuthorized] = useState(false);
     const [running, setRunning] = useState(false);
+    const [loadError, setLoadError] = useState(null);
 
     useEffect(() => {
         checkAdminAccess();
@@ -67,16 +68,24 @@ export default function AdminDiagnostics() {
         setRunning(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.access_token) {
+                alert('Your session has expired - please sign in again.');
+                setRunning(false);
+                return;
+            }
             const response = await fetch('/api/index?action=run-diagnostics', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token}`
+                    'Authorization': `Bearer ${session.access_token}`
                 }
             });
-            const result = await response.json();
+            const result = await response.json().catch(() => ({ success: false, error: `Unexpected response (HTTP ${response.status})` }));
             if (result.success) {
-                alert(result.healthy ? '✓ All checks passed' : '⚠️ Some checks reported issues - see the log below');
+                // Show each check's own outcome - previously only a generic
+                // pass/fail message appeared and the detail was lost.
+                const lines = (result.checks || []).map(c => `${c.status === 'passed' ? '✓' : c.status === 'warning' ? '⚠️' : '✗'} ${c.name}${c.detail ? ': ' + c.detail : ''}${c.error ? ': ' + c.error : ''}`);
+                alert((result.healthy ? 'All checks passed\n\n' : 'Some checks reported issues\n\n') + lines.join('\n'));
                 if (activeTab === 'diagnostic_logs') await loadEntries();
             } else {
                 alert('Diagnostic run failed: ' + result.error);
@@ -90,6 +99,7 @@ export default function AdminDiagnostics() {
     async function loadEntries() {
         setLoading(true);
         setRefreshing(true);
+        setLoadError(null);
         try {
             const { data, error } = await supabase
                 .from(activeTab)
@@ -101,6 +111,10 @@ export default function AdminDiagnostics() {
             setEntries(data || []);
         } catch (err) {
             console.error(`Error loading ${activeTab}:`, err);
+            // Show the real reason instead of a misleading "No Entries Yet"
+            // (a blocked read or missing table used to look identical to an
+            // empty log).
+            setLoadError(err.message || 'Could not load this log');
             setEntries([]);
         } finally {
             setLoading(false);
@@ -109,11 +123,17 @@ export default function AdminDiagnostics() {
     }
 
     function getSummary(entry) {
+        if (entry.check_type) {
+            const failed = (entry.metadata?.checks || []).filter(c => c.status !== 'passed').map(c => c.name);
+            return `${entry.check_type.replace(/_/g, ' ')}${failed.length ? ' - issues: ' + failed.join(', ') : ''}`;
+        }
         return entry.description || entry.action || entry.message || entry.event_type || entry.details || JSON.stringify(entry).substring(0, 120);
     }
 
     function getSeverityColor(entry) {
         const sev = (entry.severity || entry.status || '').toLowerCase();
+        if (sev === 'degraded') return 'text-amber-400 bg-amber-500/20';
+        if (sev === 'healthy') return 'text-emerald-400 bg-emerald-500/20';
         if (sev === 'critical' || sev === 'failed') return 'text-red-400 bg-red-500/20';
         if (sev === 'warning') return 'text-amber-400 bg-amber-500/20';
         if (sev === 'success' || sev === 'resolved') return 'text-emerald-400 bg-emerald-500/20';
@@ -180,6 +200,13 @@ export default function AdminDiagnostics() {
             {loading ? (
                 <div className="flex justify-center py-12">
                     <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+                </div>
+            ) : loadError ? (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+                    <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                    <h3 className="text-white font-semibold mb-1">Could not load this log</h3>
+                    <p className="text-red-300 text-sm break-words">{loadError}</p>
+                    <p className="text-slate-400 text-xs mt-2">This usually means the table is missing or its access policy blocks admins from reading it.</p>
                 </div>
             ) : entries.length === 0 ? (
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
