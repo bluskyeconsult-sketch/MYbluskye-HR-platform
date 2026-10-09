@@ -29,6 +29,21 @@ import {
 // false.
 const TESTING_MODE_DISABLE_ECOPY_CHECKOUT = true;
 
+// Chapter order safety net (2026-10-09): order_index is the source of truth;
+// if two chapters ever share the same index (or an import left gaps/ties),
+// fall back to the chapter number in the title so "Chapter 6" can never
+// appear before "Chapter 1".
+function sortChapters(list) {
+    const num = (t) => { const m = /(?:chapter|ch\.?)\s*(\d+)/i.exec(t || ''); return m ? parseInt(m[1], 10) : null; };
+    return [...(list || [])].sort((a, b) => {
+        const d = (a.order_index ?? 0) - (b.order_index ?? 0);
+        if (d !== 0) return d;
+        const na = num(a.title), nb = num(b.title);
+        if (na !== null && nb !== null && na !== nb) return na - nb;
+        return 0;
+    });
+}
+
 export default function BookDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -103,7 +118,7 @@ export default function BookDetailPage() {
                 .select('id, title, content, audio_segments, order_index')
                 .eq('book_id', id)
                 .order('order_index', { ascending: true });
-            setChapters(chaptersData || []);
+            setChapters(sortChapters(chaptersData));
         } catch (err) {
             console.error('Error loading book:', err);
             setError('Something went wrong loading this book.');
