@@ -10,15 +10,14 @@
 // documentation): hard cuts only, no real transitions; no text or
 // captions burned in; one shared duration-per-image, not per-slide.
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Video, Plus, Trash2, Loader2, Upload, Download, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 // NEW (2026-10-03): genuinely free, browser-based video creation -
 // runs entirely on the visitor's own device via WebAssembly, no
 // server cost, no new account. Real, confirmed v0.12+ API.
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL, fetchFile } from '@ffmpeg/util';
+import SlideVideoStudio from './SlideVideoStudio';
 
 const ASPECT_RATIOS = [
     { value: '9:16', label: '9:16 Vertical (Reels/Shorts/TikTok)' },
@@ -36,16 +35,7 @@ export default function VideoCreator() {
     // FFmpeg.wasm tab - separate from the Apify image state above,
     // since this renders independently and shouldn't share a cost
     // estimate or render state with the paid path.
-    const [freeImages, setFreeImages] = useState([]);
-    const [freeSecondsPerImage, setFreeSecondsPerImage] = useState(4);
-    const [freeLoading, setFreeLoading] = useState(false);
-    const [freeLoadingMessage, setFreeLoadingMessage] = useState('');
-    const [freeProgress, setFreeProgress] = useState(0);
-    const [freeVideoUrl, setFreeVideoUrl] = useState(null);
-    const [freeError, setFreeError] = useState(null);
     const [freeSaveState, setFreeSaveState] = useState('idle');
-    const [freeAudio, setFreeAudio] = useState(null);
-    const ffmpegRef = useRef(null);
 
     const [images, setImages] = useState([]);
     const [secondsPerImage, setSecondsPerImage] = useState(4);
@@ -77,162 +67,10 @@ export default function VideoCreator() {
         return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` };
     }
 
-    // NEW (2026-10-03): the genuinely free, browser-based path -
-    // no server upload at all needed, since FFmpeg.wasm operates
-    // directly on the local file the visitor picked. Loaded once and
-    // reused across renders rather than reloading the ~25MB core
-    // every time.
-    async function loadFreeFFmpeg() {
-        if (ffmpegRef.current) return ffmpegRef.current;
-
-        const ffmpeg = new FFmpeg();
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-        ffmpeg.on('progress', ({ progress }) => {
-            setFreeProgress(Math.min(Math.round(progress * 100), 99));
-        });
-        await ffmpeg.load({
-            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
-        });
-        ffmpegRef.current = ffmpeg;
-        return ffmpeg;
-    }
-
-    function handleFreeImageAdd(e) {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        if (freeImages.length >= 60) {
-            toast.error('Keep it to 60 images or fewer - the browser genuinely has limited memory for this');
-            e.target.value = '';
-            return;
-        }
-
-        // Genuinely just a local preview URL - the real file itself
-        // is what FFmpeg.wasm will use directly, never uploaded
-        // anywhere.
-        const previewUrl = URL.createObjectURL(file);
-        setFreeImages(prev => [...prev, { file, previewUrl }]);
-        e.target.value = '';
-    }
-
-    // NEW (2026-10-09): order matters for screenshots - move left / right
-    function moveFreeImage(index, dir) {
-        setFreeImages(prev => {
-            const j = index + dir;
-            if (j < 0 || j >= prev.length) return prev;
-            const next = [...prev];
-            [next[index], next[j]] = [next[j], next[index]];
-            return next;
-        });
-    }
-
-    function removeFreeImage(index) {
-        setFreeImages(prev => {
-            URL.revokeObjectURL(prev[index].previewUrl);
-            return prev.filter((_, i) => i !== index);
-        });
-    }
-
-    async function handleFreeRender() {
-        if (freeImages.length < 2) {
-            toast.error('Add at least 2 images');
-            return;
-        }
-        setFreeLoading(true);
-        setFreeError(null);
-        setFreeVideoUrl(null);
-        setFreeProgress(0);
-
-        try {
-            setFreeLoadingMessage('Loading the video engine (first time only, ~25MB)...');
-            const ffmpeg = await loadFreeFFmpeg();
-
-            setFreeLoadingMessage('Preparing images...');
-            // FIXED (2026-10-09): every upload used to be written as
-            // img{n}.jpg no matter what it really was. Screenshots are
-            // normally PNG, and FFmpeg then fails to decode them, which
-            // produced a blank video. Each file now keeps its REAL
-            // extension, and a concat list is used so PNG, JPG and WEBP
-            // can be mixed freely in one video.
-            const extFor = (f) => {
-                const t = (f.type || '').toLowerCase();
-                if (t.includes('png')) return 'png';
-                if (t.includes('webp')) return 'webp';
-                if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
-                const m = /\.([a-z0-9]+)$/i.exec(f.name || '');
-                return m ? m[1].toLowerCase() : 'jpg';
-            };
-            // Each image is first converted to one identical 1280x720 PNG.
-            // (FFmpeg's concat list picks ONE decoder from the first file,
-            // so mixing PNG/JPG/WEBP directly makes later images fail.
-            // Normalising first avoids that and sizes everything equally.
-            // Navy #0F172A bars fill any space around a non-16:9 image.)
-            const names = [];
-            for (let i = 0; i < freeImages.length; i++) {
-                setFreeLoadingMessage(`Preparing image ${i + 1} of ${freeImages.length}...`);
-                const inName = `in${i}.${extFor(freeImages[i].file)}`;
-                const outName = `n${i}.png`;
-                await ffmpeg.writeFile(inName, await fetchFile(freeImages[i].file));
-                await ffmpeg.exec([
-                    '-i', inName,
-                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0F172A,format=rgb24',
-                    '-frames:v', '1',
-                    outName
-                ]);
-                await ffmpeg.deleteFile(inName).catch(() => {});
-                names.push(outName);
-            }
-            // concat list: each image for N seconds. The last image is
-            // listed twice (FFmpeg ignores the final duration otherwise).
-            let list = '';
-            names.forEach((n) => { list += `file '${n}'\nduration ${freeSecondsPerImage}\n`; });
-            list += `file '${names[names.length - 1]}'\n`;
-            await ffmpeg.writeFile('list.txt', list);
-
-            const args = ['-f', 'concat', '-safe', '0', '-i', 'list.txt'];
-            if (freeAudio) {
-                const aExt = (/\.([a-z0-9]+)$/i.exec(freeAudio.name || '') || [])[1] || 'mp3';
-                await ffmpeg.writeFile(`audio.${aExt.toLowerCase()}`, await fetchFile(freeAudio));
-                args.push('-i', `audio.${aExt.toLowerCase()}`);
-            }
-            args.push(
-                // navy (#0F172A) bars instead of black where an image does not fill 16:9
-                '-vf', 'format=yuv420p',
-                '-t', String(freeImages.length * freeSecondsPerImage),
-                '-r', '30',
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-movflags', '+faststart'
-            );
-            if (freeAudio) args.push('-c:a', 'aac', '-b:a', '160k', '-shortest');
-            args.push('output.mp4');
-
-            setFreeLoadingMessage('Rendering your video...');
-            await ffmpeg.exec(args);
-
-            const data = await ffmpeg.readFile('output.mp4');
-            if (!data || data.length < 2000) {
-                throw new Error('The video came out empty. Try PNG or JPG screenshots (not HEIC), fewer images, or reload the page and try again.');
-            }
-            const blob = new Blob([data.buffer], { type: 'video/mp4' });
-            const url = URL.createObjectURL(blob);
-
-            setFreeVideoUrl(url);
-            setFreeSaveState('idle');
-            setFreeProgress(100);
-        } catch (err) {
-            console.error('Free video render error:', err);
-            setFreeError(err.message || 'Rendering failed - try fewer or smaller images');
-        } finally {
-            setFreeLoading(false);
-        }
-    }
-
     async function handleSaveFreeToLibrary() {
         setFreeSaveState('saving');
         try {
-            const blob = await (await fetch(freeVideoUrl)).blob();
+            const blob = await (await fetch(renderedVideo)).blob();
             const headers = await authHeaders();
             const prep = await (await fetch('/api/index?action=prepare-library-upload', { method: 'POST', headers, body: '{}' })).json();
             if (!prep.success) throw new Error(prep.error || 'Could not prepare upload');
@@ -634,105 +472,7 @@ export default function VideoCreator() {
             </>
             )}
 
-            {provider === 'free' && (
-            <>
-            <p className="text-slate-400 text-sm mb-2">
-                Genuinely free - this runs entirely in your own browser, no server cost, no new account.
-            </p>
-
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-6 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                <p className="text-amber-200 text-xs">
-                    Honest trade-off: runs on your device's own processing power, so it's genuinely slower than the paid options - a short slideshow should still complete in well under a minute, but a large batch of images could take longer and use real memory in your browser.
-                </p>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                    <p className="text-white font-medium text-sm">Images ({freeImages.length}/60)</p>
-                    <label className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-dashed border-slate-600 rounded-lg text-slate-300 hover:border-primary-500 cursor-pointer transition text-xs">
-                        <Upload className="w-3.5 h-3.5" />
-                        Add Image
-                        <input type="file" accept="image/*" onChange={handleFreeImageAdd} disabled={freeLoading} className="hidden" />
-                    </label>
-                </div>
-
-                {freeImages.length === 0 ? (
-                    <p className="text-slate-500 text-sm text-center py-6">No images yet - add at least 2 to render a video.</p>
-                ) : (
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                        {freeImages.map((img, i) => (
-                            <div key={i} className="relative group">
-                                <img src={img.previewUrl} alt="" className="w-full aspect-square object-cover rounded-lg" />
-                                <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] rounded px-1">{i + 1}</span>
-                                <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                                    <button onClick={() => moveFreeImage(i, -1)} disabled={freeLoading || i === 0} className="bg-black/70 text-white text-[10px] rounded px-1 disabled:opacity-30" aria-label="Move earlier">&larr;</button>
-                                    <button onClick={() => moveFreeImage(i, 1)} disabled={freeLoading || i === freeImages.length - 1} className="bg-black/70 text-white text-[10px] rounded px-1 disabled:opacity-30" aria-label="Move later">&rarr;</button>
-                                </div>
-                                <button
-                                    onClick={() => removeFreeImage(i)}
-                                    disabled={freeLoading}
-                                    className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 mb-6">
-                <label className="block text-sm text-slate-400 mb-2">Seconds per image (1-15)</label>
-                <input
-                    type="number"
-                    min="1"
-                    max="15"
-                    value={freeSecondsPerImage}
-                    onChange={(e) => setFreeSecondsPerImage(parseInt(e.target.value) || 4)}
-                    disabled={freeLoading}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <p className="text-slate-500 text-xs mt-3">
-                    Total length: ~{freeImages.length * freeSecondsPerImage} seconds · Cost: $0.00
-                </p>
-
-                <label className="block text-sm text-slate-400 mt-4 mb-2">Narration or music (optional, MP3 / WAV / M4A)</label>
-                <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(e) => setFreeAudio(e.target.files?.[0] || null)}
-                    disabled={freeLoading}
-                    className="w-full text-sm text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-300"
-                />
-                {freeAudio && <p className="text-slate-500 text-xs mt-2">{freeAudio.name} - the video ends when the audio or the images end, whichever is shorter.</p>}
-            </div>
-
-            {freeError && <p className="text-red-400 text-sm mb-4">{freeError}</p>}
-
-            <button
-                onClick={handleFreeRender}
-                disabled={freeLoading || freeImages.length < 2}
-                className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-                {freeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-                {freeLoading ? `${freeLoadingMessage} ${freeProgress > 0 ? `(${freeProgress}%)` : ''}` : 'Render Video (Free)'}
-            </button>
-
-            {freeVideoUrl && (
-                <div className="mt-5">
-                    <video controls src={freeVideoUrl} className="w-full rounded-lg border border-slate-700" />
-                    <a
-                        href={freeVideoUrl}
-                        download="video.mp4"
-                        className="mt-3 flex items-center justify-center gap-2 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition text-sm"
-                    >
-                        <Download className="w-4 h-4" /> Download
-                    </a>
-                </div>
-            )}
-            </>
-            )}
+            {provider === 'free' && <SlideVideoStudio />}
         </div>
     );
 }
