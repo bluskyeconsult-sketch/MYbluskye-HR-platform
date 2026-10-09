@@ -18,7 +18,11 @@ import { Play, Pause, SkipBack, SkipForward, Volume2, Loader2, Music, Music as M
 // reach external hosts) - download it from that page and upload to a
 // 'book-audio' or new 'ambient-audio' Supabase Storage bucket, then
 // set this to that file's public URL.
-const BACKGROUND_TRACK_URL = null; // set to the uploaded track's public URL once sourced
+// UPDATE (2026-10-09): replaced with an original, royalty-free ambient pad
+// generated for this platform (no licence or download needed). The file
+// lives in the project at public/audio/ambient-pad.mp3 and is served from
+// the site itself. To use a different track later, change this URL.
+const BACKGROUND_TRACK_URL = '/audio/ambient-pad.mp3';
 
 export default function AudiobookListener({ segments = [], chapterTitle = '', onClose }) {
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -47,7 +51,7 @@ export default function AudiobookListener({ segments = [], chapterTitle = '', on
     // narration itself.
     useEffect(() => {
         if (!backgroundAudioRef.current) return;
-        backgroundAudioRef.current.volume = 0.08;
+        backgroundAudioRef.current.volume = 0.12;
         if (isPlaying && backgroundMusicEnabled) {
             backgroundAudioRef.current.play().catch(() => {});
         } else {
