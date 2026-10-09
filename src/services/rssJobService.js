@@ -2211,8 +2211,13 @@ export async function testRSSConnection() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             
+            if (!source.url) {
+                clearTimeout(timeoutId);
+                results.push({ source: source.name, url: '(Apify actor)', status: 'skipped', ok: true, country: source.country, message: 'Apify source - verified by the real refresh, not a URL ping' });
+                continue;
+            }
             const response = await fetch(source.url, {
-                headers: REALISTIC_BROWSER_HEADERS,
+                headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
                 signal: controller.signal
             });
             
@@ -2250,8 +2255,13 @@ export async function testRSSConnection() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+            if (!source.url) {
+                clearTimeout(timeoutId);
+                results.push({ source: source.name, url: '(Apify actor)', status: 'skipped', ok: true, country: source.country, message: 'Apify source - verified by the real refresh, not a URL ping' });
+                continue;
+            }
             const response = await fetch(source.url, {
-                headers: REALISTIC_BROWSER_HEADERS,
+                headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
                 signal: controller.signal
             });
 
