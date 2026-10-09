@@ -349,14 +349,21 @@ function Navbar() {
                 weakness at all. */}
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center py-1">
-                    <a href="/" className="flex items-center gap-3 text-white font-bold text-xl hover:text-primary-400 transition">
+                    {/* UPDATE (2026-10-09): wordmark moved UNDER the logo as a
+                        small, widely-spaced caption, centred on the logo so the
+                        pair reads as one lockup. Navbar height is measured
+                        dynamically (ResizeObserver) so the page offset adjusts
+                        by itself. */}
+                    <a href="/" className="flex flex-col items-center justify-center shrink-0 text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
                         <Logo size="2xl" showText={false} />
-                        ODUSBABA
+                        <span className="-mt-1 pb-0.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.28em] pl-[0.28em] leading-none text-slate-300">
+                            ODUSBABA
+                        </span>
                     </a>
 
                     <div className="hidden md:flex items-center gap-5">
                         {navLinks.map(link => (
-                            <a key={link.path} href={link.path} className="text-slate-300 hover:text-white transition text-sm">
+                            <a key={link.path} href={link.path} className="text-slate-300 hover:text-white transition text-sm lg:text-[15px] font-medium whitespace-nowrap">
                                 {link.name}
                             </a>
                         ))}
