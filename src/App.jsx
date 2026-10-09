@@ -1031,13 +1031,22 @@ function AppContent() {
             </main>
             </div>
             
-            <NewsletterSignup />
+            {/* FIXED (2026-10-08): the Footer and newsletter block sit OUTSIDE the
+                content wrapper above, so they were painted underneath the fixed
+                page-backdrop layer and disappeared. Positioned + z-index 1 lifts
+                them above it. (Fixed-position popups below already have their own
+                z-index.) */}
+            <div style={{ position: 'relative', zIndex: 1 }}>
+                <NewsletterSignup />
+            </div>
             <ODUSBABAChat />
             <CookieConsent />
             <VisitorEngagementPrompt />
             <TermsPopup />
             {isTeamMember && <BrainstormPartner />}
-            <Footer />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+                <Footer />
+            </div>
         </>
     );
 }
