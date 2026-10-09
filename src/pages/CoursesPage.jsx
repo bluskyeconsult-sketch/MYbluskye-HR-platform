@@ -349,11 +349,11 @@ export default function CoursesPage() {
                 </div>
 
 
-                <div className="mb-4"><PageEdgeBanner>
+                <PageEdgeBanner>
                     Not sure where to start? Ask ODUSBABA AI below — recommendations are based on your actual
                     goals, not a generic list. Complete a course fully and you get a real, permanent, shareable
                     certificate — no login required for anyone you send the link to.
-                </PageEdgeBanner></div>
+                </PageEdgeBanner>
 
                 {/* Category Filters */}
                 <div className="flex flex-wrap gap-2 mb-4">
