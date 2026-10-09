@@ -40,19 +40,18 @@ export default function JobAlertsBanner() {
 
     if (!visible) return null;
 
+    // COMPACTED (2026-10-09): was a two-line box; now a single slim strip.
     return (
-        <div className="mt-3 sm:mt-4 p-3 bg-gradient-to-r from-emerald-900/20 to-primary-900/20 border border-emerald-500/30 rounded-xl max-w-2xl mx-auto flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-3">
-                <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 flex-shrink-0" />
-                <div>
-                    <p className="text-white text-xs sm:text-sm font-medium">Never miss a match</p>
-                    <p className="text-slate-400 text-[10px] sm:text-xs">Set a free alert and new jobs like these come straight to your inbox</p>
-                </div>
-            </div>
+        <div className="mt-2 px-3 py-1.5 bg-emerald-900/20 border border-emerald-500/30 rounded-lg max-w-2xl mx-auto flex items-center justify-between gap-2">
+            <p className="flex items-center gap-2 text-xs sm:text-sm text-white min-w-0">
+                <Bell className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span className="truncate"><span className="font-medium">Never miss a match</span>
+                <span className="hidden sm:inline text-slate-400"> · free alerts straight to your inbox</span></span>
+            </p>
             <div className="flex items-center gap-2 flex-shrink-0">
                 <Link
                     to="/job-alerts"
-                    className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition text-xs sm:text-sm font-medium whitespace-nowrap"
+                    className="px-2.5 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-500 transition text-xs font-medium whitespace-nowrap"
                 >
                     Set Up Alert
                 </Link>
