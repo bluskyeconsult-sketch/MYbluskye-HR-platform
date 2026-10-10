@@ -27,7 +27,7 @@ import {
     MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
     FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
     CreditCard, ChevronDown, Copy, Check, AlertCircle, Scale,
-    Globe, BookOpen, Brain
+    Globe, BookOpen, Brain, Download
 } from 'lucide-react';
 
 // ============================================
@@ -52,7 +52,7 @@ const LEGAL_SOURCES = {
     'AU': { name: 'Australia', laborLaw: 'https://www.fairwork.gov.au/', rights: 'https://humanrights.gov.au/', health: 'https://www.safeworkaustralia.gov.au/', flag: '🇦🇺' },
     'DE': { name: 'Germany', laborLaw: 'https://www.bmas.de/EN/', rights: 'https://www.antidiskriminierungsstelle.de/', health: 'https://www.baua.de/', flag: '🇩🇪' },
     'FR': { name: 'France', laborLaw: 'https://travail-emploi.gouv.fr/', rights: 'https://www.defenseurdesdroits.fr/', health: 'https://www.inrs.fr/', flag: '🇫🇷' },
-    'NG': { name: 'Nigeria', laborLaw: 'https://labour.gov.ng/', rights: 'https://www.nigeriarights.gov.ng/', health: 'https://www.nhfvilla.gov.ng/', flag: '🇳🇬' },
+    'NG': { name: 'Nigeria', laborLaw: 'https://labour.gov.ng/', rights: 'https://www.nigeriarights.gov.ng/', health: 'https://www.nhf.gov.ng/', flag: '🇳🇬' },
     'IE': { name: 'Ireland', laborLaw: 'https://www.workplacerelations.ie/', rights: 'https://www.ihrec.ie/', health: 'https://www.hsa.ie/', flag: '🇮🇪' },
     'IN': { name: 'India', laborLaw: 'https://labour.gov.in/', rights: 'https://nhrc.nic.in/', health: 'https://www.dgfasli.nic.in/', flag: '🇮🇳' }
 };
@@ -198,7 +198,7 @@ export default function ODUSBABAChat() {
             // help" copy - a chat widget has no page header to attach a
             // value-edge banner to, so this welcome message is the
             // natural place for it.
-            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTry asking something specific, like \"sponsorship jobs in UK for HR\" — I'll pull real, current results from our job board and live external sources, not generic advice.\n\nWhat brings you here today?",
+            message: "👋 Hello. I'm ODUSBABA.\n\nI don't just chat — I guide, govern, and connect you to the right part of this platform.\n\nTry asking something specific, like \"sponsorship jobs in UK for HR\" — I'll pull real, current results from our job board and live external sources, not generic advice.\n\nI can also point you to courses, assessments, HR tools, the visa pathways guide, and how to install the app.\n\nWhat brings you here today?",
             created_at: new Date().toISOString()
         };
     }
@@ -677,6 +677,9 @@ export default function ODUSBABAChat() {
         { icon: Scale, text: "Dismissal Rights", action: "My employer wants to dismiss me. What are my rights?" },
         { icon: FileText, text: "CV Review", action: "Can you review my CV and provide suggestions?" },
         { icon: Award, text: "Skill Analysis", action: "Analyze my skills and suggest improvements" },
+        { icon: Globe, text: "Visa & Settlement", action: "What are the latest skilled visa and settlement changes in the UK, New Zealand and Australia?" },
+        { icon: BookOpen, text: "Find Courses", action: "Which courses on the platform can help me upskill?" },
+        { icon: Download, text: "Get the App", action: "How do I install the ODUSBABA app on my phone?" },
         { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
         { icon: Users, text: "Interview Prep", action: "Help me prepare for an interview" }
     ];
