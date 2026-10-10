@@ -50,7 +50,7 @@
 // decoupled from the frontend singleton. Every internal call in this
 // file keeps working unchanged, since they all reference this same
 // local `supabase` binding - only where it comes from changed.
-import { JOOBLE_COUNTRIES, JOOBLE_QUERIES, SPONSORSHIP_KEYWORDS, joobleKeyFor, joobleEndpoint } from './joobleConfig.js';
+import { JOOBLE_COUNTRIES, JOOBLE_QUERIES, SPONSORSHIP_KEYWORDS, joobleKeyFor, joobleEndpoint, joobleBudgetDecision } from './joobleConfig.js';
 import { createClient } from '@supabase/supabase-js';
 import { XMLParser } from 'fast-xml-parser';
 
@@ -603,12 +603,48 @@ const API_SOURCES = {
 // Results land in external_jobs for admin review like every other source.
 // Jooble's terms of use were not published on the pages checked: read them
 // before relying on stored listings. The key never appears in this file.
-const QUERIES_PER_REFRESH = 2;
+// Spending is governed by the budget in joobleConfig.js: each country gets a
+// weekly allowance, at most ONE search per day, and the count of requests used
+// is kept in system_config (key jooble_usage_<CODE>) so it survives redeploys.
+// Which phrase is searched follows the count, so no phrase repeats until the
+// whole list has been used.
+async function readJoobleUsage(code) {
+    try {
+        const { data } = await supabase.from('system_config').select('config_value').eq('config_key', `jooble_usage_${code}`).maybeSingle();
+        const v = data?.config_value;
+        if (v && typeof v === 'object') return v;
+    } catch { /* treated as no record */ }
+    return { used: 0, lastDay: null };
+}
 
-function joobleQueryFor(code, slot) {
+async function writeJoobleUsage(code, value) {
+    const key = `jooble_usage_${code}`;
+    try {
+        const { data: existing } = await supabase.from('system_config').select('config_key').eq('config_key', key).maybeSingle();
+        if (existing) await supabase.from('system_config').update({ config_value: value }).eq('config_key', key);
+        else await supabase.from('system_config').insert({ config_key: key, config_value: value });
+        return true;
+    } catch (e) {
+        console.warn(`Could not store Jooble usage for ${code}:`, e.message);
+        return false;
+    }
+}
+
+// Called just before a Jooble request. Records the spend BEFORE the call, so a
+// failed call still counts (Jooble may count it too). If the count cannot be
+// saved, the request is NOT made - an uncounted spend would defeat the budget.
+async function reserveJoobleRequest(code) {
+    const usage = await readJoobleUsage(code);
+    const decision = joobleBudgetDecision(code, usage);
+    if (!decision.run) return { ok: false, decision };
+    const saved = await writeJoobleUsage(code, { used: decision.used + 1, lastDay: decision.day, lastRunAt: new Date().toISOString() });
+    if (!saved) return { ok: false, decision: { ...decision, reason: 'could not record usage in system_config' } };
+    return { ok: true, decision, used: decision.used + 1 };
+}
+
+function joobleQueryFor(code, used) {
     const list = JOOBLE_QUERIES[code] || ['visa sponsorship'];
-    const dayNumber = Math.floor(Date.now() / 86400000);
-    return list[(dayNumber * QUERIES_PER_REFRESH + slot) % list.length];
+    return list[used % list.length];
 }
 
 function parseJoobleResponse(data, code) {
@@ -633,32 +669,30 @@ function parseJoobleResponse(data, code) {
 }
 
 for (const [code, cfg] of Object.entries(JOOBLE_COUNTRIES)) {
-    for (let slot = 0; slot < QUERIES_PER_REFRESH; slot++) {
-        API_SOURCES[`JOOBLE_${code}_${slot + 1}`] = {
-            name: `Jooble - ${cfg.name} (search ${slot + 1})`,
-            country: code,
-            // Display only - the real request (with the key) is built by buildRequest().
-            url: `https://${cfg.host}/api/(key hidden)`,
-            type: 'api',
-            // Only countries with a key set are active, so unconfigured ones
-            // add no noise (in the browser, where env vars do not exist, the
-            // admin list simply shows them inactive).
-            get is_active() { return !!joobleKeyFor(code); },
-            priority: 4,
-            requiresEnv: cfg.env,
-            skipConnectionTest: true,
-            sponsorship_keywords: SPONSORSHIP_KEYWORDS,
-            buildRequest() {
-                return {
-                    url: joobleEndpoint(code),
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: { keywords: joobleQueryFor(code, slot), location: cfg.name, page: 1, ResultOnPage: 50 }
-                };
-            },
-            parseFunction: (data) => parseJoobleResponse(data, code)
-        };
-    }
+    API_SOURCES[`JOOBLE_${code}`] = {
+        name: `Jooble - ${cfg.name}`,
+        country: code,
+        // Display only - the real request (with the key) is built by buildRequest().
+        url: `https://${cfg.host}/api/(key hidden)`,
+        type: 'api',
+        // Only countries with a key set are active.
+        get is_active() { return !!joobleKeyFor(code); },
+        priority: 4,
+        requiresEnv: cfg.env,
+        skipConnectionTest: true,
+        sponsorship_keywords: SPONSORSHIP_KEYWORDS,
+        // Gate checked by processApiSource before any request is made.
+        joobleCode: code,
+        buildRequest(ctx = {}) {
+            return {
+                url: joobleEndpoint(code),
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: { keywords: joobleQueryFor(code, ctx.used || 0), location: cfg.name, page: 1, ResultOnPage: 50 }
+            };
+        },
+        parseFunction: (data) => parseJoobleResponse(data, code)
+    };
 }
 
 // ============================================
@@ -1467,7 +1501,7 @@ async function fetchFromApifyAsync(source) {
     }
 }
 
-async function fetchFromAPI(source) {
+async function fetchFromAPI(source, requestContext = {}) {
     // FIXED (2026-08-27): confirmed real, live mystery - Jobicy and
     // Himalayas both showed "0 found, 0 new" after being enabled, with
     // no way to tell why. Traced to the exact same silent-swallowing
@@ -1509,7 +1543,7 @@ async function fetchFromAPI(source) {
         // current behavior unchanged.
         // NEW (2026-10-10): sources that need a secret in the URL/body (Jooble)
         // build their request at call time instead of storing the secret here.
-        const built = typeof source.buildRequest === 'function' ? source.buildRequest() : null;
+        const built = typeof source.buildRequest === 'function' ? source.buildRequest(requestContext) : null;
         const requestUrl = built?.url || source.url;
         const requestBody = built?.body || source.body;
         const response = await fetch(requestUrl, {
@@ -1752,9 +1786,22 @@ export async function fetchExternalJobs(forceRefresh = false) {
     async function processApiSource([key, source]) {
         console.log(`  📡 Fetching from ${source.name}...`);
         try {
+            // Jooble keys have a small LIFETIME quota, so spending is metered.
+            let requestContext = {};
+            if (source.joobleCode) {
+                const gate = await reserveJoobleRequest(source.joobleCode);
+                const d = gate.decision;
+                if (!gate.ok) {
+                    const note = `Not searched: ${d.reason}. Used ${d.used}/${d.usable}${d.daysLeft != null ? `, about ${d.daysLeft} days of searches left` : ''}.`;
+                    console.log(`  ⏭️ ${source.name}: ${note}`);
+                    return { jobs: [], result: { source: source.name, found: 0, added: 0, duplicates: 0, errorCount: 0, status: 'success', note } };
+                }
+                requestContext = { used: gate.used - 1 };
+                console.log(`  🎯 ${source.name}: request ${gate.used}/${d.usable} spent (about ${d.daysLeft} days of searches left)`);
+            }
             const { jobs, error: fetchIssue } = source.useAsyncPolling
                 ? await fetchFromApifyAsync(source)
-                : await fetchFromAPI(source);
+                : await fetchFromAPI(source, requestContext);
             let added = 0;
             let duplicates = 0;
             let errorCount = 0;
