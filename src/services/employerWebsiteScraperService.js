@@ -63,7 +63,7 @@ const REALISTIC_HEADERS = {
 // (permits the fetch) only when robots.txt itself is missing or
 // unreachable, which is the standard, correct interpretation - no
 // robots.txt means no stated restriction exists.
-async function isAllowedByRobotsTxt(targetUrl) {
+export async function isAllowedByRobotsTxt(targetUrl) {
     try {
         const url = new URL(targetUrl);
         const robotsUrl = `${url.protocol}//${url.host}/robots.txt`;
