@@ -74,3 +74,59 @@ export const SPONSORSHIP_KEYWORDS = [
     'accredited employer', 'aewv', 'lmia', 'express entry', 'provincial nominee', 'employment permit', 'critical skills',
     'h-1b', 'h1b', 'green card', 'blue card', 'visa provided', 'visa support', 'work visa support', 'relocation support', 'relocation package', 'work permit'
 ];
+
+// ---------------------------------------------------------------------------
+// REQUEST BUDGET - making a key's 500 LIFETIME requests last
+// ---------------------------------------------------------------------------
+// Jooble's free key allows 500 requests in total, ever. These settings spread
+// them out. Each country gets a WEEKLY allowance (1-7 requests a week, never
+// more than one per day) so priority countries are searched most often.
+//
+//   7 a week = 1 per day  -> ~475 days (about 15 months)
+//   5 a week              -> ~665 days (about 22 months)
+//   3 a week              -> ~1,100 days (about 3 years)
+//
+// RESERVE keeps some requests back for testing / emergencies; the fetch stops
+// by itself before the key reaches the limit. Change any country's allowance
+// without editing code by adding a Vercel variable such as JOOBLE_WEEKLY_AU=5
+// (then redeploy). JOOBLE_LIFETIME_LIMIT (default 500) can be raised if Jooble
+// grants you more.
+export const JOOBLE_WEEKLY_DEFAULT = {
+    AU: 7, NZ: 7, GB: 7,          // main targets: daily
+    IE: 5, CA: 5,                 // five days in seven
+    US: 3, DE: 3, AE: 3, ZA: 3, NG: 3, GH: 3, KE: 3
+};
+export const JOOBLE_RESERVE = 25;
+
+export function joobleLifetimeLimit() {
+    const n = parseInt(typeof process !== 'undefined' ? process.env.JOOBLE_LIFETIME_LIMIT : '', 10);
+    return Number.isFinite(n) && n > 0 ? n : 500;
+}
+
+export function joobleWeeklyAllowance(code) {
+    const raw = typeof process !== 'undefined' ? parseInt(process.env[`JOOBLE_WEEKLY_${code}`], 10) : NaN;
+    const n = Number.isFinite(raw) ? raw : (JOOBLE_WEEKLY_DEFAULT[code] ?? 3);
+    return Math.max(0, Math.min(7, n));
+}
+
+// True on the days this country should spend a request. Spreads the weekly
+// allowance as evenly as possible (e.g. 3 a week -> roughly every 2-3 days).
+export function joobleRunsOnDay(code, dayNumber) {
+    const w = joobleWeeklyAllowance(code);
+    return Math.floor((dayNumber + 1) * w / 7) > Math.floor(dayNumber * w / 7);
+}
+
+// Decides whether a request may be spent now, given what has been used so far.
+export function joobleBudgetDecision(code, usage, now = Date.now()) {
+    const limit = joobleLifetimeLimit();
+    const usable = Math.max(0, limit - JOOBLE_RESERVE);
+    const used = Number(usage?.used) || 0;
+    const day = Math.floor(now / 86400000);
+    const weekly = joobleWeeklyAllowance(code);
+    const perDay = weekly / 7;
+    const daysLeft = perDay > 0 ? Math.floor((usable - used) / perDay) : null;
+    if (used >= usable) return { run: false, reason: `budget used (${used}/${usable}); ${JOOBLE_RESERVE} kept in reserve`, used, usable, daysLeft: 0 };
+    if (usage?.lastDay === day) return { run: false, reason: 'already searched today', used, usable, daysLeft };
+    if (!joobleRunsOnDay(code, day)) return { run: false, reason: `rest day (${weekly} searches a week)`, used, usable, daysLeft };
+    return { run: true, reason: 'scheduled', used, usable, daysLeft, day };
+}
