@@ -543,6 +543,7 @@ function Footer() {
                         <ul className="space-y-1">
                             <li><a href="/blog" className="text-slate-400 text-sm hover:text-white transition">Career Blog</a></li>
                             <li><a href="/faq" className="text-slate-400 text-sm hover:text-white transition">FAQ</a></li>
+                            <li><a href="/visa-pathways" className="text-slate-400 text-sm hover:text-white transition">Visa Pathways</a></li>
                             <li><a href="/pricing" className="text-slate-400 text-sm hover:text-white transition">Pricing Plans</a></li>
                             <li><a href="/pricing-explained" className="text-slate-400 text-sm hover:text-white transition">Pricing & Credits Explained</a></li>
                             {/* NEW (2026-08-16): the real, live footer had
@@ -663,6 +664,7 @@ const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage')
 const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
+const VisaPathwaysPage = lazy(() => import('./pages/VisaPathwaysPage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
 const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
@@ -939,6 +941,7 @@ function AppContent() {
                             <Route path="/sign-up" element={<AnimatedPage><SignUpPage /></AnimatedPage>} />
                             <Route path="/products" element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
                             <Route path="/faq" element={<AnimatedPage><FAQPage /></AnimatedPage>} />
+                            <Route path="/visa-pathways" element={<AnimatedPage><VisaPathwaysPage /></AnimatedPage>} />
                             <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
                             <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
                             
