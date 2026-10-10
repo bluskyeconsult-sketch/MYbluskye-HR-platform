@@ -189,39 +189,126 @@ export async function logLiveSearch(supabaseClient, userId, keyword) {
     }
 }
 
-// The real, main entry point: searches only the confirmed-reliable
-// sources, in parallel, with a hard overall time budget, honest live
-// labeling, and a short cache so repeated identical searches (e.g. many
-// users asking similar questions) don't hammer these free APIs.
-export async function searchLiveExternalJobs({ keyword, country, sponsorshipOnly } = {}) {
-    const key = cacheKey(keyword, country, sponsorshipOnly);
+// NEW (2026-10-10): country-aware sources. Adzuna covers Australia, New
+// Zealand, UK, US, Canada, Germany and others through ONE official API
+// (free keys: https://developer.adzuna.com). It needs two environment
+// variables on Vercel: ADZUNA_APP_ID and ADZUNA_APP_KEY. Without them this
+// source is skipped and the assistant is told so, rather than faking
+// results. Arbeitnow (no key) adds Germany / wider Europe.
+const ADZUNA_COUNTRIES = { AU: 'au', NZ: 'nz', GB: 'gb', US: 'us', CA: 'ca', DE: 'de', FR: 'fr', IN: 'in', IT: 'it', NL: 'nl', PL: 'pl', SG: 'sg', ZA: 'za', BR: 'br', AT: 'at', BE: 'be', CH: 'ch', ES: 'es', MX: 'mx' };
+const EUROPE_FOR_ARBEITNOW = new Set(['DE', 'AT', 'CH', 'NL', 'BE', 'FR', 'PL', 'IT', 'ES']);
+
+export function adzunaConfigured() {
+    return !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY);
+}
+
+async function fetchAdzunaLive(terms, country, city) {
+    const cc = ADZUNA_COUNTRIES[country];
+    if (!cc || !adzunaConfigured()) return [];
+    try {
+        const params = new URLSearchParams({
+            app_id: process.env.ADZUNA_APP_ID,
+            app_key: process.env.ADZUNA_APP_KEY,
+            results_per_page: '10',
+            'content-type': 'application/json',
+            sort_by: 'date'
+        });
+        if (terms && terms.length) params.set('what', terms.join(' '));
+        if (city) params.set('where', city);
+        const response = await fetch(`https://api.adzuna.com/v1/api/jobs/${cc}/search/1?${params.toString()}`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.results || []).map(j => ({
+            title: (j.title || '').replace(/<\/?strong>/g, ''),
+            company: j.company?.display_name || null,
+            location: j.location?.display_name || null,
+            description: (j.description || '').substring(0, 400),
+            salary_range: j.salary_min && j.salary_max ? `${Math.round(j.salary_min)} - ${Math.round(j.salary_max)}` : null,
+            external_apply_url: j.redirect_url,
+            source_name: `Adzuna ${country}`,
+            source_country: country,
+            sponsorship_eligible: null,
+            live: true
+        }));
+    } catch {
+        return [];
+    }
+}
+
+async function fetchArbeitnowLive(terms) {
+    try {
+        const response = await fetch('https://www.arbeitnow.com/api/job-board-api');
+        if (!response.ok) return [];
+        const data = await response.json();
+        const kws = (terms || []).map(t => t.toLowerCase());
+        return (data.data || [])
+            .filter(j => kws.length === 0 || kws.some(k => (j.title || '').toLowerCase().includes(k) || (j.description || '').toLowerCase().includes(k)))
+            .slice(0, 10)
+            .map(j => ({
+                title: j.title,
+                company: j.company_name,
+                location: j.location || null,
+                description: (j.description || '').replace(/<[^>]+>/g, ' ').substring(0, 400),
+                salary_range: null,
+                external_apply_url: j.url,
+                source_name: 'Arbeitnow',
+                source_country: 'DE/EU',
+                sponsorship_eligible: null,
+                live: true
+            }));
+    } catch {
+        return [];
+    }
+}
+
+function matchesTerms(job, terms) {
+    if (!terms || terms.length === 0) return true;
+    const hay = `${job.title || ''} ${job.description || ''}`.toLowerCase();
+    return terms.some(t => hay.includes(t.toLowerCase()));
+}
+
+// The real, main entry point. Returns { jobs, notes }:
+//  - jobs: live results, each clearly labelled as unreviewed
+//  - notes: plain-language caveats the assistant must pass on honestly
+//    (e.g. "no live source is configured for New Zealand")
+// With a country named, country-specific sources are used and remote-only
+// feeds are skipped (a remote listing is not an Auckland listing). With no
+// country, the global remote feeds run as before.
+export async function searchLiveExternalJobs({ keyword, terms, country, city, sponsorshipOnly } = {}) {
+    const termList = (terms && terms.length) ? terms : (keyword ? keyword.split(/\s+/).filter(Boolean) : []);
+    const key = cacheKey(termList.join(' '), `${country || ''}:${city || ''}`, sponsorshipOnly);
     const cached = cache.get(key);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-        return cached.data;
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) return cached.data;
+
+    const notes = [];
+    let searches;
+    if (country) {
+        searches = [];
+        if (ADZUNA_COUNTRIES[country]) {
+            if (adzunaConfigured()) searches.push(withTimeout(fetchAdzunaLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
+            else notes.push('The live country job source is not switched on yet, so no live results could be fetched for this country.');
+        } else {
+            notes.push('No live job source covers this country yet.');
+        }
+        if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
+    } else {
+        const kw = termList.join(' ');
+        searches = [
+            withTimeout(fetchJobicyLive(kw), PER_SOURCE_TIMEOUT_MS, []),
+            withTimeout(fetchRemotiveLive(kw), PER_SOURCE_TIMEOUT_MS, []),
+            withTimeout(fetchHimalayasLive(), PER_SOURCE_TIMEOUT_MS, []),
+            withTimeout(fetchWeWorkRemotelyLive(), PER_SOURCE_TIMEOUT_MS, [])
+        ];
     }
 
-    const searches = [
-        withTimeout(fetchJobicyLive(keyword), PER_SOURCE_TIMEOUT_MS, []),
-        withTimeout(fetchRemotiveLive(keyword), PER_SOURCE_TIMEOUT_MS, []),
-        withTimeout(fetchHimalayasLive(), PER_SOURCE_TIMEOUT_MS, []),
-        withTimeout(fetchWeWorkRemotelyLive(), PER_SOURCE_TIMEOUT_MS, [])
-    ];
-
-    const results = await withTimeout(Promise.all(searches), LIVE_SEARCH_TIMEOUT_MS, [[], [], [], []]);
+    const results = await withTimeout(Promise.all(searches), LIVE_SEARCH_TIMEOUT_MS, searches.map(() => []));
     let allJobs = results.flat();
+    // A term must appear in the title or description; the country feeds are
+    // already filtered by the provider but remote feeds are not.
+    allJobs = allJobs.filter(j => matchesTerms(j, termList));
+    if (sponsorshipOnly) notes.push('Live results are not checked for visa sponsorship - the user must confirm sponsorship with the employer.');
 
-    // These sources are global/remote-focused and don't carry real
-    // sponsorship data - sponsorship filtering only meaningfully applies
-    // to the job board's admin-approved government-sourced listings, not
-    // live results. Made explicit here rather than silently ignored.
-    if (keyword) {
-        const kw = keyword.toLowerCase();
-        allJobs = allJobs.filter(j =>
-            j.title.toLowerCase().includes(kw) || (j.description || '').toLowerCase().includes(kw)
-        );
-    }
-
-    const data = allJobs.slice(0, 10);
+    const data = { jobs: allJobs.slice(0, 10), notes };
     cache.set(key, { data, timestamp: Date.now() });
     return data;
 }
