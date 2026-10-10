@@ -27,7 +27,7 @@ import {
     MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
     FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
     CreditCard, ChevronDown, Copy, Check, AlertCircle, Scale,
-    Globe, BookOpen, Brain, Download
+    Globe, BookOpen, Brain, Download, Target
 } from 'lucide-react';
 
 // ============================================
@@ -680,6 +680,7 @@ export default function ODUSBABAChat() {
         { icon: Globe, text: "Visa & Settlement", action: "What are the latest skilled visa and settlement changes in the UK, New Zealand and Australia?" },
         { icon: BookOpen, text: "Find Courses", action: "Which courses on the platform can help me upskill?" },
         { icon: Download, text: "Get the App", action: "How do I install the ODUSBABA app on my phone?" },
+        { icon: Target, text: "Career Coach", action: "How does Career Coach help me find and apply for jobs?" },
         { icon: TrendingUp, text: "Career Path", action: "Help me plan my career path" },
         { icon: Users, text: "Interview Prep", action: "Help me prepare for an interview" }
     ];
