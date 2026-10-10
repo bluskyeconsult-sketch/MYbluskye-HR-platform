@@ -1905,6 +1905,34 @@ async function findRelevantJobs(supabaseClient, userMessage) {
     }
 }
 
+// NEW (2026-10-10): jobs the daily fetch (Jooble and the other sources) has
+// already collected into external_jobs but an admin has not reviewed yet.
+// Searching these costs NO external API requests, which matters because a free
+// Jooble key only allows 500 requests in its whole lifetime. Results are shown
+// to the user as unreviewed, like live results.
+async function findRecentCollectedJobs(supabaseClient, intent) {
+    if (!intent || !intent.country) return [];
+    try {
+        const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+        let q = supabaseClient.from('external_jobs')
+            .select('title, company, location, salary_range, external_url, source, source_name')
+            .eq('is_active', true).eq('status', 'pending_approval').eq('source', intent.country)
+            .gte('created_at', since).order('created_at', { ascending: false }).limit(5);
+        if (intent.city) q = q.ilike('location', `%${intent.city}%`);
+        const terms = (intent.terms || []).map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
+        if (terms.length) q = q.or(terms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
+        if (intent.wantsSponsorship) q = q.or('title.ilike.%sponsor%,description.ilike.%sponsor%,description.ilike.%permanent resid%,description.ilike.%settlement%,description.ilike.%relocation%,description.ilike.%work permit%,description.ilike.%visa%');
+        const { data } = await q;
+        return (data || []).map(j => ({
+            title: j.title, company: j.company, location: j.location, salary_range: j.salary_range,
+            external_apply_url: j.external_url, source_name: `${j.source_name || 'external'} (collected recently)`
+        }));
+    } catch (error) {
+        console.warn('Recent collected jobs lookup failed, continuing without it:', error);
+        return [];
+    }
+}
+
 // NEW (2026-10-10): lets the chat recommend real, published courses
 // (the chat previously knew nothing about courses at all).
 const COURSE_INTENT_KEYWORDS = /\b(course|courses|learn|learning|training|certificat|upskill|study|class|tutorial|qualif)\w*/i;
@@ -5892,7 +5920,15 @@ ${siteContext}`;
                 }
             }
 
-            const liveList = liveJobs?.jobs || [];
+            let liveList = liveJobs?.jobs || [];
+            if (jobIntent) {
+                const collected = await findRecentCollectedJobs(supabaseClient, jobIntent);
+                const seen = new Set(liveList.map(j => `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}`));
+                for (const j of collected) {
+                    const k = `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}`;
+                    if (!seen.has(k)) { liveList.push(j); seen.add(k); }
+                }
+            }
             const liveNotes = liveJobs?.notes || [];
             if (relevantJobs || liveList.length > 0 || jobIntent) {
                 // FIXED (2026-08-27): previously labeled every non-internal
