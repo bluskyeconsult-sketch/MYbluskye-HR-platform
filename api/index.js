@@ -18,6 +18,7 @@
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from '../src/services/liveJobSearchService.js';
+import { parseJobSearchIntent } from '../src/services/jobIntent.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
 import { findContactEmails } from '../src/services/contactEmailFinder.js';
 // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
@@ -1858,33 +1859,8 @@ async function fetchAllJobs() {
 // drifting implementations.
 const JOB_INTENT_KEYWORDS = /\b(job|jobs|vacanc|hiring|position|role|career|opening|opportunit|employ|apply|recruit)\w*/i;
 
-function parseJobSearchIntent(userMessage) {
-    if (!JOB_INTENT_KEYWORDS.test(userMessage)) return null;
-
-    const msg = userMessage.toLowerCase();
-
-    const wantsSponsorship = /\b(sponsor|visa|work permit|relocat|skilled worker)\w*/i.test(msg);
-
-    const countryMap = {
-        'uk': 'GB', 'united kingdom': 'GB', 'britain': 'GB', 'england': 'GB',
-        'us': 'US', 'usa': 'US', 'united states': 'US', 'america': 'US',
-        'nigeria': 'NG', 'canada': 'CA', 'australia': 'AU',
-        'germany': 'DE', 'ireland': 'IE'
-    };
-    let matchedCountry = null;
-    for (const [name, code] of Object.entries(countryMap)) {
-        if (msg.includes(name)) { matchedCountry = code; break; }
-    }
-
-    const keyword = userMessage
-        .replace(JOB_INTENT_KEYWORDS, '')
-        .replace(/\b(sponsor\w*|visa|work permit|relocat\w*|skilled worker)\b/gi, '')
-        .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|a|an|in|near|around|help)\b/gi, '')
-        .trim()
-        .substring(0, 100);
-
-    return { wantsSponsorship, country: matchedCountry, keyword: keyword.length >= 3 ? keyword : null };
-}
+// MOVED (2026-10-10): intent detection now lives in src/services/jobIntent.js
+// (no longer requires the word "job"; understands countries, cities and occupations).
 
 async function findRelevantJobs(supabaseClient, userMessage) {
     const intent = parseJobSearchIntent(userMessage);
@@ -1912,8 +1888,13 @@ async function findRelevantJobs(supabaseClient, userMessage) {
         if (intent.country) {
             query = query.eq('country_code', intent.country);
         }
-        if (intent.keyword) {
-            query = query.or(`title.ilike.%${intent.keyword}%,description.ilike.%${intent.keyword}%`);
+        if (intent.city) {
+            query = query.ilike('location', `%${intent.city}%`);
+        }
+        const jobTerms = (intent.terms && intent.terms.length ? intent.terms : (intent.keyword ? [intent.keyword] : []))
+            .map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
+        if (jobTerms.length) {
+            query = query.or(jobTerms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
         }
 
         const { data: jobs } = await query;
@@ -2160,7 +2141,7 @@ Site guide - where to send users (use these exact paths; never invent pages or f
 - Affiliate (/affiliate), FAQ (/faq), About (/about), Contact (/contact), Safety Tips (/safety-tips), Report Fraud (/report-fraud).
 - ODUSBABA is a product of BluSkye Integrated Consult, pronounced "Blue Sky".
 
-How your job search works (be honest about it): you can see (1) real active listings on the platform's own job board that match the user's request, and (2) live results fetched at that moment from a few remote-job sources (Jobicy, Remotive, Himalayas, We Work Remotely), which have NOT been reviewed by the team and which you must label as unreviewed. You cannot see every job on the internet, you cannot see government job portals live, and you cannot apply for anyone. If nothing matches, say so plainly and suggest the Jobs page, a job alert, or widening the search. Never invent a job.
+How your job search works (be honest about it): you can see (1) real active listings on the platform's own job board that match the user's request, and (2) live results fetched at that moment from external sources, which have NOT been reviewed by the team and which you must label as unreviewed: for a named country (including Australia, New Zealand, the UK, Canada, the US, Germany and several others) a country job feed, plus Arbeitnow for Germany/Europe; with no country named, remote-job feeds (Jobicy, Remotive, Himalayas, We Work Remotely). A user does not need to say the word "job" - a role plus a place is enough. You cannot see every job on the internet, you cannot see government job portals live, live results are not checked for visa sponsorship, and you cannot apply for anyone. If nothing matches, say so plainly and suggest the Jobs page, a job alert, or widening the search. Never invent a job.
 
 Recent platform additions you can point users to:
 - Visa Pathways guide at /visa-pathways: plain-language summary of skilled-visa and settlement changes in the UK, New Zealand and Australia, with how to apply, official links and a role checker.
@@ -5903,13 +5884,17 @@ ${siteContext}`;
                     await logLiveSearch(supabaseClient, userId, jobIntent.keyword);
                     liveJobs = await searchLiveExternalJobs({
                         keyword: jobIntent.keyword,
+                        terms: jobIntent.terms,
                         country: jobIntent.country,
+                        city: jobIntent.city,
                         sponsorshipOnly: jobIntent.wantsSponsorship
                     });
                 }
             }
 
-            if (relevantJobs || (liveJobs && liveJobs.length > 0)) {
+            const liveList = liveJobs?.jobs || [];
+            const liveNotes = liveJobs?.notes || [];
+            if (relevantJobs || liveList.length > 0 || jobIntent) {
                 // FIXED (2026-08-27): previously labeled every non-internal
                 // job as "via official government portal" unconditionally -
                 // factually wrong for verified-employer-sourced jobs, which
@@ -5929,15 +5914,15 @@ ${siteContext}`;
                 // admin-approved listings, nothing here has passed human
                 // review, and the AI is told to say so plainly rather than
                 // present both tiers with equal confidence.
-                const liveContext = (liveJobs && liveJobs.length > 0) ? liveJobs.map(j =>
-                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'} [LIVE result from ${j.source_name}, not yet reviewed by our team]`
+                const liveContext = liveList.length > 0 ? liveList.map(j =>
+                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''} [LIVE result from ${j.source_name}, not yet reviewed by our team]${j.external_apply_url ? ` apply: ${j.external_apply_url}` : ''}`
                 ).join('\n') : '';
 
                 const toolSuggestions = HR_TOOLS_FOR_CHAT.map(t => `${t.name} (${t.use})`).join(', ');
 
                 messages = [{
                     role: 'system',
-                    content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external remote-job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply directly. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
+                    content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}${(!boardContext && !liveContext) ? `\n\nA search was run for this request and found NO matching listings.` : ''}${liveNotes.length ? `\n\nNotes about the live search (pass these on honestly): ${liveNotes.join(' ')}` : ''}${(jobIntent && (jobIntent.country === 'AU' || jobIntent.country === 'NZ')) ? `\n\nFor Australia and New Zealand you may also suggest the user searches SEEK${jobIntent.country === 'NZ' ? ' and Trade Me Jobs' : ''} directly, and remind them to check visa or work-right requirements.` : ''}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply directly. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
                 }, ...messages];
             }
 
