@@ -585,6 +585,80 @@ const API_SOURCES = {
     },
 };
 
+
+// NEW (2026-10-10): Jooble (https://jooble.org/api/about) as a job-board
+// source for countries the other feeds do not reach. Jooble is POST-only and
+// puts the API key in the URL path, so each search is built at request time
+// from the JOOBLE_API_KEY environment variable (Vercel, server-side only):
+// the key never appears in this file, in the admin source list, or in the
+// connection test.
+//
+// To add a search, add one line to JOOBLE_SEARCHES. Keep the list short:
+// every search is one API call per refresh, and Jooble does not publish its
+// limits. Results land in external_jobs for admin review exactly like every
+// other source - nothing reaches the public board unapproved.
+//
+// CHECK JOOBLE'S TERMS before relying on this for stored listings: the
+// documentation I could find does not say whether results may be stored or
+// must show Jooble attribution. Listings are labelled "Jooble - <country>"
+// and link back through Jooble's own link.
+const JOOBLE_SEARCHES = [
+    { code: 'AU', country: 'Australia', keywords: 'visa sponsorship',  tag: 'sponsorship' },
+    { code: 'AU', country: 'Australia', keywords: 'healthcare',        tag: 'healthcare' },
+    { code: 'NZ', country: 'New Zealand', keywords: 'visa sponsorship', tag: 'sponsorship' },
+    { code: 'NZ', country: 'New Zealand', keywords: 'healthcare',       tag: 'healthcare' },
+    { code: 'IE', country: 'Ireland',   keywords: 'visa sponsorship',  tag: 'sponsorship' },
+    { code: 'CA', country: 'Canada',    keywords: 'visa sponsorship',  tag: 'sponsorship' },
+    { code: 'GB', country: 'United Kingdom', keywords: 'skilled worker visa sponsorship', tag: 'sponsorship' },
+    { code: 'AE', country: 'United Arab Emirates', keywords: 'nurse', tag: 'healthcare' }
+];
+
+function parseJoobleResponse(data, code) {
+    const list = Array.isArray(data?.jobs) ? data.jobs : [];
+    const text = (v) => String(v || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return list.map(item => {
+        const link = item.link || null;
+        return {
+            title: text(item.title),
+            company: text(item.company) || text(item.source) || 'Not specified',
+            location: text(item.location) || code,
+            description: text(item.snippet),
+            salary_range: text(item.salary) || null,
+            job_type: mapJobType(text(item.type)),
+            applicationLink: link,
+            external_url: link,
+            url: link,
+            source_name: `Jooble - ${code}`,
+            source_country: code
+        };
+    }).filter(job => job.title);
+}
+
+for (const search of JOOBLE_SEARCHES) {
+    const key = `JOOBLE_${search.code}_${search.tag.toUpperCase()}`;
+    API_SOURCES[key] = {
+        name: `Jooble - ${search.country} (${search.tag})`,
+        country: search.code,
+        // Display only - the real request (with the key) is built by buildRequest().
+        url: 'https://jooble.org/api/(key hidden)',
+        type: 'api',
+        is_active: true,
+        priority: 4,
+        requiresEnv: 'JOOBLE_API_KEY',
+        skipConnectionTest: true,
+        sponsorship_keywords: search.tag === 'sponsorship' ? ['visa sponsorship', 'sponsorship', 'sponsor'] : [],
+        buildRequest() {
+            return {
+                url: `https://jooble.org/api/${String(process.env.JOOBLE_API_KEY || '').trim()}`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: { keywords: search.keywords, location: search.country, page: 1 }
+            };
+        },
+        parseFunction: (data) => parseJoobleResponse(data, search.code)
+    };
+}
+
 // ============================================
 // RATE LIMITING & CACHING
 // ============================================
@@ -1414,6 +1488,10 @@ async function fetchFromAPI(source) {
 
         // Clear message instead of a bare 401 when a keyed API has no
         // credentials configured on the server.
+        if (source.requiresEnv && !String(process.env[source.requiresEnv] || '').trim()) {
+            clearTimeout(timeoutId);
+            return { jobs: [], error: `Missing ${source.requiresEnv} in Vercel (Production) - add it and redeploy` };
+        }
         const srcHeaders = source.headers || {};
         if ('Authorization-Key' in srcHeaders && (!srcHeaders['Authorization-Key'] || !srcHeaders['User-Agent'])) {
             clearTimeout(timeoutId);
@@ -1427,10 +1505,15 @@ async function fetchFromAPI(source) {
         // parameters), unlike every existing source here which is a
         // simple GET. Defaults preserve every existing source's exact
         // current behavior unchanged.
-        const response = await fetch(source.url, {
-            method: source.method || 'GET',
-            headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
-            ...(source.body ? { body: JSON.stringify(source.body) } : {}),
+        // NEW (2026-10-10): sources that need a secret in the URL/body (Jooble)
+        // build their request at call time instead of storing the secret here.
+        const built = typeof source.buildRequest === 'function' ? source.buildRequest() : null;
+        const requestUrl = built?.url || source.url;
+        const requestBody = built?.body || source.body;
+        const response = await fetch(requestUrl, {
+            method: built?.method || source.method || 'GET',
+            headers: { ...REALISTIC_BROWSER_HEADERS, ...(built?.headers || source.headers || {}) },
+            ...(requestBody ? { body: JSON.stringify(requestBody) } : {}),
             signal: controller.signal
         });
         
@@ -2263,6 +2346,11 @@ export async function testRSSConnection() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+            if (source.skipConnectionTest) {
+                clearTimeout(timeoutId);
+                results.push({ source: source.name, url: '(keyed API - not tested here)', status: 'skipped', ok: true, country: source.country, message: 'Keyed source - checked when a refresh runs' });
+                continue;
+            }
             if (!source.url) {
                 clearTimeout(timeoutId);
                 results.push({ source: source.name, url: '(Apify actor)', status: 'skipped', ok: true, country: source.country, message: 'Apify source - verified by the real refresh, not a URL ping' });
