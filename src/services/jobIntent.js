@@ -47,17 +47,47 @@ export const PLACES = {
     ZA: ['south africa', 'johannesburg', 'cape town', 'durban', 'pretoria'],
     IN: ['india', 'bangalore', 'bengaluru', 'mumbai', 'delhi', 'hyderabad', 'chennai', 'pune'],
     SG: ['singapore'],
-    AE: ['uae', 'dubai', 'abu dhabi', 'united arab emirates'],
+    AE: ['united arab emirates', 'uae', 'dubai', 'abu dhabi', 'sharjah'],
     PL: ['poland', 'warsaw', 'krakow'],
     IT: ['italy', 'rome', 'milan'],
     ES: ['spain', 'madrid', 'barcelona'],
     AT: ['austria', 'vienna'],
     CH: ['switzerland', 'zurich', 'geneva'],
     BE: ['belgium', 'brussels'],
-    BR: ['brazil', 'sao paulo']
+    BR: ['brazil', 'sao paulo'],
+    MX: ['mexico', 'mexico city', 'guadalajara'],
+    PK: ['pakistan', 'karachi', 'lahore', 'islamabad'],
+    BD: ['bangladesh', 'dhaka'],
+    LK: ['sri lanka', 'colombo'],
+    PH: ['philippines', 'manila', 'cebu'],
+    MY: ['malaysia', 'kuala lumpur'],
+    HK: ['hong kong'],
+    JP: ['japan', 'tokyo', 'osaka'],
+    TR: ['turkey', 'istanbul', 'ankara'],
+    SA: ['saudi arabia', 'riyadh', 'jeddah'],
+    QA: ['qatar', 'doha'],
+    EG: ['egypt', 'cairo'],
+    UG: ['uganda', 'kampala'],
+    RW: ['rwanda', 'kigali'],
+    TZ: ['tanzania', 'dar es salaam'],
+    ZW: ['zimbabwe', 'harare'],
+    ZM: ['zambia', 'lusaka'],
+    JM: ['jamaica', 'kingston'],
+    SE: ['sweden', 'stockholm'],
+    NO: ['norway', 'oslo'],
+    DK: ['denmark', 'copenhagen'],
+    FI: ['finland', 'helsinki'],
+    PT: ['portugal', 'lisbon', 'porto']
 };
+
+// Formal country name for a code (first entry in PLACES), used as the
+// location for providers that search by place name.
+export function countryName(code) {
+    const n = PLACES[code]?.[0];
+    return n ? n.replace(/\b\w/g, c => c.toUpperCase()) : null;
+}
 // Cities map to a "where" string so searches can narrow below country level.
-const CITY_CODES = new Set(['sydney','melbourne','brisbane','perth','adelaide','canberra','gold coast','darwin','hobart','auckland','wellington','christchurch','hamilton','tauranga','dunedin','queenstown','london','manchester','birmingham','leeds','glasgow','liverpool','bristol','edinburgh','sheffield','nottingham','leicester','cardiff','belfast','dublin','cork','galway','toronto','vancouver','calgary','ottawa','montreal','edmonton','berlin','munich','hamburg','frankfurt','paris','lyon','amsterdam','rotterdam','lagos','abuja','port harcourt','accra','nairobi','johannesburg','cape town','durban','pretoria','bangalore','bengaluru','mumbai','delhi','hyderabad','chennai','pune','dubai','abu dhabi','warsaw','krakow','rome','milan','madrid','barcelona','vienna','zurich','geneva','brussels','new york','chicago','los angeles','houston','seattle','boston']);
+const CITY_CODES = new Set(['sydney','melbourne','brisbane','perth','adelaide','canberra','gold coast','darwin','hobart','auckland','wellington','christchurch','hamilton','tauranga','dunedin','queenstown','london','manchester','birmingham','leeds','glasgow','liverpool','bristol','edinburgh','sheffield','nottingham','leicester','cardiff','belfast','dublin','cork','galway','toronto','vancouver','calgary','ottawa','montreal','edmonton','berlin','munich','hamburg','frankfurt','paris','lyon','amsterdam','rotterdam','lagos','abuja','port harcourt','accra','nairobi','johannesburg','cape town','durban','pretoria','bangalore','bengaluru','mumbai','delhi','hyderabad','chennai','pune','dubai','abu dhabi','warsaw','krakow','rome','milan','madrid','barcelona','vienna','zurich','geneva','brussels','karachi','lahore','islamabad','dhaka','colombo','manila','cebu','kuala lumpur','tokyo','osaka','istanbul','ankara','riyadh','jeddah','doha','cairo','kampala','kigali','harare','lusaka','stockholm','oslo','copenhagen','helsinki','lisbon','porto','mexico city','guadalajara','sharjah','new york','chicago','los angeles','houston','seattle','boston']);
 
 const STOP = /\b(any|are|there|for|find|me|show|search|searching|looking|look|want|need|please|can|you|the|a|an|in|on|at|near|around|help|get|got|i|im|i'm|am|to|of|and|or|with|my|be|is|do|does|what|which|some|good|best|new|latest|current|open|available|work|working|move|moving|relocate|relocating|migrate|migrating|settle|from|who|how|where|when|go|going|would|like|could|should|about|into|out|up|that|this|these|those|have|has|as|by|it|its|am|us|we)\b/gi;
 
