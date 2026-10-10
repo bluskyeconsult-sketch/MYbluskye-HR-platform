@@ -439,6 +439,7 @@ function Navbar() {
                                         <a href="/support-tickets" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Support Tickets</a>
                                         <a href="/profile" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Profile</a>
                                         <a href="/applications" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Applications</a>
+                                        <a href="/career-coach" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Career Coach</a>
                                         <a href="/saved-jobs" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">Saved Jobs</a>
                                         <a href="/learning" className="block px-4 py-2 text-slate-300 hover:bg-slate-700 text-sm">My Learning</a>
                                         <hr className="border-slate-700 my-1" />
@@ -490,6 +491,7 @@ function Navbar() {
                                 <a href="/support-tickets" className="block py-2 text-slate-300 hover:text-white">Support Tickets</a>
                                 <a href="/profile" className="block py-2 text-slate-300 hover:text-white">Profile</a>
                                 <a href="/applications" className="block py-2 text-slate-300 hover:text-white">Applications</a>
+                                <a href="/career-coach" className="block py-2 text-slate-300 hover:text-white">Career Coach</a>
                                 <button onClick={handleLogout} className="block w-full text-left py-2 text-red-400">Logout</button>
                             </>
                         ) : (
@@ -544,6 +546,7 @@ function Footer() {
                             <li><a href="/blog" className="text-slate-400 text-sm hover:text-white transition">Career Blog</a></li>
                             <li><a href="/faq" className="text-slate-400 text-sm hover:text-white transition">FAQ</a></li>
                             <li><a href="/visa-pathways" className="text-slate-400 text-sm hover:text-white transition">Visa Pathways</a></li>
+                            <li><a href="/career-coach" className="text-slate-400 text-sm hover:text-white transition">Career Coach</a></li>
                             <li><a href="/pricing" className="text-slate-400 text-sm hover:text-white transition">Pricing Plans</a></li>
                             <li><a href="/pricing-explained" className="text-slate-400 text-sm hover:text-white transition">Pricing & Credits Explained</a></li>
                             {/* NEW (2026-08-16): the real, live footer had
@@ -665,6 +668,7 @@ const SignUpPage = lazy(() => import('./pages/SignUpPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const VisaPathwaysPage = lazy(() => import('./pages/VisaPathwaysPage'));
+const CareerCoachPage = lazy(() => import('./pages/CareerCoachPage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
 const TakeAssessment = lazy(() => import('./pages/TakeAssessment'));
@@ -1027,6 +1031,7 @@ function AppContent() {
                             <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
                             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
                             <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
+                            <Route path="/career-coach" element={<ProtectedRoute><CareerCoachPage /></ProtectedRoute>} />
                             <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
                             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
