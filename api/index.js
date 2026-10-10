@@ -1924,6 +1924,28 @@ async function findRelevantJobs(supabaseClient, userMessage) {
     }
 }
 
+// NEW (2026-10-10): lets the chat recommend real, published courses
+// (the chat previously knew nothing about courses at all).
+const COURSE_INTENT_KEYWORDS = /\b(course|courses|learn|learning|training|certificat|upskill|study|class|tutorial|qualif)\w*/i;
+async function findRelevantCourses(supabaseClient, userMessage) {
+    if (!COURSE_INTENT_KEYWORDS.test(userMessage)) return null;
+    try {
+        const words = userMessage
+            .replace(new RegExp(COURSE_INTENT_KEYWORDS.source, 'gi'), ' ')
+            .replace(/\b(any|are|there|for|find|me|show|search|looking|want|need|please|can|you|the|an|in|on|about|to|do|have|what|which|some|good|best|my|help|with|that|this|available|offer|platform)\b/gi, ' ')
+            .replace(/[^\w\s+#.-]/g, ' ').split(/\s+/).filter(w => w.length >= 4)
+            .sort((a, b) => b.length - a.length).slice(0, 2);
+        let query = supabaseClient.from('courses').select('id, title, category')
+            .eq('is_published', true).order('created_at', { ascending: false }).limit(6);
+        if (words.length > 0) query = query.or(words.flatMap(w => [`title.ilike.%${w}%`, `category.ilike.%${w}%`]).join(','));
+        const { data } = await query;
+        return data && data.length > 0 ? data : null;
+    } catch (error) {
+        console.warn('Course lookup within chat failed, continuing without course context:', error);
+        return null;
+    }
+}
+
 // NEW (2026-09-06): mirrors findRelevantJobs' exact pattern - searches
 // published books' chapter content for passages relevant to the user's
 // message, so responses can cite and quote real, uploaded book content
@@ -2115,6 +2137,31 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
 // what is written here (it has no memory of platform updates), so EDIT THIS
 // BLOCK whenever a feature ships or a rule changes, and update the date.
 const PLATFORM_KNOWLEDGE_NOTES = `
+Where things are on the platform (point users to the right page; never invent features or prices):
+- Jobs (/jobs): live job board with search and filters; Job Alerts (/job-alerts, needs an account) email matching jobs.
+- Courses (/courses): browse and enrol in courses; completing a course can earn a certificate. Use the course list supplied in the conversation when it is provided; never invent course titles.
+- Assessments (/assessments): skills and aptitude assessments; free users get 1 free assessment per month.
+- HR Tools (/hr-tools): CV Analyzer, Cover Letter Writer, Interview Simulator, Salary Calculator, LinkedIn Optimizer and more.
+- Hire VA (/hire-va): AI-powered virtual assistants. Workforce Marketplace (/workforce). Books (/books). Career Blog (/blog).
+- Pricing (/pricing) and how credits work (/pricing-explained); Affiliate Program (/affiliate); FAQ (/faq); Contact (/contact); Report Fraud (/report-fraud) and Safety Tips (/safety-tips) for job-scam concerns.
+- Employers can post jobs from their account; the banner offers a first job post free.
+
+Site guide - where to send users (use these exact paths; never invent pages or features not listed here):
+- Jobs (/jobs): the job board of admin-reviewed listings, including visa-sponsorship listings and jobs from verified sponsor employers' own careers pages. Employers can post jobs; first job free is promoted on the site.
+- Job alerts (/job-alerts, needs sign-in): save a search and get emailed matches.
+- Verified employers (/verified-employers): employers cross-checked against government sponsor registers.
+- Courses (/courses): published learning courses with certificates; new courses are added regularly.
+- Assessments (/assessments): skills and career assessments; free users get 1 free assessment per month.
+- HR Tools (/hr-tools): CV Analyzer, Cover Letter Writer, Interview Simulator, Salary Calculator, LinkedIn Optimizer and more.
+- Hire VA (/hire-va): AI-powered virtual assistants for employers and professionals.
+- Workforce (/workforce): the workforce marketplace connecting workers and employers; hiring decisions are made directly between them, off-platform.
+- Books (/books) and Blog (/blog): books by the platform's author and career/HR articles.
+- Pricing (/pricing, /pricing-explained): tiers Free, Registered, Professional ($39.99/month), Employer ($199.99/month), Business ($549.99/month); all prices in US dollars; AI features use credits. Do not quote other prices.
+- Affiliate (/affiliate), FAQ (/faq), About (/about), Contact (/contact), Safety Tips (/safety-tips), Report Fraud (/report-fraud).
+- ODUSBABA is a product of BluSkye Integrated Consult, pronounced "Blue Sky".
+
+How your job search works (be honest about it): you can see (1) real active listings on the platform's own job board that match the user's request, and (2) live results fetched at that moment from a few remote-job sources (Jobicy, Remotive, Himalayas, We Work Remotely), which have NOT been reviewed by the team and which you must label as unreviewed. You cannot see every job on the internet, you cannot see government job portals live, and you cannot apply for anyone. If nothing matches, say so plainly and suggest the Jobs page, a job alert, or widening the search. Never invent a job.
+
 Recent platform additions you can point users to:
 - Visa Pathways guide at /visa-pathways: plain-language summary of skilled-visa and settlement changes in the UK, New Zealand and Australia, with how to apply, official links and a role checker.
 - Install app: the site can be installed on a phone or computer home screen (Chrome/Edge: Install app button; iPhone: Share, then Add to Home Screen). No app store needed.
@@ -5836,6 +5883,7 @@ ${siteContext}`;
             // question might relate to book content regardless of
             // whether it's job-related at all.
             const relevantBooks = await findRelevantBookPassages(supabaseClient, message);
+            const relevantCourses = await findRelevantCourses(supabaseClient, message);
 
             // NEW (2026-08-27): live, on-demand external search - a
             // genuinely different feature from the job board's batch
@@ -5893,6 +5941,17 @@ ${siteContext}`;
                 }, ...messages];
             }
 
+            // NEW (2026-10-10): real, published courses, so the assistant
+            // can recommend them (with links) instead of staying silent
+            // about the Courses section.
+            if (relevantCourses && relevantCourses.length > 0) {
+                const courseContext = relevantCourses.map(c => `- "${c.title}"${c.category ? ` (${c.category})` : ''} - /courses/${c.id}`).join('\n');
+                messages = [{
+                    role: 'system',
+                    content: `The user may be asking about learning. These are real, published courses on the platform that may match:\n\n${courseContext}\n\nRecommend only courses from this list, by exact title, and link them as the path shown. If none fit, say so and point to /courses to browse everything. Never invent a course, price or certificate detail.`
+                }, ...messages];
+            }
+
             // NEW (2026-09-06): injects real book passages as a separate
             // system message, independent of the jobs block above, since
             // book relevance has nothing to do with job search intent.
@@ -5930,7 +5989,8 @@ ${siteContext}`;
                 provider,
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining,
                 jobsReferenced: relevantJobs ? relevantJobs.length : 0,
-                booksReferenced: relevantBooks ? relevantBooks.length : 0
+                booksReferenced: relevantBooks ? relevantBooks.length : 0,
+                coursesReferenced: relevantCourses ? relevantCourses.length : 0
             });
         } catch (error) {
             // FIXED (2026-08-27): confirmed real leakage — a credit was
