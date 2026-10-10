@@ -34,6 +34,7 @@
 //    third-party APIs into rate-limiting or blocking this platform.
 
 import { countryName } from './jobIntent.js';
+import { joobleKeyFor, joobleEndpoint } from './joobleConfig.js';
 
 const LIVE_SEARCH_TIMEOUT_MS = 8000;
 const PER_SOURCE_TIMEOUT_MS = 6000;
@@ -245,14 +246,18 @@ async function fetchAdzunaLive(terms, country, city) {
 }
 
 
-export function joobleConfigured() { return !!process.env.JOOBLE_API_KEY; }
+// Chat only spends Jooble's lifetime allowance (500 requests per country key)
+// when JOOBLE_CHAT_LIVE=on is set in Vercel. By default chat reads jobs the
+// daily board fetch has already collected instead (see index.js), which costs
+// no Jooble requests.
+export function joobleChatEnabled(code) { return process.env.JOOBLE_CHAT_LIVE === 'on' && !!joobleKeyFor(code); }
 export function reedConfigured() { return !!process.env.REED_API_KEY; }
 
 async function fetchJoobleLive(terms, country, city) {
-    if (!joobleConfigured()) return [];
+    if (!joobleChatEnabled(country)) return [];
     try {
         const location = city ? city.replace(/\b\w/g, c => c.toUpperCase()) : (countryName(country) || '');
-        const response = await fetch(`https://jooble.org/api/${process.env.JOOBLE_API_KEY}`, {
+        const response = await fetch(joobleEndpoint(country), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keywords: (terms || []).join(' '), location, page: 1 })
@@ -366,13 +371,13 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
         // board refresh uses Jooble separately.
         const otherCoverage = (ADZUNA_COUNTRIES[country] && adzunaConfigured()) || (country === 'GB' && reedConfigured());
         if (!otherCoverage) {
-            if (joobleConfigured()) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
+            if (joobleChatEnabled(country)) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
             else providerExistsButOff = true;
         }
         if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
         if (searches.length === 0) {
             notes.push(providerExistsButOff
-                ? 'The live job sources are not switched on yet, so no live results could be fetched for this country.'
+                ? 'Live external search is not switched on for this country, so only the platform\'s own job board and the jobs it collected recently could be searched.'
                 : 'No live job source covers this country yet.');
         }
     } else {
