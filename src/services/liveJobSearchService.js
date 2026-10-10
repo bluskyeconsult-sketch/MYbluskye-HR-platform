@@ -195,7 +195,7 @@ export async function logLiveSearch(supabaseClient, userId, keyword) {
 // NEW (2026-10-10): keyed sources for more countries, all optional and all
 // skipped silently (with an honest note to the user) when the key is missing:
 //   ADZUNA_APP_ID + ADZUNA_APP_KEY  - AU, NZ, GB, US, CA, DE, FR, IN, ...
-//   JOOBLE_API_KEY                  - 60+ countries incl. NG, GH, KE, IE, AE...
+//   JOOBLE_API_KEY_<CODE>           - one key per country site (see joobleConfig.js)
 //   REED_API_KEY                    - UK (reed.co.uk)
 // Keep these server-side only (Vercel environment variables).
 //
