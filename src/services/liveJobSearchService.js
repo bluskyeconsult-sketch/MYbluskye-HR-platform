@@ -361,8 +361,14 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
             if (reedConfigured()) searches.push(withTimeout(fetchReedLive(termList, city), PER_SOURCE_TIMEOUT_MS, []));
             else providerExistsButOff = true;
         }
-        if (joobleConfigured()) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
-        else providerExistsButOff = true;
+        // Jooble's default key allowance is small (500 requests), so chat only
+        // spends it where no other live source can cover the country. The job
+        // board refresh uses Jooble separately.
+        const otherCoverage = (ADZUNA_COUNTRIES[country] && adzunaConfigured()) || (country === 'GB' && reedConfigured());
+        if (!otherCoverage) {
+            if (joobleConfigured()) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
+            else providerExistsButOff = true;
+        }
         if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
         if (searches.length === 0) {
             notes.push(providerExistsButOff
