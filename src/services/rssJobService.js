@@ -50,6 +50,7 @@
 // decoupled from the frontend singleton. Every internal call in this
 // file keeps working unchanged, since they all reference this same
 // local `supabase` binding - only where it comes from changed.
+import { JOOBLE_COUNTRIES, JOOBLE_QUERIES, SPONSORSHIP_KEYWORDS, joobleKeyFor, joobleEndpoint } from './joobleConfig.js';
 import { createClient } from '@supabase/supabase-js';
 import { XMLParser } from 'fast-xml-parser';
 
@@ -586,34 +587,29 @@ const API_SOURCES = {
 };
 
 
-// NEW (2026-10-10): Jooble (https://jooble.org/api/about) as a job-board
-// source for countries the other feeds do not reach. Jooble is POST-only and
-// puts the API key in the URL path, so each search is built at request time
-// from the JOOBLE_API_KEY environment variable (Vercel, server-side only):
-// the key never appears in this file, in the admin source list, or in the
-// connection test.
+// NEW (2026-10-10): Jooble as the main source for sponsorship / settlement /
+// permanent-residency jobs in many countries. READ joobleConfig.js first - it
+// records what Jooble actually says about its limits:
+//   * a free key has a LIFETIME limit of 500 requests (not monthly);
+//   * every country needs its own key from that country's Jooble domain
+//     (a jooble.org key is US-only).
+// So this spends requests carefully: one source per country that has a key
+// set in Vercel (JOOBLE_API_KEY_AU, _NZ, ...), QUERIES_PER_REFRESH searches per
+// country per daily refresh, rotating through that country's query list by
+// day. At 2 per day a key lasts about 250 days and sees ~20 different
+// settlement/PR/sponsorship searches in turn. Raise QUERIES_PER_REFRESH only
+// if Jooble raises your limit.
 //
-// To add a search, add one line to JOOBLE_SEARCHES. Keep the list short:
-// every search is one API call per refresh, and Jooble does not publish its
-// limits. Results land in external_jobs for admin review exactly like every
-// other source - nothing reaches the public board unapproved.
-//
-// CHECK JOOBLE'S TERMS before relying on this for stored listings: the
-// documentation I could find does not say whether results may be stored or
-// must show Jooble attribution. Listings are labelled "Jooble - <country>"
-// and link back through Jooble's own link.
-const JOOBLE_SEARCHES = [
-    { code: 'AU', country: 'Australia', keywords: 'visa sponsorship',  tag: 'sponsorship' },
-    { code: 'AU', country: 'Australia', keywords: 'healthcare',        tag: 'healthcare' },
-    { code: 'NZ', country: 'New Zealand', keywords: 'visa sponsorship', tag: 'sponsorship' },
-    { code: 'NZ', country: 'New Zealand', keywords: 'healthcare',       tag: 'healthcare' },
-    { code: 'IE', country: 'Ireland',   keywords: 'visa sponsorship',  tag: 'sponsorship' },
-    { code: 'CA', country: 'Canada',    keywords: 'visa sponsorship',  tag: 'sponsorship' }
-    // Add more once Jooble raises the key limit (default is 500 requests -
-    // each line here costs one request per daily refresh):
-    // { code: 'GB', country: 'United Kingdom', keywords: 'skilled worker visa sponsorship', tag: 'sponsorship' },
-    // { code: 'AE', country: 'United Arab Emirates', keywords: 'nurse', tag: 'healthcare' }
-];
+// Results land in external_jobs for admin review like every other source.
+// Jooble's terms of use were not published on the pages checked: read them
+// before relying on stored listings. The key never appears in this file.
+const QUERIES_PER_REFRESH = 2;
+
+function joobleQueryFor(code, slot) {
+    const list = JOOBLE_QUERIES[code] || ['visa sponsorship'];
+    const dayNumber = Math.floor(Date.now() / 86400000);
+    return list[(dayNumber * QUERIES_PER_REFRESH + slot) % list.length];
+}
 
 function parseJoobleResponse(data, code) {
     const list = Array.isArray(data?.jobs) ? data.jobs : [];
@@ -636,29 +632,33 @@ function parseJoobleResponse(data, code) {
     }).filter(job => job.title);
 }
 
-for (const search of JOOBLE_SEARCHES) {
-    const key = `JOOBLE_${search.code}_${search.tag.toUpperCase()}`;
-    API_SOURCES[key] = {
-        name: `Jooble - ${search.country} (${search.tag})`,
-        country: search.code,
-        // Display only - the real request (with the key) is built by buildRequest().
-        url: 'https://jooble.org/api/(key hidden)',
-        type: 'api',
-        is_active: true,
-        priority: 4,
-        requiresEnv: 'JOOBLE_API_KEY',
-        skipConnectionTest: true,
-        sponsorship_keywords: search.tag === 'sponsorship' ? ['visa sponsorship', 'sponsorship', 'sponsor'] : [],
-        buildRequest() {
-            return {
-                url: `https://jooble.org/api/${String(process.env.JOOBLE_API_KEY || '').trim()}`,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: { keywords: search.keywords, location: search.country, page: 1 }
-            };
-        },
-        parseFunction: (data) => parseJoobleResponse(data, search.code)
-    };
+for (const [code, cfg] of Object.entries(JOOBLE_COUNTRIES)) {
+    for (let slot = 0; slot < QUERIES_PER_REFRESH; slot++) {
+        API_SOURCES[`JOOBLE_${code}_${slot + 1}`] = {
+            name: `Jooble - ${cfg.name} (search ${slot + 1})`,
+            country: code,
+            // Display only - the real request (with the key) is built by buildRequest().
+            url: `https://${cfg.host}/api/(key hidden)`,
+            type: 'api',
+            // Only countries with a key set are active, so unconfigured ones
+            // add no noise (in the browser, where env vars do not exist, the
+            // admin list simply shows them inactive).
+            get is_active() { return !!joobleKeyFor(code); },
+            priority: 4,
+            requiresEnv: cfg.env,
+            skipConnectionTest: true,
+            sponsorship_keywords: SPONSORSHIP_KEYWORDS,
+            buildRequest() {
+                return {
+                    url: joobleEndpoint(code),
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: { keywords: joobleQueryFor(code, slot), location: cfg.name, page: 1, ResultOnPage: 50 }
+                };
+            },
+            parseFunction: (data) => parseJoobleResponse(data, code)
+        };
+    }
 }
 
 // ============================================
@@ -1603,7 +1603,7 @@ async function saveJobToDatabase(job, sponsorship) {
             .from('external_jobs')
             .insert({
                 title: (job.title || '').substring(0, 500),
-                company: (job.source_name || '').substring(0, 500),
+                company: (job.company || job.source_name || '').substring(0, 500),
                 location: (job.location || job.source_country || '').substring(0, 500),
                 description: job.description,
                 salary_range: (job.salary_range || '').substring(0, 500),
