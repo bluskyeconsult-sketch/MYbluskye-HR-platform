@@ -2110,6 +2110,22 @@ async function generateCertificatePdf({ learnerName, courseTitle, issuedAt, veri
     return await pdfDoc.save();
 }
 
+// NEW (2026-10-10): what the ODUSBABA chat assistant knows about recent
+// platform additions and the visa/settlement changes. The model only knows
+// what is written here (it has no memory of platform updates), so EDIT THIS
+// BLOCK whenever a feature ships or a rule changes, and update the date.
+const PLATFORM_KNOWLEDGE_NOTES = `
+Recent platform additions you can point users to:
+- Visa Pathways guide at /visa-pathways: plain-language summary of skilled-visa and settlement changes in the UK, New Zealand and Australia, with how to apply, official links and a role checker.
+- Install app: the site can be installed on a phone or computer home screen (Chrome/Edge: Install app button; iPhone: Share, then Add to Home Screen). No app store needed.
+
+Visa and settlement knowledge (last checked 10 October 2026). Always say it is general information, not immigration advice, that rules change, and that the user must confirm on the official government site. Never promise eligibility or outcomes. Clearly separate what is in force from what is only proposed:
+- UK: the 10-year "earned settlement" baseline is PROPOSED, not law; the 5-year route still applies and no firm start date or transition rules exist. In force: B2 English for settlement on affected routes from 26 March 2027; ILR fee 3,226 pounds per person from 8 April 2026. Proposed: about 5 years for earnings above 50,270 pounds, about 3 years above 125,140 pounds, up to 15 years for jobs below degree level (including much of care), a 12,570 pound minimum income test. Skilled Worker generally needs a degree-level job, a licensed sponsor and about 41,700 pounds or the going rate; the overseas care worker route closed to new applicants in July 2025 (verify on gov.uk). If someone already qualifies for ILR under current rules, applying when eligible is the safer approach.
+- New Zealand (from 24 August 2026, per adviser sources, verify with Immigration New Zealand): Skilled Work Experience pathway (skill levels 1-3, 5 years relevant experience including 2 years in NZ at 1.1 times median wage) and Trades and Technician pathway (Level 4+ qualification, 4 years experience including 18 months in NZ at median wage). Red-list roles cannot use the new pathways; amber-list roles need 5 years of NZ experience including 2 years at 1.2 times median wage. Median wage figure, fees and points table are not confirmed here.
+- Australia (per adviser sources, verify with Home Affairs): Skills in Demand visa replaced the 482 on 7 December 2025. Streams: Core Skills (Core Skills Occupation List, income threshold AUD 73,150 for 2025-26), Specialist Skills (at least AUD 135,000, no list), Labour Agreement. Four-year visa, one year minimum work experience, application charge AUD 3,115, PR via the Employer Nomination Scheme.
+- Occupation lists change often: do not state whether a specific job is on a list unless you are certain; point users to the Visa Pathways page role checker and the official source.
+`;
+
 const handlers = {
     // ========== FAVORITES & CART (NEW, 2026-09-20) ==========
     'toggle-course-favorite': async (req, res) => {
@@ -5805,7 +5821,7 @@ ${siteContext}`;
             const { data: chatUserProfile } = userId
                 ? await supabaseClient.from('profiles').select('tier').eq('id', userId).maybeSingle()
                 : { data: null };
-            const realSystemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The platform's live job board draws from real, current sources spanning the UK, Ireland, Canada, Australia, the USA, Germany, Nigeria and West Africa (Jobberman, BrighterMonday, Careers24, MyJobMag), the wider EU (via EURES), plus dedicated visa-sponsorship-focused listings and remote/global roles. If asked which countries or regions are covered, answer honestly based on this real list - never imply broader coverage than this. The user's current tier is: ${chatUserProfile?.tier || (userId ? 'free' : 'visitor')}.`;
+            const realSystemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The platform's live job board draws from real, current sources spanning the UK, Ireland, Canada, Australia, the USA, Germany, Nigeria and West Africa (Jobberman, BrighterMonday, Careers24, MyJobMag), the wider EU (via EURES), plus dedicated visa-sponsorship-focused listings and remote/global roles. If asked which countries or regions are covered, answer honestly based on this real list - never imply broader coverage than this. The user's current tier is: ${chatUserProfile?.tier || (userId ? 'free' : 'visitor')}.\n${PLATFORM_KNOWLEDGE_NOTES}`;
             messages = [{ role: 'system', content: realSystemPrompt }, ...messages];
 
             // NEW (2026-08-16): job-search awareness — if the message
