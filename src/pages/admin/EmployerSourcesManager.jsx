@@ -39,6 +39,41 @@ export default function EmployerSourcesManager() {
     const [inviting, setInviting] = useState(false);
     const [inviteResult, setInviteResult] = useState(null);
 
+    // NEW (2026-10-10): contact email finder - looks up the addresses a
+    // company has itself published on its own website. Nothing is sent
+    // or saved until an admin clicks Save on a specific address.
+    const [finder, setFinder] = useState(null); // { source, loading, result, error, savedEmail }
+
+    async function handleFindEmails(source) {
+        setFinder({ source, loading: true, result: null, error: null, savedEmail: null });
+        try {
+            const result = await authenticatedFetch('admin-find-contact-emails', { sourceId: source.id });
+            setFinder(f => f && ({ ...f, loading: false, result }));
+        } catch (err) {
+            setFinder(f => f && ({ ...f, loading: false, error: err.message }));
+        }
+    }
+
+    async function handleSaveEmail(email) {
+        try {
+            await authenticatedFetch('admin-save-contact-email', { sourceId: finder.source.id, email });
+            setFinder(f => ({ ...f, savedEmail: email }));
+            setSources(list => list.map(x => x.id === finder.source.id ? { ...x, contact_email: email } : x));
+        } catch (err) {
+            setFinder(f => ({ ...f, error: err.message }));
+        }
+    }
+
+    async function handleSuppressEmail(email) {
+        if (!window.confirm(`Add ${email} to the do-not-contact list? It will never be offered again.`)) return;
+        try {
+            await authenticatedFetch('admin-suppress-contact-email', { email });
+            setFinder(f => ({ ...f, result: { ...f.result, emails: f.result.emails.filter(e => e.email !== email) } }));
+        } catch (err) {
+            setFinder(f => ({ ...f, error: err.message }));
+        }
+    }
+
     useEffect(() => { loadSources(); }, []);
 
     async function loadSources() {
@@ -448,7 +483,14 @@ export default function EmployerSourcesManager() {
                                             <span className="text-slate-500 text-xs">Inactive</span>
                                         )}
                                     </td>
-                                    <td className="p-3">
+                                    <td className="p-3 whitespace-nowrap">
+                                        <button
+                                            onClick={() => handleFindEmails(source)}
+                                            className="mr-3 text-slate-400 hover:text-primary-400 transition text-xs inline-flex items-center gap-1"
+                                            title={source.contact_email ? `Saved: ${source.contact_email}` : 'Find contact emails published on this company\'s website'}
+                                        >
+                                            <Mail className="w-4 h-4" /> {source.contact_email ? 'Emails' : 'Find emails'}
+                                        </button>
                                         {source.is_active && (
                                             <button
                                                 onClick={() => handleDeactivate(source.id, source.company_name)}
@@ -465,6 +507,59 @@ export default function EmployerSourcesManager() {
                     </table>
                 )}
             </div>
+
+            {finder && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setFinder(null)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                                <h3 className="text-white font-semibold">Contact emails - {finder.source.company_name}</h3>
+                                <p className="text-slate-500 text-xs mt-0.5">Only addresses the company has published on its own website. Nothing is sent from here.</p>
+                            </div>
+                            <button onClick={() => setFinder(null)} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+                        </div>
+
+                        {finder.loading && <p className="text-slate-400 text-sm flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking the contact, about and careers pages...</p>}
+                        {finder.error && <p className="text-red-400 text-sm">{finder.error}</p>}
+                        {finder.savedEmail && <p className="text-emerald-400 text-sm mb-2">Saved {finder.savedEmail} to this company.</p>}
+
+                        {finder.result && (
+                            <>
+                                {finder.result.emails.length === 0 ? (
+                                    <p className="text-slate-400 text-sm">No published email found on {finder.result.pagesChecked.length} page(s) checked. Many sites use a contact form instead - open the site and look for one.</p>
+                                ) : (
+                                    <ul className="space-y-2">
+                                        {finder.result.emails.map(e => (
+                                            <li key={e.email} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-white text-sm break-all">{e.email}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        <span className={e.kind.startsWith('Personal') ? 'text-amber-400' : e.kind.startsWith('Recruit') ? 'text-emerald-400' : ''}>{e.kind}</span>
+                                                        {!e.sameSite && <span className="text-amber-400"> - different domain from the website</span>}
+                                                        {' - found on '}<a href={e.foundOn} target="_blank" rel="noopener noreferrer" className="underline">{new URL(e.foundOn).pathname || '/'}</a>
+                                                    </p>
+                                                </div>
+                                                <div className="flex gap-2 shrink-0">
+                                                    <button onClick={() => handleSaveEmail(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-primary-600 text-white hover:bg-primary-500">Save</button>
+                                                    <button onClick={() => navigator.clipboard?.writeText(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-slate-700 text-white hover:bg-slate-600">Copy</button>
+                                                    <button onClick={() => handleSuppressEmail(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-slate-800 text-red-300 hover:bg-slate-700" title="Never offer or contact this address">Do not contact</button>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {finder.result.skipped?.length > 0 && (
+                                    <details className="mt-3 text-xs text-slate-500">
+                                        <summary className="cursor-pointer">{finder.result.skipped.length} page(s) not read</summary>
+                                        <ul className="mt-1 space-y-0.5">{finder.result.skipped.map((p, i) => <li key={i}>{p.url} - {p.reason}</li>)}</ul>
+                                    </details>
+                                )}
+                                <p className="text-slate-600 text-[11px] mt-3">Personal addresses (name@) are shown with a warning: under UK PECR / UK GDPR, cold emailing named individuals needs more care than role addresses such as careers@. Always include an opt-out and honour it.</p>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
