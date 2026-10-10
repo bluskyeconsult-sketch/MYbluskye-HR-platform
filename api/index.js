@@ -19,6 +19,7 @@ import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from '../src/services/liveJobSearchService.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
+import { findContactEmails } from '../src/services/contactEmailFinder.js';
 // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
 // was importing fetchExternalJobs()/testRSSConnection() directly and
 // running them IN THE ADMIN'S OWN BROWSER, not on the server. CORS
@@ -11349,6 +11350,59 @@ Return the lesson as markdown with this structure:
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
+    },
+
+    // NEW (2026-10-10): finds the contact emails a company has published on its
+    // own website. Admin-only, rate-limited, nothing is sent or saved by this call.
+    'admin-find-contact-emails': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`admin-find-emails:${auth.userId}`, 20)) {
+            return res.status(429).json({ error: 'Too many lookups - wait a minute and try again.' });
+        }
+        try {
+            let { sourceId, url } = req.body || {};
+            if (sourceId) {
+                const { data: src } = await supabaseClient.from('verified_employer_sources').select('website_url').eq('id', sourceId).maybeSingle();
+                url = src?.website_url;
+            }
+            if (!url) return res.status(400).json({ success: false, error: 'This company has no website URL yet - add one first.' });
+            let suppressed = new Set();
+            try {
+                const { data: sup } = await supabaseClient.from('contact_suppression').select('email');
+                suppressed = new Set((sup || []).map(r => (r.email || '').toLowerCase()));
+            } catch { /* table optional until the SQL is run */ }
+            const result = await findContactEmails(url, { suppressed });
+            return res.status(result.success ? 200 : 400).json(result);
+        } catch (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Saves a chosen address onto the company record (contact_email).
+    'admin-save-contact-email': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { sourceId, email } = req.body || {};
+        const clean = String(email || '').trim().toLowerCase();
+        if (!sourceId || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return res.status(400).json({ success: false, error: 'A valid sourceId and email are required.' });
+        const { error } = await supabaseClient.from('verified_employer_sources').update({ contact_email: clean }).eq('id', sourceId);
+        if (error) return res.status(500).json({ success: false, error: error.message });
+        return res.status(200).json({ success: true });
+    },
+
+    // Adds an address to the do-not-contact list so it is never offered again.
+    'admin-suppress-contact-email': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const clean = String((req.body || {}).email || '').trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return res.status(400).json({ success: false, error: 'A valid email is required.' });
+        const { error } = await supabaseClient.from('contact_suppression').upsert({ email: clean, reason: (req.body || {}).reason || 'admin', added_by: auth.userId }, { onConflict: 'email' });
+        if (error) return res.status(500).json({ success: false, error: error.message });
+        return res.status(200).json({ success: true });
     },
 
     // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
