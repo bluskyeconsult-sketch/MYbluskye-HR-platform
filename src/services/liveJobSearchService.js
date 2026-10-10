@@ -33,6 +33,8 @@
 //    short-lived cache, so this can't be abused to hammer free
 //    third-party APIs into rate-limiting or blocking this platform.
 
+import { countryName } from './jobIntent.js';
+
 const LIVE_SEARCH_TIMEOUT_MS = 8000;
 const PER_SOURCE_TIMEOUT_MS = 6000;
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -189,6 +191,13 @@ export async function logLiveSearch(supabaseClient, userId, keyword) {
     }
 }
 
+// NEW (2026-10-10): keyed sources for more countries, all optional and all
+// skipped silently (with an honest note to the user) when the key is missing:
+//   ADZUNA_APP_ID + ADZUNA_APP_KEY  - AU, NZ, GB, US, CA, DE, FR, IN, ...
+//   JOOBLE_API_KEY                  - 60+ countries incl. NG, GH, KE, IE, AE...
+//   REED_API_KEY                    - UK (reed.co.uk)
+// Keep these server-side only (Vercel environment variables).
+//
 // NEW (2026-10-10): country-aware sources. Adzuna covers Australia, New
 // Zealand, UK, US, Canada, Germany and others through ONE official API
 // (free keys: https://developer.adzuna.com). It needs two environment
@@ -227,6 +236,65 @@ async function fetchAdzunaLive(terms, country, city) {
             external_apply_url: j.redirect_url,
             source_name: `Adzuna ${country}`,
             source_country: country,
+            sponsorship_eligible: null,
+            live: true
+        }));
+    } catch {
+        return [];
+    }
+}
+
+
+export function joobleConfigured() { return !!process.env.JOOBLE_API_KEY; }
+export function reedConfigured() { return !!process.env.REED_API_KEY; }
+
+async function fetchJoobleLive(terms, country, city) {
+    if (!joobleConfigured()) return [];
+    try {
+        const location = city ? city.replace(/\b\w/g, c => c.toUpperCase()) : (countryName(country) || '');
+        const response = await fetch(`https://jooble.org/api/${process.env.JOOBLE_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywords: (terms || []).join(' '), location, page: 1 })
+        });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.jobs || []).slice(0, 10).map(j => ({
+            title: (j.title || '').replace(/<[^>]+>/g, ''),
+            company: j.company || j.source || null,
+            location: j.location || null,
+            description: (j.snippet || '').replace(/<[^>]+>/g, ' ').substring(0, 400),
+            salary_range: j.salary || null,
+            external_apply_url: j.link,
+            source_name: 'Jooble',
+            source_country: country,
+            sponsorship_eligible: null,
+            live: true
+        }));
+    } catch {
+        return [];
+    }
+}
+
+async function fetchReedLive(terms, city) {
+    if (!reedConfigured()) return [];
+    try {
+        const params = new URLSearchParams({ resultsToTake: '10' });
+        if (terms && terms.length) params.set('keywords', terms.join(' '));
+        if (city) params.set('locationName', city);
+        const auth = Buffer.from(`${process.env.REED_API_KEY}:`).toString('base64');
+        const response = await fetch(`https://www.reed.co.uk/api/1.0/search?${params.toString()}`, { headers: { Authorization: `Basic ${auth}` } });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.results || []).map(j => ({
+            title: j.jobTitle,
+            company: j.employerName || null,
+            location: j.locationName || null,
+            description: (j.jobDescription || '').substring(0, 400),
+            salary_range: j.minimumSalary && j.maximumSalary ? `${Math.round(j.minimumSalary)} - ${Math.round(j.maximumSalary)}` : null,
+            external_apply_url: j.jobUrl || (j.jobId ? `https://www.reed.co.uk/jobs/${j.jobId}` : null),
+            source_name: 'Reed',
+            source_country: 'GB',
             sponsorship_eligible: null,
             live: true
         }));
@@ -284,13 +352,23 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
     let searches;
     if (country) {
         searches = [];
+        let providerExistsButOff = false;
         if (ADZUNA_COUNTRIES[country]) {
             if (adzunaConfigured()) searches.push(withTimeout(fetchAdzunaLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
-            else notes.push('The live country job source is not switched on yet, so no live results could be fetched for this country.');
-        } else {
-            notes.push('No live job source covers this country yet.');
+            else providerExistsButOff = true;
         }
+        if (country === 'GB') {
+            if (reedConfigured()) searches.push(withTimeout(fetchReedLive(termList, city), PER_SOURCE_TIMEOUT_MS, []));
+            else providerExistsButOff = true;
+        }
+        if (joobleConfigured()) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
+        else providerExistsButOff = true;
         if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
+        if (searches.length === 0) {
+            notes.push(providerExistsButOff
+                ? 'The live job sources are not switched on yet, so no live results could be fetched for this country.'
+                : 'No live job source covers this country yet.');
+        }
     } else {
         const kw = termList.join(' ');
         searches = [
@@ -306,6 +384,8 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
     // A term must appear in the title or description; the country feeds are
     // already filtered by the provider but remote feeds are not.
     allJobs = allJobs.filter(j => matchesTerms(j, termList));
+    const seenJobs = new Set();
+    allJobs = allJobs.filter(j => { const k = `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}|${(j.location || '').toLowerCase()}`; if (seenJobs.has(k)) return false; seenJobs.add(k); return true; });
     if (sponsorshipOnly) notes.push('Live results are not checked for visa sponsorship - the user must confirm sponsorship with the employer.');
 
     const data = { jobs: allJobs.slice(0, 10), notes };
