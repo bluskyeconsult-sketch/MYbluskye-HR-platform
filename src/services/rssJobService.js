@@ -608,9 +608,11 @@ const JOOBLE_SEARCHES = [
     { code: 'NZ', country: 'New Zealand', keywords: 'visa sponsorship', tag: 'sponsorship' },
     { code: 'NZ', country: 'New Zealand', keywords: 'healthcare',       tag: 'healthcare' },
     { code: 'IE', country: 'Ireland',   keywords: 'visa sponsorship',  tag: 'sponsorship' },
-    { code: 'CA', country: 'Canada',    keywords: 'visa sponsorship',  tag: 'sponsorship' },
-    { code: 'GB', country: 'United Kingdom', keywords: 'skilled worker visa sponsorship', tag: 'sponsorship' },
-    { code: 'AE', country: 'United Arab Emirates', keywords: 'nurse', tag: 'healthcare' }
+    { code: 'CA', country: 'Canada',    keywords: 'visa sponsorship',  tag: 'sponsorship' }
+    // Add more once Jooble raises the key limit (default is 500 requests -
+    // each line here costs one request per daily refresh):
+    // { code: 'GB', country: 'United Kingdom', keywords: 'skilled worker visa sponsorship', tag: 'sponsorship' },
+    // { code: 'AE', country: 'United Arab Emirates', keywords: 'nurse', tag: 'healthcare' }
 ];
 
 function parseJoobleResponse(data, code) {
