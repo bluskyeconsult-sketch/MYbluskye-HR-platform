@@ -2216,6 +2216,17 @@ async function coachGate(req, res, sb) {
     return { userId };
 }
 
+// AI features (reviews and drafts) need a registered account, like skill submission.
+// Everyone who signs up is created as 'registered' or higher; 'free' is the
+// unregistered tier. Admins and testers are never blocked here (testers have their own cap).
+async function coachAiAllowed(sb, userId) {
+    const { data: p } = await sb.from('profiles').select('tier, user_type, is_tester').eq('id', userId).maybeSingle();
+    if (!p) return false;
+    if (p.is_tester || p.user_type === 'admin' || p.user_type === 'super_admin') return true;
+    return p.tier !== 'free';
+}
+const COACH_UPGRADE_MESSAGE = { success: false, code: 'upgrade_required', error: 'Skills reviews and application drafts are for registered members. Please complete your registration or choose a plan on the Pricing page. Job matching stays free.' };
+
 async function coachLoadGoal(sb, userId) {
     const { data } = await sb.from('career_goals').select('*').eq('user_id', userId).maybeSingle();
     return data && Array.isArray(data.target_roles) && data.target_roles.length ? data : null;
@@ -11631,6 +11642,7 @@ Return the lesson as markdown with this structure:
             sb = getSupabase();
             const gate = await coachGate(req, res, sb); if (!gate) return;
             userId = gate.userId;
+            if (!(await coachAiAllowed(sb, userId))) return res.status(403).json(COACH_UPGRADE_MESSAGE);
             const goal = await coachLoadGoal(sb, userId);
             if (!goal) return res.status(400).json({ success: false, error: 'Save your job goal first.' });
 
@@ -11678,6 +11690,7 @@ Return the lesson as markdown with this structure:
             sb = getSupabase();
             const gate = await coachGate(req, res, sb); if (!gate) return;
             userId = gate.userId;
+            if (!(await coachAiAllowed(sb, userId))) return res.status(403).json(COACH_UPGRADE_MESSAGE);
             const { jobSource, jobId } = req.body || {};
             if (!['board', 'external'].includes(jobSource) || !jobId) return res.status(400).json({ success: false, error: 'jobSource and jobId are required' });
             const goal = await coachLoadGoal(sb, userId);
