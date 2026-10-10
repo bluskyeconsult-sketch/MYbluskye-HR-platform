@@ -55,6 +55,7 @@ export default function CareerCoachPage() {
     const [matches, setMatches] = useState(null);
     const [searched, setSearched] = useState(0);
     const [pack, setPack] = useState(null);
+    const [checked, setChecked] = useState(false);
     const [apps, setApps] = useState([]);
 
     const load = useCallback(async () => {
@@ -129,7 +130,7 @@ export default function CareerCoachPage() {
         setBusy(`pack-${job.id}`); setError('');
         try {
             const r = await coachFetch('career-coach-pack', { jobSource: job.job_source, jobId: job.id });
-            setPack({ ...r, job });
+            setPack({ ...r, job }); setChecked(false);
             setTab('pack');
         } catch (e) { handleError(e); } finally { setBusy(''); }
     }
@@ -313,7 +314,11 @@ export default function CareerCoachPage() {
                                 {pack.pack.gaps_to_be_honest_about?.length > 0 && <div><h3 className="text-amber-400 font-semibold">Be honest about</h3><ul className="list-disc ml-5 mt-1 space-y-1">{pack.pack.gaps_to_be_honest_about.map((b, i) => <li key={i}>{b}</li>)}</ul></div>}
                                 {pack.pack.interview_questions?.length > 0 && <div><h3 className="text-white font-semibold">Interview practice</h3><ul className="space-y-2 mt-1">{pack.pack.interview_questions.map((q, i) => <li key={i} className="border border-slate-800 rounded-lg p-3"><p className="text-white">{q.question}</p><p className="text-slate-400">{q.answer_outline}</p></li>)}</ul></div>}
                                 {pack.pack.checklist?.length > 0 && <div><h3 className="text-white font-semibold">Before you apply</h3><ul className="list-disc ml-5 mt-1 space-y-1">{pack.pack.checklist.map((b, i) => <li key={i}>{b}</li>)}</ul></div>}
-                                <div className="flex flex-wrap gap-3 pt-2">
+                                <label className="flex items-start gap-2 text-sm text-slate-200 border border-slate-700 rounded-lg p-3">
+                                    <input type="checkbox" className="mt-1" checked={checked} onChange={e => setChecked(e.target.checked)} />
+                                    I have read this draft and everything in it is true about me. I will remove anything that is not.
+                                </label>
+                                <div className={`flex flex-wrap gap-3 pt-2 ${checked ? '' : 'opacity-40 pointer-events-none'}`} aria-disabled={!checked}>
                                     {pack.applyUrl && <a href={pack.applyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm">Open the employer's page <ExternalLink className="w-4 h-4" /></a>}
                                     {pack.onPlatform && <Link to={`/jobs/${pack.jobId}`} className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm">Apply on ODUSBABA</Link>}
                                     <button onClick={() => setTab('tracker')} className="px-4 py-2 border border-slate-600 text-slate-300 hover:text-white rounded-lg text-sm">Saved in Tracker</button>
