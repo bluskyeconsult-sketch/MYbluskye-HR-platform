@@ -1234,6 +1234,23 @@ function normalizeForCacheKey(text) {
 // features, so building them for real rather than leaving flagged.
 // ============================================
 
+// Illustration house styles and picture "kinds" for course lessons (see generateLessonImage).
+const LESSON_IMAGE_STYLES = {
+    modern: 'Clean modern flat vector illustration, soft gradients, a calm limited palette, generous white space.',
+    corporate: 'Professional corporate illustration, restrained blues and greys, tidy geometric shapes, polished and trustworthy.',
+    minimal: 'Minimalist line-and-shape illustration, very few elements, one accent colour, plenty of empty space.',
+    illustrative: 'Warm hand-drawn editorial illustration, friendly characters, rich but harmonious colours, textured shading.',
+    realistic: 'Candid documentary-style photograph, natural light, realistic people, shallow depth of field, muted colours.'
+};
+const LESSON_IMAGE_KINDS = {
+    concept: 'A visual metaphor that makes an abstract idea easy to picture.',
+    scene: 'A realistic everyday workplace or real-world scene that shows the idea in action.',
+    process: 'A simple visual sequence or flow shown with shapes, arrows and icons, no words.',
+    comparison: 'Two contrasting situations shown side by side so the difference is obvious, no words.',
+    cover: 'A wide, inviting hero illustration that sets the theme of the lesson.',
+    icon: 'A single bold, simple, centred icon-style illustration on a plain background.'
+};
+
 async function callOpenAIImage(prompt) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -9702,13 +9719,13 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             // limit for the same, real prompt-size/cost reasons.
             const truncatedSource = sourceMaterial ? sourceMaterial.slice(0, 12000) : null;
             const userPrompt = truncatedSource
-                ? `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Base this directly on the real source material below - use its actual content and examples rather than generic knowledge. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed.\n\nSource material:\n${truncatedSource}`
-                : `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Write in plain text, no markdown headers needed - just well-organized paragraphs. Aim for genuinely useful depth, not a placeholder.`;
+                ? `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Base this directly on the real source material below - use its actual content and examples rather than generic knowledge. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'.\n\nSource material:\n${truncatedSource}`
+                : `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'. Aim for genuinely useful depth, not a placeholder.`;
 
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
                 { role: 'user', content: userPrompt }
-            ], 1200, 0.7);
+            ], 1800, 0.7);
 
             const content = data.choices[0].message.content;
             return res.status(200).json({ success: true, content });
@@ -9973,20 +9990,81 @@ Return the lesson as markdown with this structure:
         }
     },
 
+    // REWORKED (2026-10-11): lesson illustrations are now uploaded to storage and a short public URL is
+    // returned (previously a ~1 MB base64 string was returned and saved into the database row, which
+    // bloats the database). Adds house-style presets and "kind" guidance so illustrations look consistent
+    // across a course. Images never contain text: AI image models draw letters badly.
     generateLessonImage: async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`lesson-image:${auth.userId}`, 40)) return res.status(429).json({ error: 'Too many images requested - please wait a few minutes.' });
 
-        const { prompt } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+        const prompt = String(req.body?.prompt || '').trim().slice(0, 700);
+        if (prompt.length < 8) return res.status(400).json({ error: 'Describe the picture in a few words.' });
+        const style = LESSON_IMAGE_STYLES[String(req.body?.style || '')] ? String(req.body.style) : 'modern';
+        const kind = LESSON_IMAGE_KINDS[String(req.body?.kind || '')] ? String(req.body.kind) : 'concept';
+        const wide = req.body?.shape === 'wide';
 
         try {
-            const imageBuffer = await callOpenAIImage(prompt);
-            const imageUrl = `data:image/png;base64,${imageBuffer.toString('base64')}`;
-            return res.status(200).json({ success: true, imageUrl });
+            const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+            if (!apiKey) throw new Error('OpenAI API key not configured');
+            const fullPrompt = `${LESSON_IMAGE_KINDS[kind]} Subject: ${prompt}. Style: ${LESSON_IMAGE_STYLES[style]} Absolutely no text, letters, numbers, logos, captions or watermarks anywhere in the image.`;
+            const response = await fetch('https://api.openai.com/v1/images/generations', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: 'gpt-image-1-mini', prompt: fullPrompt, n: 1, size: wide ? '1536x1024' : '1024x1024', quality: 'low' })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error?.message || `HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            const buffer = Buffer.from(data.data[0].b64_json, 'base64');
+            const filePath = `course-illustrations/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.png`;
+            const { error: uploadError } = await supabaseClient.storage.from('avatars').upload(filePath, buffer, { contentType: 'image/png', upsert: false });
+            if (uploadError) throw uploadError;
+            const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(filePath);
+            logOpenAIUsage('image', { model: 'gpt-image-1-mini', flatCost: 0.006 });
+            logToMediaLibrary(supabaseClient, { userId: auth.userId, mediaType: 'image', source: 'course_lesson', url: urlData.publicUrl, fileName: filePath, fileSizeBytes: buffer.length, estimatedCost: 0.006 });
+            return res.status(200).json({ success: true, imageUrl: urlData.publicUrl, estimatedCost: 0.006 });
         } catch (error) {
             console.error('Lesson image generation error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-10-11): reads a lesson and proposes where pictures would help and what they should show.
+    // Nothing is generated or charged here beyond one small text request; the admin picks which to create.
+    'suggest-lesson-illustrations': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`lesson-suggest:${auth.userId}`, 30)) return res.status(429).json({ error: 'Too many requests - please wait.' });
+
+        const lessonTitle = String(req.body?.lessonTitle || '').trim().slice(0, 200);
+        const content = String(req.body?.content || '').trim().slice(0, 6000);
+        const courseTitle = String(req.body?.courseTitle || '').trim().slice(0, 200);
+        if (!lessonTitle && !content) return res.status(400).json({ error: 'Add a lesson title or some content first.' });
+
+        try {
+            const kinds = Object.keys(LESSON_IMAGE_KINDS).join(', ');
+            const ai = await callOpenAI([
+                { role: 'system', content: `You are an instructional designer choosing pictures for an online lesson. Suggest 2 to 4 illustrations that genuinely help a learner understand or remember something: a visual metaphor, a real-world scene, a process shown visually, a comparison. Never suggest a picture that needs readable text, labels, charts with numbers or screenshots, because the image tool cannot draw text. Reply as JSON: {"ideas":[{"kind":"<one of: ${kinds}>","prompt":"<what the picture shows, 1-2 sentences, no text in the image>","alt":"<short description for screen readers>","caption":"<one short caption for learners>","placement":"start|middle|end"}]}` },
+                { role: 'user', content: `Course: ${courseTitle || 'n/a'}\nLesson: ${lessonTitle}\n\nLesson text:\n${content || '(no text yet)'}` }
+            ], 700, 0.6, { type: 'json_object' });
+            let parsed = {};
+            try { parsed = JSON.parse(ai.choices[0].message.content); } catch { parsed = {}; }
+            const ideas = (Array.isArray(parsed.ideas) ? parsed.ideas : []).slice(0, 4).map(i => ({
+                kind: LESSON_IMAGE_KINDS[String(i?.kind)] ? String(i.kind) : 'concept',
+                prompt: String(i?.prompt || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 400),
+                alt: String(i?.alt || '').replace(/[\r\n"\]\[()]+/g, ' ').trim().slice(0, 160),
+                caption: String(i?.caption || '').replace(/[\r\n"\]\[()]+/g, ' ').trim().slice(0, 160),
+                placement: ['start', 'middle', 'end'].includes(i?.placement) ? i.placement : 'middle'
+            })).filter(i => i.prompt.length >= 8);
+            return res.status(200).json({ success: true, ideas });
+        } catch (error) {
+            console.error('suggest-lesson-illustrations error:', error);
             return res.status(200).json({ success: false, error: error.message });
         }
     },
