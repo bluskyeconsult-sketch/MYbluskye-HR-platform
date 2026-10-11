@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { COACH_CONSENT_TEXT } from '../services/careerCoachService';
-import { Compass, ShieldCheck, Loader2, AlertTriangle, ExternalLink, Copy, Check, Target, BarChart3, Briefcase, ClipboardList, Trash2 } from 'lucide-react';
+import { Compass, ShieldCheck, Loader2, AlertTriangle, ExternalLink, Copy, Check, Target, BarChart3, Briefcase, ClipboardList, Trash2, Upload, Download, FilePlus } from 'lucide-react';
 
 const COUNTRY_OPTIONS = [
     ['AU', 'Australia'], ['NZ', 'New Zealand'], ['GB', 'United Kingdom'], ['IE', 'Ireland'], ['CA', 'Canada'],
@@ -46,6 +46,10 @@ function CopyButton({ text }) {
 export default function CareerCoachPage() {
     const [loading, setLoading] = useState(true);
     const [consent, setConsent] = useState(null);   // {status, granted, versionCurrent}
+    const [live, setLive] = useState(true);
+    const [adult, setAdult] = useState(false);
+    const [custom, setCustom] = useState({ title: '', company: '', description: '' });
+    const [cvNote, setCvNote] = useState('');
     const [error, setError] = useState('');
     const [busy, setBusy] = useState('');
     const [tab, setTab] = useState('goal');
@@ -62,6 +66,7 @@ export default function CareerCoachPage() {
         setLoading(true); setError('');
         try {
             const r = await coachFetch('career-coach-status');
+            setLive(r.live !== false);
             setConsent(r.consent);
             if (r.goal) {
                 setHasGoal(true);
@@ -114,6 +119,43 @@ export default function CareerCoachPage() {
         } catch (e) { handleError(e); } finally { setBusy(''); }
     }
 
+    async function uploadCv(file) {
+        if (!file) return;
+        setBusy('cv'); setError(''); setCvNote('');
+        try {
+            if (file.size > 3 * 1024 * 1024) throw new Error('That file is too large. Please use a CV under 3 MB.');
+            const dataBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+                reader.onerror = () => reject(new Error('Could not read that file.'));
+                reader.readAsDataURL(file);
+            });
+            const r = await coachFetch('career-coach-parse-cv', { fileName: file.name, dataBase64 });
+            setGoalForm(f => ({ ...f, cv_text: r.text }));
+            setCvNote(`CV text read from ${file.name}${r.truncated ? ' (shortened to fit)' : ''}. Check it below, remove anything you do not want processed, then save. The file itself was not kept.`);
+        } catch (e) { handleError(e); } finally { setBusy(''); }
+    }
+
+    async function exportData() {
+        setBusy('export'); setError('');
+        try {
+            const r = await coachFetch('career-coach-export');
+            const blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'odusbaba-career-coach-data.json'; a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) { setError(e.message); } finally { setBusy(''); }
+    }
+
+    async function makeCustomPack() {
+        setBusy('custom'); setError('');
+        try {
+            const r = await coachFetch('career-coach-pack', { customJob: custom });
+            setPack({ ...r, job: { title: custom.title, company: custom.company } }); setChecked(false);
+            setTab('pack');
+        } catch (e) { handleError(e); } finally { setBusy(''); }
+    }
+
     async function runAnalysis() {
         setBusy('analyse'); setError('');
         try { const r = await coachFetch('career-coach-analyse'); setAnalysis(r.analysis); }
@@ -161,6 +203,17 @@ export default function CareerCoachPage() {
         );
     }
 
+    if (!live) {
+        return (
+            <div className="min-h-screen bg-slate-950 py-16 px-4"><div className="max-w-xl mx-auto text-center">
+                <Compass className="w-10 h-10 text-primary-400 mx-auto mb-3" />
+                <h1 className="text-2xl font-bold text-white mb-2">Career Coach is opening soon</h1>
+                <p className="text-slate-400">We are finishing the final checks. Everything else on ODUSBABA works as normal.</p>
+                <Link to="/jobs" className="inline-block mt-5 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">Browse jobs</Link>
+            </div></div>
+        );
+    }
+
     if (!consent.granted) {
         const declined = consent.status === 'declined' || consent.status === 'withdrawn';
         return (
@@ -181,10 +234,15 @@ export default function CareerCoachPage() {
                         <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">How it is used</p>
                         <ul className="list-disc ml-5 text-sm text-slate-300 mb-3 space-y-1">{COACH_CONSENT_TEXT.how.map(u => <li key={u}>{u}</li>)}</ul>
                         <p className="text-sm text-slate-300">{COACH_CONSENT_TEXT.rights}</p>
+                        <p className="text-sm mt-3"><Link to="/career-coach-notice" target="_blank" className="text-primary-400 hover:underline">Read the full Career Coach privacy notice and terms</Link></p>
                     </div>
+                    <label className="flex items-start gap-2 mt-5 text-sm text-slate-200">
+                        <input type="checkbox" className="mt-1" checked={adult} onChange={e => setAdult(e.target.checked)} />
+                        I am 18 or over, I have read the information above and the notice, and I agree to my information being used and sent to OpenAI in the United States as described.
+                    </label>
                     {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
                     <div className="flex flex-wrap gap-3 mt-6">
-                        <button disabled={!!busy} onClick={() => choose('granted')} className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium disabled:opacity-50">
+                        <button disabled={!!busy || !adult} onClick={() => choose('granted')} className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium disabled:opacity-50">
                             {busy === 'consent' ? 'Saving...' : 'Yes, turn on Career Coach'}
                         </button>
                         {!declined && <button disabled={!!busy} onClick={() => choose('declined')} className="px-5 py-2.5 border border-slate-600 text-slate-300 hover:text-white rounded-lg">No thanks</button>}
@@ -195,7 +253,7 @@ export default function CareerCoachPage() {
     }
 
     const tabs = [
-        ['goal', 'My goal', Target], ['gaps', 'Skills gap', BarChart3], ['matches', 'Matches', Briefcase], ['pack', 'Application draft', ClipboardList], ['tracker', 'Tracker', ClipboardList]
+        ['goal', 'My goal', Target], ['gaps', 'Skills gap', BarChart3], ['matches', 'Matches', Briefcase], ['custom', 'Any job', FilePlus], ['pack', 'Application draft', ClipboardList], ['tracker', 'Tracker', ClipboardList]
     ];
     const input = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500';
 
@@ -207,7 +265,11 @@ export default function CareerCoachPage() {
                         <div className="p-2 bg-primary-500/20 rounded-lg"><Compass className="w-6 h-6 text-primary-400" /></div>
                         <div><h1 className="text-2xl font-bold text-white">Career Coach</h1><p className="text-slate-400 text-sm">You review everything and apply yourself. Nothing is sent to employers for you.</p></div>
                     </div>
-                    <button onClick={withdraw} disabled={!!busy} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-400"><Trash2 className="w-3 h-3" />Turn off and delete my data</button>
+                    <div className="flex flex-wrap gap-4 items-center">
+                        <Link to="/career-coach-notice" target="_blank" className="text-xs text-slate-400 hover:text-white">Privacy notice and terms</Link>
+                        <button onClick={exportData} disabled={!!busy} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white"><Download className="w-3 h-3" />Download my data</button>
+                        <button onClick={withdraw} disabled={!!busy} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-400"><Trash2 className="w-3 h-3" />Turn off and delete my data</button>
+                    </div>
                 </div>
 
                 <div className="flex gap-1 overflow-x-auto border-b border-slate-800 mb-6">
@@ -218,6 +280,7 @@ export default function CareerCoachPage() {
                     ))}
                 </div>
                 {error && <p className="mb-4 text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{error}</p>}
+                <p className="mb-4 text-xs text-slate-500">Career Coach gives general information and drafting help. It is not an employment agency and not immigration or legal advice, and it cannot tell you whether you qualify for a visa. Check official government websites. <Link to="/visa-pathways" className="underline">Visa Pathways</Link></p>
 
                 {tab === 'goal' && (
                     <div className="space-y-4 bg-slate-900 border border-slate-800 rounded-xl p-5">
@@ -242,7 +305,12 @@ export default function CareerCoachPage() {
                         </div>
                         <div><label className="block text-sm text-slate-300 mb-1">Your experience in a few lines (true facts only)</label>
                             <textarea rows={4} className={input} value={goalForm.experience_summary} onChange={e => setGoalForm({ ...goalForm, experience_summary: e.target.value })} /></div>
-                        <div><label className="block text-sm text-slate-300 mb-1">Paste your CV text (needed for application drafts)</label>
+                        <div><label className="block text-sm text-slate-300 mb-1">Your CV text (needed for application drafts)</label>
+                            <label className="inline-flex items-center gap-2 mb-2 px-3 py-1.5 border border-slate-600 rounded-lg text-xs text-slate-200 hover:text-white cursor-pointer">
+                                {busy === 'cv' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}Upload a CV (PDF or Word .docx, up to 3 MB)
+                                <input type="file" accept=".pdf,.docx" className="hidden" onChange={e => { uploadCv(e.target.files?.[0]); e.target.value = ''; }} />
+                            </label>
+                            {cvNote && <p className="text-xs text-emerald-400 mb-2">{cvNote}</p>}
                             <textarea rows={8} className={input} value={goalForm.cv_text} onChange={e => setGoalForm({ ...goalForm, cv_text: e.target.value })} placeholder="Copy and paste the text of your CV here" />
                             <p className="text-xs text-slate-500 mt-1">Only what you paste here is used. Remove anything you do not want processed, such as ID numbers or home address.</p></div>
                         <button onClick={saveGoal} disabled={!!busy || !goalForm.roles.trim()} className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'goal' ? 'Saving...' : 'Save my goal'}</button>
@@ -265,6 +333,7 @@ export default function CareerCoachPage() {
                                         {analysis.gaps?.length > 0 && <div><h3 className="text-amber-400 font-semibold mb-1">Gaps</h3><ul className="space-y-2">{analysis.gaps.map((g, i) => <li key={i} className="border border-slate-800 rounded-lg p-3"><p className="text-white">{g.gap}</p><p className="text-slate-400">{g.why_it_matters}</p><p>{g.how_to_close}</p></li>)}</ul></div>}
                                         {analysis.next_steps?.length > 0 && <div><h3 className="text-sky-400 font-semibold mb-1">Next steps</h3><ol className="list-decimal ml-5 space-y-1">{analysis.next_steps.map((s, i) => <li key={i}>{s}</li>)}</ol></div>}
                                         {analysis.courses?.length > 0 && <div><h3 className="text-white font-semibold mb-1">Courses on ODUSBABA that may help</h3><ul className="space-y-1">{analysis.courses.map(c => <li key={c.id}><Link className="text-primary-400 hover:underline" to={`/courses/${c.id}`}>{c.title}</Link></li>)}</ul></div>}
+                                        {analysis.notice_removed_eligibility_claim && <p className="text-xs text-amber-300">A statement about visa eligibility was removed from this review because Career Coach cannot give immigration advice.</p>}
                                         {analysis.visa_note && <p className="text-xs text-slate-500">{analysis.visa_note} See <Link className="underline" to="/visa-pathways">Visa Pathways</Link>.</p>}
                                         <p className="text-xs text-slate-500">AI-generated guidance. Check it against your own records.</p>
                                     </div>
@@ -298,6 +367,19 @@ export default function CareerCoachPage() {
                                 ))}
                             </>
                         )}
+                    </div>
+                )}
+
+                {tab === 'custom' && (
+                    <div className="space-y-4 bg-slate-900 border border-slate-800 rounded-xl p-5">
+                        <p className="text-sm text-slate-300">Found a job anywhere? Paste the advert and get a tailored draft. This works for any job, whether or not it is listed on ODUSBABA. (2 credits)</p>
+                        {!hasGoal && <p className="text-sm text-amber-300">Save your goal and CV text first (My goal tab).</p>}
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <input className={input} placeholder="Job title" value={custom.title} onChange={e => setCustom({ ...custom, title: e.target.value })} />
+                            <input className={input} placeholder="Employer (optional)" value={custom.company} onChange={e => setCustom({ ...custom, company: e.target.value })} />
+                        </div>
+                        <textarea rows={10} className={input} placeholder="Paste the full job advert here" value={custom.description} onChange={e => setCustom({ ...custom, description: e.target.value })} />
+                        <button onClick={makeCustomPack} disabled={!!busy || !hasGoal || !custom.title.trim() || custom.description.trim().length < 150} className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'custom' ? 'Preparing...' : 'Prepare my application (2 credits)'}</button>
                     </div>
                 )}
 
