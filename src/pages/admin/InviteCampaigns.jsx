@@ -43,8 +43,9 @@ function parseContacts(text) {
         if (!EMAIL_RE.test(e)) { invalid.push(email.slice(0, 60)); continue; }
         if (seen.has(e)) { duplicates++; continue; }
         seen.add(e);
-        const name = parts.find(p => p !== email && !p.includes('@')) || '';
-        contacts.push({ email: e, firstName: name.split(/\s+/)[0] || '' });
+        const others = parts.filter(p => p !== email && !p.includes('@'));
+        const [name = '', company = '', town = ''] = others;
+        contacts.push({ email: e, firstName: name.split(/\s+/)[0] || '', company, town });
     }
     return { contacts, invalid, duplicates };
 }
@@ -68,6 +69,9 @@ export default function InviteCampaigns() {
     const [attest, setAttest] = useState(false);
     const [previewHtml, setPreviewHtml] = useState('');
     const [busy, setBusy] = useState('');
+    // NEW (2026-10-11): saved message templates
+    const [templates, setTemplates] = useState([]);
+    const [templateId, setTemplateId] = useState('');
     const [meta, setMeta] = useState({ replyToConfigured: true, postalAddressConfigured: true, dailyCap: 200, testingMode: null });
 
     // ---- campaigns state
@@ -81,6 +85,55 @@ export default function InviteCampaigns() {
     const parsed = useMemo(() => parseContacts(contactsText), [contactsText]);
 
     useEffect(() => { if (tab === 'campaigns') loadList(); }, [tab]);
+    useEffect(() => { loadTemplates(); }, []);
+
+    async function loadTemplates() {
+        try { const r = await authenticatedFetch('invite-template-list'); setTemplates(r.templates || []); }
+        catch (e) { /* templates are optional; the page works without them (run add-invite-templates.sql) */ }
+    }
+
+    async function applyTemplate(id) {
+        setTemplateId(id);
+        const t = templates.find(x => x.id === id);
+        if (!t) return;
+        if (edited && !confirm('Loading a template replaces your edited message. Continue?')) return;
+        try {
+            const res = await authenticatedFetch(`invite-defaults&tier=${t.target_tier}`);
+            const d = res.defaults, c = t.content || {};
+            setTier(t.target_tier);
+            setForm({
+                subject: c.subject ?? d.subject, preheader: c.preheader ?? (d.preheader || ''), headline: c.headline ?? d.headline,
+                intro: c.intro ?? d.intro, closing: c.closing ?? (d.closing || ''), ps: c.ps ?? (d.ps || ''),
+                bullets: (c.bullets || d.bullets).map(b => ({ ...b })), stepsTitle: c.stepsTitle ?? (d.stepsTitle || ''),
+                steps: (c.steps || d.steps || []).map(x => ({ ...x })),
+                snapshot: { title: c.snapshot?.title ?? '', note: c.snapshot?.note ?? '', rows: (c.snapshot?.rows || []).map(r => ({ ...r })) }
+            });
+            setMeta({ replyToConfigured: res.replyToConfigured, postalAddressConfigured: res.postalAddressConfigured, dailyCap: res.dailyCap, testingMode: res.testingMode });
+            setEdited(true);
+            setPreviewHtml('');
+            toast.success(`Loaded template: ${t.name}`);
+        } catch (e) { toast.error(e.message); }
+    }
+
+    async function saveAsTemplate() {
+        if (!tier || !form) return toast.error('Choose an audience first.');
+        const nm = (window.prompt('Name this template (saving with an existing name replaces it):') || '').trim();
+        if (!nm) return;
+        try {
+            const r = await authenticatedFetch('invite-template-save', { name: nm, tier, ...form });
+            toast.success(r.replaced ? 'Template updated' : 'Template saved');
+            loadTemplates();
+        } catch (e) { toast.error(e.message); }
+    }
+
+    async function deleteTemplate() {
+        const t = templates.find(x => x.id === templateId);
+        if (!t) return;
+        if (t.is_preset) return toast.error('Built-in templates cannot be deleted.');
+        if (!confirm(`Delete template "${t.name}"?`)) return;
+        try { await authenticatedFetch('invite-template-delete', { id: t.id }); setTemplateId(''); loadTemplates(); toast.success('Template deleted'); }
+        catch (e) { toast.error(e.message); }
+    }
 
     async function loadList() {
         setLoadingList(true);
@@ -229,6 +282,18 @@ export default function InviteCampaigns() {
                     {/* 1 AUDIENCE */}
                     <section>
                         <h2 className="text-white font-semibold mb-3">1. Who are you inviting?</h2>
+                        {templates.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                                <label className="text-xs text-slate-400">Start from a saved template:</label>
+                                <select value={templateId} onChange={e => applyTemplate(e.target.value)} className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                    <option value="">Choose a template...</option>
+                                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.is_preset ? ' (built-in)' : ''}</option>)}
+                                </select>
+                                {templateId && !templates.find(t => t.id === templateId)?.is_preset && (
+                                    <button onClick={deleteTemplate} className="text-xs text-red-400 hover:text-red-300">Delete template</button>
+                                )}
+                            </div>
+                        )}
                         <div className="grid sm:grid-cols-2 gap-3">
                             {TIERS.map(t => (
                                 <button key={t.key} onClick={() => chooseTier(t.key)} className={`text-left p-4 rounded-xl border transition ${tier === t.key ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-500'}`}>
@@ -242,7 +307,7 @@ export default function InviteCampaigns() {
                     {/* 2 CONTACTS */}
                     <section>
                         <h2 className="text-white font-semibold mb-1">2. Add their emails</h2>
-                        <p className="text-slate-400 text-xs mb-3">Paste one per line, or upload a CSV/text file. Format: <code className="text-slate-300">email</code> or <code className="text-slate-300">email, First name</code> (a first name makes the message personal). Max 500 per campaign.</p>
+                        <p className="text-slate-400 text-xs mb-3">Paste one per line, or upload a CSV/text file. Format: <code className="text-slate-300">email</code>, or <code className="text-slate-300">email, First name, Company, Town</code> (company and town fill <code className="text-slate-300">{'{{company}}'}</code> and <code className="text-slate-300">{'{{town}}'}</code> in the message) (a first name makes the message personal). Max 500 per campaign.</p>
                         <textarea rows={6} value={contactsText} onChange={e => setContactsText(e.target.value)} placeholder={'ada@example.com, Ada\nchidi@example.com, Chidi'} className={inputCls + ' font-mono'} />
                         <div className="flex flex-wrap items-center gap-3 mt-2">
                             <label className="text-xs px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 cursor-pointer flex items-center gap-1.5"><Upload className="w-3.5 h-3.5" /> Upload CSV / TXT<input type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" onChange={onFile} /></label>
@@ -268,7 +333,7 @@ export default function InviteCampaigns() {
                                         : <>Testing mode is <strong>OFF</strong>. Emails will show normal plan prices and the live referral commission (20% first payment, 10% renewals). Invitees are directed to the free Registered plan.</>}
                                 </div>
                             )}
-                            <p className="text-slate-400 text-xs mb-3">Written for this tier using your real plan limits. Edit anything. <code className="text-slate-300">{'{{firstName}}'}</code> is replaced with each person's first name (or "there").</p>
+                            <p className="text-slate-400 text-xs mb-3">Written for this tier using your real plan limits. Edit anything. <code className="text-slate-300">{'{{firstName}}'}</code> is replaced with each person's first name (or "there"); <code className="text-slate-300">{'{{company}}'}</code> and <code className="text-slate-300">{'{{town}}'}</code> with each contact's company and town (or "your organisation" / "your area").</p>
                             <div className="space-y-3">
                                 <div><label className="text-xs text-slate-400">Subject line</label><input className={inputCls} value={form.subject} onChange={e => setField('subject', e.target.value)} maxLength={150} /></div>
                                 <div><label className="text-xs text-slate-400">Preview text (the grey line shown beside the subject in the inbox)</label><input className={inputCls} value={form.preheader} onChange={e => setField('preheader', e.target.value)} maxLength={200} /></div>
@@ -328,6 +393,7 @@ export default function InviteCampaigns() {
                                 <div><label className="text-xs text-slate-400">Invite code to include (optional - needed only if tester registration is switched on)</label><input className={inputCls} value={testerCode} onChange={e => { setTesterCode(e.target.value); setPreviewHtml(''); }} placeholder="e.g. ABCD2345" maxLength={32} /></div>
                             </div>
                             <div className="flex flex-wrap gap-2 mt-4">
+                                <button onClick={saveAsTemplate} disabled={!!busy} className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50"><Plus className="w-4 h-4" /> Save as template</button>
                                 <button onClick={doPreview} disabled={!!busy} className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50">{busy === 'preview' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} Preview</button>
                                 <button onClick={doTest} disabled={!!busy} className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50">{busy === 'test' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send a test to me</button>
                             </div>
