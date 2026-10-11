@@ -71,6 +71,9 @@ export default function AdminDashboard() {
     // any time to resume real payment collection instantly.
     const [freeAccessMode, setFreeAccessMode] = useState(false);
     const [changingFreeAccess, setChangingFreeAccess] = useState(false);
+    // NEW (2026-10-11): date on which plans taken during free access end automatically
+    // (daily database job expire_free_access, see add-free-access-expiry.sql)
+    const [freeAccessEndDate, setFreeAccessEndDate] = useState('');
 
     useEffect(() => {
         loadFreeAccessMode();
@@ -84,8 +87,25 @@ export default function AdminDashboard() {
                 .eq('config_key', 'free_access_mode')
                 .maybeSingle();
             setFreeAccessMode(data?.config_value?.enabled === true);
+            const { data: endRow } = await supabase
+                .from('system_config')
+                .select('config_value')
+                .eq('config_key', 'free_access_end_date')
+                .maybeSingle();
+            setFreeAccessEndDate(endRow?.config_value?.date || '');
         } catch (err) {
             console.error('Failed to load free access mode:', err);
+        }
+    }
+
+    async function handleFreeAccessEndDate(value) {
+        setFreeAccessEndDate(value);
+        try {
+            await supabase
+                .from('system_config')
+                .upsert({ config_key: 'free_access_end_date', config_value: { date: value || null } }, { onConflict: 'config_key' });
+        } catch (err) {
+            alert('Failed to save the end date: ' + err.message);
         }
     }
 
@@ -93,7 +113,7 @@ export default function AdminDashboard() {
         const newValue = !freeAccessMode;
         const confirmMsg = newValue
             ? 'Enable Free Access Mode? Users will be able to select any paid tier and get it immediately, with no payment — tier rules and limits stay fully real for testing. Remember to disable this before you want real payments to start.'
-            : 'Disable Free Access Mode? Real Stripe checkout will resume immediately for all tier upgrades.';
+            : 'Disable Free Access Mode? Real Stripe checkout resumes immediately for new upgrades. Plans taken during free access end on the end date shown below (or at the next daily run if no end date is set), and those users get a notification asking them to subscribe to keep their plan.';
         if (!confirm(confirmMsg)) return;
 
         setChangingFreeAccess(true);
@@ -266,6 +286,16 @@ export default function AdminDashboard() {
                                     ? 'Users get any tier immediately, free — tier rules and limits stay real for testing.'
                                     : 'Tier upgrades go through real Stripe checkout.'}
                             </p>
+                            <label className="flex items-center gap-2 mt-2 text-slate-300 text-sm">
+                                Free plans end on:
+                                <input
+                                    type="date"
+                                    value={freeAccessEndDate}
+                                    onChange={(e) => handleFreeAccessEndDate(e.target.value)}
+                                    className="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-white text-sm"
+                                />
+                                <span className="text-slate-500 text-xs">Users are warned 14 and 3 days before, then moved to Registered automatically. Free Access switches off on this date.</span>
+                            </label>
                         </div>
                     </div>
                     <button
