@@ -156,7 +156,21 @@ export default function CourseDetail() {
                     .eq('course_id', id)
                     .order('sort_order', { ascending: true });
                 if (!lessonsError && lessonsData) {
-                    setLessons(lessonsData);
+                    // NEW (2026-10-11): attach each lesson's saved illustrations (course_images) so the
+                    // lesson reader can show them. Optional: lessons still load if this lookup fails.
+                    let withImages = lessonsData;
+                    try {
+                        const ids = lessonsData.map(l => l.id);
+                        if (ids.length) {
+                            const { data: imgs } = await supabase.from('course_images').select('lesson_id, image_url, alt_text').in('lesson_id', ids);
+                            if (imgs && imgs.length) {
+                                withImages = lessonsData.map(l => ({ ...l, images: imgs.filter(im => im.lesson_id === l.id) }));
+                            }
+                        }
+                    } catch (imgErr) {
+                        console.warn('Lesson images unavailable:', imgErr.message);
+                    }
+                    setLessons(withImages);
                 }
             } catch (e) {
                 console.warn('No structured lesson content available for this course:', e.message);
