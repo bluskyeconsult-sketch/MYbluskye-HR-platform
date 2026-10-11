@@ -557,6 +557,7 @@ const INVITE_REMINDER_AFTER_DAYS = 5;
 const INVITE_LAWFUL_BASES = ['existing_relationship', 'consent', 'business_contact', 'personal_network'];
 
 function inviteSiteUrl() { return (process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, ''); }
+const inviteTplMsg = (m) => /invite_templates|schema cache|does not exist/i.test(String(m)) ? 'Saved templates are not set up yet. Run add-invite-templates.sql in the Supabase SQL editor, then try again.' : m;
 function inviteApiUrl(action, token) { return `${inviteSiteUrl()}/api/index?action=${action}&t=${encodeURIComponent(token)}`; }
 function cleanInviteName(n) { return String(n || '').replace(/[<>"\r\n\t\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); }
 function cleanInviteField(n) { return String(n || '').replace(/[<>"\r\n\t\u0000-\u001f{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100); }
@@ -8669,7 +8670,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             return res.status(200).json({ success: true, templates: data || [] });
         } catch (error) {
             console.error('invite-template-list error:', error.message);
-            return res.status(500).json({ success: false, error: error.message });
+            return res.status(500).json({ success: false, error: inviteTplMsg(error.message) });
         }
     },
 
@@ -8693,7 +8694,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             return res.status(200).json({ success: true, id: data.id, replaced: !!existing });
         } catch (error) {
             console.error('invite-template-save error:', error.message);
-            return res.status(500).json({ success: false, error: error.message });
+            return res.status(500).json({ success: false, error: inviteTplMsg(error.message) });
         }
     },
 
