@@ -9,9 +9,9 @@ export const NOTICE_UPDATED = '10 October 2026';
 
 export const LEGAL_ENTITY = {
     name: 'BluSkye Integrated Consult',            // trading name; confirm the registered legal name
-    legalName: '[REGISTERED LEGAL NAME AND COMPANY NUMBER]',
-    address: '[REGISTERED ADDRESS]',
-    privacyEmail: '[PRIVACY CONTACT EMAIL]',
+    legalName: 'Joseph Odugboye, sole trader',
+    address: 'Oxford, United Kingdom',
+    privacyEmail: 'privacy@bluskyeconsult.com',
     icoNumber: '[ICO REGISTRATION NUMBER]',
     governingLaw: 'England and Wales'               // confirm
 };
