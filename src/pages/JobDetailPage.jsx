@@ -80,11 +80,25 @@ export default function JobDetailPage() {
     // reasonable 45-day window from datePosted rather than guessing
     // at an unconfirmed column name. If a real expiry field does
     // exist, prefer that instead once confirmed.
-    function computeValidThrough(postedAt) {
-      const posted = postedAt ? new Date(postedAt) : new Date();
-      const validThrough = new Date(posted);
-      validThrough.setDate(validThrough.getDate() + 45);
-      return validThrough.toISOString();
+    // UPDATED (2026-10-11): matches the nightly expiry job (add-job-expiry.sql) so Google's
+    // "valid through" date is the date the job actually disappears: the application deadline
+    // if there is one, otherwise 45 days (outside adverts) or 60 days (employer jobs), never more than 90.
+    function computeValidThrough(job) {
+      const posted = new Date(job?.posted_at || job?.created_at || Date.now());
+      const external = job?.source_type === 'authoritative' && !!job?.external_apply_url;
+      const days = Math.min(external ? 45 : 60, 90);
+      const byAge = new Date(posted);
+      byAge.setDate(byAge.getDate() + days);
+      if (job?.application_deadline) {
+        const d = new Date(job.application_deadline);
+        if (!isNaN(d)) {
+          d.setDate(d.getDate() + 1);
+          const cap = new Date(posted);
+          cap.setDate(cap.getDate() + 90);
+          return (d < cap ? d : cap).toISOString();
+        }
+      }
+      return byAge.toISOString();
     }
 
     // NEW (2026-08-16): JobPosting structured data (JSON-LD) — unlocks
@@ -102,7 +116,7 @@ export default function JobDetailPage() {
       title: job.title,
       description: job.description || '',
       datePosted: job.posted_at || job.created_at,
-      validThrough: computeValidThrough(job.posted_at || job.created_at),
+      validThrough: computeValidThrough(job),
       employmentType: (job.job_type || 'FULL_TIME').toUpperCase().replace('-', '_'),
       hiringOrganization: {
         '@type': 'Organization',
