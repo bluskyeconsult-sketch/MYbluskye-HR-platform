@@ -8641,14 +8641,16 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         const built = buildInviteContent(req.body || {});
         if (built.error) return res.status(400).json({ error: built.error });
         try {
-            const { data: me } = await supabaseClient.from('profiles').select('email, first_name').eq('id', auth.userId).single();
-            if (!me?.email) return res.status(400).json({ error: 'Your admin profile has no email address on record.' });
+            // FIXED (2026-10-11): profiles has full_name, not first_name - the old select failed and the test always returned 400.
+            const { data: me } = await supabaseClient.from('profiles').select('email, full_name').eq('id', auth.userId).maybeSingle();
+            const toEmail = me?.email || auth.userEmail;
+            if (!toEmail) return res.status(400).json({ error: 'Your admin profile has no email address on record.' });
             await sendInviteEmail(getTransporter(), {
-                to: me.email, firstName: me.first_name || 'Alex', token: null, content: inviteMergeContent(built.content, { company: 'Sample Care Ltd', town: 'Oxford' }),
+                to: toEmail, firstName: cleanInviteName(String(me?.full_name || '').split(' ')[0]) || 'Alex', token: null, content: inviteMergeContent(built.content, { company: 'Sample Care Ltd', town: 'Oxford' }),
                 testerCode: built.testerCode, isReminder: false, isTest: true,
                 tier: built.tier, testingMode: await isTestingModeOn(supabaseClient)
             });
-            return res.status(200).json({ success: true, sentTo: me.email });
+            return res.status(200).json({ success: true, sentTo: toEmail });
         } catch (error) {
             console.error('invite-send-test error:', error.message);
             return res.status(500).json({ success: false, error: error.message });
