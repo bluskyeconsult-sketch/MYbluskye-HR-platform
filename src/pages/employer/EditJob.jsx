@@ -103,6 +103,7 @@ export default function EditJob() {
                 .from('jobs')
                 .update({
                     ...formData,
+                    application_deadline: formData.application_deadline || null,
                     salary_min: formData.salary_min ? parseInt(formData.salary_min) : null,
                     salary_max: formData.salary_max ? parseInt(formData.salary_max) : null
                     // Deliberately NOT touching status/compliance_status
