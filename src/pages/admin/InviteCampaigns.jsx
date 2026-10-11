@@ -217,7 +217,7 @@ export default function InviteCampaigns() {
             toast.success(`Campaign saved: ${r.accepted} eligible contacts` + (r.alreadyMembers ? `, ${r.alreadyMembers} already members removed` : '') + (r.suppressed ? `, ${r.suppressed} unsubscribed removed` : ''));
             setContactsText(''); setName(''); setAttest(false); setPreviewHtml('');
             setTab('campaigns');
-        } catch (e) { toast.error(e.message); }
+        } catch (e) { toast.error(e.message || 'Could not save the campaign.', { duration: 10000 }); }
         finally { setBusy(''); }
     }
 
