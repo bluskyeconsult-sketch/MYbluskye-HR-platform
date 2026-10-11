@@ -112,6 +112,9 @@ export default function ExternalJobsManager() {
     const [showSettings, setShowSettings] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [sourceFilter, setSourceFilter] = useState('all');
+    // NEW (2026-10-11): sources ticked in the "Sources" dropdown next to Select All. When any are
+    // ticked, Select All picks only jobs from those sources (empty = every job in the current view).
+    const [pickSources, setPickSources] = useState(new Set());
 
     // FIXED (2026-09-17): confirmed real, definitive root cause of
     // pending jobs never showing despite genuinely existing -
@@ -136,6 +139,12 @@ export default function ExternalJobsManager() {
     useEffect(() => {
         filterJobs();
     }, [jobs, searchTerm, sourceFilter]);
+
+    // NEW (2026-10-11): a selection made under one filter must never be approved under another
+    // (e.g. select all of one source, switch filter, approve the hidden rows by accident).
+    useEffect(() => {
+        setSelectedJobs(new Set());
+    }, [sourceFilter, searchTerm, activeTab]);
 
     async function loadJobs() {
         setLoading(true);
@@ -186,6 +195,11 @@ export default function ExternalJobsManager() {
         }
     }
 
+    // NEW (2026-10-11): Jooble listings are held until Jooble confirms in writing that they may be shown.
+    function isJoobleJob(job) {
+        return /^jooble/i.test(job?.source_name || '');
+    }
+
     function filterJobs() {
         let filtered = [...jobs];
         
@@ -199,7 +213,10 @@ export default function ExternalJobsManager() {
             );
         }
         
-        if (sourceFilter !== 'all') {
+        if (sourceFilter === '__not_jooble') {
+            // NEW (2026-10-11): approve every other source while Jooble's terms are being confirmed
+            filtered = filtered.filter(job => !isJoobleJob(job));
+        } else if (sourceFilter !== 'all') {
             filtered = filtered.filter(job => job.source_name === sourceFilter);
         }
         
@@ -291,6 +308,8 @@ export default function ExternalJobsManager() {
     // was creating two duplicate rows in jobs. Removed the redundant
     // function entirely; approveExternalJob() alone is complete and correct.
     async function handleApprove(jobId) {
+        const target = jobs.find(j => j.id === jobId);
+        if (isJoobleJob(target) && !confirm('Jooble has not yet confirmed in writing that its listings may be shown on your job board. Approve this Jooble job anyway?')) return;
         setProcessingId(jobId);
         try {
             await approveExternalJob(jobId);
@@ -336,6 +355,9 @@ export default function ExternalJobsManager() {
         }
         
         if (!confirm(`Approve ${selectedJobs.size} job(s)?`)) return;
+
+        const joobleCount = jobs.filter(j => selectedJobs.has(j.id) && isJoobleJob(j)).length;
+        if (joobleCount > 0 && !confirm(`${joobleCount} of the selected jobs come from Jooble, which has not yet confirmed in writing that its listings may be shown on your job board. Approve them anyway?`)) return;
         
         setProcessingId('batch');
         try {
@@ -390,12 +412,25 @@ export default function ExternalJobsManager() {
         }
     }
 
+    function selectableJobs() {
+        return pickSources.size === 0 ? filteredJobs : filteredJobs.filter(job => pickSources.has(job.source_name));
+    }
+
     function toggleSelectAll() {
-        if (selectedJobs.size === filteredJobs.length) {
+        const pool = selectableJobs();
+        const allSelected = pool.length > 0 && pool.every(job => selectedJobs.has(job.id));
+        if (allSelected) {
             setSelectedJobs(new Set());
         } else {
-            setSelectedJobs(new Set(filteredJobs.map(job => job.id)));
+            setSelectedJobs(new Set(pool.map(job => job.id)));
         }
+    }
+
+    function togglePickSource(name) {
+        const next = new Set(pickSources);
+        if (next.has(name)) next.delete(name); else next.add(name);
+        setPickSources(next);
+        setSelectedJobs(new Set());
     }
 
     function toggleSelectJob(jobId) {
@@ -714,10 +749,10 @@ export default function ExternalJobsManager() {
                         onChange={(e) => setSourceFilter(e.target.value)}
                         className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                     >
-                        {uniqueSources.map(source => (
-                            <option key={source} value={source}>
-                                {source === 'all' ? 'All Sources' : source}
-                            </option>
+                        <option value="all">All Sources</option>
+                        <option value="__not_jooble">All except Jooble</option>
+                        {uniqueSources.filter(source => source !== 'all').map(source => (
+                            <option key={source} value={source}>{source}</option>
                         ))}
                     </select>
                     <button
@@ -733,12 +768,32 @@ export default function ExternalJobsManager() {
             {/* Batch Actions (Pending only) */}
             {activeTab === 'pending' && filteredJobs.length > 0 && (
                 <div className="flex gap-2">
+                    <details className="relative">
+                        <summary className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm cursor-pointer list-none select-none">
+                            Sources {pickSources.size > 0 ? `(${pickSources.size} chosen)` : '(all)'} &#9662;
+                        </summary>
+                        <div className="absolute z-20 mt-1 w-72 max-h-72 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg p-2 shadow-xl">
+                            {Array.from(new Set(filteredJobs.map(j => j.source_name).filter(Boolean))).sort().map(name => {
+                                const count = filteredJobs.filter(j => j.source_name === name).length;
+                                return (
+                                    <label key={name} className="flex items-center gap-2 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800 rounded cursor-pointer">
+                                        <input type="checkbox" checked={pickSources.has(name)} onChange={() => togglePickSource(name)} />
+                                        <span className="flex-1 truncate">{name}</span>
+                                        <span className="text-slate-500">{count}{/^jooble/i.test(name) ? ' · held' : ''}</span>
+                                    </label>
+                                );
+                            })}
+                            {pickSources.size > 0 && (
+                                <button onClick={() => { setPickSources(new Set()); setSelectedJobs(new Set()); }} className="mt-1 w-full text-xs text-sky-400 hover:underline">Clear source choice</button>
+                            )}
+                        </div>
+                    </details>
                     <button
                         onClick={toggleSelectAll}
                         className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition"
                     >
-                        {selectedJobs.size === filteredJobs.length ? <Square className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
-                        {selectedJobs.size === filteredJobs.length ? 'Deselect All' : 'Select All'}
+                        {selectableJobs().length > 0 && selectableJobs().every(job => selectedJobs.has(job.id)) ? <Square className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
+                        {selectableJobs().length > 0 && selectableJobs().every(job => selectedJobs.has(job.id)) ? 'Deselect All' : `Select All (${selectableJobs().length})`}
                     </button>
                     <button
                         onClick={handleBatchApprove}
