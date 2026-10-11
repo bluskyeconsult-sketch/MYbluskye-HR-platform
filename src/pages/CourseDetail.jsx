@@ -37,6 +37,7 @@ import { supabase } from '../lib/supabase';
 import { authenticatedFetch } from '../lib/authFetch';
 import ShareMenu from '../components/ShareMenu';
 import ContentRenderer from '../components/ContentRenderer';
+import LessonReader from '../components/LessonReader';
 import { BookOpen, Clock, CheckCircle, Circle, Loader2, AlertCircle, ChevronLeft, ChevronRight, Award, Users, Star, X } from 'lucide-react';
 
 export default function CourseDetail() {
@@ -483,100 +484,29 @@ export default function CourseDetail() {
                 )}
             </div>
 
-            {/* REDESIGNED (2026-09-06): full-view, animated lesson reader -
-                replaces the inline accordion entirely. Opens as a
-                full-screen overlay with a slide/fade transition, matching
-                a real "next page" feel rather than a collapsed menu. */}
+            {/* REDESIGNED (2026-10-11): the lesson reader is now its own component
+                (src/components/LessonReader.jsx) - short steps, framed code, lesson
+                list and progress, instead of one long block of text. */}
             <AnimatePresence mode="wait">
-                {activeLessonId && (() => {
+                {activeLessonId && lessons.findIndex(l => l.id === activeLessonId) >= 0 && (() => {
                     const activeIdx = lessons.findIndex(l => l.id === activeLessonId);
                     const activeLesson = lessons[activeIdx];
-                    if (!activeLesson) return null;
-                    const done = completedLessonIds.includes(activeLesson.id);
-                    const isLast = activeIdx === lessons.length - 1;
-
                     return (
-                        <motion.div
+                        <LessonReader
                             key="lesson-reader"
-                            className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                        >
-                            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-                                <div className="flex items-center justify-between mb-6">
-                                    <button
-                                        onClick={() => setActiveLessonId(null)}
-                                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition"
-                                    >
-                                        <X className="w-5 h-5" /> Close
-                                    </button>
-                                    <span className="text-sm text-slate-500">
-                                        Lesson {activeIdx + 1} of {lessons.length}
-                                    </span>
-                                </div>
-
-                                <AnimatePresence mode="wait" custom={direction}>
-                                    <motion.div
-                                        key={activeLesson.id}
-                                        custom={direction}
-                                        initial={{ opacity: 0, x: direction > 0 ? 40 : -40 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        exit={{ opacity: 0, x: direction > 0 ? -40 : 40 }}
-                                        transition={{ duration: 0.25 }}
-                                    >
-                                        <div className="flex items-center gap-2 mb-2">
-                                            {done ? (
-                                                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                                            ) : (
-                                                <Circle className="w-5 h-5 text-slate-600 flex-shrink-0" />
-                                            )}
-                                            {activeLesson.duration_minutes && (
-                                                <span className="text-xs text-slate-500 flex items-center gap-1">
-                                                    <Clock className="w-3 h-3" /> {activeLesson.duration_minutes}m
-                                                </span>
-                                            )}
-                                        </div>
-                                        <h2 className="text-2xl font-bold text-white mb-6">{activeLesson.title}</h2>
-
-                                        {activeLesson.content ? (
-                                            <ContentRenderer content={activeLesson.content} showTableOfContents={false} />
-                                        ) : (
-                                            <p className="text-slate-500">No written content for this lesson yet.</p>
-                                        )}
-                                    </motion.div>
-                                </AnimatePresence>
-
-                                <div className="flex items-center justify-between mt-10 pt-6 border-t border-slate-800">
-                                    <button
-                                        onClick={goToPreviousLesson}
-                                        disabled={activeIdx === 0}
-                                        className="inline-flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition"
-                                    >
-                                        <ChevronLeft className="w-4 h-4" /> Previous
-                                    </button>
-
-                                    {!done && (
-                                        <button
-                                            onClick={() => toggleLessonComplete(activeLesson)}
-                                            disabled={updating}
-                                            className="px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
-                                        >
-                                            {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                            Mark Complete
-                                        </button>
-                                    )}
-
-                                    <button
-                                        onClick={goToNextLesson}
-                                        className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
-                                    >
-                                        {isLast ? 'Finish' : 'Next'} <ChevronRight className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-                        </motion.div>
+                            courseTitle={course?.title}
+                            lessons={lessons}
+                            activeIdx={activeIdx}
+                            direction={direction}
+                            done={completedLessonIds.includes(activeLesson.id)}
+                            updating={updating}
+                            completedLessonIds={completedLessonIds}
+                            onClose={() => setActiveLessonId(null)}
+                            onPrevLesson={goToPreviousLesson}
+                            onNextLesson={goToNextLesson}
+                            onComplete={() => toggleLessonComplete(activeLesson)}
+                            onSelectLesson={openLesson}
+                        />
                     );
                 })()}
             </AnimatePresence>
