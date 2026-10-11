@@ -21,7 +21,7 @@ import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from 
 import { parseJobSearchIntent } from '../src/services/jobIntent.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
 import { findContactEmails } from '../src/services/contactEmailFinder.js';
-import { COACH_CONSENT_VERSION, rankJobs, cleanText, buildGapMessages, buildPackMessages, parseJsonSafe, auditPack } from '../src/services/careerCoachService.js';
+import { COACH_CONSENT_VERSION, rankJobs, cleanText, buildGapMessages, buildPackMessages, parseJsonSafe, auditPack, findEligibilityClaims, stripEligibilityClaims } from '../src/services/careerCoachService.js';
 // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
 // was importing fetchExternalJobs()/testRSSConnection() directly and
 // running them IN THE ADMIN'S OWN BROWSER, not on the server. CORS
@@ -1919,6 +1919,8 @@ async function findRecentCollectedJobs(supabaseClient, intent) {
             .select('title, company, location, salary_range, external_url, source, source_name')
             .eq('is_active', true).eq('status', 'pending_approval').eq('source', intent.country)
             .gte('created_at', since).order('created_at', { ascending: false }).limit(5);
+        // Same rule as Career Coach: Jooble listings stay out of user-facing results until Jooble confirms permission in writing.
+        if (process.env.JOOBLE_CONFIRMED !== 'on') q = q.not('source_name', 'ilike', 'Jooble%');
         if (intent.city) q = q.ilike('location', `%${intent.city}%`);
         const terms = (intent.terms || []).map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
         if (terms.length) q = q.or(terms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
@@ -2208,12 +2210,20 @@ async function coachConsent(sb, userId) {
 async function coachGate(req, res, sb) {
     const userId = await coachAuth(req, sb);
     if (!userId) { res.status(401).json({ success: false, error: 'Please sign in.' }); return null; }
+    if (!(await coachIsLive(sb, userId))) { res.status(403).json({ success: false, code: 'not_live', error: 'Career Coach is opening soon.' }); return null; }
     const consent = await coachConsent(sb, userId);
     if (!consent.granted) {
         res.status(403).json({ success: false, code: 'consent_required', error: 'Career Coach is switched off for your account. Turn it on to use this feature.' });
         return null;
     }
+    coachTouch(sb, userId);
     return { userId };
+}
+
+// Records that the user used Career Coach (drives the 12-month inactivity deletion).
+// Fire-and-forget: a failure here must never block the user.
+function coachTouch(sb, userId) {
+    Promise.resolve(sb.from('career_goals').update({ last_active_at: new Date().toISOString() }).eq('user_id', userId)).then(() => {}, () => {});
 }
 
 // AI features (reviews and drafts) need a registered account, like skill submission.
@@ -2226,6 +2236,18 @@ async function coachAiAllowed(sb, userId) {
     return p.tier !== 'free';
 }
 const COACH_UPGRADE_MESSAGE = { success: false, code: 'upgrade_required', error: 'Skills reviews and application drafts are for registered members. Please complete your registration or choose a plan on the Pricing page. Job matching stays free.' };
+
+// Launch switch: Career Coach stays closed to the public until CAREER_COACH_LIVE=on is set
+// in Vercel (after the legal checklist is complete). Admins can always use it for testing.
+async function coachIsLive(sb, userId) {
+    const { data: p } = await sb.from('profiles').select('user_type, country_code').eq('id', userId).maybeSingle();
+    if (p?.user_type === 'admin' || p?.user_type === 'super_admin') return true;
+    if (process.env.CAREER_COACH_LIVE !== 'on') return false;
+    // Optional country allow-list while each country's rules are being confirmed, e.g. CAREER_COACH_COUNTRIES=GB,NG,AU,NZ
+    const allowed = String(process.env.CAREER_COACH_COUNTRIES || '').split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+    if (allowed.length && !allowed.includes(String(p?.country_code || '').toUpperCase())) return false;
+    return true;
+}
 
 async function coachLoadGoal(sb, userId) {
     const { data } = await sb.from('career_goals').select('*').eq('user_id', userId).maybeSingle();
@@ -11512,13 +11534,16 @@ Return the lesson as markdown with this structure:
             const sb = getSupabase();
             const userId = await coachAuth(req, sb);
             if (!userId) return res.status(401).json({ success: false, error: 'Please sign in.' });
+            const live = await coachIsLive(sb, userId);
+            if (!live) return res.status(200).json({ success: true, live: false, consent: { status: 'none', granted: false, versionCurrent: false, version: COACH_CONSENT_VERSION }, goal: null });
             const consent = await coachConsent(sb, userId);
             let goal = null;
             if (consent.granted) {
                 const { data } = await sb.from('career_goals').select('*').eq('user_id', userId).maybeSingle();
                 goal = data || null;
+                coachTouch(sb, userId);
             }
-            return res.status(200).json({ success: true, consent: { status: consent.status, granted: consent.granted, versionCurrent: consent.versionCurrent, version: COACH_CONSENT_VERSION }, goal });
+            return res.status(200).json({ success: true, live: true, consent: { status: consent.status, granted: consent.granted, versionCurrent: consent.versionCurrent, version: COACH_CONSENT_VERSION }, goal });
         } catch (error) {
             console.error('career-coach-status error:', error);
             return res.status(500).json({ success: false, error: 'Could not load Career Coach.' });
@@ -11530,6 +11555,7 @@ Return the lesson as markdown with this structure:
             const sb = getSupabase();
             const userId = await coachAuth(req, sb);
             if (!userId) return res.status(401).json({ success: false, error: 'Please sign in.' });
+            if (!(await coachIsLive(sb, userId))) return res.status(403).json({ success: false, code: 'not_live', error: 'Career Coach is opening soon.' });
             const decision = req.body?.decision;
             if (decision !== 'granted' && decision !== 'declined') return res.status(400).json({ success: false, error: 'decision must be granted or declined' });
             const { error } = await sb.from('career_coach_consents').insert({ user_id: userId, status: decision, consent_version: COACH_CONSENT_VERSION });
@@ -11615,6 +11641,8 @@ Return the lesson as markdown with this structure:
             if (orFilter) boardQ = boardQ.or(orFilter);
             let extQ = sb.from('external_jobs').select('id, title, company, location, description, source, source_name, external_url, salary_range').eq('is_active', true).eq('status', 'pending_approval').gte('created_at', since).order('created_at', { ascending: false }).limit(150);
             if (countries.length) extQ = extQ.in('source', countries);
+            // Jooble listings are left out until Jooble confirms in writing that storing and showing them is allowed.
+            if (process.env.JOOBLE_CONFIRMED !== 'on') extQ = extQ.not('source_name', 'ilike', 'Jooble%');
             if (orFilter) extQ = extQ.or(orFilter);
             const [{ data: board }, { data: ext }] = await Promise.all([boardQ, extQ]);
 
@@ -11673,7 +11701,9 @@ Return the lesson as markdown with this structure:
                 }
             } catch { /* optional */ }
 
-            const result = { ...parsed, courses };
+            // Career Coach must never say whether someone qualifies for a visa.
+            const eligibilityFlagged = findEligibilityClaims(parsed).length > 0;
+            const result = { ...stripEligibilityClaims(parsed), courses, ...(eligibilityFlagged ? { notice_removed_eligibility_claim: true } : {}) };
             await sb.from('career_coach_runs').insert({ user_id: userId, kind: 'gap_analysis', result });
             return res.status(200).json({ success: true, analysis: result });
         } catch (error) {
@@ -11691,14 +11721,21 @@ Return the lesson as markdown with this structure:
             const gate = await coachGate(req, res, sb); if (!gate) return;
             userId = gate.userId;
             if (!(await coachAiAllowed(sb, userId))) return res.status(403).json(COACH_UPGRADE_MESSAGE);
-            const { jobSource, jobId } = req.body || {};
-            if (!['board', 'external'].includes(jobSource) || !jobId) return res.status(400).json({ success: false, error: 'jobSource and jobId are required' });
+            const { jobSource, jobId, customJob } = req.body || {};
+            const pasted = !!customJob;
+            if (!pasted && (!['board', 'external'].includes(jobSource) || !jobId)) return res.status(400).json({ success: false, error: 'jobSource and jobId are required' });
             const goal = await coachLoadGoal(sb, userId);
             if (!goal) return res.status(400).json({ success: false, error: 'Save your job goal first.' });
-            if (!goal.cv_text && !goal.experience_summary) return res.status(400).json({ success: false, error: 'Paste your CV or a summary of your experience first, so the draft uses your real background.' });
+            if (!goal.cv_text && !goal.experience_summary) return res.status(400).json({ success: false, error: 'Paste or upload your CV, or write a summary of your experience, first so the draft uses your real background.' });
 
             let job = null, applyUrl = null;
-            if (jobSource === 'board') {
+            if (pasted) {
+                // Any job the user found anywhere: the advert text they paste. This makes the drafting
+                // service independent of ODUSBABA's own listings.
+                const title = cleanText(customJob.title, 200), description = cleanText(customJob.description, 8000);
+                if (!title || description.length < 150) return res.status(400).json({ success: false, error: 'Add the job title and paste the full job advert (at least a few sentences).' });
+                job = { id: null, title, company: cleanText(customJob.company, 200), location: cleanText(customJob.location, 200), description };
+            } else if (jobSource === 'board') {
                 const { data } = await sb.from('jobs').select('id, title, company, location, description, external_apply_url').eq('id', jobId).eq('is_active', true).maybeSingle();
                 job = data; applyUrl = data?.external_apply_url || null;
             } else {
@@ -11721,22 +11758,75 @@ Return the lesson as markdown with this structure:
             const assessments = (ua || []).map(a => ({ title: a.assessment?.title || 'Assessment', percentage: a.percentage }));
 
             const ai = await callOpenAI(buildPackMessages({ goal, skills, profile, job, assessments }), 2200, 0.5, { type: 'json_object' });
-            const pack = parseJsonSafe(ai.choices?.[0]?.message?.content);
-            if (!pack || !pack.cover_letter) throw new Error('The draft could not be produced');
+            const rawPack = parseJsonSafe(ai.choices?.[0]?.message?.content);
+            if (!rawPack || !rawPack.cover_letter) throw new Error('The draft could not be produced');
+            const pack = stripEligibilityClaims(rawPack);
 
             const userText = `${goal.cv_text || ''} ${goal.experience_summary || ''} ${(skills || []).map(s => s.skill_name).join(' ')}`;
             const flags = auditPack(pack, userText);
 
             const { data: saved } = await sb.from('career_applications').insert({
-                user_id: userId, job_source: jobSource, job_id: job.id, title: job.title, company: job.company || null,
+                user_id: userId, job_source: pasted ? 'pasted' : jobSource, job_id: pasted ? null : job.id, title: job.title, company: job.company || null,
                 apply_url: applyUrl, status: 'prepared', pack: { ...pack, flags }
             }).select('id').single();
 
-            return res.status(200).json({ success: true, pack, flags, applyUrl, applicationId: saved?.id || null, onPlatform: jobSource === 'board' && !applyUrl, jobId: job.id });
+            return res.status(200).json({ success: true, pack, flags, applyUrl, applicationId: saved?.id || null, onPlatform: !pasted && jobSource === 'board' && !applyUrl, jobId: job.id });
         } catch (error) {
             console.error('career-coach-pack error:', error);
             if (sb && userId && credit) await refundCreditIfDeducted(sb, userId, credit, cost);
             return res.status(500).json({ success: false, error: 'The draft could not be produced. You have not been charged.' });
+        }
+    },
+
+    'career-coach-parse-cv': async (req, res) => {
+        try {
+            const sb = getSupabase();
+            const gate = await coachGate(req, res, sb); if (!gate) return;
+            const { fileName, dataBase64 } = req.body || {};
+            if (!fileName || !dataBase64) return res.status(400).json({ success: false, error: 'Choose a CV file (PDF or Word .docx).' });
+            const rl = await checkIpRateLimit(sb, `coach-cv:${gate.userId}`, 10);
+            if (!rl.allowed) return res.status(429).json({ success: false, error: 'Too many uploads - try again later.' });
+
+            const ext = String(fileName).toLowerCase().split('.').pop();
+            if (!['pdf', 'docx'].includes(ext)) return res.status(400).json({ success: false, error: 'Only PDF and Word .docx files are supported. Save older .doc files as .docx first.' });
+            const buf = Buffer.from(String(dataBase64), 'base64');
+            // ~3 MB of file after decoding keeps the request under the hosting body limit.
+            if (!buf.length || buf.length > 3 * 1024 * 1024) return res.status(413).json({ success: false, error: 'That file is too large. Please use a CV under 3 MB.' });
+            // Check the real file type, not just the name.
+            const isPdf = buf.slice(0, 5).toString('latin1') === '%PDF-';
+            const isZip = buf[0] === 0x50 && buf[1] === 0x4B;
+            if ((ext === 'pdf' && !isPdf) || (ext === 'docx' && !isZip)) return res.status(400).json({ success: false, error: 'That file does not look like a real ' + ext.toUpperCase() + ' document.' });
+
+            let text = '';
+            if (ext === 'pdf') { const parsed = await pdfParse(buf); text = parsed.text || ''; }
+            else { const result = await mammoth.extractRawText({ buffer: buf }); text = result.value || ''; }
+            text = cleanText(text.replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n'), 12000);
+            if (text.length < 80) return res.status(422).json({ success: false, error: 'No readable text was found. Scanned or image-only CVs cannot be read - please paste the text instead.' });
+            // The file itself is never stored - only the text the user chooses to save after reviewing it.
+            return res.status(200).json({ success: true, text, truncated: text.length >= 12000 });
+        } catch (error) {
+            console.error('career-coach-parse-cv error:', error);
+            return res.status(422).json({ success: false, error: 'That file could not be read. Try another copy, or paste the text instead.' });
+        }
+    },
+
+    // Right of access / portability: everything Career Coach holds about the user.
+    'career-coach-export': async (req, res) => {
+        try {
+            const sb = getSupabase();
+            const userId = await coachAuth(req, sb);
+            if (!userId) return res.status(401).json({ success: false, error: 'Please sign in.' });
+            // Allowed even after withdrawal/decline, so people can always see consent history.
+            const [consents, goal, runs, applications] = await Promise.all([
+                sb.from('career_coach_consents').select('status, consent_version, created_at').eq('user_id', userId).order('created_at'),
+                sb.from('career_goals').select('*').eq('user_id', userId).maybeSingle(),
+                sb.from('career_coach_runs').select('kind, result, created_at').eq('user_id', userId).order('created_at'),
+                sb.from('career_applications').select('job_source, title, company, apply_url, status, pack, notes, follow_up_at, applied_at, created_at').eq('user_id', userId).order('created_at')
+            ]);
+            return res.status(200).json({ success: true, exported_at: new Date().toISOString(), data: { consent_history: consents.data || [], job_goal: goal.data || null, reviews: runs.data || [], applications: applications.data || [] } });
+        } catch (error) {
+            console.error('career-coach-export error:', error);
+            return res.status(500).json({ success: false, error: 'Could not prepare your data. Please try again.' });
         }
     },
 
