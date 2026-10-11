@@ -52,7 +52,7 @@ const LEGAL_SOURCES = {
     'AU': { name: 'Australia', laborLaw: 'https://www.fairwork.gov.au/', rights: 'https://humanrights.gov.au/', health: 'https://www.safeworkaustralia.gov.au/', flag: '🇦🇺' },
     'DE': { name: 'Germany', laborLaw: 'https://www.bmas.de/EN/', rights: 'https://www.antidiskriminierungsstelle.de/', health: 'https://www.baua.de/', flag: '🇩🇪' },
     'FR': { name: 'France', laborLaw: 'https://travail-emploi.gouv.fr/', rights: 'https://www.defenseurdesdroits.fr/', health: 'https://www.inrs.fr/', flag: '🇫🇷' },
-    'NG': { name: 'Nigeria', laborLaw: 'https://labour.gov.ng/', rights: 'https://www.nigeriarights.gov.ng/', health: 'https://www.nhf.gov.ng/', flag: '🇳🇬' },
+    'NG': { name: 'Nigeria', laborLaw: 'https://labour.gov.ng/', rights: 'https://www.nigeriarights.gov.ng/', health: 'https://www.nhfvilla.gov.ng/', flag: '🇳🇬' },
     'IE': { name: 'Ireland', laborLaw: 'https://www.workplacerelations.ie/', rights: 'https://www.ihrec.ie/', health: 'https://www.hsa.ie/', flag: '🇮🇪' },
     'IN': { name: 'India', laborLaw: 'https://labour.gov.in/', rights: 'https://nhrc.nic.in/', health: 'https://www.dgfasli.nic.in/', flag: '🇮🇳' }
 };
