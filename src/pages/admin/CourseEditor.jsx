@@ -17,10 +17,11 @@
 // action-button row wrap on narrow screens instead of assuming it always
 // fits in one row.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
+import LessonMediaTools from '../../components/admin/LessonMediaTools';
 import { 
     Save, Eye, Plus, Trash2, Sparkles, Loader2, 
     Image, Volume2, FileText, ChevronDown, ChevronUp,
@@ -29,6 +30,7 @@ import {
 
 export default function CourseEditor() {
     const { id } = useParams();
+    const lessonTextareas = useRef({});   // lesson id -> its text box, so blocks can be inserted at the cursor
     const navigate = useNavigate();
     const [course, setCourse] = useState({
         title: '',
@@ -232,7 +234,10 @@ export default function CourseEditor() {
                     'Authorization': `Bearer ${session?.access_token}`
                 },
                 body: JSON.stringify({
-                    prompt: `Educational illustration for lesson: ${title}. Professional, clean, engaging, modern design`
+                    prompt: `Educational illustration for lesson: ${title}`,
+                    style: course.illustration_style,
+                    kind: 'cover',
+                    shape: 'wide'
                 })
             });
             
@@ -570,6 +575,7 @@ export default function CourseEditor() {
                                 <option value="corporate">Corporate</option>
                                 <option value="minimal">Minimal</option>
                                 <option value="illustrative">Illustrative</option>
+                                <option value="realistic">Realistic photo style</option>
                             </select>
                         </div>
                     </div>
@@ -615,11 +621,18 @@ export default function CourseEditor() {
                                             placeholder="Lesson title"
                                         />
                                         <textarea
-                                            rows={6}
+                                            ref={el => { lessonTextareas.current[lesson.id] = el; }}
+                                            rows={10}
                                             value={lesson.content}
                                             onChange={(e) => updateLesson(lesson.id, { content: e.target.value })}
                                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono text-sm"
                                             placeholder="Lesson content (markdown supported)..."
+                                        />
+                                        <LessonMediaTools
+                                            lesson={lesson}
+                                            course={course}
+                                            onChange={(content) => updateLesson(lesson.id, { content })}
+                                            getTextarea={() => lessonTextareas.current[lesson.id]}
                                         />
                                         {/* FIXED: was a single flex row assuming
                                             enough width for 4 items — now wraps
