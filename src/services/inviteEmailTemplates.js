@@ -27,7 +27,7 @@ export const TIER_LABELS = {
 
 // Mirrors PricingPage.jsx. USD.
 export const PLAN_FACTS = {
-    job_seeker:   { plan: 'Registered',   price: 'Free',                                  assessments: 10,  applications: 'Unlimited', saved: '10 jobs',  alerts: '3 alerts',  skills: '3 submissions' },
+    job_seeker:   { plan: 'Registered',   price: 'Free',                                  assessments: 10,  applications: 'Unlimited', saved: 'Unlimited', alerts: 'Unlimited',  skills: '3 submissions' },
     professional: { plan: 'Professional', price: '$39.99 / month  ·  $399.99 / year',     assessments: 50,  applications: 'Unlimited', saved: 'Unlimited', alerts: 'Unlimited', skills: 'Unlimited' },
     employer:     { plan: 'Employer',     price: '$199.99 / month  ·  $1,999.99 / year',  assessments: 30,  posts: '20 jobs / month', alerts: '10 alerts' },
     business:     { plan: 'Business',     price: '$549.99 / month  ·  $5,499.99 / year',  assessments: 100, posts: 'Unlimited', seats: '5 users', alerts: 'Unlimited' }
