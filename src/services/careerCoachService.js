@@ -11,25 +11,28 @@
 //     must never invent employers, qualifications, dates, visas or numbers.
 //  4. Nothing is ever submitted to an employer for the user.
 
-export const COACH_CONSENT_VERSION = '2026-10-10-v1';
+export const COACH_CONSENT_VERSION = '2026-10-10-v2';
 
 export const COACH_CONSENT_TEXT = {
     title: 'Use my information for Career Coach',
-    intro: 'To match you with jobs and help you apply, ODUSBABA needs to use some of your information.',
+    intro: 'To match you with jobs and help you apply, ODUSBABA needs to use some of your information. This is optional. You can say no and still use the rest of ODUSBABA.',
     uses: [
         'Your assessment results and skills already saved on ODUSBABA',
-        'The job goal you enter (roles, countries, whether you need visa sponsorship or want settlement)',
-        'The CV or experience text you choose to paste in',
+        'The job goal you enter (roles, countries, whether you need visa sponsorship or want a route to settle)',
+        'The CV or experience text you paste or upload, which you can review and edit first',
         'Your name and location from your profile (only to draft application letters)'
     ],
     how: [
-        'Your information is used only to give you matches, a skills-gap review and application drafts.',
-        'Drafts and reviews are produced with an AI service (OpenAI). The text needed for each request is sent to it; it is not used to build public profiles or shown to employers.',
+        'Your information is used only to give you matches, a skills review and application drafts. It is not sold, shown to employers or used to build public profiles.',
+        'Reviews and drafts are produced by an AI service, OpenAI. The text needed for each request is sent to OpenAI in the United States. Obvious email addresses, phone numbers and long ID-style numbers are removed from your CV text before it is sent. OpenAI states that data sent through its API is not used to train its models and may be kept by it for up to 30 days for abuse monitoring.',
+        'By turning this on you explicitly agree to that transfer of your information to the United States, where data protection law differs from the law in your country. The safeguards we rely on are described in the Career Coach notice.',
+        'Please do not include sensitive information such as health, religion, ethnicity, political views, criminal records or ID and passport numbers in what you paste or upload. If you include it, you agree it may be processed for your drafts.',
+        'Job matching is a simple scoring of listings against your goal. No decision about you is made automatically. AI drafts can be wrong, so check every draft is true before you use it.',
         'Nothing is sent to any employer for you. You review everything and apply yourself.',
-        'AI can make mistakes. Check every draft is true before you use it. Never claim a qualification or visa status you do not have.',
-        'Job listings from other websites are not checked by ODUSBABA. Verify the employer before you apply or share documents.'
+        'Career Coach gives general information and drafting help. It is not immigration, legal or recruitment-agency advice, and it does not tell you whether you qualify for a visa.',
+        'Listings from other websites are not checked by ODUSBABA. Verify the employer before you apply or share documents.'
     ],
-    rights: 'You can withdraw at any time. Withdrawing switches Career Coach off and deletes your saved job goal, CV text, reviews, drafts and application tracker entries. If you say no, Career Coach stays switched off and the rest of ODUSBABA works as normal.'
+    rights: 'You can withdraw at any time. Withdrawing switches Career Coach off and deletes your saved job goal, CV text, reviews, drafts and application tracker entries. Saved data is also deleted automatically after 12 months without use, and we notify you first. You can download a copy of your data from the Career Coach page. You must be 18 or over to use Career Coach. Full details, including your rights and how to complain, are in the Career Coach notice.'
 };
 
 const STOP = new Set(['the', 'and', 'for', 'with', 'senior', 'junior', 'lead', 'jobs', 'job', 'role', 'work', 'full', 'part', 'time', 'new']);
@@ -135,8 +138,8 @@ export function buildGapMessages({ goal, skills, assessments, topJobs }) {
         target_roles: goal.target_roles, target_countries: goal.target_countries,
         needs_sponsorship: goal.needs_sponsorship, wants_settlement: goal.settlement_goal,
         work_mode: goal.work_mode, minimum_salary: goal.min_salary,
-        experience_summary: cleanText(goal.experience_summary, 1500),
-        cv_text: cleanText(goal.cv_text, 6000),
+        experience_summary: redactForAI(cleanText(goal.experience_summary, 1500)),
+        cv_text: redactForAI(cleanText(goal.cv_text, 6000)),
         skills: (skills || []).map(s => ({ name: s.skill_name, category: s.category, years: s.years_experience, level: s.proficiency_level })),
         assessments: (assessments || []).map(a => ({ title: a.title, percentage: a.percentage, level: a.performance_level, dimensions: a.dimension_scores })),
         example_jobs_seen: (topJobs || []).slice(0, 5).map(j => ({ title: j.title, company: j.company }))
@@ -152,8 +155,8 @@ export function buildPackMessages({ goal, skills, profile, job, assessments }) {
         applicant_name: cleanText(profile?.full_name, 120) || null,
         applicant_location: cleanText(profile?.location, 120) || null,
         target_roles: goal.target_roles,
-        experience_summary: cleanText(goal.experience_summary, 1500),
-        cv_text: cleanText(goal.cv_text, 6000),
+        experience_summary: redactForAI(cleanText(goal.experience_summary, 1500)),
+        cv_text: redactForAI(cleanText(goal.cv_text, 6000)),
         skills: (skills || []).map(s => ({ name: s.skill_name, years: s.years_experience, level: s.proficiency_level })),
         assessments: (assessments || []).map(a => ({ title: a.title, percentage: a.percentage })),
         needs_sponsorship: goal.needs_sponsorship
@@ -187,4 +190,41 @@ export function auditPack(pack, userText) {
         if (m && !source.includes(m[0].slice(0, 20))) flags.push(`The draft may contain ${label}. Check it is true or delete it.`);
     }
     return flags;
+}
+
+// DATA MINIMISATION: removes obvious identifiers from CV text before it is sent
+// to the AI service. The name used on a letter comes from the profile, not the CV.
+// This is a safety net, not a guarantee - users are also told not to include
+// sensitive details.
+export function redactForAI(text) {
+    return String(text || '')
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email removed]')
+        .replace(/(?:https?:\/\/|www\.)\S+/gi, '[link removed]')
+        .replace(/(?:\+|00)?\d[\d\s().-]{7,}\d/g, (m) => {
+            if (/^\d{4}\s*[-\u2013]\s*\d{4}$/.test(m.trim())) return m;               // 2015-2019 style date range
+            const digits = m.replace(/\D/g, '').length;
+            return digits >= 9 || (m.trim().startsWith('+') && digits >= 8) ? '[number removed]' : m;
+        })
+        .replace(/\b[A-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b/gi, '[ID removed]');
+}
+
+// Phrases that would amount to immigration advice (telling someone they are or
+// are not eligible) - Career Coach must never say these. Returned as flags and
+// the offending text is blanked by stripEligibilityClaims().
+const ELIGIBILITY_RX = /\b(you (are|will be|would be|should be) (eligible|entitled|able to qualify)|you (qualify|do not qualify|don't qualify|cannot qualify|can't qualify) for|you (will|would) (get|receive|be granted) (a |your )?(visa|permit|residence|sponsorship)|guaranteed (visa|sponsorship|residence|settlement))\b/gi;
+
+export function findEligibilityClaims(value) {
+    const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+    return text.match(ELIGIBILITY_RX) || [];
+}
+
+export function stripEligibilityClaims(value) {
+    if (typeof value === 'string') {
+        // Replace the whole sentence containing the claim, not just the matched words.
+        return value.replace(/[^.!?\n]*(?:you (?:are|will be|would be|should be) (?:eligible|entitled|able to qualify)|you (?:qualify|do not qualify|don't qualify|cannot qualify|can't qualify) for|you (?:will|would) (?:get|receive|be granted) (?:a |your )?(?:visa|permit|residence|sponsorship)|guaranteed (?:visa|sponsorship|residence|settlement))[^.!?\n]*[.!?]?/gi,
+            '[Removed: Career Coach cannot say whether you qualify for a visa. Check the official government site.]');
+    }
+    if (Array.isArray(value)) return value.map(stripEligibilityClaims);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, stripEligibilityClaims(v)]));
+    return value;
 }
