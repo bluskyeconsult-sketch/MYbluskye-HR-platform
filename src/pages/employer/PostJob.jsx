@@ -129,6 +129,7 @@ export default function PostJob() {
                 .insert({
                     ...formData,
                     user_id: user.id,
+                    application_deadline: formData.application_deadline || null,
                     salary_min: formData.salary_min ? parseInt(formData.salary_min) : null,
                     salary_max: formData.salary_max ? parseInt(formData.salary_max) : null,
                     // FIXED: explicit pending status — every real listing query
