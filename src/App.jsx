@@ -764,6 +764,15 @@ const WorkforceOnboarding = lazy(() => import('./components/workforce/WorkforceO
 const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'));
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
+import CareerCoachPolicyInsert from './components/CareerCoachPolicyInsert';
+// Career Coach policy section shown under the main Terms / Privacy pages (own dark panel so it reads on any page theme)
+const CareerCoachPolicyPanel = ({ kind }) => (
+    <div className="max-w-4xl mx-auto px-4 pb-12">
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-6">
+            <CareerCoachPolicyInsert kind={kind} />
+        </div>
+    </div>
+);
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
 const CookiesPage = lazy(() => import('./pages/legal/CookiesPage'));
 const DisclaimerPage = lazy(() => import('./pages/legal/DisclaimerPage'));
@@ -1067,8 +1076,8 @@ function AppContent() {
                             <Route path="/workforce/engagements" element={<ProtectedRoute><EngagementsDashboardRoute /></ProtectedRoute>} />
                             
                             {/* Legal Routes */}
-                            <Route path="/legal/terms" element={<TermsPage />} />
-                            <Route path="/legal/privacy" element={<PrivacyPage />} />
+                            <Route path="/legal/terms" element={<><TermsPage /><CareerCoachPolicyPanel kind="terms" /></>} />
+                            <Route path="/legal/privacy" element={<><PrivacyPage /><CareerCoachPolicyPanel kind="privacy" /></>} />
                             <Route path="/legal/cookies" element={<CookiesPage />} />
                             <Route path="/legal/disclaimer" element={<DisclaimerPage />} />
                             <Route path="/legal/acceptable-use" element={<AcceptableUsePage />} />
