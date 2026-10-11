@@ -71,8 +71,8 @@ const tiers = [
       // FIXED (2026-08-23): was 1 — real backend allowance is 10, a
       // significant real benefit that was being massively undersold.
       assessments_included: 10,
-      saved_jobs: { value: '10 jobs', limit: 10 },
-      job_alerts: { value: '3 alerts', limit: 3 },
+      saved_jobs: { value: 'Unlimited', limit: null },
+      job_alerts: { value: 'Unlimited', limit: null },
       newsletter: true,
       articles_access: true,
       affiliate_program: true,
@@ -201,6 +201,16 @@ const tiers = [
   }
 ];
 
+// NEW (2026-10-11): Career Coach rows. Matching is free for every account; skills reviews and
+// application drafts need a registered (non-Free) account and use the shared AI credits
+// (review = 1 credit, application pack = 2 credits). Mirrors coachAiAllowed() in api/index.js.
+tiers.forEach(t => {
+  t.features.career_coach_matching = true;
+  t.features.career_coach_drafting = t.name !== 'Free';
+});
+
+// 2026-10-11: saved jobs and job alerts are unlimited on the free Registered plan, so job seekers
+// never pay for finding work (UK work-seeker fee rules). Paid plans sell credits, assessments and tools.
 const benefitCategories = [
   { key: 'job_browsing', label: 'Job Browsing', icon: Briefcase, tooltip: 'Browse and search job listings' },
   { key: 'job_applications', label: 'Job Applications', icon: FileText, tooltip: 'Apply to jobs posted on platform' },
@@ -210,6 +220,8 @@ const benefitCategories = [
   { key: 'trust_score_visibility', label: 'Trust Score', icon: Zap, tooltip: 'See your verified trust score' },
   { key: 'contact_professionals', label: 'Contact Professionals', icon: MessageCircle, tooltip: 'Message other users' },
   { key: 'ai_credits_monthly', label: 'AI Credits (Monthly)', icon: Zap, tooltip: 'One shared credit pool for AI Chat, HR Tools, and single-turn Virtual Assistant tasks (1 credit each) — conversational Virtual Assistants, which remember your conversation, cost 2 credits per message and require a paid plan' },
+  { key: 'career_coach_matching', label: 'Career Coach: Job Matching', icon: Briefcase, tooltip: 'Free. Scores listings against your job goal. Optional, and only if you consent' },
+  { key: 'career_coach_drafting', label: 'Career Coach: Reviews & Drafts', icon: FileText, tooltip: 'Skills review (1 credit) and cover letter / CV wording / interview practice pack (2 credits), for any job advert you paste. Registered account needed. You check and send applications yourself' },
   { key: 'assessments_included', label: 'Assessments (Monthly)', icon: Brain, tooltip: 'Psychometric assessments included' },
   { key: 'saved_jobs', label: 'Saved Jobs', icon: Bookmark, tooltip: 'Save jobs for later' },
   { key: 'job_alerts', label: 'Job Alerts', icon: Bell, tooltip: 'Email notifications for new jobs' },
