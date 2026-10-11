@@ -559,6 +559,19 @@ const INVITE_LAWFUL_BASES = ['existing_relationship', 'consent', 'business_conta
 function inviteSiteUrl() { return (process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, ''); }
 function inviteApiUrl(action, token) { return `${inviteSiteUrl()}/api/index?action=${action}&t=${encodeURIComponent(token)}`; }
 function cleanInviteName(n) { return String(n || '').replace(/[<>"\r\n\t\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); }
+function cleanInviteField(n) { return String(n || '').replace(/[<>"\r\n\t\u0000-\u001f{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100); }
+// NEW (2026-10-11): merge fields. {{company}} and {{town}} in any message text are replaced per recipient;
+// when a contact has no value the neutral fallback is used, so a message never shows a raw placeholder.
+function inviteMergeText(s, v) {
+    return String(s ?? '')
+        .replace(/\{\{\s*company\s*\}\}/gi, (v && v.company) || 'your organisation')
+        .replace(/\{\{\s*town\s*\}\}/gi, (v && v.town) || 'your area');
+}
+function inviteMergeContent(c, v) {
+    const m = x => inviteMergeText(x, v);
+    return { ...c, subject: m(c.subject), headline: m(c.headline), intro: m(c.intro), closing: m(c.closing), ps: m(c.ps), preheader: m(c.preheader),
+        bullets: (c.bullets || []).map(b => ({ title: m(b.title), text: m(b.text) })) };
+}
 function stripCtl(s, max) { return String(s ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, max); }
 function inviteCreditsMap() {
     return { registered: TIER_MONTHLY_ALLOWANCE.registered, professional: TIER_MONTHLY_ALLOWANCE.professional, employer: TIER_MONTHLY_ALLOWANCE.employer, business: TIER_MONTHLY_ALLOWANCE.business };
@@ -2235,6 +2248,8 @@ async function coachAiAllowed(sb, userId) {
     if (p.is_tester || p.user_type === 'admin' || p.user_type === 'super_admin') return true;
     return p.tier !== 'free';
 }
+// Shown when a Career Coach review or draft is out of credits. Points to the free monthly allowance first.
+const COACH_NO_CREDITS_MESSAGE = 'You have used this month\'s credits. Your monthly allowance renews automatically, and job matching stays free. If you need more before then, you can upgrade your plan or buy extra credits on the Pricing page.';
 const COACH_UPGRADE_MESSAGE = { success: false, code: 'upgrade_required', error: 'Skills reviews and application drafts are for registered members. Please complete your registration or choose a plan on the Pricing page. Job matching stays free.' };
 
 // Launch switch: Career Coach stays closed to the public until CAREER_COACH_LIVE=on is set
@@ -8577,7 +8592,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         const built = buildInviteContent(req.body || {});
         if (built.error) return res.status(400).json({ error: built.error });
         const rendered = renderInviteEmail({
-            content: built.content, firstName: 'Alex',
+            content: inviteMergeContent(built.content, { company: 'Sample Care Ltd', town: 'Oxford' }), firstName: 'Alex',
             signupUrl: `${inviteSiteUrl()}/sign-up`, unsubscribeUrl: `${inviteSiteUrl()}/`,
             testerCode: built.testerCode, postalAddress: process.env.INVITE_POSTAL_ADDRESS, siteUrl: inviteSiteUrl(),
             tier: built.tier, testingMode: await isTestingModeOn(supabaseClient), ...inviteSender()
@@ -8629,13 +8644,69 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const { data: me } = await supabaseClient.from('profiles').select('email, first_name').eq('id', auth.userId).single();
             if (!me?.email) return res.status(400).json({ error: 'Your admin profile has no email address on record.' });
             await sendInviteEmail(getTransporter(), {
-                to: me.email, firstName: me.first_name || 'Alex', token: null, content: built.content,
+                to: me.email, firstName: me.first_name || 'Alex', token: null, content: inviteMergeContent(built.content, { company: 'Sample Care Ltd', town: 'Oxford' }),
                 testerCode: built.testerCode, isReminder: false, isTest: true,
                 tier: built.tier, testingMode: await isTestingModeOn(supabaseClient)
             });
             return res.status(200).json({ success: true, sentTo: me.email });
         } catch (error) {
             console.error('invite-send-test error:', error.message);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-10-11): saved message templates for invitation campaigns (e.g. "Care providers (UK)").
+    'invite-template-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const { data, error } = await supabaseClient.from('invite_templates')
+                .select('id, name, target_tier, content, is_preset, updated_at').order('is_preset', { ascending: false }).order('name').limit(100);
+            if (error) throw error;
+            return res.status(200).json({ success: true, templates: data || [] });
+        } catch (error) {
+            console.error('invite-template-list error:', error.message);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'invite-template-save': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`invite-template:${auth.userId}`, 30)) return res.status(429).json({ error: 'Too many requests - please wait.' });
+        const name = stripCtl(req.body?.name, 80);
+        if (!name) return res.status(400).json({ error: 'Give the template a name.' });
+        const built = buildInviteContent(req.body || {});
+        if (built.error) return res.status(400).json({ error: built.error });
+        try {
+            const { data: existing } = await supabaseClient.from('invite_templates').select('id, is_preset').eq('name', name).maybeSingle();
+            if (existing?.is_preset) return res.status(400).json({ error: 'That name belongs to a built-in template. Choose a different name.' });
+            const row = { name, target_tier: built.tier, content: built.content, is_preset: false, created_by: auth.userId, updated_at: new Date().toISOString() };
+            const { data, error } = existing
+                ? await supabaseClient.from('invite_templates').update(row).eq('id', existing.id).select('id').single()
+                : await supabaseClient.from('invite_templates').insert(row).select('id').single();
+            if (error) throw error;
+            return res.status(200).json({ success: true, id: data.id, replaced: !!existing });
+        } catch (error) {
+            console.error('invite-template-save error:', error.message);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'invite-template-delete': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const id = String(req.body?.id || '');
+        if (!id) return res.status(400).json({ error: 'id required' });
+        try {
+            const { error } = await supabaseClient.from('invite_templates').delete().eq('id', id).eq('is_preset', false);
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('invite-template-delete error:', error.message);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -8664,7 +8735,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 if (!email || email.length > 254 || /[\r\n\s<>]/.test(email) || !INVITE_EMAIL_RE.test(email)) { invalid.push(String(c?.email || '').slice(0, 80)); continue; }
                 if (seen.has(email)) continue;
                 seen.add(email);
-                valid.push({ email, firstName: cleanInviteName(c?.firstName) });
+                valid.push({ email, firstName: cleanInviteName(c?.firstName), company: cleanInviteField(c?.company), town: cleanInviteField(c?.town) });
             }
             const emails = valid.map(v => v.email);
             const members = await inviteLookupEmails(supabaseClient, 'profiles', emails);
@@ -8683,7 +8754,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             if (cErr) throw cErr;
 
             const rows = accepted.map(a => ({
-                campaign_id: campaign.id, email: a.email, first_name: a.firstName || null,
+                campaign_id: campaign.id, email: a.email, first_name: a.firstName || null, company: a.company || null, town: a.town || null,
                 token: crypto.randomBytes(24).toString('base64url')
             }));
             const { error: iErr } = await supabaseClient.from('invitations').insert(rows);
@@ -8813,7 +8884,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     await sendInviteEmail(transporter, {
                         to: inv.email, firstName: inv.first_name, token: inv.token, isReminder: mode === 'reminder',
                         testerCode: campaign.tester_code, tier: campaign.target_tier, testingMode,
-                        content: { subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel, ...(campaign.extras || {}) }
+                        content: inviteMergeContent({ subject: campaign.subject, headline: campaign.headline, intro: campaign.intro, bullets: campaign.bullets, closing: campaign.closing, ctaLabel: getTierDefaults(campaign.target_tier)?.ctaLabel, ...(campaign.extras || {}) }, { company: inv.company, town: inv.town })
                     });
                     const patch = mode === 'reminder' ? { reminder_sent_at: new Date().toISOString() } : { status: 'sent', sent_at: new Date().toISOString(), last_error: null };
                     await supabaseClient.from('invitations').update(patch).eq('id', inv.id);
@@ -11675,7 +11746,7 @@ Return the lesson as markdown with this structure:
             if (!goal) return res.status(400).json({ success: false, error: 'Save your job goal first.' });
 
             credit = await checkAndDeductCredit(sb, userId, req, cost);
-            if (!credit.allowed) return res.status(credit.rateLimited ? 429 : 403).json({ success: false, error: credit.rateLimited ? 'Too many requests - please try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            if (!credit.allowed) return res.status(credit.rateLimited ? 429 : 403).json({ success: false, error: credit.rateLimited ? 'Too many requests - please try again in a few minutes.' : COACH_NO_CREDITS_MESSAGE });
 
             const [{ data: skills }, { data: ua }] = await Promise.all([
                 sb.from('user_skills').select('skill_name, category, years_experience, proficiency_level').eq('user_id', userId).limit(50),
@@ -11748,7 +11819,7 @@ Return the lesson as markdown with this structure:
             if (!rl.allowed) return res.status(429).json({ success: false, error: 'You have prepared several applications this hour - please try again later.' });
 
             credit = await checkAndDeductCredit(sb, userId, req, cost);
-            if (!credit.allowed) return res.status(credit.rateLimited ? 429 : 403).json({ success: false, error: credit.rateLimited ? 'Too many requests - please try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.' });
+            if (!credit.allowed) return res.status(credit.rateLimited ? 429 : 403).json({ success: false, error: credit.rateLimited ? 'Too many requests - please try again in a few minutes.' : COACH_NO_CREDITS_MESSAGE });
 
             const [{ data: skills }, { data: profile }, { data: ua }] = await Promise.all([
                 sb.from('user_skills').select('skill_name, years_experience, proficiency_level').eq('user_id', userId).limit(50),
