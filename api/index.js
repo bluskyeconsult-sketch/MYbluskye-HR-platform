@@ -3188,8 +3188,9 @@ Return ONLY a JSON object: {
 
             // 3. Mark as handled so a repeat call can never send a second alert.
             if (notified || emailed) {
-                try { await supabaseClient.from('job_applications').update({ employer_notified_at: new Date().toISOString() }).eq('id', applicationId); }
-                catch (e) { console.warn('could not set employer_notified_at (run add-application-alerts.sql):', e.message); }
+                // supabase-js returns { error } rather than throwing, so the error must be read here.
+                const { error: markErr } = await supabaseClient.from('job_applications').update({ employer_notified_at: new Date().toISOString() }).eq('id', applicationId);
+                if (markErr) console.warn('could not set employer_notified_at (run add-application-alerts.sql):', markErr.message);
             }
             return res.status(200).json({ success: true, notified, emailed });
         } catch (error) {
@@ -6300,7 +6301,8 @@ ${siteContext}`;
 
         const { topic, difficulty = 'intermediate', numberOfQuestions = 5, mode = 'knowledge' } = req.body;
         const isMatching = mode === 'matching';
-        const isDiagnostic = mode === 'diagnostic' || isMatching;
+        const isProfile = mode === 'profile';
+        const isDiagnostic = mode === 'diagnostic' || isMatching || isProfile;
 
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
@@ -6356,7 +6358,21 @@ Rules:
 - Mix the families so statements from one family are not all adjacent.
 Each item: {"question": "...", "question_type": "...", "dimension": "..."}`;
 
-            const systemPrompt = isMatching ? matchingPrompt : isDiagnostic ? diagnosticPrompt : `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
+            // SELF-RATING PROFILE: how a person rates their own skill in an area (communication, leadership...).
+            const profilePrompt = `You are an expert organisational psychologist designing a SELF-RATING PROFILE, not a test. Topic: "${topic}". There are no right or wrong answers. Each statement describes a behaviour; the person rates how much it describes them (Strongly disagree 1 to Strongly agree 5). It is self-report, so statements must be concrete and observable, which keeps answers honest.
+
+Return JSON: {"questions": [...]} containing exactly ${numberOfQuestions} items:
+1. The FIRST ONE is a context question with "question_type": "scenario" and "dimension": "Context": ask what role or situation they have in mind when answering. Not scored.
+2. The rest are statements with "question_type": "likert_scale".
+
+Rules:
+- Worded so that AGREEING always means being stronger in that area. No reverse-worded items.
+- Concrete behaviours in the last few months ("When two people disagree, I help them find the facts before taking a side"), not traits ("I am a great communicator") and not knowledge questions.
+- 4 to 6 dimensions that make up "${topic}", Title Case names, at least 3 statements per dimension, mixed rather than grouped.
+- No "which of the following", no right/wrong answers.
+Each item: {"question": "...", "question_type": "...", "dimension": "..."}`;
+
+            const systemPrompt = isProfile ? profilePrompt : isMatching ? matchingPrompt : isDiagnostic ? diagnosticPrompt : `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
 
 Quality requirements:
 - Distractors (wrong options) must be plausible, not obviously wrong or joke answers - a test-taker with partial knowledge should be able to eliminate some but not all
@@ -6410,7 +6426,7 @@ Return a JSON object with a "questions" array. Each question must have:
             return res.status(200).json({
                 success: true,
                 questions: validQuestions,
-                mode: isMatching ? 'matching' : isDiagnostic ? 'diagnostic' : 'knowledge',
+                mode: isProfile ? 'profile' : isMatching ? 'matching' : isDiagnostic ? 'diagnostic' : 'knowledge',
                 requestedCount: numberOfQuestions,
                 generatedCount: validQuestions.length,
                 usage: data.usage
@@ -12460,6 +12476,8 @@ Return the lesson as markdown with this structure:
             let headline;
             if (ins.mode === 'matching' && Array.isArray(ins.matches) && ins.matches.length) {
                 headline = `Top career matches: ${ins.matches.map(m => m.name).join(', ')}.`;
+            } else if (ins.mode === 'profile') {
+                headline = `Self-rating: ${ua.percentage}% overall (${ins.alignment?.label || 'result'}).`;
             } else if (ins.mode === 'diagnostic') {
                 headline = `${ua.percentage}% aligned with their chosen career (${ins.alignment?.label || 'result'}).`;
             } else {
