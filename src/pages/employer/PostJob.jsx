@@ -39,7 +39,8 @@ export default function PostJob() {
         title: '',
         company: '',
         location: '',
-        job_type: 'full_time',
+        job_type: 'full-time',
+        is_remote: false,
         salary_min: '',
         salary_max: '',
         description: '',
@@ -273,13 +274,16 @@ export default function PostJob() {
                                     onChange={(e) => setFormData({...formData, job_type: e.target.value})}
                                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 >
-                                    <option value="full_time">Full Time</option>
-                                    <option value="part_time">Part Time</option>
+                                    <option value="full-time">Full Time</option>
+                                    <option value="part-time">Part Time</option>
                                     <option value="contract">Contract</option>
                                     <option value="freelance">Freelance</option>
-                                    <option value="remote">Remote</option>
-                                    <option value="hybrid">Hybrid</option>
+                                    <option value="internship">Internship</option>
                                 </select>
+                                <label className="mt-2 flex items-center gap-2 text-sm text-slate-300">
+                                    <input type="checkbox" checked={!!formData.is_remote} onChange={(e) => setFormData({...formData, is_remote: e.target.checked})} />
+                                    Remote or hybrid friendly
+                                </label>
                             </div>
                         </div>
 
