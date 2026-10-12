@@ -657,7 +657,7 @@ export default function JobDetailPage() {
           ) : !job.user_id ? (
             <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4 text-center">
               <p className="text-slate-200 text-sm">
-                This listing was collected from {job.source_name || 'another job board'} and has no direct application link.
+                {job.source_name ? `This listing was collected from ${job.source_name} and has no direct application link.` : 'This listing has no application link or employer account attached.'}
               </p>
               <a
                 href={`https://www.google.com/search?q=${encodeURIComponent(`${job.title} ${job.company} careers apply`)}`}
