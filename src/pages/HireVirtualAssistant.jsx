@@ -816,7 +816,7 @@ export default function HireVirtualAssistant() {
                                             value={input}
                                             onChange={(e) => setInput(e.target.value)}
                                             rows={4}
-                                            placeholder={`Describe what you need help with...\n\nExample: "I'm applying for a Senior Software Engineer role at Google. Please help optimize my CV."`}
+                                            placeholder={`${vaLabels(selectedVA).task}: tell it what it needs to help you well.\n\n${selectedVA.longDescription ? `What this assistant does: ${selectedVA.longDescription}\n\n` : ''}Include your situation, any details or text to work on, and what you want back (for example: a rewrite, a plan, feedback, or a draft).`}
                                             className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm sm:text-base"
                                             required
                                         />
