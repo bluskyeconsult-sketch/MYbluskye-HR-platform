@@ -190,7 +190,7 @@ export default function LessonReader({
                                                     ? <h2 className="text-xl font-semibold text-white mt-1">{step.title}</h2> : null}
                                                 {step.blocks.map((b, i) => (
                                                     <motion.div key={i} initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: reduce ? 0 : Math.min(i, 6) * 0.07 }}>
-                                                        <Block block={b} onZoom={setZoomed} reduce={reduce} />
+                                                        <Block block={b} onZoom={setZoomed} reduce={reduce} delay={Math.min(i, 5) * 0.3} />
                                                     </motion.div>
                                                 ))}
                                             </motion.div>
