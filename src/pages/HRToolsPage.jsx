@@ -30,6 +30,65 @@ import {
 } from 'lucide-react';
 import api from '../lib/api';
 
+// Guided intake. Each tool below needs specific facts to give a useful answer; a single empty
+// text box let people leave them out and get a generic reply. These fields are assembled into
+// the same text the tools already receive, so no backend change is needed.
+const TOOL_FIELDS = {
+    salary_calculator: [
+        { key: 'title', label: 'Job title', placeholder: 'e.g. Product Manager', required: true },
+        { key: 'location', label: 'Location', placeholder: 'e.g. London, UK', required: true },
+        { key: 'experience', label: 'Years of experience', placeholder: 'e.g. 5', required: true },
+        { key: 'industry', label: 'Industry', placeholder: 'e.g. Fintech' },
+        { key: 'current', label: 'Current or offered pay (optional)', placeholder: 'e.g. 55,000 GBP per year' }
+    ],
+    cover_letter: [
+        { key: 'role', label: 'Role you are applying for', placeholder: 'e.g. Operations Manager', required: true },
+        { key: 'company', label: 'Company', placeholder: 'e.g. Acme Ltd', required: true },
+        { key: 'background', label: 'Your relevant experience', placeholder: 'Two or three things you have done that fit this role', required: true, multiline: true },
+        { key: 'ad', label: 'Key points from the job advert (optional)', placeholder: 'Paste the main requirements', multiline: true }
+    ],
+    linkedin_optimizer: [
+        { key: 'target', label: 'Role or field you want to be found for', placeholder: 'e.g. HR Business Partner', required: true },
+        { key: 'headline', label: 'Your current headline', placeholder: 'Paste your current headline' },
+        { key: 'about', label: 'Your current About section', placeholder: 'Paste it here', required: true, multiline: true }
+    ],
+    job_description_writer: [
+        { key: 'title', label: 'Job title', placeholder: 'e.g. Customer Success Manager', required: true },
+        { key: 'company', label: 'Company and what it does', placeholder: 'e.g. 20-person SaaS company serving schools', required: true },
+        { key: 'location', label: 'Location and work pattern', placeholder: 'e.g. Oxford, hybrid 3 days', required: true },
+        { key: 'duties', label: 'Main responsibilities', placeholder: 'The 4-6 things this person will actually do', required: true, multiline: true },
+        { key: 'pay', label: 'Salary range (optional)', placeholder: 'e.g. 38,000-45,000 GBP' }
+    ],
+    performance_review_writer: [
+        { key: 'role', label: 'Employee role', placeholder: 'e.g. Senior Developer', required: true },
+        { key: 'period', label: 'Review period', placeholder: 'e.g. Jan-Jun 2026', required: true },
+        { key: 'achievements', label: 'What they did well (specific examples)', placeholder: 'Results, projects, behaviours', required: true, multiline: true },
+        { key: 'improve', label: 'What needs to improve (specific examples)', placeholder: 'Be factual: what happened and its effect', required: true, multiline: true }
+    ],
+    grievance_generator: [
+        { key: 'role', label: 'Your job title and how long you have worked there', placeholder: 'e.g. Warehouse supervisor, 3 years', required: true },
+        { key: 'issue', label: 'What happened', placeholder: 'Facts only: what, who, how often', required: true, multiline: true },
+        { key: 'dates', label: 'Dates and any witnesses', placeholder: 'e.g. 3 March, 12 March; witness: J. Smith' },
+        { key: 'raised', label: 'Have you raised it informally before? What happened?', placeholder: 'e.g. Spoke to my manager on 15 March, no change' },
+        { key: 'outcome', label: 'What outcome you want', placeholder: 'e.g. Written apology, change of reporting line', required: true }
+    ],
+    interview_simulator: [
+        { key: 'role', label: 'Role you are interviewing for', placeholder: 'e.g. Senior Software Engineer', required: true },
+        { key: 'industry', label: 'Industry or company type', placeholder: 'e.g. Fintech' },
+        { key: 'experience', label: 'Your experience level', placeholder: 'e.g. 5 years with React and Node.js' }
+    ]
+};
+
+function composeToolInput(toolId, fields, extra) {
+    const defs = TOOL_FIELDS[toolId];
+    if (!defs) return extra || '';
+    const lines = defs
+        .filter(f => (fields[f.key] || '').trim())
+        .map(f => `${f.label.replace(/ \(optional\)/, '')}: ${fields[f.key].trim()}`);
+    if ((extra || '').trim()) lines.push(`Additional detail: ${extra.trim()}`);
+    return lines.join('\n');
+}
+
 export default function HRToolsPage() {
     const [activeTool, setActiveTool] = useState(null);
     // NEW (2026-09-21): custom, admin-created HR tools loaded
@@ -70,6 +129,19 @@ export default function HRToolsPage() {
     // design: leaving it blank still works, just with the same general
     // feedback as before.
     const [cvTargetRole, setCvTargetRole] = useState('');
+    const [toolFields, setToolFields] = useState({});
+    const [toolExtra, setToolExtra] = useState('');
+    const activeFieldDefs = activeTool ? TOOL_FIELDS[activeTool] : null;
+    const missingRequired = !!activeFieldDefs && activeFieldDefs.some(f => f.required && !(toolFields[f.key] || '').trim());
+    function updateToolField(key, value) {
+        const next = { ...toolFields, [key]: value };
+        setToolFields(next);
+        setInput(composeToolInput(activeTool, next, toolExtra));
+    }
+    function updateToolExtra(value) {
+        setToolExtra(value);
+        setInput(composeToolInput(activeTool, toolFields, value));
+    }
     // NEW (2026-08-30): real state for the interview simulator's actual
     // question-then-answer-then-evaluate flow, closing the gap between
     // what this tool promised ("get feedback") and what it delivered
@@ -463,6 +535,9 @@ Would you like me to provide more specific information?`;
                                     key={tool.id}
                                     onClick={() => {
                                         setActiveTool(tool.id);
+                                        setToolFields({});
+                                        setToolExtra('');
+                                        setInput('');
                                         setAskedQuestions([]);
                                         setCurrentInterviewQuestion('');
                                         setInterviewAnswer('');
@@ -526,6 +601,8 @@ Would you like me to provide more specific information?`;
                                 <button
                                 onClick={() => {
                                     setActiveTool(null);
+                                    setToolFields({});
+                                    setToolExtra('');
                                     setInput('');
                                     setOutput('');
                                     setAskedQuestions([]);
@@ -582,7 +659,44 @@ Would you like me to provide more specific information?`;
                                         />
                                     </div>
                                 )}
-                                <textarea
+                                {activeFieldDefs && (
+                                    <div className="space-y-3">
+                                        {activeFieldDefs.map(f => (
+                                            <div key={f.key}>
+                                                <label className="block text-sm text-slate-400 mb-1">
+                                                    {f.label}{f.required && <span className="text-red-400"> *</span>}
+                                                </label>
+                                                {f.multiline ? (
+                                                    <textarea
+                                                        value={toolFields[f.key] || ''}
+                                                        onChange={(e) => updateToolField(f.key, e.target.value)}
+                                                        rows={3}
+                                                        placeholder={f.placeholder}
+                                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                                    />
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        value={toolFields[f.key] || ''}
+                                                        onChange={(e) => updateToolField(f.key, e.target.value)}
+                                                        placeholder={f.placeholder}
+                                                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                                    />
+                                                )}
+                                            </div>
+                                        ))}
+                                        <div>
+                                            <label className="block text-sm text-slate-400 mb-1">Anything else we should know (optional)</label>
+                                            <textarea
+                                                value={toolExtra}
+                                                onChange={(e) => updateToolExtra(e.target.value)}
+                                                rows={2}
+                                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                {!activeFieldDefs && <textarea
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     rows={6}
@@ -596,10 +710,10 @@ Would you like me to provide more specific information?`;
                                         "Describe your situation or paste relevant text here..."
                                     }
                                     className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                />
+                                />}
                                 <button
                                     onClick={executeTool}
-                                    disabled={loading || !input.trim()}
+                                    disabled={loading || !input.trim() || missingRequired}
                                     className="w-full py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
