@@ -80,7 +80,7 @@ export default function RichContent({ content, dropCap = true }) {
                     firstPara = false;
                     return (
                         <Reveal key={i} reduce={reduce}>
-                            <p className="my-4 text-[1.05rem] leading-8 text-slate-300 first-letter:float-left first-letter:mr-2 first-letter:text-5xl first-letter:font-bold first-letter:leading-none first-letter:text-primary-400">
+                            <p className="my-4 text-[1.12rem] leading-8 font-medium text-slate-100 first-letter:float-left first-letter:mr-2 first-letter:text-5xl first-letter:font-bold first-letter:leading-none first-letter:text-primary-400">
                                 <Inline text={b.text} />
                             </p>
                         </Reveal>
