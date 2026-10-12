@@ -125,6 +125,30 @@ function composeVaInput(keys, values) {
         .join('\n\n');
 }
 
+// Plain-language difference between the quick tools and the named specialists that cover the
+// same job. Both run on the same AI; the specialist collects more detail and applies a market's
+// conventions, the quick tool is the fast first pass. Stated honestly so people can choose.
+const QUICK_TOOL_NOTE = {
+    'CV Optimizer': 'Quick ATS check of your CV with the top changes to make. For a full rewrite to one country\'s CV standard (UK, US, Irish, German, GCC or Indian), choose the matching CV specialist.',
+    'Cover Letter Writer': 'Fast first draft from a job advert and your skills. Sofia Garcia asks for the same inputs and is the specialist version.',
+    'Interview Prep Coach': 'Feedback on one question and answer you paste in. For a full set of role-specific questions with answer frameworks, choose Priya Patel.',
+    'LinkedIn Profile Writer': 'Rewrites your About section and headline. Michael Chen covers the whole profile, including experience and skills.',
+    'Salary Negotiation Coach': 'A script for one negotiation, from what you tell it. Klaus Weber adds market-rate context for your role and location (general knowledge, not live data).',
+    'Professional Bio Writer': 'One short third-person bio. Yuki Tanaka writes short, medium and detailed versions.',
+    'Career Change Strategist': 'A realistic outline of a pivot. Maria Santos builds a fuller, staged transition roadmap.',
+    'Resignation Letter Writer': 'A short, gracious resignation letter. Lisa van der Berg also handles recommendation and complaint letters.',
+    'Email Response Drafter': 'Replies to an email you received. Sarah Johnson writes any business email from scratch.'
+};
+function specialistNote(va) {
+    if (!va) return null;
+    if (QUICK_TOOL_NOTE[va.name]) return { kind: 'Quick tool', text: QUICK_TOOL_NOTE[va.name] };
+    if (va.specialty) {
+        const market = va.countryFocus && va.countryFocus !== 'Global' ? ` and applies ${va.countryFocus} conventions` : '';
+        return { kind: 'Specialist', text: `Asks for more detail${market}, so the result is more tailored than the quick tool. It is AI-written and not a human expert, so review it before you use it.` };
+    }
+    return null;
+}
+
 function vaLabels(va) {
     const title = (va?.title || '').trim();
     const name = (va?.name || '').trim();
@@ -802,6 +826,7 @@ export default function HireVirtualAssistant() {
                                         {isSelected && (
                                             <div className="mt-3 pt-3 border-t border-slate-700">
                                                 <p className="text-xs sm:text-sm text-slate-400">{va.longDescription}</p>
+                                                {specialistNote(va) && <span className="inline-block mt-1.5 text-[10px] uppercase tracking-wide text-primary-400 border border-primary-500/30 rounded px-1.5 py-0.5">{specialistNote(va).kind}{va.specialty ? ` - ${va.specialty}` : ''}</span>}
                                             </div>
                                         )}
                                     </div>
@@ -840,6 +865,11 @@ export default function HireVirtualAssistant() {
                                             </span>
                                         </div>
                                         <p className="text-slate-400 text-xs sm:text-sm mt-1">{selectedVA.longDescription}</p>
+                                        {specialistNote(selectedVA) && (
+                                            <p className="text-xs text-slate-400 mt-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+                                                <span className="text-primary-400 font-medium">{specialistNote(selectedVA).kind}: </span>{specialistNote(selectedVA).text}
+                                            </p>
+                                        )}
                                     </div>
                                     <ShareMenu title={vaLabels(selectedVA).task} text={`Check out this VA: ${vaLabels(selectedVA).task} on ODUSBABA`} />
                                     <button
