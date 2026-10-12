@@ -71,6 +71,8 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
         }
     }
 
+    const [publishNow, setPublishNow] = useState(false);
+
     async function handleGenerate(topicId) {
         setGeneratingId(topicId);
         setError('');
@@ -80,7 +82,7 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
             const response = await fetch('/api/index?action=generate-article-from-topic', {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ topicId, scheduledFor })
+                body: JSON.stringify({ topicId, scheduledFor, publishNow })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Generation failed');
@@ -114,6 +116,10 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                     </button>
                 </div>
 
+                <label className="flex items-start gap-2 text-xs text-slate-400 mb-3 bg-slate-950/50 border border-slate-800 rounded-lg p-2">
+                    <input type="checkbox" checked={publishNow} onChange={(e) => setPublishNow(e.target.checked)} className="mt-0.5" />
+                    <span>Publish immediately. Leave this off to save each article as a draft you read first (recommended: AI can state laws and figures wrongly). A schedule date set below still applies.</span>
+                </label>
                 <p className="text-slate-400 text-sm mb-3">
                     List as many topics as you like, one per line. Generate full article content for each one whenever you're ready — no need to write from scratch.
                 </p>
