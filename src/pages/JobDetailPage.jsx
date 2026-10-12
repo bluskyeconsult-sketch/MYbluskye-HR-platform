@@ -59,6 +59,7 @@ export default function JobDetailPage() {
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
 
   useEffect(() => {
     // NEW (2026-08-22): currency was hardcoded to GBP regardless of
@@ -203,6 +204,13 @@ export default function JobDetailPage() {
           .eq('job_id', id)
           .maybeSingle();
         setSaved(!!savedCheck);
+        const { data: appliedCheck } = await supabase
+          .from('job_applications')
+          .select('id')
+          .eq('job_id', id)
+          .eq('applicant_id', currentUser.id)
+          .limit(1);
+        setAlreadyApplied(!!(appliedCheck && appliedCheck.length));
       }
     } catch (err) {
       console.error('Error loading job:', err);
@@ -254,6 +262,18 @@ export default function JobDetailPage() {
     if (!user) {
       toast.error('Please sign in to apply');
       navigate('/sign-in');
+      return;
+    }
+
+    // UPDATED (2026-10-12): this form is only for jobs posted by an employer account on this
+    // site. A listing collected from another job board has no owner here, so an application
+    // would be stored with nobody to read it.
+    if (!job?.user_id) {
+      toast.error('This listing was collected from another site. Please apply through the original listing.');
+      return;
+    }
+    if (alreadyApplied) {
+      toast('You have already applied for this job.');
       return;
     }
 
@@ -350,7 +370,7 @@ export default function JobDetailPage() {
       // job_applications schema; status 'pending' (not 'submitted') to match
       // the status values the rest of the app filters on; removed the
       // speculative applied_at field in favor of the table's own timestamp default.
-      await supabase.from('job_applications').insert({
+      const { error: insertErr } = await supabase.from('job_applications').insert({
         job_id: id,
         applicant_id: user.id,
         cover_letter: coverLetter,
@@ -363,6 +383,16 @@ export default function JobDetailPage() {
         // monthly-limit check above depends on this being accurate.
         applied_at: new Date().toISOString()
       });
+      // UPDATED (2026-10-12): the result of the insert was never checked, so a refused
+      // insert (permissions, missing column) still showed "Application submitted
+      // successfully". Now it stops and says so.
+      if (insertErr) {
+        console.error('Application insert failed:', insertErr);
+        toast.error('Your application could not be saved. Please try again, or contact support if it keeps happening.');
+        setSubmitting(false);
+        return;
+      }
+      setAlreadyApplied(true);
 
       // NEW (2026-09-24): fire-and-forget - never awaited, so this
       // can't slow down or block a real application actually
@@ -386,6 +416,19 @@ export default function JobDetailPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Records that someone left for the employer's own site (fire-and-forget, never blocks the click).
+  function trackExternalClick() {
+    if (!user) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) return;
+      fetch('/api/index?action=log-user-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'external_apply_click', details: { jobId: id, source: job?.source_name || null } })
+      }).catch(() => {});
+    }).catch(() => {});
   }
 
   function getCountryFlag(code) {
@@ -456,11 +499,19 @@ export default function JobDetailPage() {
                     <ShieldCheck className="w-3 h-3" /> Visa Sponsorship
                   </span>
                 )}
-                {job.source_type === 'authoritative' && (
+                {/* UPDATED (2026-10-12): "Verified" used to show on every listing collected from an
+                    outside job board, which suggested we had checked the employer. It now shows only
+                    for employers matched to the verified sponsor register; other collected listings
+                    say where they came from. */}
+                {job.verified_employer_source_id ? (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" /> Verified
+                    <ShieldCheck className="w-3 h-3" /> Verified sponsor employer
                   </span>
-                )}
+                ) : (!job.user_id && job.source_name) ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 flex items-center gap-1">
+                    <ExternalLink className="w-3 h-3" /> Listed from {job.source_name}
+                  </span>
+                ) : null}
               </div>
               <div className="flex items-center gap-2 text-slate-400">
                 <Building className="w-4 h-4" />
@@ -539,14 +590,40 @@ export default function JobDetailPage() {
               CV upload only make sense for jobs posted directly on this
               platform by a real employer account here. */}
           {job.external_apply_url ? (
-            <a
-              href={job.external_apply_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
-            >
-              <ExternalLink className="w-5 h-5" /> Apply on {job.source_name || 'Original Site'}
-            </a>
+            <div>
+              <a
+                href={job.external_apply_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={trackExternalClick}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
+              >
+                <ExternalLink className="w-5 h-5" /> Apply on {job.source_name || 'the employer\'s site'}
+              </a>
+              <p className="mt-2 text-center text-xs text-slate-500">
+                You will apply on the employer's or job board's own site. Your application is handled there, not by ODUSBABA.
+              </p>
+            </div>
+          ) : !job.user_id ? (
+            <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4 text-center">
+              <p className="text-slate-200 text-sm">
+                This listing was collected from {job.source_name || 'another job board'} and has no direct application link.
+              </p>
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(`${job.title} ${job.company} careers apply`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={trackExternalClick}
+                className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+              >
+                <ExternalLink className="w-4 h-4" /> Find the employer's application page
+              </a>
+            </div>
+          ) : alreadyApplied ? (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center">
+              <p className="text-emerald-300 font-medium flex items-center justify-center gap-2"><CheckCircle className="w-5 h-5" /> You have applied for this job</p>
+              <Link to="/applications" className="mt-1 inline-block text-sm text-primary-300 underline">Track your application</Link>
+            </div>
           ) : !showApplyForm ? (
             !hasCapability('canApplyJobs') && user ? (
               // NEW (2026-09-13): confirmed via a systematic
