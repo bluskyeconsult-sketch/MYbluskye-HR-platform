@@ -3111,6 +3111,87 @@ Return ONLY a JSON object: {
         }
     },
 
+    // NEW (2026-10-12): tells an employer when someone applies for one of their jobs.
+    // Called by the job page right after an application is saved. It never trusts the browser:
+    // it re-reads the application, confirms it belongs to the signed-in applicant, finds the
+    // employer from the job record, and sends at most one alert per application.
+    // The alert is an in-app notification plus an email that links to Manage Jobs; it does not
+    // include the CV or contact details (the employer opens Manage Jobs for those).
+    'notify-employer-application': async (req, res) => {
+        const supabaseClient = getSupabase();
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) return res.status(401).json({ success: false, error: 'Authentication required' });
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+            if (authError || !user) return res.status(401).json({ success: false, error: 'Invalid session' });
+            if (!checkRateLimit(`notify-app:${user.id}`, 30)) return res.status(429).json({ success: false, error: 'Too many requests' });
+
+            const { applicationId } = req.body || {};
+            if (!applicationId) return res.status(400).json({ success: false, error: 'applicationId is required' });
+
+            const { data: app } = await supabaseClient.from('job_applications').select('*').eq('id', applicationId).maybeSingle();
+            if (!app || app.applicant_id !== user.id) return res.status(404).json({ success: false, error: 'Application not found' });
+            if (app.employer_notified_at) return res.status(200).json({ success: true, alreadyNotified: true });
+
+            const { data: job } = await supabaseClient.from('jobs').select('id, title, company, user_id').eq('id', app.job_id).maybeSingle();
+            if (!job || !job.user_id) return res.status(200).json({ success: true, skipped: 'job has no employer account' });
+
+            const [{ data: employer }, { data: applicant }] = await Promise.all([
+                supabaseClient.from('profiles').select('email, full_name').eq('id', job.user_id).maybeSingle(),
+                supabaseClient.from('profiles').select('full_name, job_title').eq('id', user.id).maybeSingle()
+            ]);
+
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const applicantName = applicant?.full_name || 'A candidate';
+            const headline = applicant?.job_title ? ` (${applicant.job_title})` : '';
+            const link = `${(process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '')}/manage-jobs`;
+
+            // 1. In-app notification (best effort)
+            let notified = false;
+            try {
+                const { error: nErr } = await supabaseClient.from('notifications').insert({
+                    user_id: job.user_id,
+                    type: 'application',
+                    title: 'New application received',
+                    message: `${applicantName} applied for ${job.title}`,
+                    link: '/manage-jobs'
+                });
+                if (!nErr) notified = true;
+            } catch (e) { console.warn('application notification insert failed:', e.message); }
+
+            // 2. Email (best effort)
+            let emailed = false;
+            if (employer?.email) {
+                try {
+                    const transporter = getTransporter();
+                    await transporter.sendMail({
+                        from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
+                        to: employer.email,
+                        subject: `New application: ${job.title}`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1e293b;">
+<p>Hello${employer.full_name ? ' ' + esc(employer.full_name) : ''},</p>
+<p><strong>${esc(applicantName)}</strong>${esc(headline)} has applied for <strong>${esc(job.title)}</strong>${job.company ? ' at ' + esc(job.company) : ''}.</p>
+<p>Open Manage Jobs to read the cover letter and CV, update their status, or message them.</p>
+<p><a href="${link}" style="display:inline-block;background-color:#0B3C5D;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;">Review application</a></p>
+<p style="font-size:12px;color:#64748b;">You receive this because you posted this job on ODUSBABA. Please handle applicants' personal data in line with data protection law.</p>
+</div>`
+                    });
+                    emailed = true;
+                } catch (e) { console.warn('employer application email failed:', e.message); }
+            }
+
+            // 3. Mark as handled so a repeat call can never send a second alert.
+            if (notified || emailed) {
+                try { await supabaseClient.from('job_applications').update({ employer_notified_at: new Date().toISOString() }).eq('id', applicationId); }
+                catch (e) { console.warn('could not set employer_notified_at (run add-application-alerts.sql):', e.message); }
+            }
+            return res.status(200).json({ success: true, notified, emailed });
+        } catch (error) {
+            console.error('notify-employer-application error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     'update-application-status': async (req, res) => {
         const supabaseClient = getSupabase();
         const { applicationId, status } = req.body;
