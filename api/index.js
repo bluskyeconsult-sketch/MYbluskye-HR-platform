@@ -6216,7 +6216,8 @@ ${siteContext}`;
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         const { topic, difficulty = 'intermediate', numberOfQuestions = 5, mode = 'knowledge' } = req.body;
-        const isDiagnostic = mode === 'diagnostic';
+        const isMatching = mode === 'matching';
+        const isDiagnostic = mode === 'diagnostic' || isMatching;
 
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
@@ -6257,7 +6258,22 @@ Rules for the statements:
 - No knowledge-quiz questions and no "which of the following".
 Each item: {"question": "...", "question_type": "...", "dimension": "..."}`;
 
-            const systemPrompt = isDiagnostic ? diagnosticPrompt : `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
+            // CAREER MATCHING: asks what the person enjoys and is drawn to, and scores it per career family.
+            // Dimension names MUST start with "Fit: " so the scorer knows to rank career families.
+            const matchingPrompt = `You are an expert career-guidance psychologist designing a CAREER-MATCHING PROFILE (interests and working style, like a Holland/RIASEC inventory). Focus: "${topic}". There are no right or wrong answers. Its purpose is to show which kinds of work a person is most drawn to, so they can explore the best fits.
+
+Return JSON: {"questions": [...]} containing exactly ${numberOfQuestions} items:
+1. The FIRST TWO are context questions with "question_type": "scenario" and "dimension": "Context": (a) what work or study they have done so far, (b) any limits that matter (location, hours, money, qualifications). Not scored.
+2. The rest are statements with "question_type": "likert_scale" (Strongly disagree 1 to Strongly agree 5), describing an ACTIVITY they might enjoy, e.g. "I enjoy spotting patterns in numbers and explaining what they mean".
+
+Rules:
+- Use 6 to 8 career families as dimensions, each named "Fit: <Family>", at least 3 statements per family. Prefer these names: "Fit: Analytical & Technical", "Fit: Creative & Design", "Fit: People & Care", "Fit: Leadership & Business", "Fit: Organising & Administration", "Fit: Persuading & Selling", "Fit: Practical & Hands-on", "Fit: Research & Learning". If "${topic}" narrows the field (e.g. healthcare), you may rename families inside that field, still starting with "Fit: ".
+- Agreeing always means MORE drawn to that kind of work. No reverse-worded items, no knowledge questions, no "which of the following".
+- Statements describe activities and preferences, not skills or qualifications, so people with no experience can answer honestly.
+- Mix the families so statements from one family are not all adjacent.
+Each item: {"question": "...", "question_type": "...", "dimension": "..."}`;
+
+            const systemPrompt = isMatching ? matchingPrompt : isDiagnostic ? diagnosticPrompt : `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
 
 Quality requirements:
 - Distractors (wrong options) must be plausible, not obviously wrong or joke answers - a test-taker with partial knowledge should be able to eliminate some but not all
@@ -6311,7 +6327,7 @@ Return a JSON object with a "questions" array. Each question must have:
             return res.status(200).json({
                 success: true,
                 questions: validQuestions,
-                mode: isDiagnostic ? 'diagnostic' : 'knowledge',
+                mode: isMatching ? 'matching' : isDiagnostic ? 'diagnostic' : 'knowledge',
                 requestedCount: numberOfQuestions,
                 generatedCount: validQuestions.length,
                 usage: data.usage
