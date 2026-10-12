@@ -1,26 +1,21 @@
 // src/components/ContentRenderer.jsx
 //
-// NEW (2026-09-14): extracted from ArticleDetail.jsx's already
-// well-built ReactMarkdown component configuration, so the same
-// professional formatting genuinely applies everywhere user-facing
-// long-form content is shown - not just articles. Confirmed via direct
-// review that CourseDetail.jsx was rendering lesson content as raw
-// whitespace-pre-wrap text with zero formatting at all - a real
-// inconsistency this closes, since a markdown renderer handles plain
-// prose gracefully too (paragraphs render correctly even with no
-// markdown syntax present).
-//
-// Adds two genuine new touches beyond what existed before: a
-// drop-cap-style opening paragraph (a real, common editorial technique
-// signaling "professional publication," not just default browser
-// text), and a lightweight, auto-generated table of contents for
-// longer pieces, built from the actual h2/h3 headings present in the
-// content - not shown at all for short content where it wouldn't add
-// value.
+// UPGRADED (2026-10-11): the one place long-form content is shown (articles, HR tool
+// output, editor preview, book chapters). Two paths, same look and animation:
+//   - Content that uses the rich lesson markup (callouts, steps, stats, pictures, quick
+//     checks, see Lesson-Design-Guide.md) is shown by RichContent.
+//   - Ordinary markdown keeps the existing ReactMarkdown rendering, now with
+//     scroll-into-view animation, a Copy button on code, click-to-enlarge pictures
+//     and a reading-progress bar.
+// A table of contents still appears for longer pieces. Nothing about stored content changes.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { List, ChevronDown, ChevronUp } from 'lucide-react';
+import RichContent, { ReadingProgress } from './RichContent';
+import { CodeBlock, Lightbox, mp } from './RichBlocks';
+import { hasRichMarkup } from '../lib/lessonChunker';
 
 function slugify(text) {
     return String(text).toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
@@ -43,16 +38,29 @@ function extractHeadings(content) {
 
 export default function ContentRenderer({ content, showTableOfContents = true }) {
     const [tocOpen, setTocOpen] = useState(true);
+    const [zoomed, setZoomed] = useState(null);
+    const reduce = useReducedMotion();
+    const rootRef = useRef(null);
     const headings = useMemo(() => extractHeadings(content), [content]);
+    const rich = useMemo(() => hasRichMarkup(content), [content]);
     const showToc = showTableOfContents && headings.length >= 3;
     let paragraphIndex = 0;
 
     if (!content) return null;
 
+    // Scroll-into-view reveal shared by the markdown elements below.
+    const rv = mp(reduce, true, { opacity: 0, y: 16 }, 0, 0.5);
+
     return (
-        <div className="content-renderer">
+        <div className="content-renderer" ref={rootRef}>
+            <ReadingProgress targetRef={rootRef} />
             {showToc && (
-                <div className="mb-8 bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-5 max-w-3xl">
+                <motion.div
+                    className="mb-8 bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-5 max-w-3xl"
+                    initial={reduce ? false : { opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}
+                >
                     <button
                         onClick={() => setTocOpen(!tocOpen)}
                         className="flex items-center justify-between w-full text-left"
@@ -62,83 +70,97 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                         </span>
                         {tocOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                     </button>
-                    {tocOpen && (
-                        <ul className="mt-3 space-y-1.5">
-                            {headings.map((h, i) => (
-                                <li key={i} className={h.level === 3 ? 'ml-4' : ''}>
-                                    <a
-                                        href={`#${h.id}`}
-                                        className="text-slate-400 hover:text-primary-400 text-sm transition-colors"
-                                    >
-                                        {h.text}
-                                    </a>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </div>
+                    <AnimatePresence initial={false}>
+                        {tocOpen && (
+                            <motion.ul
+                                key="toc"
+                                className="mt-3 space-y-1.5 overflow-hidden"
+                                initial={reduce ? false : { height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.25 }}
+                            >
+                                {headings.map((h, i) => (
+                                    <li key={i} className={h.level === 3 ? 'ml-4' : ''}>
+                                        <a
+                                            href={`#${h.id}`}
+                                            onClick={(e) => {
+                                                const el = document.getElementById(h.id);
+                                                if (el) { e.preventDefault(); el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); }
+                                            }}
+                                            className="text-slate-400 hover:text-primary-400 text-sm transition-colors"
+                                        >
+                                            {h.text}
+                                        </a>
+                                    </li>
+                                ))}
+                            </motion.ul>
+                        )}
+                    </AnimatePresence>
+                </motion.div>
             )}
 
+            {rich ? (
+                <RichContent content={content} />
+            ) : (
             <div className="text-slate-300 leading-relaxed space-y-6 markdown-content">
                 <ReactMarkdown
                     components={{
                         h1: ({ children }) => (
-                            <h1 className="text-3xl sm:text-4xl font-bold text-white mt-10 mb-4 leading-tight">
+                            <motion.h1 {...rv} className="text-3xl sm:text-4xl font-bold text-white mt-10 mb-4 leading-tight">
                                 {children}
-                            </h1>
+                            </motion.h1>
                         ),
                         h2: ({ children }) => (
-                            <h2
+                            <motion.h2
+                                {...rv}
                                 id={slugify(String(children))}
                                 className="text-2xl sm:text-3xl font-bold text-white mt-8 mb-3 leading-snug scroll-mt-24"
                             >
+                                <span className="mr-3 inline-block h-6 w-1.5 -mb-0.5 rounded-full bg-primary-500" aria-hidden="true" />
                                 {children}
-                            </h2>
+                            </motion.h2>
                         ),
                         h3: ({ children }) => (
-                            <h3
+                            <motion.h3
+                                {...rv}
                                 id={slugify(String(children))}
                                 className="text-xl sm:text-2xl font-semibold text-white mt-6 mb-2 leading-snug scroll-mt-24"
                             >
                                 {children}
-                            </h3>
+                            </motion.h3>
                         ),
                         h4: ({ children }) => (
                             <h4 className="text-lg sm:text-xl font-semibold text-white mt-4 mb-2 leading-snug">
                                 {children}
                             </h4>
                         ),
-                        // NEW: the very first paragraph of a piece gets
-                        // a genuine editorial drop-cap treatment - a
-                        // real, common professional-publication
-                        // technique, not just default text styling.
-                        // Every paragraph after the first renders
-                        // exactly as before.
+                        // The very first paragraph gets a drop cap; every later one is plain.
                         p: ({ children }) => {
                             const isFirst = paragraphIndex === 0;
                             paragraphIndex++;
                             if (isFirst) {
                                 return (
-                                    <p className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 max-w-3xl first-letter:text-5xl first-letter:font-bold first-letter:text-primary-400 first-letter:mr-1 first-letter:float-left first-letter:leading-none">
+                                    <motion.p {...rv} className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 max-w-3xl first-letter:text-5xl first-letter:font-bold first-letter:text-primary-400 first-letter:mr-1 first-letter:float-left first-letter:leading-none">
                                         {children}
-                                    </p>
+                                    </motion.p>
                                 );
                             }
                             return (
-                                <p className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 max-w-3xl">
+                                <motion.p {...rv} className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 max-w-3xl">
                                     {children}
-                                </p>
+                                </motion.p>
                             );
                         },
                         ul: ({ children }) => (
-                            <ul className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-disc pl-6 max-w-3xl">
+                            <motion.ul {...rv} className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-disc pl-6 max-w-3xl marker:text-primary-400">
                                 {children}
-                            </ul>
+                            </motion.ul>
                         ),
                         ol: ({ children }) => (
-                            <ol className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-decimal pl-6 max-w-3xl">
+                            <motion.ol {...rv} className="text-base sm:text-lg text-slate-300 leading-relaxed mb-5 space-y-2 list-decimal pl-6 max-w-3xl marker:text-primary-400 marker:font-semibold">
                                 {children}
-                            </ol>
+                            </motion.ol>
                         ),
                         li: ({ children }) => (
                             <li className="mb-1.5 leading-relaxed">
@@ -146,25 +168,17 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                             </li>
                         ),
                         blockquote: ({ children }) => (
-                            <blockquote className="border-l-4 border-primary-500 pl-4 sm:pl-6 py-1 my-6 text-slate-300 text-base sm:text-lg italic max-w-3xl">
+                            <motion.blockquote {...rv} className="border-l-4 border-primary-500 bg-primary-500/5 rounded-r-xl pl-4 sm:pl-6 pr-4 py-2 my-6 text-slate-300 text-base sm:text-lg italic max-w-3xl">
                                 {children}
-                            </blockquote>
+                            </motion.blockquote>
                         ),
-                        code: ({ children, inline }) => {
-                            // NEW (2026-09-23): confirmed real, live
-                            // bug - a bullet list with leading
-                            // whitespace before "-" gets misparsed by
-                            // react-markdown as an indented code
-                            // block (monospace font, dark box)
-                            // instead of a real list - the exact,
-                            // reported "odd looking font" symptom.
-                            // Detects this pattern defensively and
-                            // rescues it into a real, styled list,
-                            // covering any article with this issue
-                            // without needing every one individually
-                            // backfilled.
-                            if (!inline && typeof children === 'string') {
-                                const lines = children.trim().split('\n').filter(l => l.trim().length > 0);
+                        code: ({ children, inline, className }) => {
+                            // A bullet list with leading whitespace is misparsed by react-markdown
+                            // as an indented code block (the "odd looking font" bug). Rescue it
+                            // into a real list.
+                            const text = Array.isArray(children) ? children.join('') : children;
+                            if (!inline && typeof text === 'string') {
+                                const lines = text.trim().split('\n').filter(l => l.trim().length > 0);
                                 if (lines.length > 0 && lines.every(l => l.trim().startsWith('- '))) {
                                     return (
                                         <ul className="list-disc list-outside ml-5 space-y-1.5 text-slate-300 mb-5">
@@ -175,30 +189,42 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                                     );
                                 }
                             }
-                            return inline ? (
+                            const isBlock = inline === false || /language-/.test(className || '') || (typeof text === 'string' && text.includes('\n'));
+                            if (isBlock && typeof text === 'string') {
+                                const lang = ((className || '').match(/language-(\w+)/) || [])[1];
+                                return <CodeBlock code={text.replace(/\n$/, '')} lang={lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : 'Code'} />;
+                            }
+                            return (
                                 <code className="bg-slate-800 px-1.5 py-0.5 rounded text-sm text-primary-400 font-mono">
-                                    {children}
-                                </code>
-                            ) : (
-                                <code className="block bg-slate-800 p-4 rounded-lg text-sm text-slate-300 font-mono overflow-x-auto">
                                     {children}
                                 </code>
                             );
                         },
+                        pre: ({ children }) => <>{children}</>,
                         img: ({ src, alt }) => (
-                            <img
-                                src={src}
-                                alt={alt || ''}
-                                className="rounded-xl max-w-full h-auto my-6"
-                                loading="lazy"
-                            />
+                            <motion.span {...mp(reduce, true, { opacity: 0, scale: 0.97, y: 14 }, 0, 0.55)} className="block my-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setZoomed({ src, alt })}
+                                    className="group block w-full overflow-hidden rounded-2xl border border-slate-700 shadow-xl shadow-black/30 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                                    aria-label={`Enlarge picture${alt ? ': ' + alt : ''}`}
+                                >
+                                    <img
+                                        src={src}
+                                        alt={alt || ''}
+                                        className="max-w-full w-full h-auto transition duration-700 group-hover:scale-[1.02]"
+                                        loading="lazy"
+                                    />
+                                </button>
+                                {alt ? <span className="mt-2 block text-center text-sm italic text-slate-400">{alt}</span> : null}
+                            </motion.span>
                         ),
                         a: ({ href, children }) => (
                             <a
                                 href={href}
                                 target={href?.startsWith('http') ? '_blank' : '_self'}
                                 rel={href?.startsWith('http') ? 'noopener noreferrer' : ''}
-                                className="text-primary-400 hover:text-primary-300 underline transition-colors"
+                                className="text-primary-400 hover:text-primary-300 underline underline-offset-2 transition-colors"
                             >
                                 {children}
                             </a>
@@ -208,6 +234,8 @@ export default function ContentRenderer({ content, showTableOfContents = true })
                     {content}
                 </ReactMarkdown>
             </div>
+            )}
+            <AnimatePresence>{zoomed && <Lightbox item={zoomed} onClose={() => setZoomed(null)} />}</AnimatePresence>
         </div>
     );
 }
