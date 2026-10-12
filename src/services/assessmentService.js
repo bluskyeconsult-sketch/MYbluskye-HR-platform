@@ -1023,6 +1023,20 @@ function generateReportHTML(userAssessment, profile) {
     const insights = userAssessment.insights || {};
     const dimensionScores = userAssessment.dimension_scores || {};
     const answers = userAssessment.answers || [];
+    // Self-reports (alignment check, career matching) are not tests: no "score", no pass level.
+    const mode = insights.mode || 'knowledge';
+    const isMatching = mode === 'matching';
+    const isDiagnostic = mode === 'diagnostic';
+    const matchList = Array.isArray(insights.matches) ? insights.matches : [];
+    const planList = Array.isArray(insights.action_plan) ? insights.action_plan : [];
+    const headBlock = isMatching && matchList.length
+        ? `<div class="score-label" style="margin-bottom:10px;">Your top career matches</div>${matchList.map((m, i) => `<div style="margin:8px 0;"><strong>${i + 1}. ${escapeHtml(m.name)} (${Number(m.fit) || 0}%)</strong><div style="font-size:13px;opacity:.9;">e.g. ${escapeHtml((m.roles || []).join(', '))}</div><div style="font-size:13px;opacity:.9;">Try first: ${escapeHtml(m.try_first || '')}</div></div>`).join('')}<div style="font-size:12px;opacity:.8;margin-top:10px;">${escapeHtml(insights.caution || 'A starting point, not a verdict.')}</div>`
+        : isDiagnostic
+        ? `<div class="score-number">${userAssessment.percentage}%</div><div class="score-label">aligned with your chosen career</div><div style="font-size: 14px; margin-top: 10px;">${escapeHtml((insights.alignment?.label || '').toUpperCase())}</div><div style="font-size:13px;margin-top:8px;opacity:.9;">${escapeHtml(insights.alignment?.message || '')}</div>`
+        : `<div class="score-number">${userAssessment.percentage}%</div><div class="score-label">Overall Score</div><div style="font-size: 14px; margin-top: 10px;">${(userAssessment.performance_level || 'COMPLETED').toUpperCase()}</div>`;
+    const planBlock = (isDiagnostic || isMatching) && planList.length
+        ? `<div class="section-title">${isMatching ? 'Test your matches in real life' : 'Your plan to get back on track'}</div>${planList.map(b => `<div class="performance-card"><strong>${escapeHtml(b.when || '')}</strong><ul class="recommendation-list">${(b.steps || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`).join('')}`
+        : '';
     
     return `<!DOCTYPE html>
     <html>
@@ -1069,9 +1083,7 @@ function generateReportHTML(userAssessment, profile) {
             </div>
             
             <div class="score-section">
-                <div class="score-number">${userAssessment.percentage}%</div>
-                <div class="score-label">Overall Score</div>
-                <div style="font-size: 14px; margin-top: 10px;">${(userAssessment.performance_level || 'COMPLETED').toUpperCase()}</div>
+                ${headBlock}
             </div>
             
             <div class="performance-card">
@@ -1079,7 +1091,7 @@ function generateReportHTML(userAssessment, profile) {
                 <p style="margin-top: 10px; line-height: 1.6;">${escapeHtml(insights.summary || `You scored ${userAssessment.percentage}% on this assessment, demonstrating ${userAssessment.percentage >= 70 ? 'strong' : 'developing'} capabilities in the assessed areas.`)}</p>
             </div>
             
-            <div class="section-title">Dimension Breakdown</div>
+            <div class="section-title">${isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : 'Dimension Breakdown'}</div>
             ${Object.entries(dimensionScores).map(([dim, score]) => `
                 <div class="dimension">
                     <div class="dimension-header">
@@ -1099,8 +1111,10 @@ function generateReportHTML(userAssessment, profile) {
                 </ul>
             ` : ''}
             
+            ${planBlock}
+
             ${insights.recommendations?.length > 0 ? `
-                <div class="section-title">Recommendations</div>
+                <div class="section-title">${(isDiagnostic || isMatching) ? 'Next steps' : 'Recommendations'}</div>
                 <ul class="recommendation-list">
                     ${insights.recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
                 </ul>
