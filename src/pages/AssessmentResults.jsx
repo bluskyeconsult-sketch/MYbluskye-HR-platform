@@ -160,7 +160,9 @@ export default function AssessmentResults() {
     async function handleShare() {
         // Results pages open only for their owner, so shared links point to the public assessments page instead.
         const shareUrl = `${window.location.origin}/assessments`;
-        const shareText = results?.insights?.mode === 'matching'
+        const shareText = results?.insights?.mode === 'profile'
+            ? `I just completed the ${results?.assessment?.title} self-rating profile.`
+            : results?.insights?.mode === 'matching'
             ? `I just did the ${results?.assessment?.title} and found my top career matches.`
             : results?.insights?.mode === 'diagnostic'
             ? `I just did the ${results?.assessment?.title} and I'm ${results?.percentage}% aligned.`
@@ -291,14 +293,18 @@ export default function AssessmentResults() {
     const isDiagnostic = insights.mode === 'diagnostic';
     // A career-matching profile ranks career families by how strongly the person is drawn to them.
     const isMatching = insights.mode === 'matching';
-    const isSelfReport = isDiagnostic || isMatching;
+    // A self-rating profile (communication, leadership, etc.): how the person rates themselves by area.
+    const isProfile = insights.mode === 'profile';
+    const isSelfReport = isDiagnostic || isMatching || isProfile;
     const matches = Array.isArray(insights.matches) ? insights.matches : [];
     const alignment = insights.alignment || null;
     const rankedDims = Object.entries(dimensionScores).sort((a, b) => b[1] - a[1]);
     const strongestDim = rankedDims[0];
     const gapDim = rankedDims.length > 1 ? rankedDims[rankedDims.length - 1] : null;
     const prettyDim = (d) => String(d).replace(/_/g, ' ');
-    const dimLabel = (score) => isMatching
+    const dimLabel = (score) => isProfile
+        ? (score >= 80 ? 'Well developed' : score >= 60 ? 'Solid' : score >= 40 ? 'Developing' : 'Early stage')
+        : isMatching
         ? (score >= 80 ? 'Strong pull' : score >= 60 ? 'Good pull' : score >= 40 ? 'Some pull' : 'Weak pull')
         : isDiagnostic
         ? (score >= 80 ? 'On track' : score >= 60 ? 'Mostly there' : score >= 40 ? 'Drifting' : 'Off track')
@@ -318,7 +324,7 @@ export default function AssessmentResults() {
                     <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 print:shadow-none print:bg-gray-200">
                         <Award className="w-10 h-10 text-white print:text-gray-700" />
                     </div>
-                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">{isMatching ? 'Your Career Matches' : isDiagnostic ? 'Your Alignment Check' : 'Your Assessment Results'}</h1>
+                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">{isMatching ? 'Your Career Matches' : isDiagnostic ? 'Your Alignment Check' : isProfile ? 'Your Self-Rated Profile' : 'Your Assessment Results'}</h1>
                     <p className="text-slate-400 print:text-gray-600">{results.assessment?.title}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 text-sm text-slate-500 print:text-gray-500">
                         <Calendar className="w-3 h-3" />
@@ -360,17 +366,17 @@ export default function AssessmentResults() {
                     <div className={`text-7xl font-bold ${tone.text} mb-2 print:text-gray-800`}>
                         {results.percentage}%
                     </div>
-                    <p className="text-slate-300 text-lg print:text-gray-600">{isDiagnostic ? 'aligned with your chosen career' : 'Overall Score'}</p>
+                    <p className="text-slate-300 text-lg print:text-gray-600">{isDiagnostic ? 'aligned with your chosen career' : isProfile ? 'overall self-rating' : 'Overall Score'}</p>
                     <div className={`mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/60 ${tone.text} text-sm print:bg-gray-200 print:text-gray-700`}>
                         <Star className="w-3 h-3" />
-                        {isDiagnostic && alignment?.label ? alignment.label.toUpperCase() : results.performance_level?.toUpperCase()}
+                        {(isDiagnostic || isProfile) && alignment?.label ? alignment.label.toUpperCase() : results.performance_level?.toUpperCase()}
                     </div>
                     <p className="text-slate-400 mt-3 print:text-gray-600">
-                        {isDiagnostic && alignment?.message
+                        {(isDiagnostic || isProfile) && alignment?.message
                             ? alignment.message
                             : getPerformanceMessage(results.percentage, results.performance_level)}
                     </p>
-                    {!isDiagnostic && (
+                    {!isDiagnostic && !isProfile && (
                         <p className="text-sm text-slate-500 mt-2 print:text-gray-500">
                             Score: {Math.round(results.score)} / {results.max_score}
                         </p>
@@ -422,12 +428,12 @@ export default function AssessmentResults() {
                             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
                                 <CheckCircle className="w-5 h-5 text-emerald-500 mx-auto mb-2" />
                                 <p className="text-sm font-bold text-white capitalize print:text-gray-800">{strongestDim ? prettyDim(strongestDim[0]) : '-'}</p>
-                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Strongest pull' : 'Strongest area'}{strongestDim ? ` (${strongestDim[1]}%)` : ''}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Strongest pull' : isProfile ? 'Strongest rating' : 'Strongest area'}{strongestDim ? ` (${strongestDim[1]}%)` : ''}</p>
                             </div>
                             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
                                 <Target className="w-5 h-5 text-amber-500 mx-auto mb-2" />
                                 <p className="text-sm font-bold text-white capitalize print:text-gray-800">{gapDim ? prettyDim(gapDim[0]) : '-'}</p>
-                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Weakest pull' : 'Biggest gap'}{gapDim ? ` (${gapDim[1]}%)` : ''}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Weakest pull' : isProfile ? 'Most room to grow' : 'Biggest gap'}{gapDim ? ` (${gapDim[1]}%)` : ''}</p>
                             </div>
                         </>
                     ) : (
@@ -455,7 +461,7 @@ export default function AssessmentResults() {
                             </div>
                             <div className="flex-1">
                                 <h3 className="text-white font-semibold mb-2 print:text-gray-800">
-                                    {isMatching ? 'What your answers suggest' : isDiagnostic ? 'Where you stand' : (insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights')}
+                                    {isMatching ? 'What your answers suggest' : isProfile ? 'How you rate yourself' : isDiagnostic ? 'Where you stand' : (insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights')}
                                 </h3>
                                 {/* NEW (2026-08-30): honest note when the real
                                     AI analysis wasn't available and this is a
@@ -475,7 +481,7 @@ export default function AssessmentResults() {
                                 {insights.strengths?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-emerald-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-green-700">
-                                            <CheckCircle className="w-3 h-3" /> {isMatching ? 'What you seem to enjoy' : isDiagnostic ? 'What is working' : 'Strengths'}
+                                            <CheckCircle className="w-3 h-3" /> {isMatching ? 'What you seem to enjoy' : isProfile ? 'Your strongest areas' : isDiagnostic ? 'What is working' : 'Strengths'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.strengths.map((s, i) => (
@@ -491,7 +497,7 @@ export default function AssessmentResults() {
                                 {insights.improvements?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-amber-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-yellow-700">
-                                            <AlertCircle className="w-3 h-3" /> {isMatching ? 'Watch-outs' : isDiagnostic ? 'Biggest gaps' : 'Areas for Improvement'}
+                                            <AlertCircle className="w-3 h-3" /> {isMatching ? 'Watch-outs' : isProfile ? 'Where to develop' : isDiagnostic ? 'Biggest gaps' : 'Areas for Improvement'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.improvements.map((i, idx) => (
@@ -529,7 +535,7 @@ export default function AssessmentResults() {
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <Target className="w-5 h-5 text-primary-400" />
-                            {isMatching ? 'Test your matches in real life' : 'Your plan to get back on track'}
+                            {isMatching ? 'Test your matches in real life' : isProfile ? 'Your development plan' : 'Your plan to get back on track'}
                         </h3>
                         <div className="grid gap-4 md:grid-cols-3">
                             {insights.action_plan.map((block, i) => (
@@ -554,7 +560,7 @@ export default function AssessmentResults() {
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <BarChart3 className="w-5 h-5 text-primary-400" />
-                            {isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : 'Breakdown by Dimension'}
+                            {isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : isProfile ? 'Self-rating by area' : 'Breakdown by Dimension'}
                         </h3>
                         <div className="space-y-4">
                             {Object.entries(dimensionScores).map(([dimension, score]) => (
@@ -572,7 +578,7 @@ export default function AssessmentResults() {
                                         ></div>
                                     </div>
                                     <p className="text-xs text-slate-500 mt-1 print:text-gray-500">
-                                        {dimLabel(score)}{isDiagnostic && gapDim && dimension === gapDim[0] && score < 80 ? ' - focus here first' : ''}
+                                        {dimLabel(score)}{(isDiagnostic || isProfile) && gapDim && dimension === gapDim[0] && score < 80 ? ' - focus here first' : ''}
                                     </p>
                                 </div>
                             ))}
