@@ -295,7 +295,7 @@ export default function AssessmentManager() {
                     difficulty: aiDifficulty,
                     numberOfQuestions: aiQuestionCount,
                     // match the assessment being extended, so a self-diagnostic never gets quiz questions
-                    mode: selectedAssessment?.assessment_type === 'career_aptitude' ? 'diagnostic' : aiMode
+                    mode: questions.some(q => /^fit:/i.test(q.dimension || '')) ? 'matching' : selectedAssessment?.assessment_type === 'career_aptitude' ? (aiMode === 'matching' ? 'matching' : 'diagnostic') : aiMode
                 })
             });
             
@@ -437,10 +437,15 @@ export default function AssessmentManager() {
                 throw new Error(questionsData.error || 'Question generation failed - nothing was created.');
             }
             const generatedQuestions = questionsData.questions;
-            const diagnostic = aiMode === 'diagnostic';
+            const matching = aiMode === 'matching';
+            const diagnostic = aiMode === 'diagnostic' || matching;
+            // Avoid titles like "Communication Skills Assessment Assessment" when the topic already says so.
+            const cleanTopic = aiTopic.trim().replace(/\s+(assessment|test|check|profile)$/i, '');
             
-            const assessmentTitle = diagnostic ? `${aiTopic} Check` : `${aiTopic} Assessment`;
-            const assessmentDescription = diagnostic
+            const assessmentTitle = matching ? `${cleanTopic} Career Matching Profile` : diagnostic ? `${cleanTopic} Check` : `${cleanTopic} Assessment`;
+            const assessmentDescription = matching
+                ? `A career-matching profile with no right or wrong answers. It shows which kinds of work you are most drawn to, with example roles and a way to test each match in real life.`
+                : diagnostic
                 ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${aiTopic}, where you are drifting, and a step-by-step plan to get back on track.`
                 : `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
             
@@ -449,7 +454,9 @@ export default function AssessmentManager() {
                 .insert({
                     title: assessmentTitle,
                     description: assessmentDescription,
-                    instructions: diagnostic
+                    instructions: matching
+                        ? 'Rate each statement by how much it describes you or what you enjoy, not what you think you should say. There are no right or wrong answers. Your result ranks the kinds of work you are most drawn to.'
+                        : diagnostic
                         ? 'Answer honestly about your life as it is now, not as you would like it to be. There are no right or wrong answers. Your result shows where you are aligned, where you are drifting, and what to do next.'
                         : `Complete this assessment to evaluate your ${aiTopic} knowledge. Answer each question thoughtfully.`,
                     assessment_type: diagnostic ? 'career_aptitude' : 'general',
@@ -1161,7 +1168,8 @@ export default function AssessmentManager() {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {[
                                         { id: 'knowledge', title: 'Knowledge test', text: 'Right and wrong answers, scored as a percentage. Use for skills and facts.' },
-                                        { id: 'diagnostic', title: 'Self-diagnostic', text: 'No right answers. Shows how closely someone matches a goal (such as a chosen career), their gaps, and an action plan.' }
+                                        { id: 'diagnostic', title: 'Self-diagnostic', text: 'No right answers. Shows how closely someone matches a goal (such as a chosen career), their gaps, and an action plan.' },
+                                        { id: 'matching', title: 'Career matching', text: 'No right answers. Shows which kinds of work someone is most drawn to, with example roles and a way to test each match.' }
                                     ].map(m => (
                                         <button
                                             type="button"
