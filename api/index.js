@@ -13995,6 +13995,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                     // this handler discarded whatever might exist anyway.
                     tier: va.required_tier || 'free',
                     execution_type: va.execution_type || 'single_turn',
+                    requiredInputFields: Array.isArray(va.required_input_fields) ? va.required_input_fields : null,
                     processingTime: `${va.processing_time_minutes || 5} min`,
                     rating: avgRating,
                     reviews: vaRatings.length
@@ -14177,8 +14178,22 @@ When you do have enough information, present the final rota as a clear markdown 
         // (no seed data or export exists in what I have access to), so
         // this improves the shared logic every VA runs through rather
         // than guess at content I've never seen.
+        // NEW (2026-10-12): the catalog rows carry a specialty, market focus and working method
+        // (for example "Apply UK CV standards: 2 pages, no photo, British spelling") that this
+        // prompt never used, so every assistant behaved like the same generic one. They are now
+        // part of the prompt, along with an honest statement of what the assistant cannot do
+        // (it cannot open links or files or look up live data).
+        const vaDetails = va ? [
+            va.specialty ? `Your specialty: ${va.specialty}.` : '',
+            (va.country_focus && va.country_focus !== 'Global') ? `Your market focus: ${va.country_focus}. Apply that market's conventions, terminology and spelling.` : '',
+            va.instructions ? `Your working method: ${va.instructions}.` : '',
+            'You work in text only. You cannot open links, files or profiles, browse the internet, or look up live data such as current salaries or vacancies. If the task depends on something like that, say so plainly, work from what the person pasted and your general knowledge, and label any estimate as an estimate. Deliver finished work as clean, ready-to-copy text and never claim to have produced a PDF or Word file.'
+        ].filter(Boolean).join(' ') : '';
+
         const genericBasePrompt = va
             ? `You are ${va.name}, a professional ${va.category ? va.category + ' ' : ''}assistant. ${va.long_description || va.description || ''}
+
+${vaDetails}
 
 Give specific, actionable advice grounded in exactly what the person shares - reference their actual words, examples, or details rather than generic principles that would apply to anyone. If they haven't given you enough to work with for a genuinely specific answer, ask a clarifying question rather than filling the gap with generic advice. Use markdown formatting for readability.`
             : 'You are a professional career assistant. Give specific, actionable advice grounded in exactly what the person shares, rather than generic principles. If they haven\'t given enough detail for a specific answer, ask a clarifying question. Use markdown formatting for readability.';
