@@ -47,6 +47,38 @@ export function Inline({ text }) {
     );
 }
 
+// Splits text into sentences (ignoring full stops inside `code`), so each can fade in one after another.
+function sentences(text) {
+    const out = []; let cur = ''; let inCode = false;
+    const t = String(text ?? '');
+    for (let i = 0; i < t.length; i++) {
+        const ch = t[i];
+        cur += ch;
+        if (ch === '`') inCode = !inCode;
+        if (!inCode && /[.!?]/.test(ch) && /\s/.test(t[i + 1] || '') && !/\b(e\.g|i\.e|etc|vs)\.$/i.test(cur)) {
+            out.push(cur); cur = '';
+            while (/\s/.test(t[i + 1] || '')) i++;
+            cur = '';
+        }
+    }
+    if (cur.trim()) out.push(cur);
+    return out.length ? out : [t];
+}
+
+// A paragraph whose sentences appear one by one.
+export function Lines({ text, reduce, scroll, delay = 0, step = 0.11, className = '' }) {
+    const parts = sentences(text);
+    return (
+        <p className={className}>
+            {parts.map((sn, i) => (
+                <motion.span key={i} className="inline" {...mp(reduce, scroll, { opacity: 0, y: 8 }, delay + i * step, 0.4)}>
+                    <Inline text={sn} />{i < parts.length - 1 ? ' ' : ''}
+                </motion.span>
+            ))}
+        </p>
+    );
+}
+
 export function CodeBlock({ code, lang }) {
     const [copied, setCopied] = useState(false);
     async function copy() {
@@ -128,7 +160,7 @@ function Callout({ block }) {
             <Icon className={`w-5 h-5 mt-0.5 flex-shrink-0 ${st.ico}`} />
             <div className="min-w-0">
                 <p className={`text-xs font-semibold uppercase tracking-wide ${st.ico}`}>{block.title || st.label}</p>
-                <p className="mt-1 leading-7 text-slate-200"><Inline text={block.text} /></p>
+                <p className="mt-1 leading-7 font-medium text-slate-100"><Inline text={block.text} /></p>
             </div>
         </div>
     );
@@ -138,7 +170,7 @@ function Term({ block }) {
     return (
         <div className="my-4 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3 flex gap-3 items-start">
             <BookOpen className="w-4 h-4 mt-1.5 text-primary-300 flex-shrink-0" />
-            <p className="leading-7 text-slate-300"><span className="font-semibold text-white">{block.word}</span> <span className="text-slate-500">&middot;</span> <Inline text={block.text} /></p>
+            <p className="leading-7 font-medium text-slate-100"><span className="font-bold text-white">{block.word}</span> <span className="text-slate-500">&middot;</span> <Inline text={block.text} /></p>
         </div>
     );
 }
@@ -156,7 +188,7 @@ function Steps({ block, reduce, scroll }) {
                     >
                         {i < block.items.length - 1 && <span className="absolute left-[15px] top-8 bottom-[-1rem] w-px bg-slate-700" aria-hidden="true" />}
                         <span className="z-10 w-8 h-8 rounded-full bg-primary-600 text-white text-sm font-semibold flex items-center justify-center flex-shrink-0 ring-4 ring-slate-900">{i + 1}</span>
-                        <p className="pt-1 leading-7 text-slate-200"><Inline text={it} /></p>
+                        <p className="pt-1 text-[1.05rem] leading-7 font-medium text-slate-100"><Inline text={it} /></p>
                     </motion.li>
                 ))}
             </ol>
@@ -236,7 +268,7 @@ function Pullquote({ block }) {
     return (
         <blockquote className="my-6 border-l-4 border-primary-500 pl-5 py-1">
             <QuoteIcon className="w-5 h-5 text-primary-400 mb-1" />
-            <p className="text-lg italic leading-8 text-slate-200"><Inline text={block.text} /></p>
+            <p className="text-xl font-medium italic leading-8 text-white"><Inline text={block.text} /></p>
         </blockquote>
     );
 }
@@ -307,7 +339,7 @@ function CheckBlock({ block }) {
     );
 }
 
-export function Block({ block, onZoom, reduce, scroll = false }) {
+export function Block({ block, onZoom, reduce, scroll = false, delay = 0 }) {
     switch (block.type) {
         case 'code': return <CodeBlock code={block.text} lang={block.lang} />;
         case 'figure': return <Figure block={block} onZoom={onZoom} reduce={reduce} scroll={scroll} />;
@@ -323,18 +355,18 @@ export function Block({ block, onZoom, reduce, scroll = false }) {
         case 'ul': return (
             <ul className="my-4 space-y-2">
                 {block.items.map((it, i) => (
-                    <li key={i} className="flex gap-3 text-slate-300 leading-relaxed"><span className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 flex-shrink-0" /><span><Inline text={it} /></span></li>
+                    <motion.li key={i} className="flex gap-3 text-[1.08rem] font-medium text-slate-100 leading-relaxed" {...mp(reduce, scroll, { opacity: 0, x: -14 }, delay + i * 0.12, 0.4)}><span className="mt-2.5 w-2 h-2 rounded-full bg-primary-400 flex-shrink-0" /><span><Inline text={it} /></span></motion.li>
                 ))}
             </ul>
         );
         case 'ol': return (
             <ol className="my-4 space-y-2">
                 {block.items.map((it, i) => (
-                    <li key={i} className="flex gap-3 text-slate-300 leading-relaxed"><span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-300 text-xs font-semibold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span><span><Inline text={it} /></span></li>
+                    <motion.li key={i} className="flex gap-3 text-[1.08rem] font-medium text-slate-100 leading-relaxed" {...mp(reduce, scroll, { opacity: 0, x: -14 }, delay + i * 0.12, 0.4)}><span className="w-7 h-7 rounded-full bg-primary-500/20 text-primary-300 text-sm font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span><span><Inline text={it} /></span></motion.li>
                 ))}
             </ol>
         );
-        default: return <p className="text-[1.05rem] leading-8 text-slate-300 my-4"><Inline text={block.text} /></p>;
+        default: return <Lines text={block.text} reduce={reduce} scroll={scroll} delay={delay} className="text-[1.12rem] leading-8 font-medium text-slate-100 my-4" />;
     }
 }
 
