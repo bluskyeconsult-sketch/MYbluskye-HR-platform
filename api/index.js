@@ -5287,6 +5287,81 @@ ${siteContext}`;
     // last_credit_grant_at to now, so this genuinely restarts that
     // user's own 30-day window rather than leaving the automated
     // cron to grant them again unexpectedly soon after.
+    // NEW (2026-10-12): READ-ONLY support view of a user's account, so staff can diagnose problems
+    // and answer questions without asking the user for screenshots. Deliberate limits:
+    //  - read only: it changes nothing and does not sign in as the user;
+    //  - a written reason is required and every look is recorded (fails closed: if the access
+    //    record cannot be written, nothing is returned);
+    //  - private message text and Career Coach content are never returned;
+    //  - the body of the user's own submissions (assessment answers, assistant inputs and
+    //    outputs) is returned only when includeContent is set, and that is recorded too;
+    //  - a super_admin account can only be inspected by a super_admin.
+    'admin-user-inspect': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`admin-user-inspect:${auth.userId}`, 60)) {
+            return res.status(429).json({ error: 'Too many lookups - please slow down.' });
+        }
+
+        const { userId, reason, includeContent } = req.body || {};
+        const why = String(reason || '').trim();
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+        if (why.length < 8) return res.status(400).json({ error: 'Give a short reason for looking at this account (at least 8 characters). It is recorded.' });
+
+        try {
+            const { data: profile, error: pErr } = await supabaseClient.from('profiles').select('*').eq('id', userId).single();
+            if (pErr || !profile) return res.status(404).json({ error: 'User not found' });
+            if (profile.user_type === 'super_admin' && auth.userType !== 'super_admin') {
+                return res.status(403).json({ error: 'Only a super admin can view a super admin account.' });
+            }
+
+            const content = includeContent === true;
+            const { error: logErr } = await supabaseClient.from('user_activity_log').insert({
+                user_id: userId,
+                user_email: profile.email || null,
+                action_type: 'admin_user_inspect',
+                details: { admin_id: auth.userId, reason: why.slice(0, 300), include_content: content },
+                ip_address: getRequestIP(req),
+                user_agent: req.headers['user-agent'] || null
+            });
+            if (logErr) {
+                return res.status(500).json({ error: 'Could not record this access, so nothing was shown. Try again. (' + logErr.message + ')' });
+            }
+
+            const safe = async (fn) => { try { const r = await fn(); return r.error ? { unavailable: r.error.message } : (r.data || []); } catch (e) { return { unavailable: e.message }; } };
+
+            const [credits, jobApps, careerApps, assessments, vaTasks, activity, tickets, access] = await Promise.all([
+                safe(() => supabaseClient.from('va_credits').select('balance').eq('user_id', userId).maybeSingle()),
+                safe(() => supabaseClient.from('job_applications').select('id, job_id, status, created_at').eq('applicant_id', userId).order('created_at', { ascending: false }).limit(30)),
+                safe(() => supabaseClient.from('career_applications').select('title, company, status, job_source, applied_at, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(30)),
+                safe(() => supabaseClient.from('user_assessments').select(content ? 'id, status, percentage, performance_level, completed_at, answers, insights, assessment:assessment_id(title)' : 'id, status, percentage, performance_level, completed_at, assessment:assessment_id(title)').eq('user_id', userId).order('created_at', { ascending: false }).limit(20)),
+                safe(() => supabaseClient.from('va_tasks').select(content ? 'id, va_id, status, created_at, input, output' : 'id, va_id, status, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(20)),
+                safe(() => supabaseClient.from('user_activity_log').select('action_type, created_at, details').eq('user_id', userId).neq('action_type', 'admin_user_inspect').order('created_at', { ascending: false }).limit(40)),
+                safe(() => supabaseClient.from('support_tickets').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(10)),
+                safe(() => supabaseClient.from('user_activity_log').select('created_at, details').eq('user_id', userId).eq('action_type', 'admin_user_inspect').order('created_at', { ascending: false }).limit(15))
+            ]);
+
+            return res.status(200).json({
+                success: true,
+                includeContent: content,
+                profile,
+                credits: Array.isArray(credits) ? null : (credits?.balance ?? null),
+                job_applications: jobApps,
+                tracked_applications: careerApps,
+                assessments,
+                assistant_tasks: vaTasks,
+                recent_activity: activity,
+                support_tickets: tickets,
+                access_history: access,
+                not_included: ['private messages', 'Career Coach goals and drafts']
+            });
+        } catch (error) {
+            console.error('admin-user-inspect error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     'admin-reset-user-credits': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
@@ -5683,12 +5758,9 @@ ${siteContext}`;
                 timestamp: new Date().toISOString()
             });
         } catch (error) {
-            const mockJobs = [
-                { title: 'Senior Software Engineer', company: 'Tech Corp', location: 'Remote', description: 'Build amazing products', salary_range: '$120k - $180k', job_type: 'remote' },
-                { title: 'Product Manager', company: 'Innovate Inc', location: 'London, UK', description: 'Lead product strategy', salary_range: '£80k - £100k', job_type: 'full_time' },
-                { title: 'Data Scientist', company: 'AI Solutions', location: 'Remote', description: 'Machine learning models', salary_range: '$130k - $160k', job_type: 'remote' }
-            ];
-            return res.status(200).json({ success: true, jobs: mockJobs, count: mockJobs.length, fallback: true });
+            // FIXED (2026-10-12): this returned three invented job listings as if real whenever the lookup failed.
+            console.error('jobs lookup failed:', error.message);
+            return res.status(200).json({ success: true, jobs: [], count: 0, unavailable: true });
         }
     },
 
@@ -5723,10 +5795,10 @@ ${siteContext}`;
             });
         } catch (error) {
             res.status(200).json({
-                total: 82,
-                active: 45,
-                byCountry: { GB: 20, US: 15, NG: 10, CA: 8, AU: 6, DE: 5, FR: 4, IE: 3 },
-                fallback: true,
+                total: 0,
+                active: 0,
+                byCountry: {},
+                unavailable: true,
                 timestamp: new Date().toISOString()
             });
         }
@@ -10047,26 +10119,33 @@ Return the lesson as markdown with this structure:
                 ? `Create a course outline for "${topic}" at ${level} level, based directly on this real source material - use its actual content, structure, and examples rather than generic knowledge:\n\n${truncatedSource}\n\nReturn as JSON with title, description, modules array.`
                 : `Create a course outline for "${topic}" at ${level} level. Return as JSON with title, description, modules array.`;
 
+            // FIXED (2026-10-12): this used to cap output at 1500 tokens (a real outline is often longer, so the
+            // JSON was cut off), parse with a loose regex, and on ANY failure return success:true with a stub
+            // one-module course, which the builder then saved as a real course. It now uses JSON mode and enough
+            // room, checks the outline has modules, and reports a real error instead of inventing a course.
             const data = await callOpenAI([
-                { role: 'system', content: 'You are an instructional designer. Return valid JSON.' },
+                { role: 'system', content: 'You are an instructional designer. Return only valid JSON of the form {"title": string, "description": string, "modules": [{"title": string, "lessons": [string]}]}. Give 3 to 8 modules, each with 2 to 6 specific lesson titles (not generic placeholders such as "Introduction" or "Core Concepts" unless the topic truly needs them).' },
                 { role: 'user', content: userPrompt }
-            ], 1500, 0.7);
+            ], 3000, 0.7, { type: 'json_object' });
 
-            const content = data.choices[0].message.content;
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            const outline = jsonMatch ? JSON.parse(jsonMatch[0]) : { title: topic, description: '', modules: [] };
+            let outline;
+            try {
+                outline = JSON.parse(data.choices[0].message.content);
+            } catch (parseErr) {
+                return res.status(500).json({ success: false, error: 'The course outline came back in an unusable form. Please try again.' });
+            }
+            const goodModules = Array.isArray(outline?.modules)
+                ? outline.modules.filter(m => m && typeof m.title === 'string' && m.title.trim() && Array.isArray(m.lessons) && m.lessons.length > 0)
+                : [];
+            if (!outline?.title || goodModules.length === 0) {
+                return res.status(500).json({ success: false, error: 'The course outline had no usable modules. Please try again, or give a more specific topic.' });
+            }
+            outline.modules = goodModules;
 
             return res.status(200).json({ success: true, outline });
         } catch (error) {
-            return res.status(200).json({ 
-                success: true, 
-                fallback: true,
-                outline: {
-                    title: `${topic} Course`,
-                    description: `A comprehensive ${level} level course on ${topic}.`,
-                    modules: [{ title: `Introduction to ${topic}`, lessons: ['Getting Started', 'Core Concepts'] }]
-                }
-            });
+            console.error('generate-course error:', error);
+            return res.status(500).json({ success: false, error: 'Course outline generation failed. Nothing was created. Please try again.' });
         }
     },
 
@@ -10382,9 +10461,9 @@ Return the lesson as markdown with this structure:
             });
         } catch (error) {
             res.status(200).json({
-                total: 15,
-                published: 12,
-                fallback: true,
+                total: 0,
+                published: 0,
+                unavailable: true,
                 timestamp: new Date().toISOString()
             });
         }
@@ -10457,10 +10536,10 @@ Return the lesson as markdown with this structure:
             });
         } catch (error) {
             res.status(200).json({
-                total: 8,
-                active: 5,
-                completed: 3,
-                fallback: true,
+                total: 0,
+                active: 0,
+                completed: 0,
+                unavailable: true,
                 timestamp: new Date().toISOString()
             });
         }
@@ -12822,11 +12901,22 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 { role: 'user', content: `Course: "${course.title}"\n\n${lessonsSummary}` }
             ], 2500, 0.6, { type: 'json_object' });
 
-            const parsed = JSON.parse(data.choices[0].message.content);
-            const questions = parsed.questions || [];
+            let parsed;
+            try {
+                parsed = JSON.parse(data.choices[0].message.content);
+            } catch (parseErr) {
+                return res.status(500).json({ error: 'Quiz generation came back in an unusable form - your existing quiz was not changed. Please try again.' });
+            }
+            // FIXED (2026-10-12): questions were used as returned. A question with the wrong number of options or
+            // an out-of-range answer index would be saved and then mark every learner wrong. Malformed ones are now
+            // dropped, and the existing quiz is only deleted once a valid replacement is ready.
+            const questions = (Array.isArray(parsed.questions) ? parsed.questions : []).filter(q =>
+                q && typeof q.question === 'string' && q.question.trim()
+                && Array.isArray(q.options) && q.options.length === 4 && q.options.every(o => typeof o === 'string' && o.trim())
+                && Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3);
 
             if (questions.length === 0) {
-                return res.status(500).json({ error: 'Quiz generation produced no questions - please try again.' });
+                return res.status(500).json({ error: 'Quiz generation produced no valid questions - your existing quiz was not changed. Please try again.' });
             }
 
             // Replaces any existing quiz for this course rather than
@@ -13896,9 +13986,9 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             });
         } catch (error) {
             res.status(200).json({
-                totalTasks: 156,
-                completedTasks: 89,
-                fallback: true,
+                totalTasks: 0,
+                completedTasks: 0,
+                unavailable: true,
                 timestamp: new Date().toISOString()
             });
         }
