@@ -33,7 +33,8 @@ export default function UserApplications() {
         total: 0,
         pending: 0,
         reviewed: 0,
-        accepted: 0,
+        shortlisted: 0,
+        hired: 0,
         rejected: 0
     });
 
@@ -41,7 +42,8 @@ export default function UserApplications() {
         { id: 'all', name: 'All Applications', color: 'slate', icon: Briefcase },
         { id: 'pending', name: 'Pending Review', color: 'amber', icon: Clock },
         { id: 'reviewed', name: 'Under Review', color: 'blue', icon: Eye },
-        { id: 'accepted', name: 'Accepted', color: 'emerald', icon: CheckCircle },
+        { id: 'shortlisted', name: 'Shortlisted', color: 'emerald', icon: CheckCircle },
+        { id: 'hired', name: 'Hired', color: 'emerald', icon: CheckCircle },
         { id: 'rejected', name: 'Rejected', color: 'red', icon: XCircle }
     ];
 
@@ -78,7 +80,10 @@ export default function UserApplications() {
                 total: applicationsData.length,
                 pending: applicationsData.filter(a => a.status === 'pending').length,
                 reviewed: applicationsData.filter(a => a.status === 'reviewed').length,
-                accepted: applicationsData.filter(a => a.status === 'accepted').length,
+                // UPDATED (2026-10-12): employers set reviewed / shortlisted / hired / rejected, so those are
+                // what applicants now see ('accepted' kept as an older alias for shortlisted).
+                shortlisted: applicationsData.filter(a => a.status === 'shortlisted' || a.status === 'accepted').length,
+                hired: applicationsData.filter(a => a.status === 'hired').length,
                 rejected: applicationsData.filter(a => a.status === 'rejected').length
             };
             setStats(statsData);
@@ -114,7 +119,9 @@ export default function UserApplications() {
         const config = {
             pending: { label: 'Pending Review', color: 'bg-amber-500/20 text-amber-400', icon: Clock },
             reviewed: { label: 'Under Review', color: 'bg-blue-500/20 text-blue-400', icon: Eye },
-            accepted: { label: 'Accepted', color: 'bg-emerald-500/20 text-emerald-400', icon: CheckCircle },
+            shortlisted: { label: 'Shortlisted', color: 'bg-emerald-500/20 text-emerald-400', icon: CheckCircle },
+            accepted: { label: 'Shortlisted', color: 'bg-emerald-500/20 text-emerald-400', icon: CheckCircle },
+            hired: { label: 'Hired', color: 'bg-emerald-500/30 text-emerald-300', icon: CheckCircle },
             rejected: { label: 'Rejected', color: 'bg-red-500/20 text-red-400', icon: XCircle }
         };
 
@@ -175,8 +182,8 @@ export default function UserApplications() {
                         <p className="text-xs text-slate-400">Reviewed</p>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-emerald-400">{stats.accepted}</p>
-                        <p className="text-xs text-slate-400">Accepted</p>
+                        <p className="text-2xl font-bold text-emerald-400">{stats.shortlisted + stats.hired}</p>
+                        <p className="text-xs text-slate-400">Shortlisted / Hired</p>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center">
                         <p className="text-2xl font-bold text-red-400">{stats.rejected}</p>
@@ -306,7 +313,7 @@ export default function UserApplications() {
                                                 <Eye className="w-3 h-3" /> View Job
                                             </button>
                                         </Link>
-                                        {app.status === 'accepted' && (
+                                        {(app.status === 'accepted' || app.status === 'shortlisted') && (
                                             <button
                                                 disabled
                                                 title="Not built yet"
