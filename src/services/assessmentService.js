@@ -635,6 +635,96 @@ Say clearly that this is a starting point and not a verdict. Do not invent facts
     }
 }
 
+// ============================================
+// SELF-RATING PROFILES (NEW, 2026-10-12)
+// Any assessment made only of agreement ratings (no right-or-wrong questions) that is neither a career
+// alignment check nor a career-matching profile is a SELF-RATING PROFILE: for example communication,
+// emotional intelligence, leadership or problem solving. It reports how the person rates themselves by
+// area, their strongest areas and where to develop, never "excellent / pass / correct". It is self-report,
+// so it is labelled that way.
+// ============================================
+const PROFILE_BANDS = [
+    { min: 80, label: 'Well developed', message: 'You rate yourself highly across these areas. Check that others would agree, and use your strengths deliberately.' },
+    { min: 60, label: 'Solid, with room to grow', message: 'You rate yourself as capable in most areas, with a few worth strengthening.' },
+    { min: 40, label: 'Developing', message: 'You see real room to grow here. That honesty is a good starting point, and the plan below shows where to begin.' },
+    { min: 0, label: 'Early stage', message: 'You rate these skills as early in development. That is common and very trainable. Start with the first step below.' }
+];
+export function profileBand(percentage) {
+    return PROFILE_BANDS.find(b => percentage >= b.min) || PROFILE_BANDS[PROFILE_BANDS.length - 1];
+}
+
+async function generateProfileInsights(assessmentTitle, percentage, dimensionScores, contextAnswers) {
+    const band = profileBand(percentage);
+    const entries = Object.entries(dimensionScores || {}).sort((a, b) => a[1] - b[1]);
+    const weakest = entries.slice(0, 2).map(e => e[0]);
+    const strongest = entries.slice(-2).reverse().map(e => e[0]);
+    const pretty = (d) => String(d).replace(/_/g, ' ');
+    const about = (contextAnswers || []).map(c => `${c.question} -> ${c.answer}`).join('\n') || 'Not stated';
+
+    const fallback = {
+        mode: 'profile',
+        alignment: { label: band.label, message: band.message },
+        summary: `This is how you rated yourself on ${assessmentTitle}: ${percentage}% overall (${band.label}).${strongest[0] ? ` You rate yourself strongest in ${pretty(strongest[0])}.` : ''}${weakest[0] ? ` You see most room to grow in ${pretty(weakest[0])}.` : ''} Self-ratings show how you see yourself, not how others see you.`,
+        strengths: strongest.map(d => `${pretty(d)} is a strength you recognise in yourself`),
+        improvements: weakest.map(d => `${pretty(d)} is where you see most room to grow`),
+        action_plan: [
+            { when: 'This week', steps: weakest.map(d => `Notice one situation where ${pretty(d)} mattered and write what you did and what you would do differently`) },
+            { when: 'Next 30 days', steps: ['Ask one colleague or friend for honest feedback on your lowest area', 'Practise one small, specific habit in that area each week'] },
+            { when: 'Next 90 days', steps: ['Retake this profile to see what moved', 'Choose a course or coach for the area you most want to grow'] }
+        ],
+        recommendations: ['Ask someone who works with you to rate you on the same areas and compare', 'Use the Career Coach to turn your lowest area into a development plan'],
+        usedFallback: true
+    };
+
+    const systemPrompt = 'You are a practical, encouraging development coach. Reply ONLY with valid JSON.';
+    const userMessage = `A person completed the self-rating profile "${assessmentTitle}". There are no right or wrong answers; each score (0-100) is how strongly they agree that a statement describes them.
+
+About them (their own words):
+${about}
+
+Overall self-rating: ${percentage}% (${band.label})
+Scores by area: ${JSON.stringify(dimensionScores)}
+Highest: ${strongest.join(', ') || 'none'}. Lowest: ${weakest.join(', ') || 'none'}.
+
+Write JSON with:
+- "summary": 2-3 sentences using the actual areas above; state that these are self-ratings
+- "strengths": 2-3 strings tied to the highest areas
+- "improvements": 2-3 strings, each naming a low area and what it means in practice
+- "action_plan": exactly 3 objects {"when": "This week" | "Next 30 days" | "Next 90 days", "steps": [2-3 concrete steps]}, aimed first at the lowest areas
+- "recommendations": 2-4 strings pointing to useful next steps (getting feedback from others, Career Coach, Courses)
+Do not invent facts, do not call it a test, do not claim it predicts job performance.`;
+
+    try {
+        const result = await callAIWithFallback(
+            'chat',
+            { message: userMessage, systemPrompt, history: [], temperature: 0.6, maxTokens: 900 },
+            [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+            null
+        );
+        let parsed = null;
+        if (typeof result === 'string') {
+            try { parsed = JSON.parse(result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { parsed = null; }
+        } else if (result && typeof result === 'object') {
+            parsed = result;
+        }
+        if (parsed && parsed.summary && Array.isArray(parsed.action_plan) && parsed.action_plan.length) {
+            return {
+                ...fallback,
+                summary: parsed.summary,
+                strengths: Array.isArray(parsed.strengths) && parsed.strengths.length ? parsed.strengths : fallback.strengths,
+                improvements: Array.isArray(parsed.improvements) && parsed.improvements.length ? parsed.improvements : fallback.improvements,
+                action_plan: parsed.action_plan.slice(0, 3).map(a => ({ when: String(a.when || ''), steps: Array.isArray(a.steps) ? a.steps.map(String).slice(0, 4) : [] })),
+                recommendations: Array.isArray(parsed.recommendations) && parsed.recommendations.length ? parsed.recommendations : fallback.recommendations,
+                usedFallback: false
+            };
+        }
+        return fallback;
+    } catch (e) {
+        console.error('Error generating profile insights:', e);
+        return fallback;
+    }
+}
+
 async function generateAIInsights(assessmentTitle, percentage, dimensionScores) {
     // FIXED (2026-08-30): confirmed the same dishonest-fallback pattern
     // already found and fixed in the VA execution and scenario-scoring
@@ -737,16 +827,19 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         // "context" answers). It is scored as alignment, not as a test.
         const isMatching = isMatchingAssessment(questions) &&
             !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
+        const noQuiz = !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
+        const hasRatings = (questions || []).some(q => q.question_type === 'likert_scale');
         const isDiagnostic = !isMatching && userAssessment.assessment?.assessment_type === 'career_aptitude' &&
             (questions || []).length > 0 &&
             !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
+        const isProfile = !isMatching && !isDiagnostic && noQuiz && hasRatings;
         
         for (const question of questions || []) {
             const userAnswer = answers[question.id];
 
             // Open answers in a diagnostic (current situation, chosen career) give the report its
             // context. They are not scored and cost no AI scoring call.
-            if ((isDiagnostic || isMatching) && ['scenario', 'text', 'essay'].includes(question.question_type)) {
+            if ((isDiagnostic || isMatching || isProfile) && ['scenario', 'text', 'essay'].includes(question.question_type)) {
                 const t = typeof userAnswer === 'string' ? userAnswer.trim() : '';
                 if (t) contextAnswers.push({ question: question.question_text, answer: t.slice(0, 600) });
                 questionResults.push({
@@ -861,7 +954,14 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             dimensionPercentages[dim] = Math.round((data.score / data.max) * 100);
         }
         
-        const insights = isMatching
+        const insights = isProfile
+            ? await generateProfileInsights(
+                userAssessment.assessment?.title || 'Self-rating profile',
+                percentage,
+                dimensionPercentages,
+                contextAnswers
+              )
+            : isMatching
             ? await generateMatchingInsights(
                 userAssessment.assessment?.title || 'Career Matching Profile',
                 dimensionPercentages,
@@ -1027,15 +1127,18 @@ function generateReportHTML(userAssessment, profile) {
     const mode = insights.mode || 'knowledge';
     const isMatching = mode === 'matching';
     const isDiagnostic = mode === 'diagnostic';
+    const isProfile = mode === 'profile';
     const matchList = Array.isArray(insights.matches) ? insights.matches : [];
     const planList = Array.isArray(insights.action_plan) ? insights.action_plan : [];
     const headBlock = isMatching && matchList.length
         ? `<div class="score-label" style="margin-bottom:10px;">Your top career matches</div>${matchList.map((m, i) => `<div style="margin:8px 0;"><strong>${i + 1}. ${escapeHtml(m.name)} (${Number(m.fit) || 0}%)</strong><div style="font-size:13px;opacity:.9;">e.g. ${escapeHtml((m.roles || []).join(', '))}</div><div style="font-size:13px;opacity:.9;">Try first: ${escapeHtml(m.try_first || '')}</div></div>`).join('')}<div style="font-size:12px;opacity:.8;margin-top:10px;">${escapeHtml(insights.caution || 'A starting point, not a verdict.')}</div>`
+        : isProfile
+        ? `<div class="score-number">${userAssessment.percentage}%</div><div class="score-label">self-rated</div><div style="font-size: 14px; margin-top: 10px;">${escapeHtml((insights.alignment?.label || '').toUpperCase())}</div><div style="font-size:13px;margin-top:8px;opacity:.9;">${escapeHtml(insights.alignment?.message || '')}</div>`
         : isDiagnostic
         ? `<div class="score-number">${userAssessment.percentage}%</div><div class="score-label">aligned with your chosen career</div><div style="font-size: 14px; margin-top: 10px;">${escapeHtml((insights.alignment?.label || '').toUpperCase())}</div><div style="font-size:13px;margin-top:8px;opacity:.9;">${escapeHtml(insights.alignment?.message || '')}</div>`
         : `<div class="score-number">${userAssessment.percentage}%</div><div class="score-label">Overall Score</div><div style="font-size: 14px; margin-top: 10px;">${(userAssessment.performance_level || 'COMPLETED').toUpperCase()}</div>`;
-    const planBlock = (isDiagnostic || isMatching) && planList.length
-        ? `<div class="section-title">${isMatching ? 'Test your matches in real life' : 'Your plan to get back on track'}</div>${planList.map(b => `<div class="performance-card"><strong>${escapeHtml(b.when || '')}</strong><ul class="recommendation-list">${(b.steps || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`).join('')}`
+    const planBlock = (isDiagnostic || isMatching || isProfile) && planList.length
+        ? `<div class="section-title">${isMatching ? 'Test your matches in real life' : isProfile ? 'Your development plan' : 'Your plan to get back on track'}</div>${planList.map(b => `<div class="performance-card"><strong>${escapeHtml(b.when || '')}</strong><ul class="recommendation-list">${(b.steps || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`).join('')}`
         : '';
     
     return `<!DOCTYPE html>
@@ -1091,7 +1194,7 @@ function generateReportHTML(userAssessment, profile) {
                 <p style="margin-top: 10px; line-height: 1.6;">${escapeHtml(insights.summary || `You scored ${userAssessment.percentage}% on this assessment, demonstrating ${userAssessment.percentage >= 70 ? 'strong' : 'developing'} capabilities in the assessed areas.`)}</p>
             </div>
             
-            <div class="section-title">${isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : 'Dimension Breakdown'}</div>
+            <div class="section-title">${isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : isProfile ? 'Self-rating by area' : 'Dimension Breakdown'}</div>
             ${Object.entries(dimensionScores).map(([dim, score]) => `
                 <div class="dimension">
                     <div class="dimension-header">
@@ -1114,7 +1217,7 @@ function generateReportHTML(userAssessment, profile) {
             ${planBlock}
 
             ${insights.recommendations?.length > 0 ? `
-                <div class="section-title">${(isDiagnostic || isMatching) ? 'Next steps' : 'Recommendations'}</div>
+                <div class="section-title">${(isDiagnostic || isMatching || isProfile) ? 'Next steps' : 'Recommendations'}</div>
                 <ul class="recommendation-list">
                     ${insights.recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
                 </ul>
