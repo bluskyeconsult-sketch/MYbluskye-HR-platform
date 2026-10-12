@@ -48,7 +48,7 @@ const QUESTION_TYPES = [
     { value: 'likert_scale', label: 'Likert Scale (1-5 Agreement)', icon: '📊' },
     { value: 'multiple_choice', label: 'Multiple Choice', icon: '🔘' },
     { value: 'true_false', label: 'True / False', icon: '✓✗' },
-    { value: 'text', label: 'Text / Essay', icon: '📝' }
+    { value: 'scenario', label: 'Open answer / Essay', icon: '📝' }
 ];
 
 const DIFFICULTY_LEVELS = [
