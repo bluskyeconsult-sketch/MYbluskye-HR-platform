@@ -27,6 +27,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import DOMPurify from 'dompurify';
 import ShareMenu from '../components/ShareMenu';
+import RegisterToApplyModal from '../components/RegisterToApplyModal';
+import { applyGate, markAppliedElsewhere, isTrackedElsewhere } from '../lib/applyGate';
+import { AnimatePresence } from 'framer-motion';
 import { useGovernance } from '../contexts/GovernanceContext';
 import { 
   Briefcase, MapPin, DollarSign, Calendar, Clock, Building, 
@@ -51,7 +54,7 @@ const SEO_URL_BASE = 'https://bluskyeconsult.com';
 export default function JobDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { hasCapability } = useGovernance();
+  const { hasCapability, loading: govLoading } = useGovernance();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
@@ -60,6 +63,9 @@ export default function JobDetailPage() {
   const [coverLetter, setCoverLetter] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [alreadyApplied, setAlreadyApplied] = useState(false);
+  const [gateMode, setGateMode] = useState(null);          // 'signedOut' | 'free' while the register prompt is open
+  const [leftForExternal, setLeftForExternal] = useState(false);
+  const [trackedElsewhere, setTrackedElsewhere] = useState(false);
 
   useEffect(() => {
     // NEW (2026-08-22): currency was hardcoded to GBP regardless of
@@ -211,6 +217,7 @@ export default function JobDetailPage() {
           .eq('applicant_id', currentUser.id)
           .limit(1);
         setAlreadyApplied(!!(appliedCheck && appliedCheck.length));
+        setTrackedElsewhere(await isTrackedElsewhere(supabase, currentUser, id));
       }
     } catch (err) {
       console.error('Error loading job:', err);
@@ -394,6 +401,20 @@ export default function JobDetailPage() {
       }
       setAlreadyApplied(true);
 
+      // NEW (2026-10-12): tell the employer. Fire-and-forget: a failed email never undoes the application.
+      supabase.from('job_applications').select('id').eq('job_id', id).eq('applicant_id', user.id).order('applied_at', { ascending: false }).limit(1).then(({ data: rows }) => {
+        const appId = rows?.[0]?.id;
+        if (!appId) return;
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session?.access_token) return;
+          fetch('/api/index?action=notify-employer-application', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ applicationId: appId })
+          }).catch(() => {});
+        }).catch(() => {});
+      }, () => {});
+
       // NEW (2026-09-24): fire-and-forget - never awaited, so this
       // can't slow down or block a real application actually
       // submitting.
@@ -416,6 +437,25 @@ export default function JobDetailPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // One rule for every Apply click (see src/lib/applyGate.js).
+  function checkGate() {
+    const mode = applyGate({ user, capabilities: { canApplyJobs: hasCapability('canApplyJobs') }, loading: govLoading });
+    if (mode !== 'ok') { setGateMode(mode); return false; }
+    return true;
+  }
+
+  function handleExternalClick(e) {
+    if (!checkGate()) { e.preventDefault(); return; }
+    trackExternalClick();
+    setLeftForExternal(true);
+  }
+
+  async function handleMarkApplied() {
+    const r = await markAppliedElsewhere(supabase, user, job);
+    if (r.ok) { setTrackedElsewhere(true); setLeftForExternal(false); toast.success('Saved in My Applications'); }
+    else toast.error('Could not save this right now. Please try again.');
   }
 
   // Records that someone left for the employer's own site (fire-and-forget, never blocks the click).
@@ -595,7 +635,7 @@ export default function JobDetailPage() {
                 href={job.external_apply_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={trackExternalClick}
+                onClick={handleExternalClick}
                 className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
               >
                 <ExternalLink className="w-5 h-5" /> Apply on {job.source_name || 'the employer\'s site'}
@@ -603,6 +643,16 @@ export default function JobDetailPage() {
               <p className="mt-2 text-center text-xs text-slate-500">
                 You will apply on the employer's or job board's own site. Your application is handled there, not by ODUSBABA.
               </p>
+              {trackedElsewhere ? (
+                <p className="mt-3 flex items-center justify-center gap-2 text-sm text-emerald-300">
+                  <CheckCircle className="w-4 h-4" /> Tracked in <Link to="/applications" className="underline">My Applications</Link>
+                </p>
+              ) : (leftForExternal || user) && (
+                <div className="mt-3 rounded-xl border border-slate-700 bg-slate-800/50 p-3 text-center">
+                  <p className="text-sm text-slate-300">{leftForExternal ? 'Did you submit your application?' : 'Already applied on their site?'}</p>
+                  <button onClick={handleMarkApplied} className="mt-2 px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">Yes, I applied - track it</button>
+                </div>
+              )}
             </div>
           ) : !job.user_id ? (
             <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4 text-center">
@@ -613,7 +663,7 @@ export default function JobDetailPage() {
                 href={`https://www.google.com/search?q=${encodeURIComponent(`${job.title} ${job.company} careers apply`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={trackExternalClick}
+                onClick={handleExternalClick}
                 className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
               >
                 <ExternalLink className="w-4 h-4" /> Find the employer's application page
@@ -625,26 +675,12 @@ export default function JobDetailPage() {
               <Link to="/applications" className="mt-1 inline-block text-sm text-primary-300 underline">Track your application</Link>
             </div>
           ) : !showApplyForm ? (
-            !hasCapability('canApplyJobs') && user ? (
-              // NEW (2026-09-13): confirmed via a systematic
-              // access-tier audit that free tier genuinely cannot
-              // apply (now correctly enforced server-side too) -
-              // showing this instead of a button that would always
-              // fail once actually submitted.
-              <div className="text-center py-3 px-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-                <p className="text-slate-300 text-sm mb-2">Free tier cannot apply for jobs.</p>
-                <Link to="/pricing" className="text-primary-400 hover:text-primary-300 text-sm font-medium underline">
-                  Register or upgrade to apply
-                </Link>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowApplyForm(true)}
-                className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
-              >
-                <Send className="w-5 h-5" /> Apply Now
-              </button>
-            )
+            <button
+              onClick={() => { if (checkGate()) setShowApplyForm(true); }}
+              className="w-full py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-500 transition flex items-center justify-center gap-2"
+            >
+              <Send className="w-5 h-5" /> Apply Now
+            </button>
           ) : (
             <form onSubmit={handleApply} className="space-y-4">
               <div>
@@ -714,6 +750,9 @@ export default function JobDetailPage() {
           )}
         </div>
       </div>
+      <AnimatePresence>
+        {gateMode && <RegisterToApplyModal mode={gateMode} jobTitle={job?.title} returnTo={`/jobs/${id}`} onClose={() => setGateMode(null)} />}
+      </AnimatePresence>
     </div>
   );
 }
