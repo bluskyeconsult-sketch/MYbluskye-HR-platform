@@ -20,6 +20,7 @@ import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 import { useCapability } from '../../hooks/useCapability';
 import StaffPermissionsModal from '../../components/admin/StaffPermissionsModal';
+import AdminUserInspector from '../../components/admin/AdminUserInspector';
 import { 
     Users, Search, Loader2, CheckCircle, XCircle, Mail, 
     Calendar, Shield, RefreshCw, Filter, UserPlus, Edit, 
@@ -41,6 +42,7 @@ export default function AdminUsers() {
     const [tierFilter, setTierFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedUser, setSelectedUser] = useState(null);
+    const [inspectUser, setInspectUser] = useState(null);
     const [showRoleModal, setShowRoleModal] = useState(false);
     const [updatingRole, setUpdatingRole] = useState(false);
     // NEW (2026-09-11): confirmed real gap - the only prior "management"
@@ -586,6 +588,12 @@ export default function AdminUsers() {
                                     <Eye className="w-4 h-4" /> Manage
                                 </button>
                                 <button
+                                    onClick={() => setInspectUser(user)}
+                                    className="flex-1 py-2 text-primary-300 border border-primary-500/40 rounded-lg text-sm flex items-center justify-center gap-1.5"
+                                >
+                                    <Search className="w-4 h-4" /> Support view
+                                </button>
+                                <button
                                     onClick={() => {
                                         setSelectedUser(user);
                                         setShowRoleModal(true);
@@ -696,6 +704,13 @@ export default function AdminUsers() {
                                                 title="Manage profile"
                                             >
                                                 <Eye className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => setInspectUser(user)}
+                                                className="p-1.5 text-primary-400 hover:text-white transition rounded-lg hover:bg-slate-700"
+                                                title="Support view (read only, recorded)"
+                                            >
+                                                <Search className="w-4 h-4" />
                                             </button>
                                             <button
                                                 onClick={() => {
@@ -1041,6 +1056,7 @@ export default function AdminUsers() {
                     </div>
                 </div>
             )}
+            {inspectUser && <AdminUserInspector user={inspectUser} onClose={() => setInspectUser(null)} />}
         </div>
     );
 }
