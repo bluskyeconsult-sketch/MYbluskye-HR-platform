@@ -14,6 +14,8 @@ import { supabase } from '../lib/supabase';
 import { authenticatedFetch } from '../lib/authFetch';
 import BookReader from '../components/BookReader';
 import AudiobookListener from '../components/AudiobookListener';
+import ContentRenderer from '../components/ContentRenderer';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import ShareMenu from '../components/ShareMenu';
 import {
     ArrowLeft, ExternalLink, Download, BookOpen, Loader2,
@@ -28,6 +30,13 @@ import {
 // this is trivially reversible once testing ends - just set back to
 // false.
 const TESTING_MODE_DISABLE_ECOPY_CHECKOUT = true;
+
+// Chapter text saved with single line breaks would run together as markdown, so give each
+// line its own paragraph when the text has no blank lines at all.
+function chapterText(text) {
+    const t = String(text || '');
+    return /\n\s*\n/.test(t) ? t : t.replace(/\n/g, '\n\n');
+}
 
 // Chapter order safety net (2026-10-09): order_index is the source of truth;
 // if two chapters ever share the same index (or an import left gaps/ties),
@@ -45,6 +54,7 @@ function sortChapters(list) {
 }
 
 export default function BookDetailPage() {
+    const reduceMotion = useReducedMotion();
     const { id } = useParams();
     const navigate = useNavigate();
     const [book, setBook] = useState(null);
@@ -389,7 +399,14 @@ export default function BookDetailPage() {
                             const isGenerating = generatingAudioFor === chapter.id;
 
                             return (
-                                <div key={chapter.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                                <motion.div
+                                    key={chapter.id}
+                                    className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden"
+                                    initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+                                    whileInView={{ opacity: 1, y: 0 }}
+                                    viewport={{ once: true, margin: '-30px' }}
+                                    transition={{ duration: 0.4, delay: Math.min(idx, 6) * 0.05 }}
+                                >
                                     <div className="flex items-center justify-between p-4">
                                         <button
                                             onClick={() => setExpandedChapterId(isExpanded ? null : chapter.id)}
@@ -419,13 +436,22 @@ export default function BookDetailPage() {
                                         </div>
                                     </div>
 
-                                    {isExpanded && chapter.content && (
-                                        <div className="px-4 pb-4 border-t border-slate-800 pt-3">
-                                            <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
-                                                {chapter.content}
-                                            </p>
-                                        </div>
-                                    )}
+                                    <AnimatePresence initial={false}>
+                                        {isExpanded && chapter.content && (
+                                            <motion.div
+                                                key="chapter-text"
+                                                className="overflow-hidden"
+                                                initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.3, ease: 'easeOut' }}
+                                            >
+                                                <div className="px-4 pb-6 border-t border-slate-800 pt-4">
+                                                    <ContentRenderer content={chapterText(chapter.content)} showTableOfContents={false} />
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
 
                                     {isListening && hasAudio && (
                                         <div className="px-4 pb-4">
@@ -436,7 +462,7 @@ export default function BookDetailPage() {
                                             />
                                         </div>
                                     )}
-                                </div>
+                                </motion.div>
                             );
                         })}
                     </div>
