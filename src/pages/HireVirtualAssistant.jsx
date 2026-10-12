@@ -74,6 +74,57 @@ const CATEGORIES = [
 // (title) leads in bold; the persona name, when it adds something different,
 // is shown small underneath. If a VA has no separate title, its name is
 // used as the headline and no persona line is shown.
+// Guided intake. Each assistant lists the details it needs (required_input_fields in the catalog).
+// They used to be ignored, so everyone typed into one box and often left the key facts out.
+// Files and links cannot be opened by the assistant, so those fields become paste boxes.
+const FIELD_META = {
+    cv_file: { label: 'Paste your CV text', multiline: true, placeholder: 'Paste the full text of your CV here' },
+    resume_file: { label: 'Paste your resume text', multiline: true, placeholder: 'Paste the full text of your resume here' },
+    linkedin_url: { label: 'Paste your current LinkedIn headline and About section', multiline: true, placeholder: 'Copy them from your profile (the assistant cannot open links)' },
+    job_description: { label: 'Job description', multiline: true, placeholder: 'Paste the job advert' },
+    key_details: { label: 'Key details', multiline: true },
+    key_points: { label: 'Key points to include', multiline: true },
+    key_findings: { label: 'Key findings', multiline: true },
+    key_strengths: { label: 'Key strengths', multiline: true },
+    achievements: { label: 'Achievements', multiline: true },
+    key_achievements: { label: 'Key achievements', multiline: true },
+    user_skills: { label: 'Your relevant skills and experience', multiline: true },
+    project_description: { label: 'Project description', multiline: true },
+    service_description: { label: 'Service description', multiline: true },
+    background: { label: 'Your background', multiline: true },
+    career_goals: { label: 'Career goals', multiline: true },
+    features: { label: 'Features', multiline: true },
+    scope: { label: 'Scope', multiline: true },
+    reason_for_change: { label: 'Why you want to change', multiline: true },
+    topics: { label: 'Topics to cover', multiline: true, placeholder: 'List the topics, rough is fine' },
+    tasks: { label: 'Your tasks', multiline: true, placeholder: 'List everything on your plate' },
+    constraints: { label: 'Deadlines or limits', multiline: true },
+    responsibilities: { label: 'Your responsibilities and what you did', multiline: true },
+    accomplishments: { label: 'What you accomplished', multiline: true },
+    challenges: { label: 'Challenges or areas to improve', multiline: true },
+    situation: { label: 'Your situation', multiline: true },
+    email_text: { label: 'The email you received', multiline: true, placeholder: 'Paste it here' },
+    what_to_say: { label: 'What you want to say or achieve', multiline: true },
+    discussed: { label: 'What you discussed in the interview', multiline: true },
+    question_and_answer: { label: 'An interview question and your draft answer', multiline: true, placeholder: 'Question: ...\nMy answer: ...' },
+    profile_summary: { label: 'Your skills and experience', multiline: true },
+    experience_summary: { label: 'Your experience in brief', multiline: true },
+    what_you_did: { label: 'What you did during the gap', multiline: true },
+    current_salary: { label: 'Current or offered salary (with currency)' },
+    target_job_title: { label: 'Target job title' }
+};
+function fieldMeta(key) {
+    const m = FIELD_META[key] || {};
+    const label = m.label || String(key).replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    return { label, multiline: !!m.multiline, placeholder: m.placeholder || '' };
+}
+function composeVaInput(keys, values) {
+    return (keys || [])
+        .filter(k => (values[k] || '').trim())
+        .map(k => `${fieldMeta(k).label}: ${values[k].trim()}`)
+        .join('\n\n');
+}
+
 function vaLabels(va) {
     const title = (va?.title || '').trim();
     const name = (va?.name || '').trim();
@@ -83,9 +134,13 @@ function vaLabels(va) {
 }
 
 export default function HireVirtualAssistant() {
+    const [vaFields, setVaFields] = useState({});
     const [virtualAssistants, setVirtualAssistants] = useState([]);
     const [loadingVAs, setLoadingVAs] = useState(true);
     const [selectedVA, setSelectedVA] = useState(null);
+    const guidedKeys = (selectedVA && selectedVA.execution_type !== 'conversational' && Array.isArray(selectedVA.requiredInputFields) && selectedVA.requiredInputFields.length > 0)
+        ? selectedVA.requiredInputFields : null;
+    const guidedMissing = !!guidedKeys && guidedKeys.some(k => !(vaFields[k] || '').trim());
     const [input, setInput] = useState('');
     const [output, setOutput] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -680,7 +735,7 @@ export default function HireVirtualAssistant() {
                                                 }
                                                 return;
                                             }
-                                            isAccessible && setSelectedVA(va);
+                                            if (isAccessible) { setSelectedVA(va); setVaFields({}); setInput(''); }
                                         }}
                                     >
                                         <div className="flex items-start justify-between mb-3 sm:mb-4">
@@ -790,6 +845,7 @@ export default function HireVirtualAssistant() {
                                     <button
                                         onClick={() => {
                                             setSelectedVA(null);
+                                            setVaFields({});
                                             setInput('');
                                             setOutput(null);
                                         }}
@@ -812,6 +868,29 @@ export default function HireVirtualAssistant() {
                                     )}
                                     <div>
                                         <label className="block text-xs sm:text-sm font-medium text-slate-300 mb-1.5 sm:mb-2">What do you need help with?</label>
+                                        {guidedKeys ? (
+                                            <div className="space-y-3">
+                                                {guidedKeys.map(k => {
+                                                    const m = fieldMeta(k);
+                                                    const common = {
+                                                        value: vaFields[k] || '',
+                                                        onChange: (e) => {
+                                                            const next = { ...vaFields, [k]: e.target.value };
+                                                            setVaFields(next);
+                                                            setInput(composeVaInput(guidedKeys, next));
+                                                        },
+                                                        placeholder: m.placeholder,
+                                                        className: 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm'
+                                                    };
+                                                    return (
+                                                        <div key={k}>
+                                                            <label className="block text-xs sm:text-sm text-slate-400 mb-1">{m.label} <span className="text-red-400">*</span></label>
+                                                            {m.multiline ? <textarea rows={4} {...common} /> : <input type="text" {...common} />}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
                                         <textarea
                                             value={input}
                                             onChange={(e) => setInput(e.target.value)}
@@ -820,6 +899,7 @@ export default function HireVirtualAssistant() {
                                             className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm sm:text-base"
                                             required
                                         />
+                                        )}
                                     </div>
                                     
                                     <button
@@ -831,7 +911,7 @@ export default function HireVirtualAssistant() {
                                         // could clearly afford the actual cost, whenever a
                                         // VA's dollar-value price field happened to be
                                         // higher than their remaining balance.
-                                        disabled={loading || (eligibility && !eligibility.isUnlimited && eligibility.remaining < (selectedVA.execution_type === 'conversational' ? 2 : 1)) || !isVAAccessible(selectedVA.tier)}
+                                        disabled={loading || guidedMissing || (eligibility && !eligibility.isUnlimited && eligibility.remaining < (selectedVA.execution_type === 'conversational' ? 2 : 1)) || !isVAAccessible(selectedVA.tier)}
                                         className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-sky-600 text-white rounded-xl hover:from-primary-700 to-sky-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium transition-all duration-200 text-sm sm:text-base"
                                     >
                                         {loading ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
