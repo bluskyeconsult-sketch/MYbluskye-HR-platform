@@ -594,7 +594,9 @@ export default function ODUSBABAChat() {
                 id: `msg_${Date.now() + 1}`,
                 sender: 'odusbaba',
                 message: data.response || data.reply,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                // NEW (2026-10-12): job cards live in this screen only. They are never saved to chat history.
+                jobCards: Array.isArray(data.jobCards) ? data.jobCards : []
             };
             setMessages(prev => [...prev, botMessage]);
 
@@ -785,6 +787,38 @@ export default function ODUSBABAChat() {
                                                 </span>
                                             </div>
                                             <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>
+                                            {msg.sender === 'odusbaba' && Array.isArray(msg.jobCards) && msg.jobCards.length > 0 && (
+                                                <div className="mt-3 space-y-2">
+                                                    {msg.jobCards.map((job, i) => (
+                                                        <div key={i} className="rounded-xl border border-slate-600 bg-slate-900/60 p-3">
+                                                            <p className="text-sm font-semibold text-white">{job.title}</p>
+                                                            <p className="text-xs text-slate-300">{[job.company, job.location].filter(Boolean).join(' · ')}</p>
+                                                            {(job.salary || job.sponsorship) && (
+                                                                <p className="text-xs text-slate-400 mt-0.5">{[job.salary, job.sponsorship ? 'Sponsorship available' : null].filter(Boolean).join(' · ')}</p>
+                                                            )}
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                {job.kind === 'board' ? (
+                                                                    <>
+                                                                        <a href={job.applyPath} className="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-white hover:bg-primary-400">Apply on ODUSBABA</a>
+                                                                        {job.externalUrl && <a href={job.externalUrl} target="_blank" rel="noopener noreferrer" className="text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20">Employer site</a>}
+                                                                    </>
+                                                                ) : (
+                                                                    <a href={job.externalUrl} target="_blank" rel="noopener noreferrer nofollow" className="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-white hover:bg-primary-400">
+                                                                        {job.source === 'Jooble' ? 'View and apply on Jooble' : `Apply on ${job.source}`}
+                                                                    </a>
+                                                                )}
+                                                                {job.source === 'Jooble' && (
+                                                                    <a href="https://jooble.org" target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-400 underline">Jobs by Jooble</a>
+                                                                )}
+                                                                {job.kind === 'live' && job.source !== 'Jooble' && <span className="text-[11px] text-slate-500">Live result, not reviewed by us</span>}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {msg.jobCards.some(j => j.source === 'Jooble') && (
+                                                        <p className="text-[11px] text-slate-500">Some results come live from <a href="https://jooble.org" target="_blank" rel="noopener noreferrer" className="underline">Jooble</a> and are not saved by us. They may close at any time. Results are not checked by our team.</p>
+                                                    )}
+                                                </div>
+                                            )}
                                             <p className="text-[10px] opacity-40 mt-1 text-right">
                                                 {formatTimestamp(msg.created_at)}
                                             </p>
