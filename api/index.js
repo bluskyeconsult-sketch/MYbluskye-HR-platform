@@ -2571,7 +2571,7 @@ const handlers = {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topicId, scheduledFor } = req.body;
+        const { topicId, scheduledFor, publishNow } = req.body;
         if (!topicId) return res.status(400).json({ error: 'topicId is required' });
 
         try {
@@ -2613,8 +2613,14 @@ const handlers = {
                 return res.status(500).json({ error: 'Article generation produced incomplete output - please try again.' });
             }
 
-            const slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            let slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 90) || 'article';
+            // Two topics can produce the same headline; a repeated slug made the insert fail after the AI cost was spent.
+            const { data: slugClash } = await supabaseClient.from('articles').select('id').eq('slug', slug).maybeSingle();
+            if (slugClash) slug = `${slug}-${Date.now().toString(36)}`;
             const isScheduled = !!scheduledFor;
+            // NEW (2026-10-12): AI-written HR and employment articles used to go live the moment they were generated.
+            // They now save as drafts for a human to read, unless a date is set or "publish now" is chosen on purpose.
+            const goLiveNow = !isScheduled && publishNow === true;
 
             const { data: newArticle, error: insertError } = await supabaseClient
                 .from('articles')
@@ -2629,9 +2635,9 @@ const handlers = {
                     tags: [],
                     category: parsed.category || null,
                     slug,
-                    is_published: !isScheduled,
+                    is_published: goLiveNow,
                     scheduled_for: isScheduled ? scheduledFor : null,
-                    published_at: isScheduled ? null : new Date().toISOString(),
+                    published_at: goLiveNow ? new Date().toISOString() : null,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 })
@@ -6117,7 +6123,12 @@ ${siteContext}`;
                 return res.status(429).json({ success: false, error: creditCheck.rateLimited ? 'Too many requests — please slow down and try again in a few minutes.' : 'Insufficient credits. Please upgrade your plan or purchase more credits.', remaining: 0 });
             }
 
-            let messages = history || [];
+            // FIXED (2026-10-12): history came straight from the request, so a caller could include their own
+            // "system" turns or an unlimited number of turns. Only user/assistant text turns are kept, capped.
+            let messages = (Array.isArray(history) ? history : [])
+                .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+                .slice(-20)
+                .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }));
             messages.push({ role: 'user', content: message });
 
             // FIXED (2026-09-26): confirmed a real, genuine
