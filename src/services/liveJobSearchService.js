@@ -246,11 +246,12 @@ async function fetchAdzunaLive(terms, country, city) {
 }
 
 
-// Chat only spends Jooble's lifetime allowance (500 requests per country key)
-// when JOOBLE_CHAT_LIVE=on is set in Vercel. By default chat reads jobs the
-// daily board fetch has already collected instead (see index.js), which costs
-// no Jooble requests.
-export function joobleChatEnabled(code) { return process.env.JOOBLE_CHAT_LIVE === 'on' && !!joobleKeyFor(code); }
+// CHANGED (2026-10-12): Jooble's written reply (ticket 1974824) says live display with a link back to
+// Jooble is exactly how the API is meant to be used, and that listings must not be kept for long. So chat
+// searches Jooble live, for signed-in members only, and nothing from Jooble is stored (the chat shows the
+// results as cards that are not saved). Each country key still has a request limit until Jooble lifts it.
+// Kill switch: set JOOBLE_LIVE=off in Vercel to stop all live Jooble requests.
+export function joobleChatEnabled(code) { return process.env.JOOBLE_LIVE !== 'off' && !!joobleKeyFor(code); }
 export function reedConfigured() { return !!process.env.REED_API_KEY; }
 
 async function fetchJoobleLive(terms, country, city) {
@@ -264,7 +265,7 @@ async function fetchJoobleLive(terms, country, city) {
         });
         if (!response.ok) return [];
         const data = await response.json();
-        return (data.jobs || []).slice(0, 10).map(j => ({
+        return (data.jobs || []).slice(0, 10).filter(j => /^https?:\/\//i.test(j.link || '')).map(j => ({
             title: (j.title || '').replace(/<[^>]+>/g, ''),
             company: j.company || j.source || null,
             location: j.location || null,
@@ -347,9 +348,9 @@ function matchesTerms(job, terms) {
 // With a country named, country-specific sources are used and remote-only
 // feeds are skipped (a remote listing is not an Auckland listing). With no
 // country, the global remote feeds run as before.
-export async function searchLiveExternalJobs({ keyword, terms, country, city, sponsorshipOnly } = {}) {
+export async function searchLiveExternalJobs({ keyword, terms, country, city, sponsorshipOnly, allowJooble = false } = {}) {
     const termList = (terms && terms.length) ? terms : (keyword ? keyword.split(/\s+/).filter(Boolean) : []);
-    const key = cacheKey(termList.join(' '), `${country || ''}:${city || ''}`, sponsorshipOnly);
+    const key = cacheKey(termList.join(' '), `${country || ''}:${city || ''}:${allowJooble ? 'j' : 'n'}`, sponsorshipOnly);
     const cached = cache.get(key);
     if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) return cached.data;
 
@@ -366,14 +367,9 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
             if (reedConfigured()) searches.push(withTimeout(fetchReedLive(termList, city), PER_SOURCE_TIMEOUT_MS, []));
             else providerExistsButOff = true;
         }
-        // Jooble's default key allowance is small (500 requests), so chat only
-        // spends it where no other live source can cover the country. The job
-        // board refresh uses Jooble separately.
-        const otherCoverage = (ADZUNA_COUNTRIES[country] && adzunaConfigured()) || (country === 'GB' && reedConfigured());
-        if (!otherCoverage) {
-            if (joobleChatEnabled(country)) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
-            else providerExistsButOff = true;
-        }
+        // Jooble: live, signed-in members only, shown with attribution and a link back (see the note above).
+        if (allowJooble && joobleChatEnabled(country)) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
+        else if (!allowJooble && joobleKeyFor(country)) notes.push('Jooble results are shown to signed-in members only.');
         if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
         if (searches.length === 0) {
             notes.push(providerExistsButOff
@@ -394,12 +390,15 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
     let allJobs = results.flat();
     // A term must appear in the title or description; the country feeds are
     // already filtered by the provider but remote feeds are not.
-    allJobs = allJobs.filter(j => matchesTerms(j, termList));
+    allJobs = allJobs.filter(j => j.source_name === 'Jooble' || matchesTerms(j, termList));
     const seenJobs = new Set();
     allJobs = allJobs.filter(j => { const k = `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}|${(j.location || '').toLowerCase()}`; if (seenJobs.has(k)) return false; seenJobs.add(k); return true; });
     if (sponsorshipOnly) notes.push('Live results are not checked for visa sponsorship - the user must confirm sponsorship with the employer.');
 
-    const data = { jobs: allJobs.slice(0, 10), notes };
+    // Keep Jooble visible: if it returned results, make sure some reach the member.
+    const jooble = allJobs.filter(j => j.source_name === 'Jooble').slice(0, 5);
+    const others = allJobs.filter(j => j.source_name !== 'Jooble').slice(0, 10 - jooble.length);
+    const data = { jobs: [...others, ...jooble], notes };
     cache.set(key, { data, timestamp: Date.now() });
     return data;
 }
