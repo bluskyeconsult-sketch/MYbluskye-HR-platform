@@ -14,6 +14,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useCapability } from '../hooks/useCapability';
 import PageEdgeBanner from '../components/PageEdgeBanner';
+import RegisterToApplyModal from '../components/RegisterToApplyModal';
+import { applyGate, markAppliedElsewhere } from '../lib/applyGate';
+import toast from 'react-hot-toast';
+import { AnimatePresence } from 'framer-motion';
 import JobAlertsBanner from '../components/JobAlertsBanner';
 import { 
     Briefcase, MapPin, DollarSign, Building2, Clock, 
@@ -77,6 +81,7 @@ export default function JobsPage() {
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [savedJobs, setSavedJobs] = useState(new Set());
+    const [gate, setGate] = useState(null);   // { job, mode } when someone must register / upgrade before applying
     
     // Pagination states
     // FIXED (2026-09-13): confirmed a complete, working client-side
@@ -390,11 +395,24 @@ export default function JobsPage() {
         return 'Competitive';
     }
 
+    // UPDATED (2026-10-12): one rule for everything. Signed-out and Free-tier visitors are asked to
+    // register / upgrade first, for on-site jobs and for links out to an employer's site alike.
+    // Registered members who leave for an employer's site are asked whether to track the application.
     function handleApply(job) {
+        const mode = applyGate({ user, capabilities, loading: false });
+        if (mode !== 'ok') { setGate({ job, mode }); return; }
         if (job.external_apply_url) {
-            window.open(job.external_apply_url, '_blank');
-        } else if (!user) {
-            window.location.href = `/sign-in?redirect=/jobs/${job.id}`;
+            window.open(job.external_apply_url, '_blank', 'noopener,noreferrer');
+            toast((t) => (
+                <span className="text-sm">
+                    Did you apply to <strong>{job.title}</strong>?
+                    <button
+                        className="ml-3 underline text-primary-600 font-semibold"
+                        onClick={async () => { toast.dismiss(t.id); const r = await markAppliedElsewhere(supabase, user, job); r.ok ? toast.success('Saved in My Applications') : toast.error('Could not save this right now'); }}
+                    >Yes, track it</button>
+                    <button className="ml-3 text-slate-500" onClick={() => toast.dismiss(t.id)}>Not yet</button>
+                </span>
+            ), { duration: 12000 });
         } else {
             window.location.href = `/jobs/${job.id}`;
         }
@@ -783,6 +801,10 @@ export default function JobsPage() {
                     </div>
                 )}
             </div>
+
+            <AnimatePresence>
+                {gate && <RegisterToApplyModal mode={gate.mode} jobTitle={gate.job?.title} returnTo={`/jobs/${gate.job?.id}`} onClose={() => setGate(null)} />}
+            </AnimatePresence>
 
             {/* Safety Notice */}
             <div className="max-w-7xl mx-auto px-4 pb-6 sm:pb-8 sm:px-6 lg:px-8">
