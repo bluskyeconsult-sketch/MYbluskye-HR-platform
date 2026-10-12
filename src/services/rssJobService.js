@@ -1607,7 +1607,7 @@ async function saveJobToDatabase(job, sponsorship) {
         // the same stored value and uses limit(1).
         const { data: existingRows } = await supabase
             .from('external_jobs')
-            .select('id')
+            .select('id, external_url, approved_job_id')
             .eq('title', (job.title || '').substring(0, 500))
             .eq('source_name', (job.source_name || '').substring(0, 500))
             .gte('created_at', sevenDaysAgo)
@@ -1615,6 +1615,21 @@ async function saveJobToDatabase(job, sponsorship) {
         const existing = existingRows?.[0];
 
         if (existing) {
+            // NEW (2026-10-12): repair. Many earlier imports were saved without an apply link (see the
+            // note on external_url below). When the same job comes round again WITH a link, fill the
+            // gap in the stored row and in the live job it was approved into, instead of ignoring it.
+            const freshLink = job.external_url || job.applicationLink || job.link || job.url || null;
+            if (freshLink && !existing.external_url) {
+                try {
+                    await supabase.from('external_jobs').update({ external_url: freshLink }).eq('id', existing.id);
+                    if (existing.approved_job_id) {
+                        await supabase.from('jobs').update({ external_apply_url: freshLink }).eq('id', existing.approved_job_id).is('external_apply_url', null);
+                    }
+                    return { status: 'exists', id: existing.id, repaired: true };
+                } catch (repairErr) {
+                    console.warn('apply-link repair failed (non-blocking):', repairErr.message);
+                }
+            }
             return { status: 'exists', id: existing.id };
         }
         
