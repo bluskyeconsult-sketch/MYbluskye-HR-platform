@@ -183,7 +183,7 @@ export default function ArticleEditor() {
             // defaults protects against this and any similar field.
             setArticle({
                 title: '', slug: '', excerpt: '', content: '', category: '',
-                tags: [], image_url: '', author: DEFAULT_AUTHOR,
+                image_url: '', author: DEFAULT_AUTHOR,
                 is_published: false, send_notification: false,
                 seo_title: '', seo_description: '', view_count: 0,
                 ...data,
