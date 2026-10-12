@@ -626,7 +626,8 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
 
         // A self-diagnostic has no right-or-wrong questions (only agreement ratings and open
         // "context" answers). It is scored as alignment, not as a test.
-        const isDiagnostic = (questions || []).length > 0 &&
+        const isDiagnostic = userAssessment.assessment?.assessment_type === 'career_aptitude' &&
+            (questions || []).length > 0 &&
             !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
         
         for (const question of questions || []) {
