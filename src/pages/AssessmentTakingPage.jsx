@@ -283,17 +283,20 @@ export default function AssessmentTakingPage() {
                     )}
                     {currentQuestion.question_type === 'likert_scale' && (
                         <div className="flex justify-between text-xs text-slate-500 mt-2 px-1">
-                            <span>Strongly Disagree</span>
-                            <span>Strongly Agree</span>
+                            <span>1 = Strongly disagree</span>
+                            <span>3 = Neutral</span>
+                            <span>5 = Strongly agree</span>
                         </div>
                     )}
 
-                    {currentQuestion.question_type === 'scenario' && (
+                    {['scenario', 'text', 'essay'].includes(currentQuestion.question_type) && (
                         <textarea
                             value={currentAnswer || ''}
                             onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
                             rows={6}
-                            placeholder="Share your thoughts in detail — this will be reviewed and scored..."
+                            placeholder={currentQuestion.question_type === 'scenario'
+                                ? 'Share your thoughts in detail — this will be reviewed and scored...'
+                                : 'Answer in your own words. This is not scored - it helps tailor your result to you.'}
                             className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
                         />
                     )}
