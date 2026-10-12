@@ -3380,7 +3380,7 @@ Return ONLY a JSON object: {
                     .from('job_applications')
                     .select('id')
                     .eq('job_id', jobId)
-                    .eq('user_id', user.id)
+                    .eq('applicant_id', user.id)
                     .maybeSingle();
 
                 if (!application) {
