@@ -526,6 +526,115 @@ Do not invent facts about the person. Do not mention scores they do not have. Do
     }
 }
 
+// ============================================
+// CAREER-MATCHING ASSESSMENTS (NEW, 2026-10-12)
+// A matching assessment asks what the person enjoys and is drawn to (agreement ratings,
+// no right answers) and reports which career FAMILIES fit them best, with example roles
+// and first steps. It is marked by question dimensions that start with "Fit: ", so it
+// needs no schema change. It is a starting point for exploration, never a verdict.
+// ============================================
+export const FIT_PREFIX = 'Fit: ';
+const stripFit = (d) => String(d || '').replace(/^Fit:\s*/i, '');
+
+const CAREER_FAMILIES = {
+    'Analytical & Technical': { roles: ['Data analyst', 'Software developer', 'Engineer', 'Cybersecurity analyst'], start: 'a short data, coding or technical-skills course' },
+    'Creative & Design': { roles: ['Graphic or UX designer', 'Content creator', 'Marketer', 'Writer or editor'], start: 'a small portfolio piece you can show' },
+    'People & Care': { roles: ['Nurse or care worker', 'Teacher or trainer', 'Counsellor', 'HR or people officer'], start: 'a day of volunteering or shadowing in a care or education setting' },
+    'Leadership & Business': { roles: ['Team leader', 'Project manager', 'Business owner', 'Operations manager'], start: 'leading one small project or team task and reviewing how it went' },
+    'Organising & Administration': { roles: ['Administrator', 'Office or practice manager', 'Accountant or bookkeeper', 'Compliance officer'], start: 'a certificate in office systems, bookkeeping or project coordination' },
+    'Persuading & Selling': { roles: ['Sales executive', 'Recruiter', 'Account manager', 'Business developer'], start: 'ten real conversations with prospects or customers to test the fit' },
+    'Practical & Hands-on': { roles: ['Technician or electrician', 'Logistics or warehouse lead', 'Construction or trades', 'Facilities manager'], start: 'a taster day or apprenticeship enquiry in one trade' },
+    'Research & Learning': { roles: ['Researcher', 'Policy analyst', 'Lecturer', 'Consultant'], start: 'a small independent research piece on a question you care about' }
+};
+
+export function isMatchingAssessment(questions) {
+    return (questions || []).some(q => String(q.dimension || '').toLowerCase().startsWith(FIT_PREFIX.toLowerCase()));
+}
+
+async function generateMatchingInsights(assessmentTitle, dimensionScores, contextAnswers) {
+    const ranked = Object.entries(dimensionScores || {}).sort((a, b) => b[1] - a[1]);
+    const top = ranked.slice(0, 3);
+    const low = ranked.slice(-2).reverse();
+    const goal = (contextAnswers || []).map(c => `${c.question} -> ${c.answer}`).join('\n') || 'Not stated';
+    const allHigh = ranked.length > 0 && ranked.every(r => r[1] >= 80);
+    const spread = ranked.length ? ranked[0][1] - ranked[ranked.length - 1][1] : 0;
+    const caution = (allHigh || spread < 15)
+        ? 'Your ratings were similar across most areas, so the ranking is a gentle guide, not a strong signal. Treat the top three as things to test, not decide.'
+        : 'This is a starting point. Test your top matches with real experience before you commit.';
+
+    const matches = top.map(([name, fit]) => ({
+        name,
+        fit,
+        roles: (CAREER_FAMILIES[name]?.roles) || [],
+        try_first: (CAREER_FAMILIES[name]?.start) || 'a small real-world trial'
+    }));
+
+    const fallback = {
+        mode: 'matching',
+        matches,
+        less_natural: low.map(([name, fit]) => ({ name, fit })),
+        caution,
+        alignment: null,
+        summary: `Your strongest pulls are towards ${top.map(t => t[0]).join(', ')}. ${caution}`,
+        strengths: top.map(([n, f]) => `${n} (${f}% fit) matches what you said you enjoy`),
+        improvements: low.map(([n]) => `${n} came out as a weaker pull, so it is a lower priority to explore`),
+        action_plan: [
+            { when: 'This week', steps: [`Read two real job descriptions for: ${(matches[0]?.roles || []).slice(0, 2).join(' and ') || 'your top match'}`, 'Note which tasks excite you and which drain you'] },
+            { when: 'Next 30 days', steps: [`Try one small trial: ${matches[0]?.try_first || 'a short taster'}`, 'Speak to one person doing a role in your top match'] },
+            { when: 'Next 90 days', steps: ['Compare your top two matches using what you learned', 'Pick one direction and use the Career Coach to plan the skills you need'] }
+        ],
+        recommendations: ['Use the Career Coach to turn your top match into a plan', 'Browse courses for the skills your top match uses', 'Retake this in six months to see if your interests have shifted'],
+        usedFallback: true
+    };
+
+    const systemPrompt = 'You are a practical, honest career adviser. Reply ONLY with valid JSON.';
+    const userMessage = `A person completed the career-matching profile "${assessmentTitle}". There are no right answers. Each score (0-100) shows how strongly they said they are drawn to that kind of work.
+
+About them (their own words):
+${goal}
+
+Scores by career family: ${JSON.stringify(dimensionScores)}
+Top three: ${top.map(t => t[0]).join(', ')}.
+
+Write JSON with:
+- "summary": 2-3 sentences naming their top matches and tying them to what they wrote about themselves, if anything
+- "strengths": 2-3 strings on what their pattern suggests they enjoy
+- "improvements": 2 strings on watch-outs or lower-fit areas (e.g. work that may drain them), phrased kindly, no certainty claims
+- "action_plan": exactly 3 objects {"when": "This week" | "Next 30 days" | "Next 90 days", "steps": [2-3 concrete steps that TEST the top matches in real life]}
+- "recommendations": 2-4 strings pointing to Career Coach, Courses, CV Analyzer or LinkedIn Optimizer where useful
+Say clearly that this is a starting point and not a verdict. Do not invent facts about the person.`;
+
+    try {
+        const result = await callAIWithFallback(
+            'chat',
+            { message: userMessage, systemPrompt, history: [], temperature: 0.6, maxTokens: 900 },
+            [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+            null
+        );
+        let parsed = null;
+        if (typeof result === 'string') {
+            try { parsed = JSON.parse(result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { parsed = null; }
+        } else if (result && typeof result === 'object') {
+            parsed = result;
+        }
+        if (parsed && parsed.summary && Array.isArray(parsed.action_plan) && parsed.action_plan.length) {
+            return {
+                ...fallback,
+                summary: parsed.summary,
+                strengths: Array.isArray(parsed.strengths) && parsed.strengths.length ? parsed.strengths : fallback.strengths,
+                improvements: Array.isArray(parsed.improvements) && parsed.improvements.length ? parsed.improvements : fallback.improvements,
+                action_plan: parsed.action_plan.slice(0, 3).map(a => ({ when: String(a.when || ''), steps: Array.isArray(a.steps) ? a.steps.map(String).slice(0, 4) : [] })),
+                recommendations: Array.isArray(parsed.recommendations) && parsed.recommendations.length ? parsed.recommendations : fallback.recommendations,
+                usedFallback: false
+            };
+        }
+        return fallback;
+    } catch (e) {
+        console.error('Error generating matching insights:', e);
+        return fallback;
+    }
+}
+
 async function generateAIInsights(assessmentTitle, percentage, dimensionScores) {
     // FIXED (2026-08-30): confirmed the same dishonest-fallback pattern
     // already found and fixed in the VA execution and scenario-scoring
@@ -626,7 +735,9 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
 
         // A self-diagnostic has no right-or-wrong questions (only agreement ratings and open
         // "context" answers). It is scored as alignment, not as a test.
-        const isDiagnostic = userAssessment.assessment?.assessment_type === 'career_aptitude' &&
+        const isMatching = isMatchingAssessment(questions) &&
+            !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
+        const isDiagnostic = !isMatching && userAssessment.assessment?.assessment_type === 'career_aptitude' &&
             (questions || []).length > 0 &&
             !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
         
@@ -635,7 +746,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
 
             // Open answers in a diagnostic (current situation, chosen career) give the report its
             // context. They are not scored and cost no AI scoring call.
-            if (isDiagnostic && ['scenario', 'text', 'essay'].includes(question.question_type)) {
+            if ((isDiagnostic || isMatching) && ['scenario', 'text', 'essay'].includes(question.question_type)) {
                 const t = typeof userAnswer === 'string' ? userAnswer.trim() : '';
                 if (t) contextAnswers.push({ question: question.question_text, answer: t.slice(0, 600) });
                 questionResults.push({
@@ -716,11 +827,12 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             totalScore += score;
             
             if (question.dimension) {
-                if (!dimensionScores[question.dimension]) {
-                    dimensionScores[question.dimension] = { score: 0, max: 0 };
+                const dimKey = stripFit(question.dimension);
+                if (!dimensionScores[dimKey]) {
+                    dimensionScores[dimKey] = { score: 0, max: 0 };
                 }
-                dimensionScores[question.dimension].score += score;
-                dimensionScores[question.dimension].max += maxPoints;
+                dimensionScores[dimKey].score += score;
+                dimensionScores[dimKey].max += maxPoints;
             }
             
             questionResults.push({
@@ -749,7 +861,13 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             dimensionPercentages[dim] = Math.round((data.score / data.max) * 100);
         }
         
-        const insights = isDiagnostic
+        const insights = isMatching
+            ? await generateMatchingInsights(
+                userAssessment.assessment?.title || 'Career Matching Profile',
+                dimensionPercentages,
+                contextAnswers
+              )
+            : isDiagnostic
             ? await generateDiagnosticInsights(
                 userAssessment.assessment?.title || 'Career Alignment Check',
                 percentage,
