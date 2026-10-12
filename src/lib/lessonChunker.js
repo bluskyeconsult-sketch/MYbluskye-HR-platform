@@ -343,6 +343,31 @@ export function chunkLesson(content) {
     }
 }
 
+
+// Parses any text into a flat list of display blocks (no splitting into steps).
+// Used for scroll-style reading: articles, book chapters, HR tool output.
+export function parseBlocks(content) {
+    const original = normalise(content).trim();
+    if (!original) return [];
+    try {
+        const segs = splitSpecial(original.split('\n'));
+        const blocks = [];
+        for (const seg of segs) {
+            if (seg.special) { blocks.push(seg.special); continue; }
+            const lines = healInlineFragments(seg.lines);
+            blocks.push(...toBlocks(lines).map(b => b.type === 'code' ? { ...b, lang: guessLang(b.text, b.lang) } : b));
+        }
+        return blocks.length ? blocks : [{ type: 'p', text: original }];
+    } catch (e) {
+        return [{ type: 'p', text: original }];
+    }
+}
+
+// True when text uses the rich lesson markup (callouts, steps, stats, pictures, etc.).
+export function hasRichMarkup(content) {
+    return /^\s*:::(tip|note|warning|example|key|term|steps|stats|video|check)\b/mi.test(String(content || ''));
+}
+
 export function readingMinutes(content) {
     const words = wordCount(content);
     return Math.max(1, Math.round(words / 200));
