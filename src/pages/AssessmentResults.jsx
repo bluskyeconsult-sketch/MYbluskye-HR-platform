@@ -33,6 +33,15 @@ import {
 
 const API_BASE = '/api/index';
 
+// Static class names so Tailwind keeps them in the production build
+// (classes built like `text-${color}-400` are purged and render unstyled).
+const TONE = {
+    emerald: { card: 'from-emerald-900/30 to-emerald-800/30 border-emerald-500/30', text: 'text-emerald-400', bar: 'bg-emerald-500' },
+    blue:    { card: 'from-blue-900/30 to-blue-800/30 border-blue-500/30',          text: 'text-blue-400',    bar: 'bg-blue-500' },
+    amber:   { card: 'from-amber-900/30 to-amber-800/30 border-amber-500/30',       text: 'text-amber-400',   bar: 'bg-amber-500' },
+    red:     { card: 'from-red-900/30 to-red-800/30 border-red-500/30',             text: 'text-red-400',     bar: 'bg-red-500' }
+};
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
@@ -150,7 +159,9 @@ export default function AssessmentResults() {
 
     async function handleShare() {
         const shareUrl = `${window.location.origin}/assessment-results/${id}`;
-        const shareText = `I scored ${results?.percentage}% on the ${results?.assessment?.title} assessment!`;
+        const shareText = results?.insights?.mode === 'diagnostic'
+            ? `I just did the ${results?.assessment?.title} and I'm ${results?.percentage}% aligned.`
+            : `I scored ${results?.percentage}% on the ${results?.assessment?.title} assessment!`;
         
         if (navigator.share) {
             try {
@@ -270,6 +281,18 @@ export default function AssessmentResults() {
     const dimensionScores = results.dimension_scores || {};
     const hasDimensions = Object.keys(dimensionScores).length > 0;
     const performanceColor = getPerformanceColor(results.percentage);
+    const tone = TONE[performanceColor];
+    // A self-diagnostic measures alignment with the person's own chosen career.
+    // It has no right answers, so it is shown as alignment, not as a test score.
+    const isDiagnostic = insights.mode === 'diagnostic';
+    const alignment = insights.alignment || null;
+    const rankedDims = Object.entries(dimensionScores).sort((a, b) => b[1] - a[1]);
+    const strongestDim = rankedDims[0];
+    const gapDim = rankedDims.length > 1 ? rankedDims[rankedDims.length - 1] : null;
+    const prettyDim = (d) => String(d).replace(/_/g, ' ');
+    const dimLabel = (score) => isDiagnostic
+        ? (score >= 80 ? 'On track' : score >= 60 ? 'Mostly there' : score >= 40 ? 'Drifting' : 'Off track')
+        : (score >= 80 ? 'Excellent' : score >= 60 ? 'Proficient' : score >= 40 ? 'Developing' : 'Needs Improvement');
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 py-12 print:py-4 print:bg-white">
@@ -285,7 +308,7 @@ export default function AssessmentResults() {
                     <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 print:shadow-none print:bg-gray-200">
                         <Award className="w-10 h-10 text-white print:text-gray-700" />
                     </div>
-                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">Your Assessment Results</h1>
+                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">{isDiagnostic ? 'Your Alignment Check' : 'Your Assessment Results'}</h1>
                     <p className="text-slate-400 print:text-gray-600">{results.assessment?.title}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 text-sm text-slate-500 print:text-gray-500">
                         <Calendar className="w-3 h-3" />
@@ -296,21 +319,25 @@ export default function AssessmentResults() {
                 </div>
 
                 {/* Score Card */}
-                <div className={`bg-gradient-to-r from-${performanceColor}-900/30 to-${performanceColor}-800/30 border border-${performanceColor}-500/30 rounded-2xl p-8 text-center mb-8 print:bg-gray-100 print:border-gray-300`}>
-                    <div className={`text-7xl font-bold text-${performanceColor}-400 mb-2 print:text-gray-800`}>
+                <div className={`bg-gradient-to-r ${tone.card} border rounded-2xl p-8 text-center mb-8 print:bg-gray-100 print:border-gray-300`}>
+                    <div className={`text-7xl font-bold ${tone.text} mb-2 print:text-gray-800`}>
                         {results.percentage}%
                     </div>
-                    <p className="text-slate-300 text-lg print:text-gray-600">Overall Score</p>
-                    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-sm print:bg-gray-200 print:text-gray-700">
-                        <Star className="w-3 h-3 fill-emerald-400" />
-                        {results.performance_level?.toUpperCase()}
+                    <p className="text-slate-300 text-lg print:text-gray-600">{isDiagnostic ? 'aligned with your chosen career' : 'Overall Score'}</p>
+                    <div className={`mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/60 ${tone.text} text-sm print:bg-gray-200 print:text-gray-700`}>
+                        <Star className="w-3 h-3" />
+                        {isDiagnostic && alignment?.label ? alignment.label.toUpperCase() : results.performance_level?.toUpperCase()}
                     </div>
                     <p className="text-slate-400 mt-3 print:text-gray-600">
-                        {getPerformanceMessage(results.percentage, results.performance_level)}
+                        {isDiagnostic && alignment?.message
+                            ? alignment.message
+                            : getPerformanceMessage(results.percentage, results.performance_level)}
                     </p>
-                    <p className="text-sm text-slate-500 mt-2 print:text-gray-500">
-                        Score: {Math.round(results.score)} / {results.max_score}
-                    </p>
+                    {!isDiagnostic && (
+                        <p className="text-sm text-slate-500 mt-2 print:text-gray-500">
+                            Score: {Math.round(results.score)} / {results.max_score}
+                        </p>
+                    )}
                     
                     {/* Action Buttons */}
                     <div className="mt-6 flex flex-wrap justify-center gap-3 print:hidden">
@@ -351,16 +378,33 @@ export default function AssessmentResults() {
                         <p className="text-2xl font-bold text-white print:text-gray-800">{results.answers?.length || 0}</p>
                         <p className="text-xs text-slate-500 print:text-gray-500">Questions</p>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
-                        <Target className="w-5 h-5 text-slate-500 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-white print:text-gray-800">{Math.round(results.score)}/{results.max_score}</p>
-                        <p className="text-xs text-slate-500 print:text-gray-500">Points Earned</p>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
-                        <Brain className="w-5 h-5 text-slate-500 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-white print:text-gray-800">{hasDimensions ? Object.keys(dimensionScores).length : 0}</p>
-                        <p className="text-xs text-slate-500 print:text-gray-500">Dimensions</p>
-                    </div>
+                    {isDiagnostic ? (
+                        <>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                                <CheckCircle className="w-5 h-5 text-emerald-500 mx-auto mb-2" />
+                                <p className="text-sm font-bold text-white capitalize print:text-gray-800">{strongestDim ? prettyDim(strongestDim[0]) : '-'}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">Strongest area{strongestDim ? ` (${strongestDim[1]}%)` : ''}</p>
+                            </div>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                                <Target className="w-5 h-5 text-amber-500 mx-auto mb-2" />
+                                <p className="text-sm font-bold text-white capitalize print:text-gray-800">{gapDim ? prettyDim(gapDim[0]) : '-'}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">Biggest gap{gapDim ? ` (${gapDim[1]}%)` : ''}</p>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                                <Target className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                                <p className="text-2xl font-bold text-white print:text-gray-800">{Math.round(results.score)}/{results.max_score}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">Points Earned</p>
+                            </div>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
+                                <Brain className="w-5 h-5 text-slate-500 mx-auto mb-2" />
+                                <p className="text-2xl font-bold text-white print:text-gray-800">{hasDimensions ? Object.keys(dimensionScores).length : 0}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">Dimensions</p>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* AI Insights Section */}
@@ -372,7 +416,7 @@ export default function AssessmentResults() {
                             </div>
                             <div className="flex-1">
                                 <h3 className="text-white font-semibold mb-2 print:text-gray-800">
-                                    {insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights'}
+                                    {isDiagnostic ? 'Where you stand' : (insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights')}
                                 </h3>
                                 {/* NEW (2026-08-30): honest note when the real
                                     AI analysis wasn't available and this is a
@@ -392,7 +436,7 @@ export default function AssessmentResults() {
                                 {insights.strengths?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-emerald-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-green-700">
-                                            <CheckCircle className="w-3 h-3" /> Strengths
+                                            <CheckCircle className="w-3 h-3" /> {isDiagnostic ? 'What is working' : 'Strengths'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.strengths.map((s, i) => (
@@ -408,7 +452,7 @@ export default function AssessmentResults() {
                                 {insights.improvements?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-amber-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-yellow-700">
-                                            <AlertCircle className="w-3 h-3" /> Areas for Improvement
+                                            <AlertCircle className="w-3 h-3" /> {isDiagnostic ? 'Biggest gaps' : 'Areas for Improvement'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.improvements.map((i, idx) => (
@@ -424,7 +468,7 @@ export default function AssessmentResults() {
                                 {insights.recommendations?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-primary-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-blue-700">
-                                            <Zap className="w-3 h-3" /> Recommendations
+                                            <Zap className="w-3 h-3" /> {isDiagnostic ? 'Next steps' : 'Recommendations'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.recommendations.map((r, idx) => (
@@ -441,12 +485,37 @@ export default function AssessmentResults() {
                     </div>
                 )}
 
+                {/* Action plan (self-diagnostic only): how to get back on track */}
+                {isDiagnostic && Array.isArray(insights.action_plan) && insights.action_plan.length > 0 && (
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
+                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
+                            <Target className="w-5 h-5 text-primary-400" />
+                            Your plan to get back on track
+                        </h3>
+                        <div className="grid gap-4 md:grid-cols-3">
+                            {insights.action_plan.map((block, i) => (
+                                <div key={i} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4 print:bg-white print:border-gray-300">
+                                    <p className="text-primary-400 text-sm font-semibold mb-2 print:text-blue-700">{block.when}</p>
+                                    <ul className="space-y-2">
+                                        {(block.steps || []).map((step, j) => (
+                                            <li key={j} className="flex items-start gap-2 text-slate-300 text-sm print:text-gray-700">
+                                                <ChevronRight className="w-3 h-3 text-primary-400 mt-1 flex-shrink-0" />
+                                                {step}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Dimension Scores */}
                 {hasDimensions && (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <BarChart3 className="w-5 h-5 text-primary-400" />
-                            Breakdown by Dimension
+                            {isDiagnostic ? 'Alignment by area' : 'Breakdown by Dimension'}
                         </h3>
                         <div className="space-y-4">
                             {Object.entries(dimensionScores).map(([dimension, score]) => (
@@ -455,16 +524,16 @@ export default function AssessmentResults() {
                                         <span className="text-slate-300 print:text-gray-700 capitalize">
                                             {dimension.replace(/_/g, ' ')}
                                         </span>
-                                        <span className={`font-semibold text-${getPerformanceColor(score)}-400`}>{score}%</span>
+                                        <span className={`font-semibold ${TONE[getPerformanceColor(score)].text}`}>{score}%</span>
                                     </div>
                                     <div className="w-full bg-slate-700 rounded-full h-2.5 print:bg-gray-300">
                                         <div 
-                                            className={`h-2.5 rounded-full transition-all bg-${getPerformanceColor(score)}-500`}
+                                            className={`h-2.5 rounded-full transition-all ${TONE[getPerformanceColor(score)].bar}`}
                                             style={{ width: `${score}%` }}
                                         ></div>
                                     </div>
                                     <p className="text-xs text-slate-500 mt-1 print:text-gray-500">
-                                        {score >= 80 ? 'Excellent' : score >= 60 ? 'Proficient' : score >= 40 ? 'Developing' : 'Needs Improvement'}
+                                        {dimLabel(score)}{isDiagnostic && gapDim && dimension === gapDim[0] && score < 80 ? ' - focus here first' : ''}
                                     </p>
                                 </div>
                             ))}
@@ -477,26 +546,26 @@ export default function AssessmentResults() {
                     <details className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <summary className="text-white font-semibold cursor-pointer hover:text-primary-400 transition flex items-center gap-2 print:text-gray-800">
                             <FileText className="w-4 h-4" />
-                            Review Your Answers
+                            {isDiagnostic ? 'Review your answers' : 'Review Your Answers'}
                         </summary>
                         <div className="mt-4 space-y-4">
-                            {results.answers.slice(0, 10).map((answer, idx) => (
+                            {results.answers.slice(0, isDiagnostic ? 40 : 10).map((answer, idx) => (
                                 <div key={idx} className="border-b border-slate-800 pb-3 last:border-0 print:border-gray-300">
                                     <p className="text-white text-sm font-medium mb-1 print:text-gray-800">{answer.question_text}</p>
                                     <p className="text-slate-400 text-sm print:text-gray-600">
                                         Your answer: <span className="text-primary-400">{answer.user_answer}</span>
                                     </p>
-                                    {answer.is_correct !== undefined && (
+                                    {!isDiagnostic && answer.is_correct !== undefined && (
                                         <span className={`text-xs ${answer.is_correct ? 'text-emerald-400' : 'text-red-400'} print:${answer.is_correct ? 'text-green-700' : 'text-red-700'}`}>
                                             {answer.is_correct ? '✓ Correct' : '✗ Incorrect'}
                                         </span>
                                     )}
-                                    {answer.score !== undefined && (
+                                    {!isDiagnostic && answer.score !== undefined && (
                                         <p className="text-xs text-slate-500 mt-1">Score: {answer.score}/{answer.max_score}</p>
                                     )}
                                 </div>
                             ))}
-                            {results.answers.length > 10 && (
+                            {!isDiagnostic && results.answers.length > 10 && (
                                 <p className="text-center text-slate-500 text-sm">+ {results.answers.length - 10} more questions</p>
                             )}
                         </div>
@@ -519,6 +588,11 @@ export default function AssessmentResults() {
                     <h3 className="text-white font-semibold mb-2">Ready to take the next step?</h3>
                     <p className="text-slate-400 text-sm mb-4">Based on your results, here are some recommended actions</p>
                     <div className="flex flex-wrap gap-3 justify-center">
+                        {isDiagnostic && (
+                            <Link to="/career-coach" className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                                Build my plan with the Career Coach
+                            </Link>
+                        )}
                         <Link to="/courses" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
                             Browse Recommended Courses
                         </Link>
@@ -552,7 +626,7 @@ export default function AssessmentResults() {
                             <div className="flex gap-3 mb-4">
                                 <button
                                     onClick={() => {
-                                        const text = `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
+                                        const text = isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career (${results.assessment?.title}).` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
                                         window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition flex items-center justify-center gap-2"
@@ -561,7 +635,7 @@ export default function AssessmentResults() {
                                 </button>
                                 <button
                                     onClick={() => {
-                                        const text = `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
+                                        const text = isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career. Check out my results!` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
                                         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(text)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition flex items-center justify-center gap-2"
