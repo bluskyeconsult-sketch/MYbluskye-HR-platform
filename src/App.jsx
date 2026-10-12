@@ -765,11 +765,13 @@ const ProposalsList = lazy(() => import('./components/workforce/ProposalsList'))
 const EngagementsDashboard = lazy(() => import('./components/workforce/EngagementsDashboard'));
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 import CareerCoachPolicyInsert from './components/CareerCoachPolicyInsert';
+import SupportAccessPolicyInsert from './components/SupportAccessPolicyInsert';
 // Career Coach policy section shown under the main Terms / Privacy pages (own dark panel so it reads on any page theme)
 const CareerCoachPolicyPanel = ({ kind }) => (
     <div className="max-w-4xl mx-auto px-4 pb-12">
         <div className="bg-slate-900 border border-slate-700 rounded-xl p-6">
             <CareerCoachPolicyInsert kind={kind} />
+            {kind === 'privacy' && <SupportAccessPolicyInsert />}
         </div>
     </div>
 );
