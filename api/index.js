@@ -13995,6 +13995,8 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                     // this handler discarded whatever might exist anyway.
                     tier: va.required_tier || 'free',
                     execution_type: va.execution_type || 'single_turn',
+                    specialty: va.specialty || null,
+                    countryFocus: va.country_focus || null,
                     requiredInputFields: Array.isArray(va.required_input_fields) ? va.required_input_fields : null,
                     processingTime: `${va.processing_time_minutes || 5} min`,
                     rating: avgRating,
