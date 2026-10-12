@@ -804,18 +804,21 @@ export default function ODUSBABAChat() {
                                                                     </>
                                                                 ) : (
                                                                     <a href={job.externalUrl} target="_blank" rel="noopener noreferrer nofollow" className="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-white hover:bg-primary-400">
-                                                                        {job.source === 'Jooble' ? 'View and apply on Jooble' : `Apply on ${job.source}`}
+                                                                        {job.source === 'Jooble' ? 'View and apply on Jooble' : job.source === 'Adzuna' ? 'View and apply on Adzuna' : `Apply on ${job.source}`}
                                                                     </a>
                                                                 )}
                                                                 {job.source === 'Jooble' && (
                                                                     <a href="https://jooble.org" target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-400 underline">Jobs by Jooble</a>
                                                                 )}
-                                                                {job.kind === 'live' && job.source !== 'Jooble' && <span className="text-[11px] text-slate-500">Live result, not reviewed by us</span>}
+                                                                {job.source === 'Adzuna' && (
+                                                                    <a href="https://www.adzuna.co.uk" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center text-[11px] font-semibold text-slate-200 border border-slate-500 rounded px-2" style={{ minWidth: 116, minHeight: 23 }}>Jobs by Adzuna</a>
+                                                                )}
+                                                                {job.kind === 'live' && job.source !== 'Jooble' && job.source !== 'Adzuna' && <span className="text-[11px] text-slate-500">Live result, not reviewed by us</span>}
                                                             </div>
                                                         </div>
                                                     ))}
-                                                    {msg.jobCards.some(j => j.source === 'Jooble') && (
-                                                        <p className="text-[11px] text-slate-500">Some results come live from <a href="https://jooble.org" target="_blank" rel="noopener noreferrer" className="underline">Jooble</a> and are not saved by us. They may close at any time. Results are not checked by our team.</p>
+                                                    {msg.jobCards.some(j => j.source === 'Jooble' || j.source === 'Adzuna') && (
+                                                        <p className="text-[11px] text-slate-500">Some results come live from partners such as <a href="https://jooble.org" target="_blank" rel="noopener noreferrer" className="underline">Jooble</a> and <a href="https://www.adzuna.co.uk" target="_blank" rel="noopener noreferrer" className="underline">Adzuna</a> and are not saved by us. They may close at any time. Results are not checked by our team.</p>
                                                     )}
                                                 </div>
                                             )}
