@@ -6215,7 +6215,8 @@ ${siteContext}`;
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topic, difficulty = 'intermediate', numberOfQuestions = 5 } = req.body;
+        const { topic, difficulty = 'intermediate', numberOfQuestions = 5, mode = 'knowledge' } = req.body;
+        const isDiagnostic = mode === 'diagnostic';
 
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
@@ -6236,7 +6237,27 @@ ${siteContext}`;
             // returning to the admin - a malformed question (wrong
             // answer index, missing options) would have silently
             // reached the assessment builder.
-            const systemPrompt = `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
+            // NEW (2026-10-12): two kinds of assessment. A KNOWLEDGE test has right and wrong answers
+            // (below). A SELF-DIAGNOSTIC has none: it measures how closely the person's real situation
+            // matches a goal (for example a chosen career), shows the biggest gaps, and leads to an
+            // action plan. Until now every AI-built assessment was a knowledge test, even when the
+            // topic was a self-assessment such as "career re-engineering and focus", which could not
+            // measure what its title promised.
+            const diagnosticPrompt = `You are an expert career-development psychologist designing a SELF-DIAGNOSTIC, not a test. Topic: "${topic}". There are no right or wrong answers. Its purpose is to show a person how closely their current situation matches the career or goal THEY have chosen (whatever it is), where they are drifting, and what to do next.
+
+Return JSON: {"questions": [...]} containing exactly ${numberOfQuestions} items:
+1. The FIRST TWO are context questions with "question_type": "text" and "dimension": "Context": (a) ask what they do now / their current situation, (b) ask which career or goal they are aiming for. These are not scored.
+2. The remaining ${Math.max(1, numberOfQuestions - 2)} are statements with "question_type": "likert_scale" (answered Strongly disagree 1 to Strongly agree 5).
+
+Rules for the statements:
+- Worded so that AGREEING always means being MORE aligned with their chosen career (no reverse-worded items).
+- Concrete and observable ("In the last 3 months I have spent time each week building skills my chosen career needs"), not vague feelings or opinions.
+- Must work for ANY career: refer to "my chosen career" or "the career I am aiming for", never to one profession.
+- Spread evenly over 4 to 6 dimensions relevant to "${topic}" (for example: direction clarity, skills and evidence, daily habits, network and visibility, energy and obstacles). Use short Title Case dimension names; at least 3 statements per dimension.
+- No knowledge-quiz questions and no "which of the following".
+Each item: {"question": "...", "question_type": "...", "dimension": "..."}`;
+
+            const systemPrompt = isDiagnostic ? diagnosticPrompt : `You are an expert assessment designer. Create ${numberOfQuestions} genuinely well-designed questions about "${topic}" at ${difficulty} level, returned as valid JSON.
 
 Quality requirements:
 - Distractors (wrong options) must be plausible, not obviously wrong or joke answers - a test-taker with partial knowledge should be able to eliminate some but not all
@@ -6257,7 +6278,7 @@ Return a JSON object with a "questions" array. Each question must have:
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: `Generate the assessment now as JSON.` }
                 ],
-                2400, 0.5,
+                isDiagnostic ? 3200 : 2400, isDiagnostic ? 0.6 : 0.5,
                 { type: 'json_object' }
             );
 
@@ -6278,6 +6299,7 @@ Return a JSON object with a "questions" array. Each question must have:
             const validQuestions = rawQuestions.filter(q => {
                 if (!q.question || typeof q.question !== 'string') return false;
                 if (q.question_type === 'scenario') return true;
+                if (isDiagnostic) return q.question_type === 'likert_scale' || q.question_type === 'text';
                 return Array.isArray(q.options) && q.options.length === 4
                     && Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3;
             });
@@ -6289,6 +6311,7 @@ Return a JSON object with a "questions" array. Each question must have:
             return res.status(200).json({
                 success: true,
                 questions: validQuestions,
+                mode: isDiagnostic ? 'diagnostic' : 'knowledge',
                 requestedCount: numberOfQuestions,
                 generatedCount: validQuestions.length,
                 usage: data.usage
