@@ -6246,7 +6246,7 @@ ${siteContext}`;
             const diagnosticPrompt = `You are an expert career-development psychologist designing a SELF-DIAGNOSTIC, not a test. Topic: "${topic}". There are no right or wrong answers. Its purpose is to show a person how closely their current situation matches the career or goal THEY have chosen (whatever it is), where they are drifting, and what to do next.
 
 Return JSON: {"questions": [...]} containing exactly ${numberOfQuestions} items:
-1. The FIRST TWO are context questions with "question_type": "text" and "dimension": "Context": (a) ask what they do now / their current situation, (b) ask which career or goal they are aiming for. These are not scored.
+1. The FIRST TWO are context questions with "question_type": "scenario" and "dimension": "Context": (a) ask what they do now / their current situation, (b) ask which career or goal they are aiming for. These are not scored.
 2. The remaining ${Math.max(1, numberOfQuestions - 2)} are statements with "question_type": "likert_scale" (answered Strongly disagree 1 to Strongly agree 5).
 
 Rules for the statements:
@@ -6299,7 +6299,7 @@ Return a JSON object with a "questions" array. Each question must have:
             const validQuestions = rawQuestions.filter(q => {
                 if (!q.question || typeof q.question !== 'string') return false;
                 if (q.question_type === 'scenario') return true;
-                if (isDiagnostic) return q.question_type === 'likert_scale' || q.question_type === 'text';
+                if (isDiagnostic) return q.question_type === 'likert_scale';
                 return Array.isArray(q.options) && q.options.length === 4
                     && Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3;
             });
