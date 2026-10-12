@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import api from '../lib/api';
+import { ELSEWHERE_STATUSES } from '../lib/applyGate';
 import { 
     Briefcase, Calendar, CheckCircle, XCircle, Clock, 
     Eye, Filter, Search, TrendingUp, MapPin, DollarSign,
@@ -24,6 +25,7 @@ import {
 export default function UserApplications() {
     const navigate = useNavigate();
     const [applications, setApplications] = useState([]);
+    const [elsewhere, setElsewhere] = useState([]);   // applications made on employers' own sites (career_applications)
     const [filteredApplications, setFilteredApplications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -73,6 +75,17 @@ export default function UserApplications() {
 
             if (!result.success) throw new Error(result.error);
 
+            // NEW (2026-10-12): applications made on other sites and tracked with "I applied".
+            try {
+                const { data: ext } = await supabase
+                    .from('career_applications')
+                    .select('id, job_id, title, company, apply_url, status, applied_at, created_at')
+                    .eq('user_id', user.id)
+                    .neq('status', 'prepared')
+                    .order('applied_at', { ascending: false, nullsFirst: false });
+                setElsewhere(ext || []);
+            } catch { setElsewhere([]); }
+
             const applicationsData = result.data || [];
             setApplications(applicationsData);
 
@@ -94,6 +107,13 @@ export default function UserApplications() {
         } finally {
             setLoading(false);
         }
+    }
+
+    async function updateElsewhere(id, status) {
+        const prev = elsewhere;
+        setElsewhere(list => list.map(e => e.id === id ? { ...e, status } : e));
+        const { error } = await supabase.from('career_applications').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+        if (error) { setElsewhere(prev); }
     }
 
     function filterApplications() {
@@ -343,6 +363,32 @@ export default function UserApplications() {
                                 )}
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {elsewhere.length > 0 && (
+                    <div className="mt-10">
+                        <h2 className="text-lg font-semibold text-white">Applied on other sites</h2>
+                        <p className="text-sm text-slate-400 mb-3">Applications you made on an employer's or job board's own site and told us about. Update the stage as it moves on.</p>
+                        <div className="space-y-3">
+                            {elsewhere.map(e => (
+                                <div key={e.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-white font-medium truncate">{e.title}</p>
+                                        <p className="text-sm text-slate-400 truncate">{e.company || 'Company not stated'}{e.applied_at ? ` \u00b7 applied ${new Date(e.applied_at).toLocaleDateString()}` : ''}</p>
+                                    </div>
+                                    <select
+                                        value={e.status}
+                                        onChange={(ev) => updateElsewhere(e.id, ev.target.value)}
+                                        className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5"
+                                        aria-label={`Stage for ${e.title}`}
+                                    >
+                                        {ELSEWHERE_STATUSES.map(st => <option key={st.id} value={st.id}>{st.label}</option>)}
+                                    </select>
+                                    {e.job_id && <Link to={`/jobs/${e.job_id}`} className="text-sm text-primary-300 underline">View job</Link>}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
