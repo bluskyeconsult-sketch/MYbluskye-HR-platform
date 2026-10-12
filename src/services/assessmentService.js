@@ -437,6 +437,95 @@ Respond in exactly this format on one line: SCORE|one-sentence reason`;
     }
 }
 
+// ============================================
+// SELF-DIAGNOSTIC ASSESSMENTS (NEW, 2026-10-12)
+// An assessment with no right-or-wrong questions (only agreement ratings and open
+// "context" answers) is a self-diagnostic, not a test. It is reported as how closely the
+// person's current situation matches where they want to be, with their biggest gaps and a
+// dated action plan, never as "excellent / needs improvement" or "correct / incorrect".
+// ============================================
+const ALIGNMENT_BANDS = [
+    { min: 80, label: 'Aligned', message: 'Your answers show your day-to-day life is closely matched to the direction you chose.' },
+    { min: 60, label: 'Mostly aligned', message: 'You are broadly on track, with a few areas pulling you off course.' },
+    { min: 40, label: 'Drifting', message: 'Your current actions only partly support the direction you chose. The plan below shows where to refocus first.' },
+    { min: 0, label: 'Off track', message: 'There is a clear gap between where you are and where you want to be. That is useful to know, and it is fixable. Start with the first step below.' }
+];
+
+export function alignmentBand(percentage) {
+    return ALIGNMENT_BANDS.find(b => percentage >= b.min) || ALIGNMENT_BANDS[ALIGNMENT_BANDS.length - 1];
+}
+
+async function generateDiagnosticInsights(assessmentTitle, percentage, dimensionScores, contextAnswers) {
+    const band = alignmentBand(percentage);
+    const entries = Object.entries(dimensionScores || {}).sort((a, b) => a[1] - b[1]);
+    const weakest = entries.slice(0, 2).map(e => e[0]);
+    const strongest = entries.slice(-2).reverse().map(e => e[0]);
+    const goal = (contextAnswers || []).map(c => `${c.question} -> ${c.answer}`).join('\n') || 'Not stated';
+
+    const fallback = {
+        mode: 'diagnostic',
+        alignment: { label: band.label, message: band.message },
+        summary: `Your alignment score is ${percentage}% (${band.label}).${weakest[0] ? ` The biggest gap is in ${weakest[0].replace(/_/g, ' ')}.` : ''}${strongest[0] ? ` Your strongest area is ${strongest[0].replace(/_/g, ' ')}.` : ''}`,
+        strengths: strongest.map(d => `${d.replace(/_/g, ' ')} is working in your favour`),
+        improvements: weakest.map(d => `${d.replace(/_/g, ' ')} is where you are furthest from your goal`),
+        action_plan: [
+            { when: 'This week', steps: weakest.map(d => `Choose one small action that improves ${d.replace(/_/g, ' ')} and put it in your diary`) },
+            { when: 'Next 30 days', steps: ['Repeat that action weekly and note what changes', 'Retake this check to see your movement'] }
+        ],
+        recommendations: ['Use the Career Coach to turn your gaps into a plan', 'Browse courses that build the skills your chosen career needs'],
+        usedFallback: true
+    };
+
+    const systemPrompt = 'You are a practical, encouraging career coach. Reply ONLY with valid JSON.';
+    const userMessage = `A person completed the self-diagnostic "${assessmentTitle}". There are no right or wrong answers; every rating is how strongly they agree that a statement describes their life now (higher = closer to their chosen career).
+
+About them (their own words):
+${goal}
+
+Overall alignment: ${percentage}% (${band.label})
+Dimension scores (0-100): ${JSON.stringify(dimensionScores)}
+Lowest dimensions: ${weakest.join(', ') || 'none'}. Highest: ${strongest.join(', ') || 'none'}.
+
+Write JSON with:
+- "summary": 2-3 sentences, plain English, referring to THEIR chosen career/goal if stated and the actual dimensions above
+- "strengths": 2-3 strings tied to the highest dimensions
+- "improvements": 2-3 strings, each naming a low dimension and what the gap means in practice
+- "action_plan": array of exactly 3 objects {"when": "This week" | "Next 30 days" | "Next 90 days", "steps": [2-3 short, concrete, doable steps]}, aimed first at the lowest dimensions
+- "recommendations": 2-4 strings that point to useful next steps on this platform (Career Coach, Courses, Assessments, HR Tools such as CV Analyzer or LinkedIn Optimizer) where relevant
+Do not invent facts about the person. Do not mention scores they do not have. Do not call this a test or a pass/fail.`;
+
+    try {
+        const result = await callAIWithFallback(
+            'chat',
+            { message: userMessage, systemPrompt, history: [], temperature: 0.6, maxTokens: 900 },
+            [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+            null
+        );
+        let parsed = null;
+        if (typeof result === 'string') {
+            try { parsed = JSON.parse(result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { parsed = null; }
+        } else if (result && typeof result === 'object') {
+            parsed = result;
+        }
+        if (parsed && parsed.summary && Array.isArray(parsed.action_plan) && parsed.action_plan.length) {
+            return {
+                mode: 'diagnostic',
+                alignment: { label: band.label, message: band.message },
+                summary: parsed.summary,
+                strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
+                improvements: Array.isArray(parsed.improvements) ? parsed.improvements : [],
+                action_plan: parsed.action_plan.slice(0, 3).map(a => ({ when: String(a.when || ''), steps: Array.isArray(a.steps) ? a.steps.map(String).slice(0, 4) : [] })),
+                recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+                usedFallback: false
+            };
+        }
+        return fallback;
+    } catch (e) {
+        console.error('Error generating diagnostic insights:', e);
+        return fallback;
+    }
+}
+
 async function generateAIInsights(assessmentTitle, percentage, dimensionScores) {
     // FIXED (2026-08-30): confirmed the same dishonest-fallback pattern
     // already found and fixed in the VA execution and scenario-scoring
@@ -533,9 +622,35 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         let maxPossibleScore = 0;
         const dimensionScores = {};
         const questionResults = [];
+        const contextAnswers = [];
+
+        // A self-diagnostic has no right-or-wrong questions (only agreement ratings and open
+        // "context" answers). It is scored as alignment, not as a test.
+        const isDiagnostic = (questions || []).length > 0 &&
+            !(questions || []).some(q => q.question_type === 'multiple_choice' || q.question_type === 'true_false');
         
         for (const question of questions || []) {
             const userAnswer = answers[question.id];
+
+            // Open answers in a diagnostic (current situation, chosen career) give the report its
+            // context. They are not scored and cost no AI scoring call.
+            if (isDiagnostic && ['scenario', 'text', 'essay'].includes(question.question_type)) {
+                const t = typeof userAnswer === 'string' ? userAnswer.trim() : '';
+                if (t) contextAnswers.push({ question: question.question_text, answer: t.slice(0, 600) });
+                questionResults.push({
+                    question_id: question.id,
+                    question_text: question.question_text,
+                    user_answer: t || '(not answered)',
+                    user_answer_value: userAnswer,
+                    score: 0,
+                    max_score: 0,
+                    scoring_note: 'Context answer - not scored',
+                    question_type: question.question_type,
+                    is_context: true
+                });
+                continue;
+            }
+
             const maxPoints = question.points || 1;
             maxPossibleScore += maxPoints;
             
@@ -615,7 +730,8 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 score: Math.round(score * 100) / 100,
                 max_score: maxPoints,
                 scoring_note: scoringNote,
-                is_correct: isCorrect,
+                // Agreement ratings have no correct answer, so they are never marked correct or incorrect.
+                is_correct: question.question_type === 'likert_scale' ? undefined : isCorrect,
                 question_type: question.question_type
             });
         }
@@ -632,11 +748,18 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             dimensionPercentages[dim] = Math.round((data.score / data.max) * 100);
         }
         
-        const insights = await generateAIInsights(
-            userAssessment.assessment?.title || 'Professional Assessment',
-            percentage,
-            dimensionPercentages
-        );
+        const insights = isDiagnostic
+            ? await generateDiagnosticInsights(
+                userAssessment.assessment?.title || 'Career Alignment Check',
+                percentage,
+                dimensionPercentages,
+                contextAnswers
+              )
+            : await generateAIInsights(
+                userAssessment.assessment?.title || 'Professional Assessment',
+                percentage,
+                dimensionPercentages
+              );
         
         const { error: updateError } = await supabase
             .from('user_assessments')
