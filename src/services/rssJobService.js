@@ -1642,7 +1642,10 @@ async function saveJobToDatabase(job, sponsorship) {
                 description: job.description,
                 salary_range: (job.salary_range || '').substring(0, 500),
                 job_type: job.job_type,
-                external_url: job.external_url,
+                // UPDATED (2026-10-12): Jobicy, Remotive, Himalayas and Bundesagentur return the apply
+                // address as `link` / `applicationLink`, never `external_url`, so it was saved empty and
+                // those jobs ended up with no apply link. Reads all three names now.
+                external_url: job.external_url || job.applicationLink || job.link || job.url || null,
                 source: (job.source_country || '').substring(0, 500),
                 source_name: (job.source_name || '').substring(0, 500),
                 status: 'pending_approval',
