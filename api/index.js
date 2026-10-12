@@ -1907,7 +1907,7 @@ async function findRelevantJobs(supabaseClient, userMessage) {
             // visa_sponsorship, and source_country should be
             // country_code. This meant every single call to this
             // function has likely been silently, completely failing.
-            .select('title, company, location, job_type, salary_range, external_apply_url, country_code, visa_sponsorship, verified_employer_source_id')
+            .select('id, title, company, location, job_type, salary_range, external_apply_url, country_code, visa_sponsorship, verified_employer_source_id')
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(5);
@@ -6185,7 +6185,9 @@ ${siteContext}`;
                         terms: jobIntent.terms,
                         country: jobIntent.country,
                         city: jobIntent.city,
-                        sponsorshipOnly: jobIntent.wantsSponsorship
+                        sponsorshipOnly: jobIntent.wantsSponsorship,
+                        // Jooble allows live display; we show it to signed-in members only (Jooble ticket 1974824).
+                        allowJooble: !!userId
                     });
                 }
             }
@@ -6200,6 +6202,26 @@ ${siteContext}`;
                 }
             }
             const liveNotes = liveJobs?.notes || [];
+
+            // NEW (2026-10-12): job cards. The chat shows these under the reply with real Apply buttons:
+            // board jobs open our own job page (apply inside the platform), live jobs open the source's
+            // page in a new tab (Jooble results carry the "Jobs by Jooble" label and link). They are sent
+            // to the browser only. They are never saved, so no Jooble listing is stored.
+            const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : null;
+            const jobCards = [];
+            if (jobIntent) {
+                for (const j of (relevantJobs || [])) {
+                    if (!j.id) continue;
+                    jobCards.push({ kind: 'board', title: j.title, company: j.company || null, location: j.location || null, salary: j.salary_range || null, sponsorship: !!j.visa_sponsorship, applyPath: `/jobs/${j.id}`, externalUrl: safeUrl(j.external_apply_url) });
+                }
+                for (const j of liveList) {
+                    const url = safeUrl(j.external_apply_url);
+                    if (!url) continue;
+                    jobCards.push({ kind: 'live', source: /^jooble/i.test(j.source_name || '') ? 'Jooble' : (j.source_name || 'External'), title: j.title, company: j.company || null, location: j.location || null, salary: j.salary_range || null, externalUrl: url });
+                }
+            }
+            const jobCardsOut = jobCards.slice(0, 10);
+            const hasJooble = jobCardsOut.some(c => c.source === 'Jooble');
             if (relevantJobs || liveList.length > 0 || jobIntent) {
                 // FIXED (2026-08-27): previously labeled every non-internal
                 // job as "via official government portal" unconditionally -
@@ -6221,14 +6243,14 @@ ${siteContext}`;
                 // review, and the AI is told to say so plainly rather than
                 // present both tiers with equal confidence.
                 const liveContext = liveList.length > 0 ? liveList.map(j =>
-                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''} [LIVE result from ${j.source_name}, not yet reviewed by our team]${j.external_apply_url ? ` apply: ${j.external_apply_url}` : ''}`
+                    `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''} [LIVE result from ${j.source_name}, not yet reviewed by our team]`
                 ).join('\n') : '';
 
                 const toolSuggestions = HR_TOOLS_FOR_CHAT.map(t => `${t.name} (${t.use})`).join(', ');
 
                 messages = [{
                     role: 'system',
-                    content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}${(!boardContext && !liveContext) ? `\n\nA search was run for this request and found NO matching listings.` : ''}${liveNotes.length ? `\n\nNotes about the live search (pass these on honestly): ${liveNotes.join(' ')}` : ''}${(jobIntent && (jobIntent.country === 'AU' || jobIntent.country === 'NZ')) ? `\n\nFor Australia and New Zealand you may also suggest the user searches SEEK${jobIntent.country === 'NZ' ? ' and Trade Me Jobs' : ''} directly, and remind them to check visa or work-right requirements.` : ''}\n\nIf genuinely relevant, recommend specific ones by name and mention they can view full details and apply directly. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
+                    content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}${(!boardContext && !liveContext) ? `\n\nA search was run for this request and found NO matching listings.` : ''}${liveNotes.length ? `\n\nNotes about the live search (pass these on honestly): ${liveNotes.join(' ')}` : ''}${(jobIntent && (jobIntent.country === 'AU' || jobIntent.country === 'NZ')) ? `\n\nFor Australia and New Zealand you may also suggest the user searches SEEK${jobIntent.country === 'NZ' ? ' and Trade Me Jobs' : ''} directly, and remind them to check visa or work-right requirements.` : ''}\n\nIf genuinely relevant, recommend specific ones by name. The platform shows every result as a card under your reply with an Apply button, so tell the user to use the buttons and never write out URLs. Keep your own text short and do not repeat the full details of live results. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
                 }, ...messages];
             }
 
@@ -6280,6 +6302,8 @@ ${siteContext}`;
                 provider,
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining,
                 jobsReferenced: relevantJobs ? relevantJobs.length : 0,
+                jobCards: jobCardsOut,
+                joobleAttribution: hasJooble,
                 booksReferenced: relevantBooks ? relevantBooks.length : 0,
                 coursesReferenced: relevantCourses ? relevantCourses.length : 0
             });
