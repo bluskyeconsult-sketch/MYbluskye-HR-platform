@@ -159,7 +159,9 @@ export default function AssessmentResults() {
 
     async function handleShare() {
         const shareUrl = `${window.location.origin}/assessment-results/${id}`;
-        const shareText = results?.insights?.mode === 'diagnostic'
+        const shareText = results?.insights?.mode === 'matching'
+            ? `I just did the ${results?.assessment?.title} and found my top career matches.`
+            : results?.insights?.mode === 'diagnostic'
             ? `I just did the ${results?.assessment?.title} and I'm ${results?.percentage}% aligned.`
             : `I scored ${results?.percentage}% on the ${results?.assessment?.title} assessment!`;
         
@@ -285,12 +287,18 @@ export default function AssessmentResults() {
     // A self-diagnostic measures alignment with the person's own chosen career.
     // It has no right answers, so it is shown as alignment, not as a test score.
     const isDiagnostic = insights.mode === 'diagnostic';
+    // A career-matching profile ranks career families by how strongly the person is drawn to them.
+    const isMatching = insights.mode === 'matching';
+    const isSelfReport = isDiagnostic || isMatching;
+    const matches = Array.isArray(insights.matches) ? insights.matches : [];
     const alignment = insights.alignment || null;
     const rankedDims = Object.entries(dimensionScores).sort((a, b) => b[1] - a[1]);
     const strongestDim = rankedDims[0];
     const gapDim = rankedDims.length > 1 ? rankedDims[rankedDims.length - 1] : null;
     const prettyDim = (d) => String(d).replace(/_/g, ' ');
-    const dimLabel = (score) => isDiagnostic
+    const dimLabel = (score) => isMatching
+        ? (score >= 80 ? 'Strong pull' : score >= 60 ? 'Good pull' : score >= 40 ? 'Some pull' : 'Weak pull')
+        : isDiagnostic
         ? (score >= 80 ? 'On track' : score >= 60 ? 'Mostly there' : score >= 40 ? 'Drifting' : 'Off track')
         : (score >= 80 ? 'Excellent' : score >= 60 ? 'Proficient' : score >= 40 ? 'Developing' : 'Needs Improvement');
 
@@ -308,7 +316,7 @@ export default function AssessmentResults() {
                     <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary-500/20 print:shadow-none print:bg-gray-200">
                         <Award className="w-10 h-10 text-white print:text-gray-700" />
                     </div>
-                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">{isDiagnostic ? 'Your Alignment Check' : 'Your Assessment Results'}</h1>
+                    <h1 className="text-3xl font-bold text-white mb-2 print:text-black">{isMatching ? 'Your Career Matches' : isDiagnostic ? 'Your Alignment Check' : 'Your Assessment Results'}</h1>
                     <p className="text-slate-400 print:text-gray-600">{results.assessment?.title}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 text-sm text-slate-500 print:text-gray-500">
                         <Calendar className="w-3 h-3" />
@@ -319,6 +327,33 @@ export default function AssessmentResults() {
                 </div>
 
                 {/* Score Card */}
+                {isMatching && matches.length > 0 ? (
+                <div className="bg-gradient-to-r from-primary-900/30 to-sky-900/30 border border-primary-500/30 rounded-2xl p-8 mb-8 print:bg-gray-100 print:border-gray-300">
+                    <p className="text-slate-300 text-center mb-5 print:text-gray-600">Where your interests point most strongly</p>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        {matches.map((m, i) => (
+                            <div key={m.name} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4 print:bg-white print:border-gray-300">
+                                <p className="text-xs text-slate-500 mb-1">{i === 0 ? 'Best match' : `Match ${i + 1}`}</p>
+                                <p className="text-white font-semibold print:text-gray-800">{m.name}</p>
+                                <p className="text-3xl font-bold text-primary-400 my-1 print:text-gray-800">{m.fit}%</p>
+                                {m.roles?.length > 0 && <p className="text-slate-400 text-xs mb-2 print:text-gray-600">e.g. {m.roles.join(', ')}</p>}
+                                {m.try_first && <p className="text-slate-300 text-xs print:text-gray-700"><span className="text-emerald-400">Try first:</span> {m.try_first}</p>}
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-slate-500 text-xs text-center mt-4 print:text-gray-500">{insights.caution || 'This is a starting point, not a verdict. Test your top matches with real experience.'}</p>
+                    <div className="mt-6 flex flex-wrap justify-center gap-3 print:hidden">
+                        {canDownload && (
+                            <button onClick={handleDownloadReport} disabled={downloading} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50">
+                                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                                {downloading ? 'Generating...' : 'Download Report'}
+                            </button>
+                        )}
+                        <button onClick={() => setShowShareModal(true)} className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"><Share2 className="w-4 h-4" /> Share</button>
+                        <button onClick={handlePrint} className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2"><Printer className="w-4 h-4" /> Print</button>
+                    </div>
+                </div>
+                ) : (
                 <div className={`bg-gradient-to-r ${tone.card} border rounded-2xl p-8 text-center mb-8 print:bg-gray-100 print:border-gray-300`}>
                     <div className={`text-7xl font-bold ${tone.text} mb-2 print:text-gray-800`}>
                         {results.percentage}%
@@ -366,6 +401,8 @@ export default function AssessmentResults() {
                     </div>
                 </div>
 
+                )}
+
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
@@ -378,17 +415,17 @@ export default function AssessmentResults() {
                         <p className="text-2xl font-bold text-white print:text-gray-800">{results.answers?.length || 0}</p>
                         <p className="text-xs text-slate-500 print:text-gray-500">Questions</p>
                     </div>
-                    {isDiagnostic ? (
+                    {isSelfReport ? (
                         <>
                             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
                                 <CheckCircle className="w-5 h-5 text-emerald-500 mx-auto mb-2" />
                                 <p className="text-sm font-bold text-white capitalize print:text-gray-800">{strongestDim ? prettyDim(strongestDim[0]) : '-'}</p>
-                                <p className="text-xs text-slate-500 print:text-gray-500">Strongest area{strongestDim ? ` (${strongestDim[1]}%)` : ''}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Strongest pull' : 'Strongest area'}{strongestDim ? ` (${strongestDim[1]}%)` : ''}</p>
                             </div>
                             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center print:bg-gray-100 print:border-gray-300">
                                 <Target className="w-5 h-5 text-amber-500 mx-auto mb-2" />
                                 <p className="text-sm font-bold text-white capitalize print:text-gray-800">{gapDim ? prettyDim(gapDim[0]) : '-'}</p>
-                                <p className="text-xs text-slate-500 print:text-gray-500">Biggest gap{gapDim ? ` (${gapDim[1]}%)` : ''}</p>
+                                <p className="text-xs text-slate-500 print:text-gray-500">{isMatching ? 'Weakest pull' : 'Biggest gap'}{gapDim ? ` (${gapDim[1]}%)` : ''}</p>
                             </div>
                         </>
                     ) : (
@@ -416,7 +453,7 @@ export default function AssessmentResults() {
                             </div>
                             <div className="flex-1">
                                 <h3 className="text-white font-semibold mb-2 print:text-gray-800">
-                                    {isDiagnostic ? 'Where you stand' : (insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights')}
+                                    {isMatching ? 'What your answers suggest' : isDiagnostic ? 'Where you stand' : (insights.usedFallback ? 'Your Insights' : 'AI-Powered Insights')}
                                 </h3>
                                 {/* NEW (2026-08-30): honest note when the real
                                     AI analysis wasn't available and this is a
@@ -436,7 +473,7 @@ export default function AssessmentResults() {
                                 {insights.strengths?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-emerald-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-green-700">
-                                            <CheckCircle className="w-3 h-3" /> {isDiagnostic ? 'What is working' : 'Strengths'}
+                                            <CheckCircle className="w-3 h-3" /> {isMatching ? 'What you seem to enjoy' : isDiagnostic ? 'What is working' : 'Strengths'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.strengths.map((s, i) => (
@@ -452,7 +489,7 @@ export default function AssessmentResults() {
                                 {insights.improvements?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-amber-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-yellow-700">
-                                            <AlertCircle className="w-3 h-3" /> {isDiagnostic ? 'Biggest gaps' : 'Areas for Improvement'}
+                                            <AlertCircle className="w-3 h-3" /> {isMatching ? 'Watch-outs' : isDiagnostic ? 'Biggest gaps' : 'Areas for Improvement'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.improvements.map((i, idx) => (
@@ -468,7 +505,7 @@ export default function AssessmentResults() {
                                 {insights.recommendations?.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-primary-400 text-sm font-medium mb-2 flex items-center gap-1 print:text-blue-700">
-                                            <Zap className="w-3 h-3" /> {isDiagnostic ? 'Next steps' : 'Recommendations'}
+                                            <Zap className="w-3 h-3" /> {isSelfReport ? 'Next steps' : 'Recommendations'}
                                         </p>
                                         <ul className="space-y-1">
                                             {insights.recommendations.map((r, idx) => (
@@ -486,11 +523,11 @@ export default function AssessmentResults() {
                 )}
 
                 {/* Action plan (self-diagnostic only): how to get back on track */}
-                {isDiagnostic && Array.isArray(insights.action_plan) && insights.action_plan.length > 0 && (
+                {isSelfReport && Array.isArray(insights.action_plan) && insights.action_plan.length > 0 && (
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <Target className="w-5 h-5 text-primary-400" />
-                            Your plan to get back on track
+                            {isMatching ? 'Test your matches in real life' : 'Your plan to get back on track'}
                         </h3>
                         <div className="grid gap-4 md:grid-cols-3">
                             {insights.action_plan.map((block, i) => (
@@ -515,7 +552,7 @@ export default function AssessmentResults() {
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 print:text-gray-800">
                             <BarChart3 className="w-5 h-5 text-primary-400" />
-                            {isDiagnostic ? 'Alignment by area' : 'Breakdown by Dimension'}
+                            {isMatching ? 'Pull towards each career area' : isDiagnostic ? 'Alignment by area' : 'Breakdown by Dimension'}
                         </h3>
                         <div className="space-y-4">
                             {Object.entries(dimensionScores).map(([dimension, score]) => (
@@ -546,26 +583,26 @@ export default function AssessmentResults() {
                     <details className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-8 print:bg-gray-100 print:border-gray-300">
                         <summary className="text-white font-semibold cursor-pointer hover:text-primary-400 transition flex items-center gap-2 print:text-gray-800">
                             <FileText className="w-4 h-4" />
-                            {isDiagnostic ? 'Review your answers' : 'Review Your Answers'}
+                            {isSelfReport ? 'Review your answers' : 'Review Your Answers'}
                         </summary>
                         <div className="mt-4 space-y-4">
-                            {results.answers.slice(0, isDiagnostic ? 40 : 10).map((answer, idx) => (
+                            {results.answers.slice(0, isSelfReport ? 40 : 10).map((answer, idx) => (
                                 <div key={idx} className="border-b border-slate-800 pb-3 last:border-0 print:border-gray-300">
                                     <p className="text-white text-sm font-medium mb-1 print:text-gray-800">{answer.question_text}</p>
                                     <p className="text-slate-400 text-sm print:text-gray-600">
                                         Your answer: <span className="text-primary-400">{answer.user_answer}</span>
                                     </p>
-                                    {!isDiagnostic && answer.is_correct !== undefined && (
+                                    {!isSelfReport && answer.is_correct !== undefined && (
                                         <span className={`text-xs ${answer.is_correct ? 'text-emerald-400' : 'text-red-400'} print:${answer.is_correct ? 'text-green-700' : 'text-red-700'}`}>
                                             {answer.is_correct ? '✓ Correct' : '✗ Incorrect'}
                                         </span>
                                     )}
-                                    {!isDiagnostic && answer.score !== undefined && (
+                                    {!isSelfReport && answer.score !== undefined && (
                                         <p className="text-xs text-slate-500 mt-1">Score: {answer.score}/{answer.max_score}</p>
                                     )}
                                 </div>
                             ))}
-                            {!isDiagnostic && results.answers.length > 10 && (
+                            {!isSelfReport && results.answers.length > 10 && (
                                 <p className="text-center text-slate-500 text-sm">+ {results.answers.length - 10} more questions</p>
                             )}
                         </div>
@@ -588,7 +625,7 @@ export default function AssessmentResults() {
                     <h3 className="text-white font-semibold mb-2">Ready to take the next step?</h3>
                     <p className="text-slate-400 text-sm mb-4">Based on your results, here are some recommended actions</p>
                     <div className="flex flex-wrap gap-3 justify-center">
-                        {isDiagnostic && (
+                        {isSelfReport && (
                             <Link to="/career-coach" className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
                                 Build my plan with the Career Coach
                             </Link>
@@ -626,7 +663,7 @@ export default function AssessmentResults() {
                             <div className="flex gap-3 mb-4">
                                 <button
                                     onClick={() => {
-                                        const text = isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career (${results.assessment?.title}).` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
+                                        const text = isMatching ? `My top career match is ${matches[0]?.name || 'interesting'} (${results.assessment?.title}).` : isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career (${results.assessment?.title}).` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
                                         window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition flex items-center justify-center gap-2"
@@ -635,7 +672,7 @@ export default function AssessmentResults() {
                                 </button>
                                 <button
                                     onClick={() => {
-                                        const text = isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career. Check out my results!` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
+                                        const text = isMatching ? `My top career match is ${matches[0]?.name || 'interesting'}. Check out my results!` : isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career. Check out my results!` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
                                         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(text)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition flex items-center justify-center gap-2"
