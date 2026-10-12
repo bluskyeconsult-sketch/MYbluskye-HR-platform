@@ -12431,9 +12431,42 @@ Return the lesson as markdown with this structure:
 
     // ========== ASSESSMENT SHARE RESULTS ==========
     'assessment-share-results': async (req, res) => {
-        const { userAssessmentId, recipientEmail, senderName, shareUrl } = req.body;
-        
+        // FIXED (2026-10-12): this had no sign-in check, so anyone could make the platform email any address,
+        // and the email linked to the owner's private results page, which the recipient cannot open (it only
+        // loads for the account that took the assessment). It now requires sign-in, checks the result belongs
+        // to the sender, limits how often it can be used, and puts a short summary in the email itself.
+        const supabaseClient = getSupabase();
+        const authCheck = await getAuthenticatedUser(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ success: false, error: authCheck.error });
+        if (!checkRateLimit(`assessment-share:${authCheck.userId}`, 10)) {
+            return res.status(429).json({ success: false, error: 'You have shared several results recently - please try again later.' });
+        }
+
+        const { userAssessmentId, recipientEmail, senderName } = req.body || {};
+        const emailOk = typeof recipientEmail === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(recipientEmail) && recipientEmail.length <= 200;
+        if (!userAssessmentId || !emailOk) return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+
         try {
+            const { data: ua } = await supabaseClient
+                .from('user_assessments')
+                .select('user_id, percentage, insights, assessment:assessment_id(title)')
+                .eq('id', userAssessmentId)
+                .maybeSingle();
+            if (!ua || ua.user_id !== authCheck.userId) return res.status(404).json({ success: false, error: 'Result not found.' });
+
+            const who = String(senderName || 'Someone').replace(/[<>\r\n]/g, ' ').slice(0, 60);
+            const title = String(ua.assessment?.title || 'an assessment').replace(/[<>\r\n]/g, ' ').slice(0, 120);
+            const ins = ua.insights || {};
+            let headline;
+            if (ins.mode === 'matching' && Array.isArray(ins.matches) && ins.matches.length) {
+                headline = `Top career matches: ${ins.matches.map(m => m.name).join(', ')}.`;
+            } else if (ins.mode === 'diagnostic') {
+                headline = `${ua.percentage}% aligned with their chosen career (${ins.alignment?.label || 'result'}).`;
+            } else {
+                headline = `Score: ${ua.percentage}%.`;
+            }
+            const summary = ins.summary ? ` ${String(ins.summary).slice(0, 400)}` : '';
+
             fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -12441,14 +12474,14 @@ Return the lesson as markdown with this structure:
                     to: recipientEmail,
                     type: 'notification',
                     templateData: {
-                        subject: `${senderName} shared assessment results with you`,
-                        message: `${senderName} has shared assessment results with you. Click below to view.`,
-                        actionLink: shareUrl,
-                        actionText: 'View Results'
+                        subject: `${who} shared their ${title} result with you`,
+                        message: `${who} chose to share their result from "${title}". ${headline}${summary}`,
+                        actionLink: `${process.env.SITE_URL || 'https://bluskyeconsult.com'}/assessments`,
+                        actionText: 'Take an assessment yourself'
                     }
                 })
             }).catch(() => {});
-            
+
             return res.status(200).json({ success: true });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
