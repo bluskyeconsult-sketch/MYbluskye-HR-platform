@@ -230,6 +230,9 @@ export default function AssessmentManager() {
     const [aiTopic, setAiTopic] = useState('');
     const [aiDifficulty, setAiDifficulty] = useState('intermediate');
     const [aiQuestionCount, setAiQuestionCount] = useState(10);
+    // 'knowledge' = a test with right and wrong answers. 'diagnostic' = a self-assessment with no right
+    // answers that reports how closely someone's situation matches their chosen goal, with an action plan.
+    const [aiMode, setAiMode] = useState('knowledge');
     const [aiGeneratedQuestions, setAiGeneratedQuestions] = useState([]);
     const [generating, setGenerating] = useState(false);
     
@@ -290,7 +293,8 @@ export default function AssessmentManager() {
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
-                    numberOfQuestions: aiQuestionCount
+                    numberOfQuestions: aiQuestionCount,
+                    mode: aiMode
                 })
             });
             
@@ -304,10 +308,10 @@ export default function AssessmentManager() {
             }
         } catch (error) {
             console.error('AI generation error:', error);
-            // Fallback mock generation
-            const mockQuestions = generateMockQuestions(aiTopic, aiQuestionCount, aiDifficulty);
-            setAiGeneratedQuestions(mockQuestions);
-            alert(`📝 Generated ${mockQuestions.length} sample questions. Review and edit as needed.`);
+            // UPDATED (2026-10-12): this used to fill the form with generic template questions
+            // ("How would you rate your experience with X? (Question 1)") that looked like a real
+            // result. Now it says plainly that generation failed.
+            alert('Question generation failed: ' + (error.message || 'please try again.'));
         } finally {
             setGenerating(false);
         }
@@ -422,23 +426,32 @@ export default function AssessmentManager() {
                 body: JSON.stringify({
                     topic: aiTopic,
                     difficulty: aiDifficulty,
-                    numberOfQuestions: aiQuestionCount
+                    numberOfQuestions: aiQuestionCount,
+                    mode: aiMode
                 })
             });
             
             const questionsData = await questionsResponse.json();
-            const generatedQuestions = questionsData.success ? questionsData.questions : generateMockQuestions(aiTopic, aiQuestionCount, aiDifficulty);
+            if (!questionsData.success || !Array.isArray(questionsData.questions) || questionsData.questions.length === 0) {
+                throw new Error(questionsData.error || 'Question generation failed - nothing was created.');
+            }
+            const generatedQuestions = questionsData.questions;
+            const diagnostic = aiMode === 'diagnostic';
             
-            const assessmentTitle = `${aiTopic} Assessment`;
-            const assessmentDescription = `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
+            const assessmentTitle = diagnostic ? `${aiTopic} Check` : `${aiTopic} Assessment`;
+            const assessmentDescription = diagnostic
+                ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${aiTopic}, where you are drifting, and a step-by-step plan to get back on track.`
+                : `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
             
             const { data: newAssessment, error: assessmentError } = await supabase
                 .from('assessments')
                 .insert({
                     title: assessmentTitle,
                     description: assessmentDescription,
-                    instructions: `Complete this assessment to evaluate your ${aiTopic} knowledge. Answer each question thoughtfully.`,
-                    assessment_type: 'general',
+                    instructions: diagnostic
+                        ? 'Answer honestly about your life as it is now, not as you would like it to be. There are no right or wrong answers. Your result shows where you are aligned, where you are drifting, and what to do next.'
+                        : `Complete this assessment to evaluate your ${aiTopic} knowledge. Answer each question thoughtfully.`,
+                    assessment_type: diagnostic ? 'career_aptitude' : 'general',
                     difficulty: aiDifficulty,
                     time_limit_minutes: Math.ceil(aiQuestionCount * 1.5),
                     question_count: generatedQuestions.length,
@@ -1135,6 +1148,26 @@ export default function AssessmentManager() {
                                     placeholder="e.g., Leadership in Remote Teams, Data Analytics, Customer Service Excellence"
                                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-purple-500"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">What kind of assessment?</label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {[
+                                        { id: 'knowledge', title: 'Knowledge test', text: 'Right and wrong answers, scored as a percentage. Use for skills and facts.' },
+                                        { id: 'diagnostic', title: 'Self-diagnostic', text: 'No right answers. Shows how closely someone matches a goal (such as a chosen career), their gaps, and an action plan.' }
+                                    ].map(m => (
+                                        <button
+                                            type="button"
+                                            key={m.id}
+                                            onClick={() => setAiMode(m.id)}
+                                            className={`text-left rounded-xl border p-3 transition ${aiMode === m.id ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'}`}
+                                        >
+                                            <p className="text-white text-sm font-medium">{m.title}</p>
+                                            <p className="text-xs text-slate-400 mt-0.5">{m.text}</p>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
