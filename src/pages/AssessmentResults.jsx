@@ -158,7 +158,8 @@ export default function AssessmentResults() {
     // ============================================
 
     async function handleShare() {
-        const shareUrl = `${window.location.origin}/assessment-results/${id}`;
+        // Results pages open only for their owner, so shared links point to the public assessments page instead.
+        const shareUrl = `${window.location.origin}/assessments`;
         const shareText = results?.insights?.mode === 'matching'
             ? `I just did the ${results?.assessment?.title} and found my top career matches.`
             : results?.insights?.mode === 'diagnostic'
@@ -191,9 +192,10 @@ export default function AssessmentResults() {
         
         try {
             // Using unified API for sharing results — confirmed real handler
+            const { data: { session: shareSession } } = await supabase.auth.getSession();
             const response = await fetch(`${API_BASE}?action=assessment-share-results`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${shareSession?.access_token}` },
                 body: JSON.stringify({
                     userAssessmentId: id,
                     recipientEmail: shareEmail,
@@ -657,14 +659,14 @@ export default function AssessmentResults() {
                             </div>
                             
                             <p className="text-slate-400 text-sm mb-4">
-                                Share your assessment results with colleagues, mentors, or potential employers.
+                                Email a short summary of your result to a colleague, mentor or potential employer. They see the summary, not your account.
                             </p>
                             
                             <div className="flex gap-3 mb-4">
                                 <button
                                     onClick={() => {
                                         const text = isMatching ? `My top career match is ${matches[0]?.name || 'interesting'} (${results.assessment?.title}).` : isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career (${results.assessment?.title}).` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment!`;
-                                        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+                                        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(`${window.location.origin}/assessments`)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition flex items-center justify-center gap-2"
                                 >
@@ -673,7 +675,7 @@ export default function AssessmentResults() {
                                 <button
                                     onClick={() => {
                                         const text = isMatching ? `My top career match is ${matches[0]?.name || 'interesting'}. Check out my results!` : isDiagnostic ? `I'm ${results.percentage}% aligned with my chosen career. Check out my results!` : `I scored ${results.percentage}% on the ${results.assessment?.title} assessment. Check out my results!`;
-                                        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(text)}`, '_blank');
+                                        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(`${window.location.origin}/assessments`)}&title=${encodeURIComponent(text)}`, '_blank');
                                     }}
                                     className="flex-1 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition flex items-center justify-center gap-2"
                                 >
