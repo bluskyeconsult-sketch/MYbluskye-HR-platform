@@ -6217,7 +6217,7 @@ ${siteContext}`;
                 for (const j of liveList) {
                     const url = safeUrl(j.external_apply_url);
                     if (!url) continue;
-                    jobCards.push({ kind: 'live', source: /^jooble/i.test(j.source_name || '') ? 'Jooble' : (j.source_name || 'External'), title: j.title, company: j.company || null, location: j.location || null, salary: j.salary_range || null, externalUrl: url });
+                    jobCards.push({ kind: 'live', source: /^jooble/i.test(j.source_name || '') ? 'Jooble' : (/^adzuna/i.test(j.source_name || '') ? 'Adzuna' : (j.source_name || 'External')), title: j.title, company: j.company || null, location: j.location || null, salary: j.salary_range || null, externalUrl: url });
                 }
             }
             const jobCardsOut = jobCards.slice(0, 10);
