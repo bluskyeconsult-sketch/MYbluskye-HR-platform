@@ -294,7 +294,8 @@ export default function AssessmentManager() {
                     topic: aiTopic,
                     difficulty: aiDifficulty,
                     numberOfQuestions: aiQuestionCount,
-                    mode: aiMode
+                    // match the assessment being extended, so a self-diagnostic never gets quiz questions
+                    mode: selectedAssessment?.assessment_type === 'career_aptitude' ? 'diagnostic' : aiMode
                 })
             });
             
@@ -1050,6 +1051,11 @@ export default function AssessmentManager() {
                                     >
                                         {QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
                                     </select>
+                                    {selectedAssessment?.assessment_type === 'career_aptitude' && ['multiple_choice', 'true_false'].includes(questionForm.question_type) && (
+                                        <p className="text-amber-400 text-xs mt-1">
+                                            This is a career self-diagnostic. Right-or-wrong questions turn it into a quiz and the result stops showing alignment. Use agreement statements (Likert) or open answers instead.
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">Points</label>
