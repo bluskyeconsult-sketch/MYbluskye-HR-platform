@@ -13,6 +13,15 @@ import {
     Zap, Target, ThumbsUp, BookOpen, ChevronRight, X
 } from 'lucide-react';
 
+// SECURITY (2026-10-13): these two lookups now need a signed-in session.
+async function pageAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -80,7 +89,7 @@ export default function AssessmentsPage() {
 
     const loadUserEligibility = async (userId) => {
         try {
-            const response = await fetch(`${API_BASE}?action=user-eligibility&userId=${userId}&type=assessments`);
+            const response = await fetch(`${API_BASE}?action=user-eligibility&userId=${userId}&type=assessments`, { headers: await pageAuthHeader() });
             const data = await response.json();
             
             if (data.success) {
@@ -178,7 +187,7 @@ export default function AssessmentsPage() {
         if (!user) return;
         
         try {
-            const response = await fetch(`${API_BASE}?action=user-assessment-results&userId=${user.id}`);
+            const response = await fetch(`${API_BASE}?action=user-assessment-results&userId=${user.id}`, { headers: await pageAuthHeader() });
             const data = await response.json();
             
             if (data.success && data.data) {
