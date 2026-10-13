@@ -159,33 +159,72 @@ async function fetchWeWorkRemotelyLive() {
     }
 }
 
-// Real per-user rate limit - separate from and tighter than the normal
+// Real per-visitor rate limit - separate from and tighter than the normal
 // chat credit system, since this triggers several real third-party API
-// calls per invocation. Reuses the same security_events table already
-// used elsewhere for rate limiting, rather than a new table.
-export async function checkLiveSearchRateLimit(supabaseClient, userId) {
-    const MAX_LIVE_SEARCHES_PER_HOUR = 10;
-    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+// calls per invocation. Reuses the security_events table already used
+// elsewhere for rate limiting. Signed-in members are counted by user id;
+// visitors who are not signed in are counted by IP address, so one visitor
+// cannot use up the allowance for everyone else.
+const MAX_LIVE_SEARCHES_PER_HOUR = 10;
+const MAX_GUEST_LIVE_SEARCHES_PER_HOUR = 5;
+const GUEST_JOOBLE_PER_HOUR = 3;       // Jooble calls per visitor (IP) per hour
+const JOOBLE_PER_HOUR_ALL = 40;        // Jooble calls across the whole site per hour, protects the keys
 
+function who(userId, ip) { return userId ? { userId } : { ip: ip || 'unknown' }; }
+
+export async function checkLiveSearchRateLimit(supabaseClient, userId, ip) {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { count } = await supabaseClient
         .from('security_events')
         .select('id', { count: 'exact', head: true })
         .eq('event_type', 'live_job_search')
         .gte('created_at', since)
-        .contains('metadata', { userId });
-
-    if ((count || 0) >= MAX_LIVE_SEARCHES_PER_HOUR) {
+        .contains('metadata', who(userId, ip));
+    const limit = userId ? MAX_LIVE_SEARCHES_PER_HOUR : MAX_GUEST_LIVE_SEARCHES_PER_HOUR;
+    if ((count || 0) >= limit) {
         return { allowed: false, message: 'Live job search limit reached for this hour - please try again shortly, or browse the job board directly.' };
     }
     return { allowed: true };
 }
 
-export async function logLiveSearch(supabaseClient, userId, keyword) {
+// Decides whether THIS search may call Jooble. Visitors get a small hourly
+// allowance each; the whole site has an hourly cap so the keys last. A search
+// that is refused still returns the other sources, so nothing breaks.
+export async function checkJoobleAllowance(supabaseClient, userId, ip) {
+    try {
+        const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count: siteCount } = await supabaseClient
+            .from('security_events').select('id', { count: 'exact', head: true })
+            .eq('event_type', 'jooble_live_call').gte('created_at', since);
+        if ((siteCount || 0) >= JOOBLE_PER_HOUR_ALL) return false;
+        if (!userId) {
+            const { count } = await supabaseClient
+                .from('security_events').select('id', { count: 'exact', head: true })
+                .eq('event_type', 'jooble_live_call').gte('created_at', since)
+                .contains('metadata', { ip: ip || 'unknown' });
+            if ((count || 0) >= GUEST_JOOBLE_PER_HOUR) return false;
+        }
+        return true;
+    } catch {
+        return false; // if the check itself fails, skip Jooble rather than risk the keys
+    }
+}
+
+export async function logJoobleCall(supabaseClient, userId, ip) {
+    try {
+        await supabaseClient.from('security_events').insert({
+            event_type: 'jooble_live_call', severity: 'info',
+            metadata: userId ? { userId } : { ip: ip || 'unknown' }
+        });
+    } catch { /* non-critical */ }
+}
+
+export async function logLiveSearch(supabaseClient, userId, keyword, ip) {
     try {
         await supabaseClient.from('security_events').insert({
             event_type: 'live_job_search',
             severity: 'info',
-            metadata: { userId, keyword: keyword || null }
+            metadata: { ...who(userId, ip), keyword: keyword || null }
         });
     } catch {
         // Non-critical - never let logging failure block a real search.
@@ -248,8 +287,9 @@ async function fetchAdzunaLive(terms, country, city) {
 
 // CHANGED (2026-10-12): Jooble's written reply (ticket 1974824) says live display with a link back to
 // Jooble is exactly how the API is meant to be used, and that listings must not be kept for long. So chat
-// searches Jooble live, for signed-in members only, and nothing from Jooble is stored (the chat shows the
-// results as cards that are not saved). Each country key still has a request limit until Jooble lifts it.
+// searches Jooble live and nothing from Jooble is stored (the chat shows the results as cards that are not
+// saved). CHANGED (2026-10-13): Jooble's second reply says listings must be visible WITHOUT signing in, so
+// visitors now get Jooble results too, with a small per-visitor hourly allowance to protect the keys.
 // Kill switch: set JOOBLE_LIVE=off in Vercel to stop all live Jooble requests.
 export function joobleChatEnabled(code) { return process.env.JOOBLE_LIVE !== 'off' && !!joobleKeyFor(code); }
 export function reedConfigured() { return !!process.env.REED_API_KEY; }
@@ -367,9 +407,8 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
             if (reedConfigured()) searches.push(withTimeout(fetchReedLive(termList, city), PER_SOURCE_TIMEOUT_MS, []));
             else providerExistsButOff = true;
         }
-        // Jooble: live, signed-in members only, shown with attribution and a link back (see the note above).
+        // Jooble: live, public (members and visitors), shown with attribution and a link back (see the note above).
         if (allowJooble && joobleChatEnabled(country)) searches.push(withTimeout(fetchJoobleLive(termList, country, city), PER_SOURCE_TIMEOUT_MS, []));
-        else if (!allowJooble && joobleKeyFor(country)) notes.push('Jooble results are shown to signed-in members only.');
         if (EUROPE_FOR_ARBEITNOW.has(country)) searches.push(withTimeout(fetchArbeitnowLive(termList), PER_SOURCE_TIMEOUT_MS, []));
         if (searches.length === 0) {
             notes.push(providerExistsButOff
