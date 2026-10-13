@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { DollarSign, Loader2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function SuggestPriceButton({ itemType, name, description, category, onApply }) {
+export default function SuggestPriceButton({ itemType, name, description, category, version, bookId, onApply }) {
     const [loading, setLoading] = useState(false);
     const [suggestion, setSuggestion] = useState(null);
 
@@ -32,7 +32,7 @@ export default function SuggestPriceButton({ itemType, name, description, catego
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ itemType, name, description, category })
+                body: JSON.stringify({ itemType, name, description, category, version, bookId })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Could not get a suggestion');
@@ -71,6 +71,14 @@ export default function SuggestPriceButton({ itemType, name, description, catego
                         </span>
                     </div>
                     <p className="text-slate-400 text-xs mb-2">{suggestion.reasoning}</p>
+                    {suggestion.costInfo && (
+                        <p className="text-slate-500 text-xs mb-2">
+                            {suggestion.costInfo.floor
+                                ? `Cost floor $${Number(suggestion.costInfo.floor).toFixed(2)}`
+                                    + (suggestion.costInfo.audioGenerationCost !== undefined ? ` (audio generation about $${Number(suggestion.costInfo.audioGenerationCost).toFixed(2)} over ${suggestion.costInfo.assumedSalesToRecoverAudioCost} sales, plus payment fees)` : ' (payment fees)')
+                                : suggestion.costInfo.note}
+                        </p>
+                    )}
                     <button
                         type="button"
                         onClick={() => onApply?.(suggestion.suggestedPrice)}
