@@ -5303,6 +5303,385 @@ ${siteContext}`;
     //  - the body of the user's own submissions (assessment answers, assistant inputs and
     //    outputs) is returned only when includeContent is set, and that is recorded too;
     //  - a super_admin account can only be inspected by a super_admin.
+    // NEW (2026-10-13): Finance and Compliance (Admin > Growth > Finance and Compliance).
+    // One admin-only action with many operations. Super admins always pass; staff need can_manage_finance.
+    // Everything is a DRAFT for the owner or an accountant to check: it never files anything with HMRC,
+    // Companies House or the ICO. The tables have row security on and no public policy.
+    'admin-finance': async (req, res) => {
+        const sb = getSupabase();
+        const auth = await requirePermission(req, sb, 'can_manage_finance');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`admin-finance:${auth.userId}`, 240)) return res.status(429).json({ error: 'Too many requests' });
+
+        const { op } = req.body || {};
+        const body = req.body || {};
+        const str = (v, n = 500) => (v === undefined || v === null || String(v).trim() === '') ? null : String(v).trim().slice(0, n);
+        const num = (v) => { const x = Number(v); return Number.isFinite(x) ? Math.round(x * 100) / 100 : null; };
+        const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+        const dOrNull = (v) => isDate(v) ? v : null;
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const addMonths = (dateStr, m) => { const d = new Date(dateStr + 'T00:00:00Z'); const day = d.getUTCDate(); d.setUTCMonth(d.getUTCMonth() + m); if (d.getUTCDate() < day) d.setUTCDate(0); return iso(d); };
+        const missingTable = (e) => /does not exist|schema cache|relation/i.test(e?.message || '') ;
+        const fail = (e) => {
+            console.error('admin-finance error:', op, e);
+            return res.status(500).json({ error: missingTable(e) ? 'The finance tables are missing. Run create-finance-compliance.sql in Supabase first.' : 'Could not complete that. Please try again.' });
+        };
+        const taxYearRange = (ty) => {
+            const m = /^(\d{4})-(\d{2})$/.exec(ty || '');
+            if (!m) return null;
+            const y = Number(m[1]);
+            return { start: `${y}-04-06`, end: `${y + 1}-04-05` };
+        };
+        const currentTaxYear = () => {
+            const now = new Date();
+            const y = now.getUTCFullYear();
+            const startThisYear = new Date(Date.UTC(y, 3, 6));
+            const s = now >= startThisYear ? y : y - 1;
+            return `${s}-${String((s + 1) % 100).padStart(2, '0')}`;
+        };
+        // GBP value of a row field: GBP rows as they are; other currencies only when the owner entered the GBP amount.
+        const gbp = (row, field) => {
+            if ((row.currency || 'GBP').toUpperCase() === 'GBP') return Number(row[field] || 0);
+            if (field === 'gross' && row.amount_gbp !== null && row.amount_gbp !== undefined) {
+                const sign = Number(row.gross || 0) < 0 ? -1 : 1;
+                return sign * Math.abs(Number(row.amount_gbp));
+            }
+            return null;
+        };
+        const getSettings = async () => {
+            const defaults = { vat_threshold: '90000', owner_email: '', last_stripe_sync: '' };
+            try {
+                const { data } = await sb.from('finance_settings').select('key, value');
+                (data || []).forEach(r => { defaults[r.key] = r.value; });
+            } catch (e) { /* defaults */ }
+            return defaults;
+        };
+        const loadLedger = async (from, to) => {
+            let q = sb.from('finance_ledger').select('*').order('entry_date', { ascending: true }).limit(20000);
+            if (from) q = q.gte('entry_date', from);
+            if (to) q = q.lte('entry_date', to);
+            const { data, error } = await q;
+            if (error) throw error;
+            return data || [];
+        };
+        // Totals for a set of ledger rows (GBP only; rows in other currencies without a GBP value are counted separately).
+        const totals = (rows) => {
+            const t = { turnover: 0, refunds: 0, stripeFees: 0, expenses: 0, adjustments: 0, needsGbp: 0, byMonth: {}, expenseByCategory: {} };
+            const month = (r) => r.entry_date.slice(0, 7);
+            const bump = (r, k, v) => { const m = month(r); t.byMonth[m] = t.byMonth[m] || { turnover: 0, refunds: 0, fees: 0, expenses: 0 }; t.byMonth[m][k] += v; };
+            for (const r of rows) {
+                if (r.kind === 'income') {
+                    const g = gbp(r, 'gross'); if (g === null) { t.needsGbp += 1; continue; }
+                    t.turnover += g; bump(r, 'turnover', g);
+                    const f = gbp(r, 'fee'); if (f) { t.stripeFees += f; bump(r, 'fees', f); }
+                } else if (r.kind === 'refund') {
+                    const g = gbp(r, 'gross'); if (g === null) { t.needsGbp += 1; continue; }
+                    const a = -Math.abs(g); t.refunds += a; bump(r, 'refunds', a);
+                    const f = gbp(r, 'fee'); if (f) { t.stripeFees += f; bump(r, 'fees', f); }
+                } else if (r.kind === 'expense') {
+                    const g = gbp(r, 'gross'); if (g === null) { t.needsGbp += 1; continue; }
+                    const a = Math.abs(g); t.expenses += a; bump(r, 'expenses', a);
+                    const c = r.category || 'Other expenses'; t.expenseByCategory[c] = (t.expenseByCategory[c] || 0) + a;
+                } else { t.adjustments += gbp(r, 'gross') || 0; }
+            }
+            const r2 = (x) => Math.round(x * 100) / 100;
+            ['turnover', 'refunds', 'stripeFees', 'expenses', 'adjustments'].forEach(k => { t[k] = r2(t[k]); });
+            Object.keys(t.expenseByCategory).forEach(k => { t.expenseByCategory[k] = r2(t.expenseByCategory[k]); });
+            Object.values(t.byMonth).forEach(m => { Object.keys(m).forEach(k => { m[k] = r2(m[k]); }); });
+            t.netTurnover = r2(t.turnover + t.refunds);
+            t.totalCosts = r2(t.expenses + t.stripeFees);
+            t.profit = r2(t.netTurnover - t.totalCosts);
+            return t;
+        };
+        const countOf = async (table, apply) => {
+            try {
+                let q = sb.from(table).select('*', { count: 'exact', head: true });
+                if (apply) q = apply(q);
+                const { count, error } = await q;
+                return error ? null : count;
+            } catch (e) { return null; }
+        };
+
+        try {
+            // ---------- settings ----------
+            if (op === 'settings-get') return res.status(200).json({ success: true, settings: await getSettings(), currentTaxYear: currentTaxYear() });
+            if (op === 'settings-save') {
+                const allowed = { vat_threshold: (v) => String(Math.max(0, Math.round(Number(v) || 0))), owner_email: (v) => String(v || '').trim().slice(0, 200) };
+                const rows = Object.keys(allowed).filter(k => body.settings && body.settings[k] !== undefined).map(k => ({ key: k, value: allowed[k](body.settings[k]), updated_at: new Date().toISOString() }));
+                if (rows.length) { const { error } = await sb.from('finance_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; }
+                return res.status(200).json({ success: true });
+            }
+
+            // ---------- ledger ----------
+            if (op === 'ledger-list') {
+                const rows = await loadLedger(dOrNull(body.from), dOrNull(body.to));
+                return res.status(200).json({ success: true, rows: rows.reverse() });
+            }
+            if (op === 'ledger-save') {
+                const r = body.record || {};
+                const kind = ['income', 'expense', 'refund', 'adjustment'].includes(r.kind) ? r.kind : 'expense';
+                const gross = num(r.gross);
+                if (!isDate(r.entry_date)) return res.status(400).json({ error: 'Choose a date.' });
+                if (gross === null || gross === 0) return res.status(400).json({ error: 'Enter an amount.' });
+                const currency = (str(r.currency, 3) || 'GBP').toUpperCase();
+                const amountGbp = num(r.amount_gbp);
+                if (currency !== 'GBP' && (amountGbp === null || amountGbp === 0)) return res.status(400).json({ error: 'For a payment not in GBP, enter the GBP amount from your bank or card statement.' });
+                const row = { source: 'manual', entry_date: r.entry_date, kind, category: str(r.category, 100), description: str(r.description, 300), vendor: str(r.vendor, 200), currency, gross: Math.abs(gross), fee: 0, net: Math.abs(gross), amount_gbp: currency === 'GBP' ? null : Math.abs(amountGbp), notes: str(r.notes, 1000) };
+                if (body.id) {
+                    const { data: existing } = await sb.from('finance_ledger').select('source').eq('id', body.id).maybeSingle();
+                    if (!existing) return res.status(404).json({ error: 'Entry not found.' });
+                    if (existing.source !== 'manual') return res.status(400).json({ error: 'Stripe entries cannot be edited. They come straight from Stripe.' });
+                    const { data, error } = await sb.from('finance_ledger').update(row).eq('id', body.id).select().single();
+                    if (error) throw error;
+                    return res.status(200).json({ success: true, row: data });
+                }
+                const { data, error } = await sb.from('finance_ledger').insert(row).select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, row: data });
+            }
+            if (op === 'ledger-delete') {
+                if (!body.id) return res.status(400).json({ error: 'id is required' });
+                const { data: existing } = await sb.from('finance_ledger').select('source').eq('id', body.id).maybeSingle();
+                if (!existing) return res.status(404).json({ error: 'Entry not found.' });
+                if (existing.source !== 'manual') return res.status(400).json({ error: 'Stripe entries cannot be deleted. They come straight from Stripe.' });
+                const { error } = await sb.from('finance_ledger').delete().eq('id', body.id);
+                if (error) throw error;
+                return res.status(200).json({ success: true });
+            }
+
+            // ---------- Stripe sync (pulls balance transactions: sales, refunds and Stripe's fees) ----------
+            if (op === 'stripe-sync') {
+                if (!process.env.STRIPE_SECRET_KEY) return res.status(400).json({ error: 'Stripe is not connected (STRIPE_SECRET_KEY is not set).' });
+                const settings = await getSettings();
+                let since = dOrNull(body.since);
+                if (!since) {
+                    const last = settings.last_stripe_sync ? new Date(settings.last_stripe_sync) : null;
+                    since = last && !isNaN(last) ? iso(new Date(last.getTime() - 3 * 86400000)) : iso(new Date(Date.now() - 540 * 86400000));
+                }
+                const Stripe = (await import('stripe')).default;
+                const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+                const sinceTs = Math.floor(new Date(since + 'T00:00:00Z').getTime() / 1000);
+                const out = []; let seen = 0, skipped = 0;
+                for await (const bt of stripe.balanceTransactions.list({ limit: 100, created: { gte: sinceTs } })) {
+                    seen += 1; if (seen > 5000) break;
+                    const t = bt.type;
+                    let kind = null;
+                    if (t === 'charge' || t === 'payment') kind = 'income';
+                    else if (t === 'refund' || t === 'payment_refund') kind = 'refund';
+                    else if (t === 'adjustment' || t === 'dispute' || t === 'stripe_fee' || t === 'application_fee') kind = 'adjustment';
+                    else { skipped += 1; continue; } // payouts, transfers and similar are money moving, not income
+                    out.push({
+                        source: 'stripe', external_id: bt.id, entry_date: new Date(bt.created * 1000).toISOString().slice(0, 10), kind,
+                        category: kind === 'income' ? 'Sales' : kind === 'refund' ? 'Refunds' : 'Stripe adjustment',
+                        description: (bt.description || t || '').slice(0, 300), vendor: 'Stripe', currency: String(bt.currency || 'gbp').toUpperCase(),
+                        gross: bt.amount / 100, fee: bt.fee / 100, net: bt.net / 100
+                    });
+                }
+                for (let i = 0; i < out.length; i += 500) {
+                    const { error } = await sb.from('finance_ledger').upsert(out.slice(i, i + 500), { onConflict: 'external_id' });
+                    if (error) throw error;
+                }
+                await sb.from('finance_settings').upsert({ key: 'last_stripe_sync', value: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+                return res.status(200).json({ success: true, imported: out.length, skipped, since, capped: seen > 5000 });
+            }
+
+            // ---------- summary for a UK tax year (6 April to 5 April) ----------
+            if (op === 'summary') {
+                const ty = body.taxYear || currentTaxYear();
+                const range = taxYearRange(ty);
+                if (!range) return res.status(400).json({ error: 'Choose a tax year such as 2026-27.' });
+                const rows = await loadLedger(range.start, range.end);
+                const t = totals(rows);
+                let openaiUsd = null;
+                try {
+                    const { data } = await sb.from('openai_usage_log').select('estimated_cost').gte('created_at', range.start).lte('created_at', range.end + 'T23:59:59Z').limit(100000);
+                    openaiUsd = Math.round((data || []).reduce((a, r) => a + Number(r.estimated_cost || 0), 0) * 100) / 100;
+                } catch (e) { /* optional */ }
+                return res.status(200).json({ success: true, taxYear: ty, range, totals: t, entryCount: rows.length, openaiEstimateUsd: openaiUsd, settings: await getSettings() });
+            }
+
+            // ---------- VAT and Making Tax Digital watch ----------
+            if (op === 'watch') {
+                const settings = await getSettings();
+                const today = new Date();
+                const from12 = addMonths(iso(today), -12);
+                const rolling = totals(await loadLedger(from12, iso(today)));
+                const cy = currentTaxYear(); const cyStart = Number(cy.slice(0, 4));
+                const mtd = [];
+                for (const [startYear, threshold, applies] of [[2024, 50000, '6 April 2026'], [2025, 30000, '6 April 2027'], [2026, 20000, '6 April 2028']]) {
+                    const ty = `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+                    const range = taxYearRange(ty);
+                    const t = totals(await loadLedger(range.start, range.end));
+                    mtd.push({ taxYear: ty, qualifyingIncome: t.netTurnover, threshold, appliesFrom: applies, over: t.netTurnover > threshold, complete: startYear < cyStart });
+                }
+                const vatThreshold = Number(settings.vat_threshold) || 90000;
+                return res.status(200).json({ success: true, vat: { rolling12MonthTurnover: rolling.netTurnover, threshold: vatThreshold, percent: Math.round((rolling.netTurnover / vatThreshold) * 1000) / 10 }, mtd, needsGbp: rolling.needsGbp });
+            }
+
+            // ---------- compliance calendar ----------
+            if (op === 'compliance-list') {
+                const { data, error } = await sb.from('compliance_items').select('*').order('due_date', { ascending: true, nullsFirst: true }).limit(500);
+                if (error) throw error;
+                let renewals = [];
+                try {
+                    const soon = iso(new Date(Date.now() + 60 * 86400000));
+                    const { data: rn } = await sb.from('renewals').select('service_name, renewal_date, cost, currency').eq('is_active', true).lte('renewal_date', soon).order('renewal_date', { ascending: true }).limit(50);
+                    renewals = rn || [];
+                } catch (e) { /* optional */ }
+                return res.status(200).json({ success: true, items: data || [], renewals });
+            }
+            if (op === 'compliance-save') {
+                const r = body.record || {};
+                const title = str(r.title, 200);
+                if (!title) return res.status(400).json({ error: 'Give the item a title.' });
+                const row = { title, authority: str(r.authority, 100), due_date: dOrNull(r.due_date), recurrence: ['none', 'monthly', 'quarterly', 'yearly'].includes(r.recurrence) ? r.recurrence : 'none', link: str(r.link, 300), notes: str(r.notes, 1000), updated_at: new Date().toISOString() };
+                const q = body.id ? sb.from('compliance_items').update(row).eq('id', body.id) : sb.from('compliance_items').insert(row);
+                const { data, error } = await q.select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, row: data });
+            }
+            if (op === 'compliance-done') {
+                if (!body.id) return res.status(400).json({ error: 'id is required' });
+                const { data: item } = await sb.from('compliance_items').select('*').eq('id', body.id).maybeSingle();
+                if (!item) return res.status(404).json({ error: 'Item not found.' });
+                const step = { monthly: 1, quarterly: 3, yearly: 12 }[item.recurrence];
+                const patch = { last_done: iso(new Date()), updated_at: new Date().toISOString() };
+                if (step && item.due_date) { let next = item.due_date; let guard = 0; while (next <= iso(new Date()) && guard++ < 60) next = addMonths(next, step); patch.due_date = next; patch.status = 'open'; }
+                else if (step) { patch.due_date = addMonths(iso(new Date()), step); patch.status = 'open'; }
+                else patch.status = 'done';
+                const { error } = await sb.from('compliance_items').update(patch).eq('id', body.id);
+                if (error) throw error;
+                return res.status(200).json({ success: true, next: patch.due_date || null });
+            }
+            if (op === 'compliance-delete') {
+                if (!body.id) return res.status(400).json({ error: 'id is required' });
+                const { error } = await sb.from('compliance_items').delete().eq('id', body.id);
+                if (error) throw error;
+                return res.status(200).json({ success: true });
+            }
+            if (op === 'compliance-seed') {
+                const today = new Date(); const y = today.getUTCFullYear();
+                const next = (m, d) => { let dt = new Date(Date.UTC(y, m - 1, d)); if (dt <= today) dt = new Date(Date.UTC(y + 1, m - 1, d)); return iso(dt); };
+                const nextMonthStart = iso(new Date(Date.UTC(y, today.getUTCMonth() + 1, 1)));
+                const seeds = [
+                    { title: 'Self Assessment: file online tax return and pay balance plus first payment on account', authority: 'HMRC', due_date: next(1, 31), recurrence: 'yearly', link: 'https://www.gov.uk/self-assessment-tax-returns/deadlines', notes: 'Deadline is 31 January after the tax year ends. Confirm with your accountant.' },
+                    { title: 'Self Assessment: second payment on account', authority: 'HMRC', due_date: next(7, 31), recurrence: 'yearly', link: 'https://www.gov.uk/understand-self-assessment-bill/payments-on-account', notes: 'Only if payments on account apply to you.' },
+                    { title: 'Check whether Making Tax Digital for Income Tax applies to you', authority: 'HMRC', due_date: next(4, 6), recurrence: 'yearly', link: 'https://www.gov.uk/guidance/sign-up-your-business-for-making-tax-digital-for-income-tax', notes: 'Thresholds: income over 50,000 from April 2026, over 30,000 from April 2027, over 20,000 from April 2028. See the Overview tab.' },
+                    { title: 'MTD quarterly update (only if you are in MTD)', authority: 'HMRC', due_date: null, recurrence: 'quarterly', link: 'https://www.gov.uk/guidance/use-making-tax-digital-for-income-tax', notes: 'Set the first date once you are in scope. Check the exact dates on gov.uk.' },
+                    { title: 'Pay ICO data protection fee', authority: 'ICO', due_date: null, recurrence: 'yearly', link: 'https://ico.org.uk/for-organisations/data-protection-fee/', notes: 'Set the renewal date from your ICO registration. Put the registration number in careerCoachLegal.js.' },
+                    { title: 'Dormant company: confirmation statement and annual accounts (BluSkye Integrated Consult Ltd)', authority: 'Companies House', due_date: null, recurrence: 'yearly', link: 'https://www.gov.uk/government/organisations/companies-house', notes: 'Set the dates from the Companies House record for the dormant company.' },
+                    { title: 'Check rolling turnover against the VAT threshold', authority: 'HMRC', due_date: nextMonthStart, recurrence: 'monthly', link: 'https://www.gov.uk/vat-registration', notes: 'Overview tab shows the figure. Confirm the current threshold on gov.uk.' },
+                    { title: 'Reconcile the Stripe ledger to the bank statement', authority: 'Internal', due_date: nextMonthStart, recurrence: 'monthly', link: null, notes: 'Income & Costs tab. Sync Stripe, then compare totals with the bank.' },
+                    { title: 'Review Jooble and Adzuna request usage', authority: 'Internal', due_date: nextMonthStart, recurrence: 'monthly', link: null, notes: 'Jooble keys have a lifetime limit. Adzuna has a monthly limit.' },
+                    { title: 'Review privacy policy and the data-protection registers', authority: 'ICO', due_date: next(1, 15), recurrence: 'yearly', link: null, notes: 'Data Protection tab. Update the processing register after any new feature.' },
+                    { title: 'Test the data-breach procedure', authority: 'ICO', due_date: next(2, 15), recurrence: 'yearly', link: null, notes: 'A breach that is likely to put people at risk must be reported to the ICO within 72 hours.' },
+                    { title: 'Review supplier terms (Stripe, Supabase, Vercel, OpenAI, Adzuna, Jooble)', authority: 'Internal', due_date: next(3, 1), recurrence: 'yearly', link: null, notes: 'Check for changes that affect storage, attribution or pricing.' }
+                ];
+                const { data: existing } = await sb.from('compliance_items').select('title');
+                const have = new Set((existing || []).map(r => r.title));
+                const fresh = seeds.filter(s => !have.has(s.title));
+                if (fresh.length) { const { error } = await sb.from('compliance_items').insert(fresh); if (error) throw error; }
+                return res.status(200).json({ success: true, added: fresh.length });
+            }
+
+            // ---------- data protection registers ----------
+            const DP = { activities: 'dp_activities', requests: 'dp_requests', breaches: 'dp_breaches' };
+            if (op === 'dp-list') {
+                const table = DP[body.kind];
+                if (!table) return res.status(400).json({ error: 'Unknown register.' });
+                const order = body.kind === 'activities' ? 'activity' : body.kind === 'requests' ? 'received_date' : 'discovered_at';
+                const { data, error } = await sb.from(table).select('*').order(order, { ascending: body.kind === 'activities' }).limit(1000);
+                if (error) throw error;
+                return res.status(200).json({ success: true, rows: data || [] });
+            }
+            if (op === 'dp-save') {
+                const table = DP[body.kind]; const r = body.record || {};
+                if (!table) return res.status(400).json({ error: 'Unknown register.' });
+                let row;
+                if (body.kind === 'activities') {
+                    if (!str(r.activity, 200)) return res.status(400).json({ error: 'Name the activity.' });
+                    row = { activity: str(r.activity, 200), purpose: str(r.purpose, 600), data_categories: str(r.data_categories, 600), data_subjects: str(r.data_subjects, 300), lawful_basis: str(r.lawful_basis, 300), recipients: str(r.recipients, 600), retention: str(r.retention, 400), transfers: str(r.transfers, 400), notes: str(r.notes, 1000) };
+                } else if (body.kind === 'requests') {
+                    const type = ['access', 'deletion', 'rectification', 'objection', 'portability', 'restriction', 'other'].includes(r.request_type) ? r.request_type : 'access';
+                    const received = dOrNull(r.received_date) || iso(new Date());
+                    const status = ['open', 'in_progress', 'completed', 'refused'].includes(r.status) ? r.status : 'open';
+                    row = { request_type: type, requester_name: str(r.requester_name, 200), requester_email: str(r.requester_email, 200), received_date: received, due_date: dOrNull(r.due_date) || addMonths(received, 1), status, outcome: str(r.outcome, 600), completed_date: (status === 'completed' || status === 'refused') ? (dOrNull(r.completed_date) || iso(new Date())) : null, notes: str(r.notes, 1000) };
+                } else {
+                    if (!str(r.description, 1000)) return res.status(400).json({ error: 'Describe what happened.' });
+                    const risk = ['unassessed', 'low', 'high'].includes(r.risk) ? r.risk : 'unassessed';
+                    const reported = r.ico_reported === true || r.ico_reported === 'true';
+                    const when = r.discovered_at && !isNaN(new Date(r.discovered_at)) ? new Date(r.discovered_at).toISOString() : new Date().toISOString();
+                    row = { discovered_at: when, description: str(r.description, 1000), data_affected: str(r.data_affected, 600), people_affected: Number.isFinite(Number(r.people_affected)) && r.people_affected !== '' ? Math.max(0, Math.round(Number(r.people_affected))) : null, risk, ico_reported: reported, ico_reported_at: reported ? (r.ico_reported_at && !isNaN(new Date(r.ico_reported_at)) ? new Date(r.ico_reported_at).toISOString() : new Date().toISOString()) : null, individuals_told: r.individuals_told === true || r.individuals_told === 'true', not_reportable_reason: str(r.not_reportable_reason, 600), actions: str(r.actions, 1000), status: r.status === 'closed' ? 'closed' : 'open' };
+                    if (row.status === 'closed' && risk === 'unassessed') return res.status(400).json({ error: 'Assess the risk (low or high) before closing a breach.' });
+                    if (row.status === 'closed' && risk !== 'low' && !row.ico_reported && !row.not_reportable_reason) return res.status(400).json({ error: 'Record the ICO report, or why it did not need reporting, before closing.' });
+                }
+                row.updated_at = new Date().toISOString();
+                const q = body.id ? sb.from(table).update(row).eq('id', body.id) : sb.from(table).insert(row);
+                const { data, error } = await q.select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, row: data });
+            }
+            if (op === 'dp-delete') {
+                const table = DP[body.kind];
+                if (!table || !body.id) return res.status(400).json({ error: 'Unknown register or missing id.' });
+                if (body.kind !== 'activities') return res.status(400).json({ error: 'Requests and breaches are a legal record and cannot be deleted. Close them instead.' });
+                const { error } = await sb.from(table).delete().eq('id', body.id);
+                if (error) throw error;
+                return res.status(200).json({ success: true });
+            }
+            if (op === 'dp-seed') {
+                const A = (activity, purpose, data_categories, data_subjects, lawful_basis, recipients, retention, transfers) => ({ activity, purpose, data_categories, data_subjects, lawful_basis, recipients, retention, transfers, notes: 'DRAFT written from how the platform is built. Check and edit before relying on it.' });
+                const seeds = [
+                    A('Member accounts and profiles', 'Create and run a member account', 'Name, email, profile details, plan, activity', 'Members', 'Contract', 'Supabase (database), Vercel (hosting)', 'While the account is open. Set the deletion period.', 'Check provider data locations'),
+                    A('Job applications', 'Send a member\'s application to the employer they choose', 'Name, contact details, cover letter, CV link', 'Job seekers', 'Contract (the member asked us to apply)', 'The employer the member applies to (their own controller)', 'Set the period', 'None known'),
+                    A('Career Coach', 'Match goals to jobs, review CVs, draft applications', 'Career goals, CV text, drafts', 'Members who opt in', 'Consent', 'OpenAI (AI processing); Supabase', 'Notice at 11 months of inactivity, deleted at 12 months', 'AI provider is in the US. Confirm safeguards'),
+                    A('Assessments', 'Run assessments and show results', 'Answers, scores, results', 'Members', 'Contract; legitimate interests', 'Supabase; OpenAI (for AI-written insights)', 'Set the period', 'AI provider is in the US. Confirm safeguards'),
+                    A('AI assistants, HR Tools and chat', 'Run the AI features a member asks for', 'Whatever the member types, and the reply', 'Members and visitors', 'Contract; consent for Career Coach', 'OpenAI; Google Gemini as a fallback', 'Set the period', 'AI providers are in the US. Confirm safeguards'),
+                    A('Payments', 'Take payment and keep tax records', 'Name, email, payment amounts (card details stay with Stripe)', 'Paying members and employers', 'Contract; legal obligation (tax records)', 'Stripe', 'Tax records for the period HMRC requires. Confirm with your accountant', 'Stripe processes in several countries'),
+                    A('Support and the admin Support view', 'Help members with problems', 'Support requests, account details, and submissions only when needed', 'Members', 'Legitimate interests; contract', 'Staff with permission. Every access is logged', 'Set the period', 'None known'),
+                    A('Email invitations and newsletters', 'Tell people about the platform and send updates', 'Name, email, company, town', 'Contacts and subscribers', 'Consent or legitimate interests (PECR rules for business and personal contacts)', 'Email provider (SMTP host)', 'Until the person unsubscribes', 'Check email host location'),
+                    A('Analytics and security logs', 'Keep the service secure and improve it', 'Activity logs, IP addresses, usage', 'Members and visitors', 'Legitimate interests', 'Supabase; Vercel', 'Set the period', 'None known'),
+                    A('Employer verification and job posting', 'Check employers and publish their jobs', 'Business details, contact names and emails, job adverts', 'Employers', 'Contract; legitimate interests', 'Supabase; sponsor registers (public data)', 'Set the period', 'None known')
+                ];
+                const { data: existing } = await sb.from('dp_activities').select('activity');
+                const have = new Set((existing || []).map(r => r.activity));
+                const fresh = seeds.filter(s => !have.has(s.activity));
+                if (fresh.length) { const { error } = await sb.from('dp_activities').insert(fresh); if (error) throw error; }
+                return res.status(200).json({ success: true, added: fresh.length });
+            }
+            if (op === 'access-log') {
+                const { data, error } = await sb.from('user_activity_log').select('created_at, user_email, details').eq('action_type', 'admin_user_inspect').order('created_at', { ascending: false }).limit(200);
+                if (error) throw error;
+                return res.status(200).json({ success: true, rows: (data || []).map(r => ({ at: r.created_at, member: r.user_email, admin: r.details?.admin_id || null, reason: r.details?.reason || null, includedContent: !!r.details?.include_content })) });
+            }
+
+            // ---------- monthly business report ----------
+            if (op === 'kpi') {
+                const m = /^(\d{4})-(\d{2})$/.exec(body.month || '') ? body.month : iso(new Date()).slice(0, 7);
+                const [yy, mm] = m.split('-').map(Number);
+                const start = `${m}-01`; const endExcl = iso(new Date(Date.UTC(yy, mm, 1)));
+                const inMonth = (col) => (q) => q.gte(col, start).lt(col, endExcl);
+                const [members, newMembers, apps, jobsPosted, jobsActive, assessments, vaTasks, coachUsers, coachNew] = await Promise.all([
+                    countOf('profiles'), countOf('profiles', inMonth('created_at')),
+                    countOf('job_applications', inMonth('created_at')), countOf('jobs', inMonth('created_at')), countOf('jobs', (q) => q.eq('is_active', true)),
+                    countOf('user_assessments', (q) => q.eq('status', 'completed').gte('completed_at', start).lt('completed_at', endExcl)),
+                    countOf('va_tasks', inMonth('created_at')), countOf('career_goals'), countOf('career_goals', inMonth('created_at'))
+                ]);
+                let tiers = null;
+                try { const { data } = await sb.from('profiles').select('tier').limit(50000); tiers = {}; (data || []).forEach(r => { const k = r.tier || 'none'; tiers[k] = (tiers[k] || 0) + 1; }); } catch (e) { tiers = null; }
+                let pipeline = null;
+                try { const { data } = await sb.from('sales_pipeline').select('stage').limit(5000); pipeline = {}; (data || []).forEach(r => { pipeline[r.stage] = (pipeline[r.stage] || 0) + 1; }); } catch (e) { pipeline = null; }
+                let money = null;
+                try { money = totals(await loadLedger(start, iso(new Date(Date.UTC(yy, mm, 0))))); } catch (e) { money = null; }
+                return res.status(200).json({ success: true, month: m, members, newMembers, applications: apps, jobsPosted, jobsActive, assessmentsCompleted: assessments, assistantTasks: vaTasks, careerCoachUsers: coachUsers, careerCoachNew: coachNew, tiers, pipeline, money });
+            }
+
+            return res.status(400).json({ error: 'Unknown operation' });
+        } catch (error) {
+            return fail(error);
+        }
+    },
+
     // NEW (2026-10-13): sales pipeline for employer outreach (Admin > Growth > Sales Pipeline).
     // Admin only, through the server. The table has row security switched on and no public policy,
     // so the browser can never read it directly.
