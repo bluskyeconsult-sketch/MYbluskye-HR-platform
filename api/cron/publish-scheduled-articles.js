@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     // arbitrary caller, using the same CRON_SECRET already set up
     // for the other cron jobs on this platform.
     const authHeader = req.headers.authorization;
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
