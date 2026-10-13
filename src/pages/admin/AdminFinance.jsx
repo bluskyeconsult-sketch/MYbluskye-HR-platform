@@ -31,7 +31,8 @@ const btnPrimary = 'px-3 py-2 rounded-lg text-sm bg-primary-500 text-white inlin
 const TABS = ['Overview', 'Income & Costs', 'Tax Pack', 'Compliance Calendar', 'Data Protection', 'Monthly Report'];
 const CATEGORIES = ['Hosting and software', 'AI usage (OpenAI)', 'Data feeds (Adzuna, Jooble)', 'Email and domain', 'Marketing and advertising', 'Professional fees', 'Bank and card charges', 'Insurance', 'Equipment', 'Travel', 'Office and phone', 'Other expenses'];
 
-function csvEscape(v) { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+// Spreadsheet programs run text that starts with = + - @ as a formula. Prefix those cells (but leave real numbers alone).
+function csvEscape(v) { let s = v === null || v === undefined ? '' : String(v); if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function downloadCsv(name, header, rows) {
     const text = [header, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
     const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
@@ -354,7 +355,7 @@ function Calendar() {
                                 <div className="text-sm text-white">{i.title}</div>
                                 <div className="text-xs text-slate-500">{[i.authority, i.recurrence !== 'none' ? `repeats ${i.recurrence}` : null].filter(Boolean).join(' / ')}</div>
                                 {i.notes && <div className="text-xs text-slate-400 mt-1">{i.notes}</div>}
-                                {i.link && <a href={i.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-300 underline">Open guidance</a>}
+                                {i.link && /^https?:\/\//i.test(i.link) && <a href={i.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-300 underline">Open guidance</a>}
                             </div>
                             <div className={`text-sm whitespace-nowrap ${tone(i.due_date)}`}>{i.due_date ? `${i.due_date} (${daysUntil(i.due_date) < 0 ? `${-daysUntil(i.due_date)} days overdue` : `in ${daysUntil(i.due_date)} days`})` : 'no date'}</div>
                             <div className="flex gap-1">
