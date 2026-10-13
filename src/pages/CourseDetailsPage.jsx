@@ -207,12 +207,22 @@ export default function CourseDetailsPage() {
         try {
             const { data, error } = await supabase
                 .from('course_reviews')
-                .select('*, profiles:user_id(full_name)')
+                .select('*')
                 .eq('course_id', courseId)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setReviews(data || []);
+            const rows = data || [];
+            const ids = [...new Set(rows.map(r => r.user_id).filter(Boolean))];
+            const names = {};
+            if (ids.length > 0) {
+                const { data: people } = await supabase
+                    .from('public_profiles')
+                    .select('id, full_name')
+                    .in('id', ids);
+                (people || []).forEach(p => { names[p.id] = p.full_name; });
+            }
+            setReviews(rows.map(r => ({ ...r, profiles: { full_name: names[r.user_id] || null } })));
         } catch (err) {
             console.error('Error loading reviews:', err);
         }
