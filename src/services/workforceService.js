@@ -9,6 +9,24 @@
 // employer:profiles!employer_id(full_name, email) to the select so both
 // directions of contact are possible.
 
+// ADDED (fix-8): profiles is now private - a member can only read their own
+// profile row (and the other party of an engagement). Names and photos shown
+// publicly on the marketplace come from the public_profiles view, which
+// exposes ONLY id, full_name and avatar_url and only for people who have a
+// marketplace listing, a request, or a review.
+async function namesFor(ids) {
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    const map = {};
+    if (unique.length === 0) return map;
+    const { data, error } = await supabase
+        .from('public_profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', unique);
+    if (error) throw error;
+    (data || []).forEach(p => { map[p.id] = p; });
+    return map;
+}
+
 import { supabase } from '../lib/supabase';
 
 // ============================================
@@ -110,7 +128,7 @@ export async function getVerifiedProfessions(limit = 50, listingCategory = null)
     // unlock is confirmed to exist.
     let query = supabase
         .from('workforce_profiles')
-        .select('*, profiles!inner(full_name, avatar_url)')
+        .select('*')
         .eq('verification_status', 'verified')
         .eq('is_available', true)
         .order('rating_avg', { ascending: false })
@@ -123,7 +141,11 @@ export async function getVerifiedProfessions(limit = 50, listingCategory = null)
     const { data, error } = await query;
 
     if (error) throw error;
-    return data || [];
+    const rows = data || [];
+    const names = await namesFor(rows.map(r => r.user_id));
+    return rows
+        .filter(r => names[r.user_id] && names[r.user_id].full_name)
+        .map(r => ({ ...r, profiles: { full_name: names[r.user_id].full_name, avatar_url: names[r.user_id].avatar_url } }));
 }
 
 // ============================================
@@ -201,13 +223,15 @@ export async function getServiceRequests(employerId) {
 export async function getOpenServiceRequests(limit = 50) {
     const { data, error } = await supabase
         .from('service_requests')
-        .select('*, employer:profiles!employer_id(full_name, email)')
+        .select('*')
         .eq('status', 'open')
         .order('created_at', { ascending: false })
         .limit(limit);
 
     if (error) throw error;
-    return data || [];
+    const rows = data || [];
+    const names = await namesFor(rows.map(r => r.employer_id));
+    return rows.map(r => ({ ...r, employer: { full_name: names[r.employer_id]?.full_name || null } }));
 }
 
 export async function updateServiceRequestStatus(requestId, employerId, status) {
@@ -246,12 +270,23 @@ export async function submitProposal(requestId, professionalId, proposalData) {
 export async function getProposalsForRequest(requestId, employerId) {
     const { data, error } = await supabase
         .from('proposals')
-        .select('*, professional:workforce_profiles!inner(*, profiles!inner(full_name, email, avatar_url))')
+        .select('*, professional:workforce_profiles!inner(*)')
         .eq('service_request_id', requestId)
         .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    const rows = data || [];
+    const names = await namesFor(rows.map(r => r.professional?.user_id));
+    return rows.map(r => ({
+        ...r,
+        professional: r.professional && {
+            ...r.professional,
+            profiles: {
+                full_name: names[r.professional.user_id]?.full_name || null,
+                avatar_url: names[r.professional.user_id]?.avatar_url || null
+            }
+        }
+    }));
 }
 
 export async function getMyProposals(professionalId) {
@@ -394,14 +429,16 @@ async function updateAverageRating(revieweeId) {
 export async function getRatingsForUser(userId, limit = 20) {
     const { data, error } = await supabase
         .from('ratings_reviews')
-        .select('*, reviewer:profiles!reviewer_id(full_name, avatar_url)')
+        .select('*')
         .eq('reviewee_id', userId)
         .eq('is_public', true)
         .order('created_at', { ascending: false })
         .limit(limit);
 
     if (error) throw error;
-    return data || [];
+    const rows = data || [];
+    const names = await namesFor(rows.map(r => r.reviewer_id));
+    return rows.map(r => ({ ...r, reviewer: { full_name: names[r.reviewer_id]?.full_name || null, avatar_url: names[r.reviewer_id]?.avatar_url || null } }));
 }
 
 // ============================================
