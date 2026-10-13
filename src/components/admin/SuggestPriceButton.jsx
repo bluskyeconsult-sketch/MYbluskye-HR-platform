@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { DollarSign, Loader2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function SuggestPriceButton({ itemType, name, description, category, version, bookId, onApply }) {
+export default function SuggestPriceButton({ itemType, name, description, category, version, bookId, pageCount, ink, trim, onApply }) {
     const [loading, setLoading] = useState(false);
     const [suggestion, setSuggestion] = useState(null);
 
@@ -32,7 +32,7 @@ export default function SuggestPriceButton({ itemType, name, description, catego
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ itemType, name, description, category, version, bookId })
+                body: JSON.stringify({ itemType, name, description, category, version, bookId, pageCount, ink, trim })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Could not get a suggestion');
@@ -71,7 +71,18 @@ export default function SuggestPriceButton({ itemType, name, description, catego
                         </span>
                     </div>
                     <p className="text-slate-400 text-xs mb-2">{suggestion.reasoning}</p>
-                    {suggestion.costInfo && (
+                    {suggestion.costInfo?.amazon && (
+                        <p className="text-slate-500 text-xs mb-2">
+                            Amazon prints this for ${Number(suggestion.costInfo.amazon.printingCost).toFixed(2)} and will not accept a list price below ${Number(suggestion.costInfo.amazon.minimumListPrice).toFixed(2)}. To earn about ${Number(suggestion.costInfo.amazon.targetRoyaltyPerCopy).toFixed(2)} per copy, list it at ${Number(suggestion.costInfo.floor).toFixed(2)} or more.
+                        </p>
+                    )}
+                    {suggestion.costInfo?.compare && (
+                        <p className="text-slate-500 text-xs mb-2">
+                            At ${Number(suggestion.costInfo.compare.atPrice).toFixed(2)} your site keeps about ${Number(suggestion.costInfo.compare.yourSiteKeepsPerSale).toFixed(2)} per sale
+                            {suggestion.costInfo.compare.kindleKeepsPerSaleBeforeDeliveryFee !== undefined ? `; Amazon Kindle would keep you about $${Number(suggestion.costInfo.compare.kindleKeepsPerSaleBeforeDeliveryFee).toFixed(2)} before its delivery fee.` : '.'}
+                        </p>
+                    )}
+                    {suggestion.costInfo && !suggestion.costInfo.amazon && (
                         <p className="text-slate-500 text-xs mb-2">
                             {suggestion.costInfo.floor
                                 ? `Cost floor $${Number(suggestion.costInfo.floor).toFixed(2)}`
