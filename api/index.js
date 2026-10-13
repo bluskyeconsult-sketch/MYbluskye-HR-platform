@@ -10289,10 +10289,12 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
     },
 
     'refresh-knowledge': async (req, res) => {
-        const { sourceId } = req.body;
+        const { sourceId } = req.body || {};
         if (!sourceId) return res.status(400).json({ error: 'sourceId is required' });
 
         const supabaseClient = getSupabase();
+        const rkAuth = await requireAdmin(req, supabaseClient); // SECURITY (2026-10-13): was open to anyone
+        if (!rkAuth.authorized) return res.status(rkAuth.status).json({ error: rkAuth.error });
 
         try {
             const { data: source, error: sourceError } = await supabaseClient
@@ -11048,6 +11050,13 @@ Return the lesson as markdown with this structure:
     'user-assessment-results': async (req, res) => {
         const { userId } = req.query;
         const supabaseClient = getSupabase();
+        // SECURITY (2026-10-13): only the owner (or an admin) can read a person's results.
+        const uarAuth = await getAuthenticatedUser(req, supabaseClient);
+        if (!uarAuth.authorized) return res.status(uarAuth.status).json({ success: false, error: uarAuth.error });
+        if (uarAuth.userId !== userId) {
+            const uarAdmin = await requireAdmin(req, supabaseClient);
+            if (!uarAdmin.authorized) return res.status(403).json({ success: false, error: 'You can only view your own results.' });
+        }
         
         try {
             const { data, error } = await supabaseClient
@@ -11815,8 +11824,11 @@ Return the lesson as markdown with this structure:
     // in real, approved-source content rather than a static template.
     'odusbaba-legal-query': async (req, res) => {
         const supabaseClient = getSupabase();
-        const { question, countryCode } = req.body;
+        const { question, countryCode } = req.body || {};
         if (!question) return res.status(400).json({ error: 'question is required' });
+        // SECURITY (2026-10-13): this reaches OpenAI without a login, so limit how often and how much.
+        if (typeof question !== 'string' || question.length > 1000) return res.status(400).json({ error: 'Please keep the question under 1,000 characters.' });
+        if (!checkRateLimit(`legal-query:${getRequestIP(req)}`, 8)) return res.status(429).json({ error: 'Too many questions. Please wait a minute.' });
 
         try {
             let sourcesQuery = supabaseClient
@@ -12071,7 +12083,7 @@ Return the lesson as markdown with this structure:
                 try {
                     await fetch(`https://www.bluskyeconsult.com/api/index?action=email`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                         body: JSON.stringify({
                             to: employer.contact_email,
                             type: 'employer_invitation',
@@ -12939,9 +12951,9 @@ Return the lesson as markdown with this structure:
             }
             const summary = ins.summary ? ` ${String(ins.summary).slice(0, 400)}` : '';
 
-            fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
+            fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                 body: JSON.stringify({
                     to: recipientEmail,
                     type: 'notification',
@@ -13030,6 +13042,13 @@ Return the lesson as markdown with this structure:
     'user-eligibility': async (req, res) => {
         const { userId, type } = req.query;
         const supabaseClient = getSupabase();
+        // SECURITY (2026-10-13): only the owner (or an admin) can look up a person's plan and limits.
+        const ueAuth = await getAuthenticatedUser(req, supabaseClient);
+        if (!ueAuth.authorized) return res.status(ueAuth.status).json({ success: false, error: ueAuth.error });
+        if (ueAuth.userId !== userId) {
+            const ueAdmin = await requireAdmin(req, supabaseClient);
+            if (!ueAdmin.authorized) return res.status(403).json({ success: false, error: 'You can only view your own limits.' });
+        }
         
         try {
             const { data: profile } = await supabaseClient
@@ -13095,7 +13114,56 @@ Return the lesson as markdown with this structure:
 
     // ========== SEND EMAIL ==========
     email: async (req, res) => {
-        const { to, subject, html, type, templateData } = req.body;
+        let { to, subject, html, type, templateData } = req.body || {};
+
+        // SECURITY (2026-10-13): this action used to be open to anyone on the internet, which made it a free
+        // email sender that could put any message, with any link, in front of any person under the ODUSBABA
+        // name. Now:
+        //  - our own server code (x-internal-key = CRON_SECRET) can send anything;
+        //  - an admin can send anything (newsletters, tests);
+        //  - a signed-in member can send only a few fixed templates, with all their text made safe,
+        //    never their own HTML or subject, and at a low rate;
+        //  - everyone else is refused.
+        const mailSb = getSupabase();
+        const internalKey = process.env.CRON_SECRET;
+        let mailRole = (internalKey && req.headers['x-internal-key'] === internalKey) ? 'internal' : null;
+        let mailUser = null;
+        if (!mailRole) {
+            const adminCheck = await requireAdmin(req, mailSb);
+            if (adminCheck.authorized) mailRole = 'admin';
+            else {
+                const tok = req.headers.authorization?.split(' ')[1];
+                if (tok) {
+                    const { data: { user: mu } } = await mailSb.auth.getUser(tok);
+                    if (mu) { mailRole = 'user'; mailUser = mu; }
+                }
+            }
+        }
+        if (!mailRole) return res.status(401).json({ error: 'Please sign in to send email.' });
+
+        if (mailRole !== 'admin') {
+            const escMail = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const cleanData = (v, key = '') => {
+                if (typeof v === 'string') {
+                    if (/link|url/i.test(key)) return /^https?:\/\//i.test(v) ? escMail(v) : '';
+                    return escMail(v);
+                }
+                if (Array.isArray(v)) return v.slice(0, 50).map((x) => cleanData(x, key));
+                if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).slice(0, 50).map(([k, x]) => [k, cleanData(x, k)]));
+                return v;
+            };
+            templateData = cleanData(templateData || {});
+        }
+        if (mailRole === 'user') {
+            if (html || !type || !['welcome', 'tester_welcome', 'notification', 'contact'].includes(type)) {
+                return res.status(403).json({ error: 'You are not allowed to send this kind of email.' });
+            }
+            if ((type === 'welcome' || type === 'tester_welcome') && String(to).toLowerCase() !== String(mailUser.email || '').toLowerCase()) {
+                return res.status(403).json({ error: 'That email can only go to your own address.' });
+            }
+            if (!checkRateLimit(`email-user:${mailUser.id}`, 10)) return res.status(429).json({ error: 'Too many emails. Please wait.' });
+            subject = undefined; // members cannot choose the subject line
+        }
 
         if (!to || !isValidEmail(to)) {
             return res.status(400).json({ error: 'Invalid email address' });
@@ -13164,9 +13232,9 @@ Return the lesson as markdown with this structure:
             
             if (error && error.code !== '23505') throw error;
             
-            fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
+            fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                 body: JSON.stringify({
                     to: email,
                     type: 'newsletter_welcome',
@@ -13202,6 +13270,8 @@ Return the lesson as markdown with this structure:
     // after the separate is_sent/status column bug was fixed.
     'newsletter-list': async (req, res) => {
         const supabaseClient = getSupabase();
+        const nlAuth = await requireAdmin(req, supabaseClient); // SECURITY (2026-10-13): was public
+        if (!nlAuth.authorized) return res.status(nlAuth.status).json({ success: false, error: nlAuth.error });
         try {
             const { data, error } = await supabaseClient
                 .from('newsletters')
@@ -13217,6 +13287,8 @@ Return the lesson as markdown with this structure:
 
     'newsletter-subscribers': async (req, res) => {
         const supabaseClient = getSupabase();
+        const nsAuth = await requireAdmin(req, supabaseClient); // SECURITY (2026-10-13): was public, returned every subscriber
+        if (!nsAuth.authorized) return res.status(nsAuth.status).json({ success: false, error: nsAuth.error });
         try {
             const { data, error } = await supabaseClient
                 .from('newsletter_subscribers')
@@ -13604,13 +13676,13 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             // introducing a separate snapshot design for the same data.
             const { data: cert, error } = await supabaseClient
                 .from('course_certificates')
-                .select('certificate_number, issued_at, profiles(full_name, email), courses(title)')
+                .select('certificate_number, issued_at, profiles(full_name), courses(title)')
                 .eq('id', certificateId)
                 .single();
             if (error || !cert) return res.status(404).json({ error: 'Certificate not found' });
 
             const pdfBytes = await generateCertificatePdf({
-                learnerName: cert.profiles?.full_name || cert.profiles?.email || 'ODUSBABA Learner',
+                learnerName: cert.profiles?.full_name || 'ODUSBABA Learner', // SECURITY (2026-10-13): never show the email address
                 courseTitle: cert.courses?.title || 'ODUSBABA Course',
                 issuedAt: cert.issued_at,
                 verificationCode: cert.certificate_number
@@ -13635,7 +13707,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
         try {
             const { data: cert } = await supabaseClient
                 .from('course_certificates')
-                .select('issued_at, profiles(full_name, email), courses(title)')
+                .select('issued_at, profiles(full_name), courses(title)')
                 .eq('certificate_number', code)
                 .maybeSingle();
 
@@ -13646,7 +13718,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             return res.status(200).json({
                 success: true,
                 valid: true,
-                learnerName: cert.profiles?.full_name || cert.profiles?.email || 'ODUSBABA Learner',
+                learnerName: cert.profiles?.full_name || 'ODUSBABA Learner', // SECURITY (2026-10-13): never show the email address
                 courseTitle: cert.courses?.title || 'ODUSBABA Course',
                 issuedAt: cert.issued_at
             });
@@ -13666,6 +13738,8 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     // like matching data.
     'diagnose-recent-courses': async (req, res) => {
         const supabaseClient = getSupabase();
+        const drAuth = await requireAdmin(req, supabaseClient); // SECURITY (2026-10-13): exposed unpublished course titles
+        if (!drAuth.authorized) return res.status(drAuth.status).json({ error: drAuth.error });
         try {
             const usingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -14210,8 +14284,14 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     },
 
     'tester-create': async (req, res) => {
-        const { email, name, uses = 10, days = 30 } = req.body;
+        const { email, name } = req.body || {};
         const supabaseClient = getSupabase();
+        // SECURITY (2026-10-13): this handed out free tester credits to anyone who called it. Admin only,
+        // with the amounts held to sensible limits.
+        const tcAuth = await requireAdmin(req, supabaseClient);
+        if (!tcAuth.authorized) return res.status(tcAuth.status).json({ error: tcAuth.error });
+        const uses = Math.min(Math.max(parseInt(req.body?.uses, 10) || 10, 1), 100);
+        const days = Math.min(Math.max(parseInt(req.body?.days, 10) || 30, 1), 90);
         
         if (!email || !isValidEmail(email)) {
             return res.status(400).json({ error: 'Invalid email address' });
@@ -14233,9 +14313,9 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             
             if (error) throw error;
             
-            await fetch(`${process.env.VERCEL_URL || 'https://bluskyeconsult.com'}/api/index?action=email`, {
+            await fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                 body: JSON.stringify({
                     to: email,
                     type: 'tester_welcome',
@@ -14994,14 +15074,20 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     },
 
     'va-feedback': async (req, res) => {
-        const { taskId, rating } = req.body;
+        const { taskId, rating } = req.body || {};
         const supabaseClient = getSupabase();
+        // SECURITY (2026-10-13): was open to anyone and could overwrite any task's rating.
+        const vfAuth = await getAuthenticatedUser(req, supabaseClient);
+        if (!vfAuth.authorized) return res.status(vfAuth.status).json({ success: false, error: vfAuth.error });
+        const ratingNum = Number(rating);
+        if (!taskId || !Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) return res.status(400).json({ success: false, error: 'A task and a rating from 1 to 5 are required.' });
         
         try {
             await supabaseClient
                 .from('va_tasks')
-                .update({ user_rating: rating })
-                .eq('id', taskId);
+                .update({ user_rating: ratingNum })
+                .eq('id', taskId)
+                .eq('user_id', vfAuth.userId);
             
             return res.status(200).json({ success: true });
         } catch (error) {
@@ -15011,7 +15097,11 @@ Give specific, actionable advice grounded in exactly what the person shares - re
 
     // ========== TRACK EVENT ==========
     'track-event': async (req, res) => {
-        const { event_type, event_data, user_id } = req.body;
+        const { event_type, event_data, user_id } = req.body || {};
+        // SECURITY (2026-10-13): cap the volume and size so this cannot be used to fill the database, and
+        // only trust a user_id that matches a real signed-in session.
+        if (!checkRateLimit(`track-event:${getRequestIP(req)}`, 120)) return res.status(200).json({ success: true, message: 'Event tracked' });
+        if (typeof event_type !== 'string' || event_type.length > 80 || JSON.stringify(event_data || {}).length > 4000) return res.status(400).json({ success: false, error: 'Invalid event' });
         
         console.log(`📊 Event Tracked: ${event_type}`);
         
@@ -15020,7 +15110,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             await supabaseClient.from('analytics_events').insert({
                 event_type,
                 event_data,
-                user_id: user_id || null,
+                user_id: (user_id && (await verifyClaimedUserId(req, supabaseClient, user_id)).verified) ? user_id : null,
                 created_at: new Date().toISOString()
             });
         } catch (e) {
@@ -15160,7 +15250,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         try {
             const { data: cert, error } = await supabaseClient
                 .from('course_certificates')
-                .select('*, courses(title, category, duration_hours), profiles(full_name)')
+                .select('id, certificate_number, issued_at, course_id, courses(title, category, duration_hours), profiles(full_name)')
                 .eq('id', certificateId)
                 .single();
 
@@ -15754,6 +15844,7 @@ export default async function handler(req, res) {
         await handlers[action](req, res);
     } catch (error) {
         console.error(`Error in ${action}:`, error);
-        return res.status(500).json({ error: error.message });
+        // SECURITY (2026-10-13): do not show internal error text to the visitor.
+        return res.status(500).json({ error: 'Something went wrong. Please try again.' });
     }
 }
