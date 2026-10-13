@@ -8179,6 +8179,183 @@ Keep the tone professional and constructive throughout - direct about issues whe
         }
     },
 
+    // ========== ADMIN: SECURITY + AFFILIATE PAYOUTS (NEW — 2026-10-13) ==========
+    // security_events and blocked_ips are service-role-only tables (no
+    // browser access at all, by design), so the Security Dashboard page
+    // must reach them through the server. Before this, the page queried
+    // them straight from the browser and always showed an empty list, and
+    // its Block IP button failed silently.
+    'admin-security-overview': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+
+        try {
+            const severity = req.query?.severity;
+            let eventsQuery = supabaseClient
+                .from('security_events')
+                .select('id, event_type, ip_address, severity, metadata, created_at')
+                .order('created_at', { ascending: false })
+                .limit(200);
+            if (severity && ['info', 'warning', 'critical'].includes(severity)) {
+                eventsQuery = eventsQuery.eq('severity', severity);
+            }
+            const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const [eventsRes, blockedRes, totalRes, criticalRes] = await Promise.all([
+                eventsQuery,
+                supabaseClient.from('blocked_ips').select('*').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: false }),
+                supabaseClient.from('security_events').select('id', { count: 'exact', head: true }).gte('created_at', since),
+                supabaseClient.from('security_events').select('id', { count: 'exact', head: true }).gte('created_at', since).eq('severity', 'critical')
+            ]);
+            if (eventsRes.error) throw eventsRes.error;
+            if (blockedRes.error) throw blockedRes.error;
+            return res.status(200).json({
+                success: true,
+                events: eventsRes.data || [],
+                blocked: blockedRes.data || [],
+                last24h: { total: totalRes.count || 0, critical: criticalRes.count || 0 },
+                yourIp: getRequestIP(req)
+            });
+        } catch (error) {
+            console.error('admin-security-overview error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-block-ip': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (!checkRateLimit(`admin-block-ip:${auth.userId}`, 20)) {
+            return res.status(429).json({ success: false, error: 'Too many block actions - please slow down.' });
+        }
+
+        const { isIP } = await import('net');
+        const ip = String(req.body?.ip || '').trim();
+        const reason = String(req.body?.reason || '').trim().slice(0, 200) || 'Manual block';
+        const hours = Math.min(Math.max(parseInt(req.body?.hours, 10) || 48, 1), 24 * 90);
+
+        if (!isIP(ip)) {
+            return res.status(400).json({ success: false, error: 'That is not a valid IPv4 or IPv6 address.' });
+        }
+        // An IP block applies to the whole API, so blocking the admin's own
+        // address would lock them out of the admin area as well.
+        if (ip === getRequestIP(req)) {
+            return res.status(400).json({ success: false, error: 'That is your own current IP address. Blocking it would lock you out.' });
+        }
+
+        try {
+            const { error } = await supabaseClient.from('blocked_ips').insert({
+                ip_address: ip,
+                reason,
+                expires_at: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+            });
+            if (error) throw error;
+            logSecurityEvent('admin_manual_ip_block', ip, 'warning', { by: auth.userId, hours, reason });
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-block-ip error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'admin-unblock-ip': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+
+        const id = req.body?.id;
+        if (!id) return res.status(400).json({ success: false, error: 'id is required' });
+
+        try {
+            const { data: row } = await supabaseClient.from('blocked_ips').select('ip_address').eq('id', id).maybeSingle();
+            const { error } = await supabaseClient.from('blocked_ips').delete().eq('id', id);
+            if (error) throw error;
+            logSecurityEvent('admin_manual_ip_unblock', row?.ip_address || 'unknown', 'info', { by: auth.userId });
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-unblock-ip error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Completing a withdrawal moves money in the books, so it is done here
+    // rather than from the browser: the admin is verified, the request must
+    // still be pending (a double click or two admins cannot process it
+    // twice), the balance must cover it, and the balance update only
+    // applies if nobody changed the balance in between.
+    'admin-process-withdrawal': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (!checkRateLimit(`admin-withdrawal:${auth.userId}`, 30)) {
+            return res.status(429).json({ success: false, error: 'Too many actions - please slow down.' });
+        }
+
+        const { withdrawalId, decision } = req.body || {};
+        if (!withdrawalId || !['completed', 'rejected'].includes(decision)) {
+            return res.status(400).json({ success: false, error: 'withdrawalId and a decision of completed or rejected are required' });
+        }
+
+        try {
+            const { data: withdrawal } = await supabaseClient
+                .from('affiliate_withdrawals')
+                .select('id, affiliate_id, amount, status')
+                .eq('id', withdrawalId)
+                .maybeSingle();
+            if (!withdrawal) return res.status(404).json({ success: false, error: 'Withdrawal not found' });
+            if (withdrawal.status !== 'pending') {
+                return res.status(409).json({ success: false, error: `This withdrawal is already ${withdrawal.status}.` });
+            }
+
+            let affiliate = null;
+            if (decision === 'completed') {
+                const { data } = await supabaseClient
+                    .from('affiliates')
+                    .select('id, available_balance, withdrawn_amount')
+                    .eq('id', withdrawal.affiliate_id)
+                    .maybeSingle();
+                affiliate = data;
+                if (!affiliate) return res.status(404).json({ success: false, error: 'Affiliate record not found' });
+                if ((affiliate.available_balance || 0) < withdrawal.amount) {
+                    return res.status(400).json({ success: false, error: 'The affiliate\'s available balance no longer covers this withdrawal.' });
+                }
+            }
+
+            const { data: claimed, error: claimError } = await supabaseClient
+                .from('affiliate_withdrawals')
+                .update({ status: decision, processed_at: new Date().toISOString() })
+                .eq('id', withdrawalId)
+                .eq('status', 'pending')
+                .select('id');
+            if (claimError) throw claimError;
+            if (!claimed || claimed.length === 0) {
+                return res.status(409).json({ success: false, error: 'This withdrawal was just processed by someone else.' });
+            }
+
+            if (decision === 'completed') {
+                const { data: updated, error: balanceError } = await supabaseClient
+                    .from('affiliates')
+                    .update({
+                        available_balance: (affiliate.available_balance || 0) - withdrawal.amount,
+                        withdrawn_amount: (affiliate.withdrawn_amount || 0) + withdrawal.amount
+                    })
+                    .eq('id', affiliate.id)
+                    .eq('available_balance', affiliate.available_balance || 0)
+                    .select('id');
+                if (balanceError || !updated || updated.length === 0) {
+                    await supabaseClient.from('affiliate_withdrawals').update({ status: 'pending', processed_at: null }).eq('id', withdrawalId);
+                    return res.status(409).json({ success: false, error: 'The balance changed while this was being processed. Nothing was paid; please try again.' });
+                }
+            }
+
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-process-withdrawal error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== BOOK STORE (NEW — 2026-08-23) ==========
     // Hardcopy purchases never touch this backend at all — the "Buy
     // Hardcopy" button on the frontend links straight to
