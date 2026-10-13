@@ -13231,14 +13231,28 @@ Return the lesson as markdown with this structure:
 
     // ========== NEWSLETTER SUBSCRIBE ==========
     'newsletter-subscribe': async (req, res) => {
-        const { email, name } = req.body;
+        let { email, name } = req.body || {};
         const supabaseClient = getSupabase();
         
-        if (!email || !isValidEmail(email)) {
+        if (typeof email !== 'string' || email.length > 254 || !isValidEmail(email)) {
             return res.status(400).json({ error: 'Invalid email address' });
+        }
+        email = email.trim().toLowerCase();
+        name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 100) : null;
+
+        // NEW (2026-10-13): this public action emails whatever address it is given, so it is limited per
+        // visitor (5 an hour), and it never re-subscribes an address that has already unsubscribed.
+        const subRate = await checkIpRateLimit(supabaseClient, `newsletter:${getRequestIP(req)}`, 5);
+        if (!subRate.allowed) {
+            return res.status(429).json({ error: 'Too many sign-up attempts. Please try again later.' });
         }
         
         try {
+            const { data: existingSub } = await supabaseClient
+                .from('newsletter_subscribers').select('status').eq('email', email).maybeSingle();
+            if (existingSub && existingSub.status && existingSub.status !== 'active') {
+                return res.status(200).json({ success: true });
+            }
             const { error } = await supabaseClient
                 .from('newsletter_subscribers')
                 .upsert({
@@ -15511,10 +15525,17 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     },
 
     'track-page-view': async (req, res) => {
-        const { sessionId, pageUrl, userId } = req.body;
+        const { sessionId, pageUrl, userId } = req.body || {};
 
         if (!sessionId || !pageUrl) {
             return res.status(400).json({ error: 'sessionId and pageUrl required' });
+        }
+        // NEW (2026-10-13): stop one visitor flooding the analytics tables. Tracking never errors, it just skips.
+        if (!checkRateLimit(`pv:${getRequestIP(req)}`, 120)) {
+            return res.status(200).json({ success: true, skipped: 'rate' });
+        }
+        if (String(sessionId).length > 120 || String(pageUrl).length > 500) {
+            return res.status(200).json({ success: true, skipped: 'size' });
         }
 
         const supabaseClient = getSupabase();
