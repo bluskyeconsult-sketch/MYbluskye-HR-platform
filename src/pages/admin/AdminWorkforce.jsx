@@ -1,19 +1,40 @@
 // src/pages/admin/AdminWorkforce.jsx
-// NEW FILE (2026-08-08) — fills /admin/workforce, confirmed by the
-// platform's own product documentation (SOP 4.3) as the page where admins
-// verify workforce_profiles before they're allowed to appear on the public
-// marketplace. This was the missing link: WorkforceMarketplace.jsx already
-// filters strictly on verification_status = 'verified' (per ODUSBABA's own
-// decision to make the richer workforce model the real one), but without
-// this page there was no way to ever set that status — combined with the
-// RLS gaps just fixed in fix-workforce-rls.sql, the marketplace could have
-// shown zero professionals indefinitely.
+// Admin verification of workforce (professional) profiles. WorkforceMarketplace
+// shows ONLY profiles whose verification_status is 'verified', so this page is
+// what decides who the public can see and hire.
+//
+// REVIEWED + FIXED (2026-10-13):
+// - Verify, Reject and Revoke ignored the result of the update. Supabase
+//   does not throw on a failed write, so a blocked update still refreshed
+//   the list and looked successful. Every write now checks the error and
+//   the returned row and shows a banner.
+// - Rejection asked for a reason with a prompt that said it was "not
+//   stored". No reason column is known to exist, so none is collected:
+//   the confirmation now says plainly that nothing is stored or sent, so
+//   you contact the person yourself if they need to know why.
+// - Verify now confirms first, because it publishes the person on the
+//   public marketplace; Revoke spells out that they disappear from it.
+// - Load failures are shown instead of only logged.
+// - profiles!inner dropped any workforce profile with no profile row and
+//   failed outright if the relationship was not named as expected. It now
+//   tries that embed first and falls back to a plain read plus a separate
+//   profiles lookup (by user_id, then id).
+// - Rating shown safely (rating_avg may be null), pay shown as a plain
+//   number with /hr, and the admin check uses the router.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Users, CheckCircle, XCircle, Loader2, RefreshCw, Search, Star, DollarSign, Clock, ExternalLink } from 'lucide-react';
 
+const BADGES = {
+    pending: { label: 'Pending Review', color: 'bg-amber-500/20 text-amber-400' },
+    verified: { label: 'Verified', color: 'bg-emerald-500/20 text-emerald-400' },
+    rejected: { label: 'Rejected', color: 'bg-red-500/20 text-red-400' }
+};
+
 export default function AdminWorkforce() {
+    const navigate = useNavigate();
     const [profiles, setProfiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -21,126 +42,107 @@ export default function AdminWorkforce() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isAuthorized, setIsAuthorized] = useState(false);
     const [processingId, setProcessingId] = useState(null);
+    const [loadError, setLoadError] = useState('');
+    const [notice, setNotice] = useState(null);
 
     useEffect(() => {
-        checkAdminAccess();
-    }, []);
+        let cancelled = false;
+        (async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) { navigate('/admin-login'); return; }
+            const { data: profile } = await supabase.from('profiles').select('user_type').eq('id', user.id).single();
+            const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+            if (!isAdmin) { navigate('/admin/dashboard'); return; }
+            if (!cancelled) setIsAuthorized(true);
+        })();
+        return () => { cancelled = true; };
+    }, [navigate]);
 
-    useEffect(() => {
-        if (isAuthorized) loadProfiles();
-    }, [statusFilter, isAuthorized]);
-
-    async function checkAdminAccess() {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { window.location.href = '/admin-login'; return; }
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('user_type')
-            .eq('id', user.id)
-            .single();
-
-        const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
-        if (!isAdmin) {
-            alert('Access denied. Admin access required.');
-            window.location.href = '/admin/dashboard';
-            return;
-        }
-
-        setIsAuthorized(true);
-    }
-
-    async function loadProfiles() {
+    const loadProfiles = useCallback(async () => {
         setRefreshing(true);
         try {
-            let query = supabase
-                .from('workforce_profiles')
-                .select('*, profiles!inner(full_name, email, avatar_url)')
-                .order('created_at', { ascending: false });
+            const build = (select) => {
+                let q = supabase.from('workforce_profiles').select(select).order('created_at', { ascending: false });
+                if (statusFilter !== 'all') q = q.eq('verification_status', statusFilter);
+                return q;
+            };
 
-            if (statusFilter !== 'all') {
-                query = query.eq('verification_status', statusFilter);
+            let rows;
+            const embedded = await build('*, profiles!inner(full_name, email, avatar_url)');
+            if (!embedded.error) {
+                rows = embedded.data || [];
+            } else {
+                const plain = await build('*');
+                if (plain.error) throw plain.error;
+                rows = plain.data || [];
+                const ids = [...new Set(rows.map(r => r.user_id || r.id).filter(Boolean))];
+                if (ids.length > 0) {
+                    const { data: people } = await supabase.from('profiles').select('id, full_name, email, avatar_url').in('id', ids);
+                    const byId = Object.fromEntries((people || []).map(p => [p.id, p]));
+                    rows = rows.map(r => ({ ...r, profiles: byId[r.user_id || r.id] || null }));
+                }
             }
-
-            const { data, error } = await query;
-            if (error) throw error;
-            setProfiles(data || []);
+            setProfiles(rows);
+            setLoadError('');
         } catch (err) {
             console.error('Error loading workforce profiles:', err);
+            setProfiles([]);
+            setLoadError(err.message || 'Could not load workforce profiles.');
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }
+    }, [statusFilter]);
 
-    async function handleVerify(profileId) {
-        setProcessingId(profileId);
-        try {
-            await supabase
-                .from('workforce_profiles')
-                .update({ verification_status: 'verified' })
-                .eq('id', profileId);
-            await loadProfiles();
-        } catch (err) {
-            console.error('Error verifying profile:', err);
-            alert('Failed to verify: ' + err.message);
-        } finally {
-            setProcessingId(null);
+    useEffect(() => {
+        if (isAuthorized) loadProfiles();
+    }, [isAuthorized, loadProfiles]);
+
+    const nameOf = (p) => p.profiles?.full_name || p.profiles?.email || 'this professional';
+
+    async function setStatus(p, status, doneText) {
+        setProcessingId(p.id);
+        setNotice(null);
+        const { data, error } = await supabase
+            .from('workforce_profiles')
+            .update({ verification_status: status })
+            .eq('id', p.id)
+            .select('id');
+        setProcessingId(null);
+        if (error || !data || data.length === 0) {
+            setNotice({ type: 'error', text: `Could not update ${nameOf(p)}: ${error?.message || 'no row was changed (check permissions)'}` });
+            return;
         }
+        setNotice({ type: 'ok', text: doneText });
+        loadProfiles();
     }
 
-    async function handleReject(profileId) {
-        const reason = prompt('Optional: reason for rejection (not stored, informational only)');
-        if (reason === null) return;
-        setProcessingId(profileId);
-        try {
-            await supabase
-                .from('workforce_profiles')
-                .update({ verification_status: 'rejected' })
-                .eq('id', profileId);
-            await loadProfiles();
-        } catch (err) {
-            console.error('Error rejecting profile:', err);
-            alert('Failed to reject: ' + err.message);
-        } finally {
-            setProcessingId(null);
-        }
+    function handleVerify(p) {
+        if (!confirm(`Verify ${nameOf(p)}?\n\nThey will appear on the public marketplace.`)) return;
+        setStatus(p, 'verified', `${nameOf(p)} verified and now visible on the marketplace.`);
     }
 
-    async function handleRevoke(profileId) {
-        if (!confirm('Revoke verification? This professional will disappear from the public marketplace.')) return;
-        setProcessingId(profileId);
-        try {
-            await supabase
-                .from('workforce_profiles')
-                .update({ verification_status: 'pending' })
-                .eq('id', profileId);
-            await loadProfiles();
-        } catch (err) {
-            console.error('Error revoking verification:', err);
-        } finally {
-            setProcessingId(null);
-        }
+    function handleReject(p) {
+        if (!confirm(`Reject ${nameOf(p)}?\n\nThey will not appear on the marketplace. No reason is stored or sent, so contact them yourself if they need one.`)) return;
+        setStatus(p, 'rejected', `${nameOf(p)} rejected. Nothing was sent to them.`);
     }
 
-    const filteredProfiles = profiles.filter(p => {
-        if (!searchTerm.trim()) return true;
-        const term = searchTerm.toLowerCase();
-        return (
-            p.profiles?.full_name?.toLowerCase().includes(term) ||
-            p.profiles?.email?.toLowerCase().includes(term) ||
-            p.headline?.toLowerCase().includes(term) ||
-            (Array.isArray(p.skills) && p.skills.some(s => s.toLowerCase().includes(term)))
-        );
-    });
+    function handleRevoke(p) {
+        if (!confirm(`Revoke verification for ${nameOf(p)}?\n\nThey will disappear from the public marketplace and return to Pending Review.`)) return;
+        setStatus(p, 'pending', `${nameOf(p)} removed from the marketplace and returned to Pending Review.`);
+    }
 
-    function getStatusBadge(status) {
-        const config = {
-            pending: { label: 'Pending Review', color: 'bg-amber-500/20 text-amber-400' },
-            verified: { label: 'Verified', color: 'bg-emerald-500/20 text-emerald-400' },
-            rejected: { label: 'Rejected', color: 'bg-red-500/20 text-red-400' }
-        };
-        const { label, color } = config[status] || config.pending;
+    const term = searchTerm.trim().toLowerCase();
+    const filteredProfiles = profiles.filter(p =>
+        !term ||
+        p.profiles?.full_name?.toLowerCase().includes(term) ||
+        p.profiles?.email?.toLowerCase().includes(term) ||
+        p.headline?.toLowerCase().includes(term) ||
+        (Array.isArray(p.skills) && p.skills.some(s => String(s).toLowerCase().includes(term)))
+    );
+
+    function StatusBadge({ status }) {
+        const { label, color } = BADGES[status] || BADGES.pending;
         return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
     }
 
@@ -159,21 +161,24 @@ export default function AdminWorkforce() {
                     <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                         <Users className="w-6 h-6 text-primary-400" /> Workforce Verification
                     </h1>
-                    <p className="text-slate-400 text-sm">Review and verify professional profiles before they appear on the public marketplace</p>
+                    <p className="text-slate-400 text-sm">Only verified professionals appear on the public marketplace</p>
                 </div>
                 <button onClick={loadProfiles} disabled={refreshing} className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 text-sm">
                     <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
                 </button>
             </div>
 
+            {loadError && <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-sm">Could not load profiles: {loadError}</div>}
+            {notice && (
+                <div className={`mb-4 p-3 rounded-lg text-sm border ${notice.type === 'ok' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'}`}>{notice.text}</div>
+            )}
+
             <div className="flex gap-2 border-b border-slate-800 mb-6 flex-wrap">
                 {['pending', 'verified', 'rejected', 'all'].map(status => (
                     <button
                         key={status}
                         onClick={() => setStatusFilter(status)}
-                        className={`px-4 py-2 text-sm font-medium transition capitalize ${
-                            statusFilter === status ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'
-                        }`}
+                        className={`px-4 py-2 text-sm font-medium transition capitalize ${statusFilter === status ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-400 hover:text-white'}`}
                     >
                         {status === 'pending' ? 'Pending Review' : status}
                     </button>
@@ -197,104 +202,91 @@ export default function AdminWorkforce() {
                     <h3 className="text-xl font-semibold text-white mb-2">
                         {statusFilter === 'pending' ? 'No Profiles Awaiting Review' : `No ${statusFilter} Profiles`}
                     </h3>
-                    <p className="text-slate-400">
-                        {statusFilter === 'pending' && 'New professional applications will appear here.'}
-                    </p>
+                    {statusFilter === 'pending' && <p className="text-slate-400">New professional applications will appear here.</p>}
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {filteredProfiles.map(profile => (
-                        <div key={profile.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white font-bold overflow-hidden flex-shrink-0">
-                                        {profile.profiles?.avatar_url ? (
-                                            <img src={profile.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
-                                        ) : (
-                                            profile.profiles?.full_name?.[0]?.toUpperCase() || '?'
-                                        )}
+                    {filteredProfiles.map(profile => {
+                        const busy = processingId === profile.id;
+                        const rating = Number(profile.rating_avg);
+                        return (
+                            <div key={profile.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                                <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-sky-500 flex items-center justify-center text-white font-bold overflow-hidden flex-shrink-0">
+                                            {profile.profiles?.avatar_url ? (
+                                                <img src={profile.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                profile.profiles?.full_name?.[0]?.toUpperCase() || '?'
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-white font-medium">{profile.profiles?.full_name || 'Unknown'}</p>
+                                            <p className="text-slate-500 text-xs">{profile.profiles?.email}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-white font-medium">{profile.profiles?.full_name || 'Unknown'}</p>
-                                        <p className="text-slate-500 text-xs">{profile.profiles?.email}</p>
+                                    <StatusBadge status={profile.verification_status} />
+                                </div>
+
+                                {profile.headline && <p className="text-primary-400 text-sm font-medium mb-1">{profile.headline}</p>}
+                                {profile.bio && <p className="text-slate-400 text-sm mb-3 line-clamp-2">{profile.bio}</p>}
+
+                                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 mb-3">
+                                    <span>{profile.experience_years || 0} years experience</span>
+                                    {profile.hourly_rate ? (
+                                        <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {profile.hourly_rate}/hr</span>
+                                    ) : null}
+                                    {rating > 0 && (
+                                        <span className="flex items-center gap-1"><Star className="w-3 h-3 text-amber-400 fill-amber-400" /> {rating.toFixed(1)} ({profile.rating_count || 0} reviews)</span>
+                                    )}
+                                    {profile.created_at && (
+                                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Applied {new Date(profile.created_at).toLocaleDateString()}</span>
+                                    )}
+                                </div>
+
+                                {Array.isArray(profile.skills) && profile.skills.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mb-4">
+                                        {profile.skills.map((skill, idx) => (
+                                            <span key={idx} className="text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-300">{String(skill)}</span>
+                                        ))}
                                     </div>
-                                </div>
-                                {getStatusBadge(profile.verification_status)}
-                            </div>
-
-                            <p className="text-primary-400 text-sm font-medium mb-1">{profile.headline}</p>
-                            <p className="text-slate-400 text-sm mb-3 line-clamp-2">{profile.bio}</p>
-
-                            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 mb-3">
-                                <span>{profile.experience_years || 0} years experience</span>
-                                {profile.hourly_rate && (
-                                    <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {profile.hourly_rate}/hr</span>
                                 )}
-                                {profile.rating_avg > 0 && (
-                                    <span className="flex items-center gap-1"><Star className="w-3 h-3 text-amber-400 fill-amber-400" /> {profile.rating_avg.toFixed(1)} ({profile.rating_count || 0} reviews)</span>
+
+                                {Array.isArray(profile.portfolio_urls) && profile.portfolio_urls.length > 0 && (
+                                    <div className="flex flex-wrap gap-3 mb-4">
+                                        {profile.portfolio_urls.map((url, idx) => (
+                                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-400 hover:underline flex items-center gap-1">
+                                                <ExternalLink className="w-3 h-3" /> Portfolio {idx + 1}
+                                            </a>
+                                        ))}
+                                    </div>
                                 )}
-                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Applied {new Date(profile.created_at).toLocaleDateString()}</span>
-                            </div>
 
-                            {Array.isArray(profile.skills) && profile.skills.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 mb-4">
-                                    {profile.skills.map((skill, idx) => (
-                                        <span key={idx} className="text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-300">{skill}</span>
-                                    ))}
-                                </div>
-                            )}
-
-                            {Array.isArray(profile.portfolio_urls) && profile.portfolio_urls.length > 0 && (
-                                <div className="flex flex-wrap gap-3 mb-4">
-                                    {profile.portfolio_urls.map((url, idx) => (
-                                        <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary-400 hover:underline flex items-center gap-1">
-                                            <ExternalLink className="w-3 h-3" /> Portfolio {idx + 1}
-                                        </a>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-800">
-                                {profile.verification_status === 'pending' && (
-                                    <>
-                                        <button
-                                            onClick={() => handleVerify(profile.id)}
-                                            disabled={processingId === profile.id}
-                                            className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50"
-                                        >
-                                            {processingId === profile.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-                                            Verify
+                                <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-800">
+                                    {profile.verification_status === 'pending' && (
+                                        <>
+                                            <button onClick={() => handleVerify(profile)} disabled={busy} className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50">
+                                                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Verify
+                                            </button>
+                                            <button onClick={() => handleReject(profile)} disabled={busy} className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 flex items-center gap-1.5 disabled:opacity-50">
+                                                <XCircle className="w-3.5 h-3.5" /> Reject
+                                            </button>
+                                        </>
+                                    )}
+                                    {profile.verification_status === 'verified' && (
+                                        <button onClick={() => handleRevoke(profile)} disabled={busy} className="px-4 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-600 disabled:opacity-50">
+                                            Revoke Verification
                                         </button>
-                                        <button
-                                            onClick={() => handleReject(profile.id)}
-                                            disabled={processingId === profile.id}
-                                            className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 flex items-center gap-1.5 disabled:opacity-50"
-                                        >
-                                            <XCircle className="w-3.5 h-3.5" /> Reject
+                                    )}
+                                    {profile.verification_status === 'rejected' && (
+                                        <button onClick={() => handleVerify(profile)} disabled={busy} className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50">
+                                            <CheckCircle className="w-3.5 h-3.5" /> Verify Anyway
                                         </button>
-                                    </>
-                                )}
-                                {profile.verification_status === 'verified' && (
-                                    <button
-                                        onClick={() => handleRevoke(profile.id)}
-                                        disabled={processingId === profile.id}
-                                        className="px-4 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-600 flex items-center gap-1.5"
-                                    >
-                                        Revoke Verification
-                                    </button>
-                                )}
-                                {profile.verification_status === 'rejected' && (
-                                    <button
-                                        onClick={() => handleVerify(profile.id)}
-                                        disabled={processingId === profile.id}
-                                        className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 flex items-center gap-1.5"
-                                    >
-                                        <CheckCircle className="w-3.5 h-3.5" /> Verify Anyway
-                                    </button>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>
