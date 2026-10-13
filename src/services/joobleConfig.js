@@ -17,7 +17,7 @@
 // HOW KEYS ARE NAMED in Vercel (Environment Variables):
 //   JOOBLE_API_KEY      -> jooble.org      (United States)
 //   JOOBLE_API_KEY_AU   -> au.jooble.org   (Australia)
-//   JOOBLE_API_KEY_NZ, _IE, _CA, _GB, _NG, _GH, _KE, _ZA, _AE ... likewise.
+//   JOOBLE_API_KEY_NZ, _IE, _CA, _GB, _NG, _ZA, _AE likewise. Ghana and Kenya are not supported: Jooble has no site for them (Jooble, 13 Oct 2026).
 // A country with no key set is simply skipped.
 
 export const JOOBLE_COUNTRIES = {
@@ -29,8 +29,6 @@ export const JOOBLE_COUNTRIES = {
     CA: { name: 'Canada',               host: 'ca.jooble.org', env: 'JOOBLE_API_KEY_CA' },
     DE: { name: 'Germany',              host: 'de.jooble.org', env: 'JOOBLE_API_KEY_DE' },
     NG: { name: 'Nigeria',              host: 'ng.jooble.org', env: 'JOOBLE_API_KEY_NG' },
-    GH: { name: 'Ghana',                host: 'gh.jooble.org', env: 'JOOBLE_API_KEY_GH' },
-    KE: { name: 'Kenya',                host: 'ke.jooble.org', env: 'JOOBLE_API_KEY_KE' },
     ZA: { name: 'South Africa',         host: 'za.jooble.org', env: 'JOOBLE_API_KEY_ZA' },
     AE: { name: 'United Arab Emirates', host: 'ae.jooble.org', env: 'JOOBLE_API_KEY_AE' }
 };
