@@ -8589,7 +8589,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         // Now requires the same CRON_SECRET already used to protect
         // every other real cron on this platform.
         const authHeader = req.headers.authorization;
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
