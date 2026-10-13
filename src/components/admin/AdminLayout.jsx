@@ -73,6 +73,7 @@ const ADMIN_NAV = [
     { section: 'Growth', items: [
         { path: '/admin/insight-engine', label: 'Insight Engine', icon: Brain },
         { path: '/admin/pipeline', label: 'Sales Pipeline', icon: ClipboardList },
+        { path: '/admin/finance', label: 'Finance & Compliance', icon: DollarSign },
         { path: '/admin/opportunity-gaps', label: 'Opportunity Gaps', icon: Lightbulb },
         { path: '/admin/affiliate-management', label: 'Affiliate Program', icon: Share2 },
         { path: '/admin/refund-requests', label: 'Refund Requests', icon: DollarSign },
