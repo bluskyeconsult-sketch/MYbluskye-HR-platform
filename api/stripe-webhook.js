@@ -146,6 +146,22 @@ export default async function handler(req, res) {
                 // event.id dedup check already done above) can't create
                 // a second row — using upsert with ignoreDuplicates so a
                 // retry is a safe no-op rather than an error.
+                if (session.metadata?.type === 'book_audio_purchase') {
+                    const audioBookId = session.metadata?.bookId;
+                    if (userId && audioBookId) {
+                        await supabase
+                            .from('book_audio_purchases')
+                            .upsert({
+                                user_id: userId,
+                                book_id: audioBookId,
+                                stripe_session_id: session.id,
+                                amount_paid: session.amount_total ? session.amount_total / 100 : null,
+                                purchased_at: new Date().toISOString()
+                            }, { onConflict: 'user_id,book_id', ignoreDuplicates: true });
+                    }
+                    break;
+                }
+
                 if (session.metadata?.type === 'book_purchase') {
                     const bookId = session.metadata?.bookId;
                     if (userId && bookId) {
