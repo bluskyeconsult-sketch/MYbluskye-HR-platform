@@ -2287,6 +2287,20 @@ async function coachLoadGoal(sb, userId) {
     return data && Array.isArray(data.target_roles) && data.target_roles.length ? data : null;
 }
 
+// SECURITY (2026-10-13): two-factor secrets and backup codes now live in profile_secrets, a table that no
+// browser can read (row security on, no policy). They used to sit in profiles, which every signed-in member
+// could read. Reads fall back to the old columns until fix-5-profile-secrets-step2.sql has emptied them.
+async function get2faSecrets(sb, userId) {
+    const { data: sec } = await sb.from('profile_secrets').select('two_factor_secret, two_factor_backup_codes').eq('user_id', userId).maybeSingle();
+    if (sec && sec.two_factor_secret) return sec;
+    const { data: legacy } = await sb.from('profiles').select('two_factor_secret, two_factor_backup_codes').eq('id', userId).maybeSingle();
+    return legacy || null;
+}
+async function save2faSecrets(sb, userId, patch) {
+    const { error } = await sb.from('profile_secrets').upsert({ user_id: userId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) throw error;
+}
+
 const handlers = {
     // ========== FAVORITES & CART (NEW, 2026-09-20) ==========
     'toggle-course-favorite': async (req, res) => {
@@ -13940,12 +13954,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             // confirm-2fa-setup verifies the user actually scanned it
             // correctly. An abandoned/never-confirmed setup has zero
             // effect on sign-in.
-            const { error: updateError } = await supabaseClient
-                .from('profiles')
-                .update({ two_factor_secret: secret.base32 })
-                .eq('id', auth.userId);
-
-            if (updateError) throw updateError;
+            await save2faSecrets(supabaseClient, auth.userId, { two_factor_secret: secret.base32 });
 
             return res.status(200).json({
                 success: true,
@@ -13967,11 +13976,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
         if (!code) return res.status(400).json({ error: 'Verification code is required' });
 
         try {
-            const { data: profile } = await supabaseClient
-                .from('profiles')
-                .select('two_factor_secret')
-                .eq('id', auth.userId)
-                .single();
+            const profile = await get2faSecrets(supabaseClient, auth.userId);
 
             if (!profile?.two_factor_secret) {
                 return res.status(400).json({ error: 'No pending 2FA setup found — call setup-2fa first' });
@@ -14003,11 +14008,11 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 crypto.createHash('sha256').update(c).digest('hex')
             );
 
+            await save2faSecrets(supabaseClient, auth.userId, { two_factor_backup_codes: hashedBackupCodes });
             const { error: updateError } = await supabaseClient
                 .from('profiles')
                 .update({
                     two_factor_enabled: true,
-                    two_factor_backup_codes: hashedBackupCodes,
                     two_factor_last_verified: new Date().toISOString()
                 })
                 .eq('id', auth.userId);
@@ -14042,13 +14047,15 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
         if (!rateCheck.allowed) {
             return res.status(429).json({ error: 'Too many attempts — please wait a few minutes and try again.' });
         }
+        // SECURITY (2026-10-13): also limit attempts per ACCOUNT, so the six digits cannot be guessed from many IP addresses.
+        if (typeof code !== 'string' || typeof userId !== 'string' || code.length > 20) return res.status(400).json({ error: 'Invalid request' });
+        const acctCheck = await checkIpRateLimit(supabaseClient, `2fa-account:${userId}`, 12);
+        if (!acctCheck.allowed) {
+            return res.status(429).json({ error: 'Too many attempts — please wait a few minutes and try again.' });
+        }
 
         try {
-            const { data: profile } = await supabaseClient
-                .from('profiles')
-                .select('two_factor_secret, two_factor_backup_codes')
-                .eq('id', userId)
-                .single();
+            const profile = await get2faSecrets(supabaseClient, userId);
 
             if (!profile?.two_factor_secret) {
                 return res.status(400).json({ valid: false, error: '2FA is not set up on this account' });
@@ -14083,12 +14090,10 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
 
             // Single-use: remove the consumed code from the stored array.
             const remainingCodes = backupCodes.filter((_, i) => i !== matchIndex);
+            await save2faSecrets(supabaseClient, userId, { two_factor_backup_codes: remainingCodes });
             await supabaseClient
                 .from('profiles')
-                .update({
-                    two_factor_backup_codes: remainingCodes,
-                    two_factor_last_verified: new Date().toISOString()
-                })
+                .update({ two_factor_last_verified: new Date().toISOString() })
                 .eq('id', userId);
 
             return res.status(200).json({
@@ -14115,11 +14120,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             // enough to disable 2FA; possession of the actual second
             // factor is required, otherwise a stolen session could
             // silently strip 2FA protection.
-            const { data: profile } = await supabaseClient
-                .from('profiles')
-                .select('two_factor_secret, two_factor_backup_codes')
-                .eq('id', auth.userId)
-                .single();
+            const profile = await get2faSecrets(supabaseClient, auth.userId);
 
             if (!profile?.two_factor_secret) {
                 return res.status(400).json({ error: '2FA is not currently enabled' });
@@ -14146,6 +14147,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 return res.status(400).json({ error: 'Invalid code — cannot disable 2FA without a valid current code' });
             }
 
+            await save2faSecrets(supabaseClient, auth.userId, { two_factor_secret: null, two_factor_backup_codes: null });
             await supabaseClient
                 .from('profiles')
                 .update({
