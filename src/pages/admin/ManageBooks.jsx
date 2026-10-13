@@ -35,6 +35,7 @@ export default function ManageBooks() {
         description: '',
         price: 29.99,
         ebook_price: 14.99,
+        audio_price: '',
         category: 'HR',
         cover_url: '',
         file_url: '',
@@ -77,6 +78,7 @@ export default function ManageBooks() {
             description: '',
             price: 29.99,
             ebook_price: 14.99,
+        audio_price: '',
             category: 'HR',
             cover_url: '',
             file_url: '',
@@ -97,6 +99,7 @@ export default function ManageBooks() {
             description: book.description || '',
             price: book.price || 29.99,
             ebook_price: book.ebook_price || 14.99,
+            audio_price: book.audio_price || '',
             category: book.category || 'HR',
             cover_url: book.cover_url || '',
             file_url: book.file_url || '',
@@ -257,6 +260,7 @@ export default function ManageBooks() {
                 description: bookForm.description.trim(),
                 price: bookForm.price,
                 ebook_price: bookForm.ebook_price || null,
+                audio_price: bookForm.audio_price ? Number(bookForm.audio_price) : null,
                 category: bookForm.category,
                 cover_url: bookForm.cover_url.trim(),
                 // FIXED (2026-08-23): this now expects a PATH inside the
@@ -595,6 +599,15 @@ export default function ManageBooks() {
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     />
                                     <p className="text-xs text-slate-500 mt-1">Reference price shown alongside the Amazon link below — not charged directly on this site</p>
+                                    <SuggestPriceButton
+                                        itemType="book"
+                                        name={bookForm.title}
+                                        description={bookForm.description}
+                                        category={bookForm.category}
+                                        version="hardcopy"
+                                        bookId={editingBook?.id}
+                                        onApply={(price) => setBookForm({ ...bookForm, price: price })}
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">E-Copy Price (USD)</label>
@@ -612,7 +625,31 @@ export default function ManageBooks() {
                                         name={bookForm.title}
                                         description={bookForm.description}
                                         category={bookForm.category}
+                                        version="ebook"
+                                        bookId={editingBook?.id}
                                         onApply={(price) => setBookForm({ ...bookForm, ebook_price: price })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Audio Version Price (USD)</label>
+                                    <input
+                                        type="number"
+                                        value={bookForm.audio_price}
+                                        onChange={(e) => setBookForm({ ...bookForm, audio_price: e.target.value })}
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Leave empty if no audio is sold"
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">Bought separately from the e-copy. The suggestion uses the real cost of generating the audio.</p>
+                                    <SuggestPriceButton
+                                        itemType="book"
+                                        name={bookForm.title}
+                                        description={bookForm.description}
+                                        category={bookForm.category}
+                                        version="audio"
+                                        bookId={editingBook?.id}
+                                        onApply={(price) => setBookForm({ ...bookForm, audio_price: price })}
                                     />
                                 </div>
                             </div>
