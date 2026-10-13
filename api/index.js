@@ -5303,6 +5303,57 @@ ${siteContext}`;
     //  - the body of the user's own submissions (assessment answers, assistant inputs and
     //    outputs) is returned only when includeContent is set, and that is recorded too;
     //  - a super_admin account can only be inspected by a super_admin.
+    // NEW (2026-10-13): sales pipeline for employer outreach (Admin > Growth > Sales Pipeline).
+    // Admin only, through the server. The table has row security switched on and no public policy,
+    // so the browser can never read it directly.
+    'admin-pipeline': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`admin-pipeline:${auth.userId}`, 120)) return res.status(429).json({ error: 'Too many requests' });
+
+        const STAGES = ['contacted', 'replied', 'call_booked', 'trial', 'paid', 'renewal_due', 'lost'];
+        const clean = (v, n = 300) => (v === undefined || v === null || String(v).trim() === '') ? null : String(v).trim().slice(0, n);
+        const dateOrNull = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null;
+        const { op, id, record } = req.body || {};
+        try {
+            if (op === 'list') {
+                const { data, error } = await supabaseClient.from('sales_pipeline').select('*').order('updated_at', { ascending: false }).limit(1000);
+                if (error) throw error;
+                return res.status(200).json({ success: true, rows: data || [] });
+            }
+            if (op === 'save') {
+                const r = record || {};
+                const company = clean(r.company, 200);
+                if (!company) return res.status(400).json({ error: 'Company is required' });
+                const stage = STAGES.includes(r.stage) ? r.stage : 'contacted';
+                const row = {
+                    company, contact_name: clean(r.contact_name, 200), contact_email: clean(r.contact_email, 200),
+                    stage, source: clean(r.source, 200), first_contact_date: dateOrNull(r.first_contact_date),
+                    next_step: clean(r.next_step, 500), next_step_date: dateOrNull(r.next_step_date),
+                    reason_lost: stage === 'lost' ? clean(r.reason_lost, 500) : null,
+                    notes: clean(r.notes, 2000), updated_at: new Date().toISOString()
+                };
+                if (stage === 'lost' && !row.reason_lost) return res.status(400).json({ error: 'Give a reason when marking a lead as lost.' });
+                const q = id ? supabaseClient.from('sales_pipeline').update(row).eq('id', id) : supabaseClient.from('sales_pipeline').insert(row);
+                const { data, error } = await q.select().single();
+                if (error) throw error;
+                return res.status(200).json({ success: true, row: data });
+            }
+            if (op === 'delete') {
+                if (!id) return res.status(400).json({ error: 'id is required' });
+                const { error } = await supabaseClient.from('sales_pipeline').delete().eq('id', id);
+                if (error) throw error;
+                return res.status(200).json({ success: true });
+            }
+            return res.status(400).json({ error: 'Unknown operation' });
+        } catch (error) {
+            console.error('admin-pipeline error:', error);
+            const missing = /sales_pipeline/.test(error.message || '') && /does not exist|schema cache/.test(error.message || '');
+            return res.status(500).json({ error: missing ? 'Run create-sales-pipeline.sql in Supabase first.' : 'Could not complete that. Please try again.' });
+        }
+    },
+
     'admin-user-inspect': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_users');
