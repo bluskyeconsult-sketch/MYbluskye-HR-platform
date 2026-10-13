@@ -17,7 +17,7 @@
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
-import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch } from '../src/services/liveJobSearchService.js';
+import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch, checkJoobleAllowance, logJoobleCall } from '../src/services/liveJobSearchService.js';
 import { parseJobSearchIntent } from '../src/services/jobIntent.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
 import { findContactEmails } from '../src/services/contactEmailFinder.js';
@@ -6621,18 +6621,22 @@ ${siteContext}`;
             // chat response down for no benefit.
             let liveJobs = null;
             if (jobIntent) {
-                const rateLimitCheck = await checkLiveSearchRateLimit(supabaseClient, userId);
+                const liveIp = getClientIp(req);
+                const rateLimitCheck = await checkLiveSearchRateLimit(supabaseClient, userId, liveIp);
                 if (rateLimitCheck.allowed) {
-                    await logLiveSearch(supabaseClient, userId, jobIntent.keyword);
+                    await logLiveSearch(supabaseClient, userId, jobIntent.keyword, liveIp);
+                    const joobleOk = await checkJoobleAllowance(supabaseClient, userId, liveIp);
                     liveJobs = await searchLiveExternalJobs({
                         keyword: jobIntent.keyword,
                         terms: jobIntent.terms,
                         country: jobIntent.country,
                         city: jobIntent.city,
                         sponsorshipOnly: jobIntent.wantsSponsorship,
-                        // Jooble allows live display; we show it to signed-in members only (Jooble ticket 1974824).
-                        allowJooble: !!userId
+                        // Jooble (ticket 1974824, 13 Oct): listings must be public, so visitors get them too.
+                        // A per-visitor and site-wide hourly allowance protects the keys.
+                        allowJooble: joobleOk
                     });
+                    if (joobleOk && liveJobs?.jobs?.some(j => j.source_name === 'Jooble')) await logJoobleCall(supabaseClient, userId, liveIp);
                 }
             }
 
