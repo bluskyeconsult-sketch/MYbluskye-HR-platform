@@ -35,6 +35,15 @@ import {
     MessageCircle, Briefcase, TrendingUp, DollarSign, Clock, Wrench
 } from 'lucide-react';
 
+// SECURITY (2026-10-13): the email action now requires a signed-in session.
+async function mailAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
+
 const SKILL_CATEGORIES = [
     { id: 'all', name: 'All Categories', icon: Briefcase },
     { id: 'technology', name: 'Technology', icon: Code },
@@ -221,7 +230,7 @@ export default function WorkforceMarketplace() {
 
             const response = await fetch('/api/index?action=email', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                 body: JSON.stringify({
                     to: recipientEmail,
                     type: 'notification',
