@@ -3001,7 +3001,7 @@ Return JSON: {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { itemType, name, description, category } = req.body;
+        const { itemType, name, description, category, version, bookId } = req.body;
         if (!itemType || !name) return res.status(400).json({ error: 'itemType and name are required' });
 
         const validTypes = ['book', 'course', 'virtual_assistant', 'hr_tool'];
@@ -3038,6 +3038,43 @@ Return JSON: {
                 console.warn('suggest-price live context failed, using static fallback:', ctxErr.message);
             }
 
+            let costInfo = null;
+            let versionNote = '';
+            if (itemType === 'book' && ['ebook', 'audio', 'hardcopy'].includes(version)) {
+                const STRIPE_PCT = 0.029, STRIPE_FIXED = 0.30, TARGET_MARGIN = 0.40;
+                let generationCost = 0, chars = 0, amortised = 0;
+                const breakEvenSales = Math.max(1, parseInt(process.env.BOOK_AUDIO_BREAKEVEN_SALES, 10) || 25);
+                let otherPrices = '';
+                if (bookId) {
+                    const { data: bk } = await supabaseClient.from('books').select('price, ebook_price, audio_price').eq('id', bookId).maybeSingle();
+                    if (bk) otherPrices = `Already set for this book: hardcopy ${bk.price ?? 'not set'}, e-copy ${bk.ebook_price ?? 'not set'}, audio ${bk.audio_price ?? 'not set'} (USD).`;
+                    if (version === 'audio') {
+                        const { data: chs } = await supabaseClient.from('book_chapters').select('content').eq('book_id', bookId);
+                        chars = (chs || []).reduce((n, c) => n + (c.content ? String(c.content).length : 0), 0);
+                        const perChar = Number(process.env.TTS_COST_PER_CHAR) || 0.000015;
+                        generationCost = chars * perChar;
+                        amortised = generationCost / breakEvenSales;
+                    }
+                }
+                if (version === 'hardcopy') {
+                    versionNote = 'Version: hardcopy sold through Amazon or another retailer. Printing cost and the retailer\'s cut are set by the retailer and are not known here, so this price is market-based only and is shown as a reference price on the site.';
+                    costInfo = { version, note: 'No cost floor: printing cost and retailer cut are set by the retailer.', floor: null };
+                } else {
+                    const floor = Math.ceil(((amortised + STRIPE_FIXED) / (1 - STRIPE_PCT - TARGET_MARGIN)) * 100) / 100;
+                    costInfo = {
+                        version, floor,
+                        stripeFeePercent: STRIPE_PCT * 100, stripeFeeFixed: STRIPE_FIXED, targetMarginPercent: TARGET_MARGIN * 100,
+                        chapterCharacters: chars || undefined,
+                        audioGenerationCost: version === 'audio' ? Math.round(generationCost * 100) / 100 : undefined,
+                        assumedSalesToRecoverAudioCost: version === 'audio' ? breakEvenSales : undefined,
+                        note: 'Floor = (audio cost per sale + Stripe fixed fee) / (1 - Stripe percent - target margin).'
+                    };
+                    versionNote = version === 'audio'
+                        ? `Version: AI-narrated audio version of the book. It costs about $${(Math.round(generationCost * 100) / 100).toFixed(2)} to generate across ${chars} characters, spread over ${breakEvenSales} expected sales. The price must not be below the cost floor of $${floor.toFixed(2)}. ${otherPrices}`
+                        : `Version: e-copy (digital reading copy). There is no per-sale production cost beyond payment fees. The price must not be below the cost floor of $${floor.toFixed(2)}. ${otherPrices}`;
+                }
+            }
+
             const data = await callOpenAI([
                 {
                     role: 'system',
@@ -3054,12 +3091,17 @@ Return ONLY a JSON object: {
                 },
                 {
                     role: 'user',
-                    content: `Item type: ${itemType}\nName: ${name}\nDescription: ${description || 'none provided'}\nCategory: ${category || 'none provided'}\n\nRecommend a genuine, specific price for this.`
+                    content: `Item type: ${itemType}\nName: ${name}\nDescription: ${description || 'none provided'}\nCategory: ${category || 'none provided'}\n${versionNote}\n\nRecommend a genuine, specific price for this.`
                 }
             ], 500, 0.4, { type: 'json_object' });
 
             const parsed = JSON.parse(data.choices[0].message.content);
-            return res.status(200).json({ success: true, ...parsed });
+            if (costInfo && costInfo.floor && Number(parsed.suggestedPrice) < costInfo.floor) {
+                parsed.suggestedPrice = costInfo.floor;
+                parsed.reasoning = `${parsed.reasoning || ''} Raised to the cost floor of $${costInfo.floor.toFixed(2)} so the sale covers its costs.`.trim();
+                if (parsed.priceRange && Number(parsed.priceRange.min) < costInfo.floor) parsed.priceRange.min = costInfo.floor;
+            }
+            return res.status(200).json({ success: true, ...parsed, costInfo });
         } catch (error) {
             console.error('suggest-price error:', error);
             return res.status(500).json({ success: false, error: error.message });
@@ -8237,19 +8279,27 @@ Keep the tone professional and constructive throughout - direct about issues whe
         }
     },
 
-    // NEW: the ONLY route the book page uses to get chapter text and audio.
-    // While BOOKS_PAID_MODE is not "on" (testing) everyone gets everything,
-    // exactly as before. When it is "on", only buyers of the e-copy and admins
-    // get chapter text and playable audio; everyone else gets chapter titles
-    // plus a short sample of the first chapter. Audio links are signed and
-    // expire after an hour, so a copied link stops working.
+    // The ONLY route the book page uses to get chapter text and audio.
+    // Rules (always on, no testing/paid switch):
+    //  - Text: the first BOOKS_FREE_TEXT_CHAPTERS chapters (default 1) are free
+    //    for everyone. The rest need the e-copy. Set it to "all" to open all text.
+    //  - Audio: the first BOOKS_FREE_AUDIO_CHAPTERS chapters (default 0) are free.
+    //    The rest need the audio purchase, which is separate from the e-copy.
+    //  - Admins see and hear everything.
+    // Audio links are signed and expire after an hour.
     'get-book-chapters': async (req, res) => {
         const supabaseClient = getSupabase();
         const { bookId } = req.body || {};
         if (!bookId) return res.status(400).json({ error: 'bookId is required' });
 
         try {
-            const paidMode = process.env.BOOKS_PAID_MODE === 'on';
+            const freeCount = (raw, fallback) => {
+                if (String(raw || '').toLowerCase() === 'all') return Infinity;
+                const n = parseInt(raw, 10);
+                return Number.isFinite(n) && n >= 0 ? n : fallback;
+            };
+            const freeText = freeCount(process.env.BOOKS_FREE_TEXT_CHAPTERS, 1);
+            const freeAudio = freeCount(process.env.BOOKS_FREE_AUDIO_CHAPTERS, 0);
 
             const { data: book } = await supabaseClient
                 .from('books').select('id, is_published').eq('id', bookId).maybeSingle();
@@ -8262,16 +8312,17 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 userId = user?.id || null;
             }
 
-            let entitled = !paidMode;
-            if (!entitled && userId) {
+            let isAdminUser = false, ownsEcopy = false, ownsAudio = false;
+            if (userId) {
                 const { data: profile } = await supabaseClient
                     .from('profiles').select('user_type').eq('id', userId).maybeSingle();
-                if (profile?.user_type === 'admin' || profile?.user_type === 'super_admin') entitled = true;
-                else {
-                    const { data: purchase } = await supabaseClient
-                        .from('book_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
-                    entitled = !!purchase;
-                }
+                isAdminUser = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+                const { data: p1 } = await supabaseClient
+                    .from('book_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
+                ownsEcopy = !!p1;
+                const { data: p2 } = await supabaseClient
+                    .from('book_audio_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
+                ownsAudio = !!p2;
             }
 
             const { data: rows, error } = await supabaseClient
@@ -8297,21 +8348,80 @@ Keep the tone professional and constructive throughout - direct about issues whe
             for (let i = 0; i < (rows || []).length; i++) {
                 const c = rows[i];
                 const hasAudio = Array.isArray(c.audio_segments) && c.audio_segments.length > 0;
-                if (entitled) {
-                    chapters.push({ ...c, audio_segments: paidMode ? await signSegments(c.audio_segments) : c.audio_segments, locked: false });
-                } else {
-                    chapters.push({
-                        id: c.id, title: c.title, order_index: c.order_index,
-                        content: i === 0 && c.content ? String(c.content).slice(0, 1200) : null,
-                        audio_segments: null, has_audio: hasAudio, locked: true
-                    });
-                }
+                const canRead = isAdminUser || ownsEcopy || i < freeText;
+                const canListen = isAdminUser || ownsAudio || i < freeAudio;
+                chapters.push({
+                    id: c.id, title: c.title, order_index: c.order_index,
+                    content: canRead ? c.content : null,
+                    audio_segments: canListen && hasAudio ? await signSegments(c.audio_segments) : null,
+                    has_audio: hasAudio,
+                    text_locked: !canRead,
+                    audio_locked: !canListen
+                });
             }
 
-            return res.status(200).json({ success: true, chapters, locked: !entitled, paidMode });
+            return res.status(200).json({
+                success: true, chapters,
+                owns: { ecopy: ownsEcopy, audio: ownsAudio, admin: isAdminUser }
+            });
         } catch (error) {
             console.error('get-book-chapters error:', error);
             return res.status(500).json({ success: false, error: 'Unable to load chapters right now' });
+        }
+    },
+
+    'create-book-audio-checkout-session': async (req, res) => {
+        const { bookId, userId, userEmail } = req.body;
+        if (!bookId || !userId) {
+            return res.status(400).json({ error: 'bookId and userId are required' });
+        }
+
+        const supabaseClient = getSupabase();
+        const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
+        if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
+
+        try {
+            const { data: book, error: bookError } = await supabaseClient
+                .from('books')
+                .select('id, title, audio_price, is_published')
+                .eq('id', bookId)
+                .single();
+            if (bookError || !book) return res.status(404).json({ error: 'Book not found' });
+            if (!book.is_published) return res.status(400).json({ error: 'This book is not currently available' });
+            if (!book.audio_price || book.audio_price <= 0) {
+                return res.status(400).json({ error: 'This book does not have an audio version available for purchase' });
+            }
+
+            const { data: existing } = await supabaseClient
+                .from('book_audio_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
+            if (existing) return res.status(400).json({ error: 'You already own the audio version of this book' });
+
+            const Stripe = (await import('stripe')).default;
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
+
+            const session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                payment_method_types: ['card'],
+                line_items: [{
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: `${book.title} (Audio Version)` },
+                        unit_amount: Math.round(book.audio_price * 100)
+                    },
+                    quantity: 1
+                }],
+                success_url: `${siteUrl}/books/${bookId}?audio_purchased=true`,
+                cancel_url: `${siteUrl}/books/${bookId}`,
+                client_reference_id: userId,
+                customer_email: userEmail,
+                metadata: { userId, bookId, type: 'book_audio_purchase' }
+            });
+
+            return res.status(200).json({ success: true, url: session.url, sessionId: session.id });
+        } catch (error) {
+            console.error('Book audio checkout session error:', error);
+            return res.status(500).json({ success: false, error: error.message });
         }
     },
 
