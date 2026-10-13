@@ -25,7 +25,8 @@ const iso = (d) => d.toISOString().slice(0, 10);
 const daysFrom = (dateStr, today) => Math.round((new Date(dateStr + 'T00:00:00Z') - new Date(today + 'T00:00:00Z')) / 86400000);
 
 export default async function handler(req, res) {
-    if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
+    // Refuse to run at all if the secret is not set, so "Bearer undefined" can never get in.
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
     try {
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
         if (sErr) return res.status(200).json({ skipped: 'finance tables not set up' });
         const settings = Object.fromEntries((settingsRows || []).map(r => [r.key, r.value]));
         const to = (settings.owner_email || '').trim();
-        if (!to) return res.status(200).json({ skipped: 'no reminder email set' });
+        if (!to || !/^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(to)) return res.status(200).json({ skipped: 'no reminder email set' });
 
         const now = new Date();
         const today = iso(now);
