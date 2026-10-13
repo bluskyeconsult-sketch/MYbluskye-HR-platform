@@ -13,6 +13,15 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
+// SECURITY (2026-10-13): the email action now requires a signed-in session.
+async function mailAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
+
 export default function ConfirmPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -87,7 +96,7 @@ export default function ConfirmPage() {
 
                         await fetch('/api/index?action=email', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                             body: JSON.stringify({
                                 to: session.user.email,
                                 type: profile?.is_tester ? 'tester_welcome' : 'welcome',
