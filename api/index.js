@@ -3001,7 +3001,7 @@ Return JSON: {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { itemType, name, description, category, version, bookId } = req.body;
+        const { itemType, name, description, category, version, bookId, pageCount, ink, trim } = req.body;
         if (!itemType || !name) return res.status(400).json({ error: 'itemType and name are required' });
 
         const validTypes = ['book', 'course', 'virtual_assistant', 'hr_tool'];
@@ -3057,8 +3057,39 @@ Return JSON: {
                     }
                 }
                 if (version === 'hardcopy') {
-                    versionNote = 'Version: hardcopy sold through Amazon or another retailer. Printing cost and the retailer\'s cut are set by the retailer and are not known here, so this price is market-based only and is shown as a reference price on the site.';
-                    costInfo = { version, note: 'No cost floor: printing cost and retailer cut are set by the retailer.', floor: null };
+                    const pages = parseInt(pageCount, 10);
+                    if (Number.isFinite(pages) && pages >= 24 && pages <= 828) {
+                        // Amazon KDP paperback printing cost (Amazon.com, from KDP's own help page):
+                        // fixed cost + pages x per-page cost. Minimum list price = printing cost / royalty rate.
+                        const large = trim === 'large';
+                        const inkType = ['black', 'standard_color', 'premium_color'].includes(ink) ? ink : 'black';
+                        const table = {
+                            regular: {
+                                black: pages <= 110 ? [2.30, 0] : [1.00, 0.012],
+                                premium_color: pages <= 40 ? [3.60, 0] : [1.00, 0.065],
+                                standard_color: [1.00, 0.0255]
+                            },
+                            large: {
+                                black: pages <= 110 ? [2.84, 0] : [1.00, 0.017],
+                                premium_color: pages <= 40 ? [4.20, 0] : [1.00, 0.08],
+                                standard_color: [1.00, 0.0402]
+                            }
+                        }[large ? 'large' : 'regular'][inkType];
+                        const printCost = Math.round((table[0] + pages * table[1]) * 100) / 100;
+                        const rate = Number(process.env.KDP_ROYALTY_RATE) || 0.60;
+                        const targetRoyalty = Number(process.env.KDP_TARGET_ROYALTY_USD) || 2.00;
+                        const minList = Math.ceil((printCost / rate) * 100) / 100;
+                        const floor = Math.ceil(((targetRoyalty + printCost) / rate) * 100) / 100;
+                        costInfo = {
+                            version, floor,
+                            amazon: { pages, trim: large ? 'large' : 'regular', ink: inkType, printingCost: printCost, royaltyRatePercent: rate * 100, minimumListPrice: minList, targetRoyaltyPerCopy: targetRoyalty },
+                            note: 'Floor = (target royalty + Amazon printing cost) / royalty rate. Amazon.com rates; check KDP for your exact trim, ink and marketplace.'
+                        };
+                        versionNote = `Version: paperback sold on Amazon KDP, shown as a reference price on this site. Amazon prints it for $${printCost.toFixed(2)} and pays a ${(rate * 100).toFixed(0)}% royalty on list price minus that printing cost. Amazon will not accept a list price below $${minList.toFixed(2)}. To earn about $${targetRoyalty.toFixed(2)} per copy the list price must be at least $${floor.toFixed(2)}. ${otherPrices}`;
+                    } else {
+                        versionNote = 'Version: hardcopy sold through Amazon or another retailer. Page count was not given, so Amazon printing cost cannot be worked out; this price is market-based only.';
+                        costInfo = { version, note: 'Enter the page count to work out Amazon printing cost and the lowest sensible list price.', floor: null };
+                    }
                 } else {
                     const floor = Math.ceil(((amortised + STRIPE_FIXED) / (1 - STRIPE_PCT - TARGET_MARGIN)) * 100) / 100;
                     costInfo = {
@@ -3100,6 +3131,14 @@ Return ONLY a JSON object: {
                 parsed.suggestedPrice = costInfo.floor;
                 parsed.reasoning = `${parsed.reasoning || ''} Raised to the cost floor of $${costInfo.floor.toFixed(2)} so the sale covers its costs.`.trim();
                 if (parsed.priceRange && Number(parsed.priceRange.min) < costInfo.floor) parsed.priceRange.min = costInfo.floor;
+            }
+            if (costInfo && (costInfo.version === 'ebook' || costInfo.version === 'audio') && Number(parsed.suggestedPrice) > 0) {
+                const p = Number(parsed.suggestedPrice);
+                costInfo.compare = {
+                    atPrice: p,
+                    yourSiteKeepsPerSale: Math.round((p - (p * 0.029 + 0.30)) * 100) / 100,
+                    kindleKeepsPerSaleBeforeDeliveryFee: costInfo.version === 'ebook' ? Math.round(p * (p >= 2.99 && p <= 12.99 ? 0.70 : 0.35) * 100) / 100 : undefined
+                };
             }
             return res.status(200).json({ success: true, ...parsed, costInfo });
         } catch (error) {
