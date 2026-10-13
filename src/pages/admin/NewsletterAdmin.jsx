@@ -35,6 +35,15 @@ import {
     RefreshCw, Download, FileText, Zap, Target, Activity
 } from 'lucide-react';
 
+// SECURITY (2026-10-13): the email action now requires a signed-in session.
+async function mailAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
+
 export default function NewsletterAdmin() {
     const location = useLocation();
     const [newsletters, setNewsletters] = useState([]);
@@ -138,7 +147,7 @@ export default function NewsletterAdmin() {
         try {
             const response = await fetch('/api/index?action=newsletter-list', {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) }
             });
             
             if (response.ok) {
@@ -171,7 +180,7 @@ export default function NewsletterAdmin() {
         try {
             const response = await fetch('/api/index?action=newsletter-subscribers', {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) }
             });
             
             if (response.ok) {
@@ -344,7 +353,7 @@ export default function NewsletterAdmin() {
                 try {
                     const res = await fetch('/api/index?action=email', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                         body: JSON.stringify({
                             to: sub.email,
                             subject: newsletter.subject,
@@ -392,7 +401,7 @@ export default function NewsletterAdmin() {
             
             const res = await fetch('/api/index?action=email', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                 body: JSON.stringify({
                     to: user.email,
                     subject: `[TEST] ${newsletter.subject}`,
