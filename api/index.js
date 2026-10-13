@@ -5406,7 +5406,7 @@ ${siteContext}`;
             // ---------- settings ----------
             if (op === 'settings-get') return res.status(200).json({ success: true, settings: await getSettings(), currentTaxYear: currentTaxYear() });
             if (op === 'settings-save') {
-                const allowed = { vat_threshold: (v) => String(Math.max(0, Math.round(Number(v) || 0))), owner_email: (v) => String(v || '').trim().slice(0, 200) };
+                const allowed = { vat_threshold: (v) => String(Math.max(0, Math.round(Number(v) || 0))), owner_email: (v) => { const e = String(v || '').trim().slice(0, 200); return (e === '' || /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(e)) ? e : ''; } };
                 const rows = Object.keys(allowed).filter(k => body.settings && body.settings[k] !== undefined).map(k => ({ key: k, value: allowed[k](body.settings[k]), updated_at: new Date().toISOString() }));
                 if (rows.length) { const { error } = await sb.from('finance_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; }
                 return res.status(200).json({ success: true });
@@ -5534,7 +5534,7 @@ ${siteContext}`;
                 const r = body.record || {};
                 const title = str(r.title, 200);
                 if (!title) return res.status(400).json({ error: 'Give the item a title.' });
-                const row = { title, authority: str(r.authority, 100), due_date: dOrNull(r.due_date), recurrence: ['none', 'monthly', 'quarterly', 'yearly'].includes(r.recurrence) ? r.recurrence : 'none', link: str(r.link, 300), notes: str(r.notes, 1000), updated_at: new Date().toISOString() };
+                const row = { title, authority: str(r.authority, 100), due_date: dOrNull(r.due_date), recurrence: ['none', 'monthly', 'quarterly', 'yearly'].includes(r.recurrence) ? r.recurrence : 'none', link: (/^https?:\/\//i.test(String(r.link || '').trim()) ? str(r.link, 300) : null), notes: str(r.notes, 1000), updated_at: new Date().toISOString() };
                 const q = body.id ? sb.from('compliance_items').update(row).eq('id', body.id) : sb.from('compliance_items').insert(row);
                 const { data, error } = await q.select().single();
                 if (error) throw error;
