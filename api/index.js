@@ -8237,6 +8237,84 @@ Keep the tone professional and constructive throughout - direct about issues whe
         }
     },
 
+    // NEW: the ONLY route the book page uses to get chapter text and audio.
+    // While BOOKS_PAID_MODE is not "on" (testing) everyone gets everything,
+    // exactly as before. When it is "on", only buyers of the e-copy and admins
+    // get chapter text and playable audio; everyone else gets chapter titles
+    // plus a short sample of the first chapter. Audio links are signed and
+    // expire after an hour, so a copied link stops working.
+    'get-book-chapters': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const { bookId } = req.body || {};
+        if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+
+        try {
+            const paidMode = process.env.BOOKS_PAID_MODE === 'on';
+
+            const { data: book } = await supabaseClient
+                .from('books').select('id, is_published').eq('id', bookId).maybeSingle();
+            if (!book || !book.is_published) return res.status(404).json({ error: 'Book not found' });
+
+            let userId = null;
+            const token = (req.headers.authorization || '').split(' ')[1];
+            if (token) {
+                const { data: { user } } = await supabaseClient.auth.getUser(token);
+                userId = user?.id || null;
+            }
+
+            let entitled = !paidMode;
+            if (!entitled && userId) {
+                const { data: profile } = await supabaseClient
+                    .from('profiles').select('user_type').eq('id', userId).maybeSingle();
+                if (profile?.user_type === 'admin' || profile?.user_type === 'super_admin') entitled = true;
+                else {
+                    const { data: purchase } = await supabaseClient
+                        .from('book_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
+                    entitled = !!purchase;
+                }
+            }
+
+            const { data: rows, error } = await supabaseClient
+                .from('book_chapters')
+                .select('id, title, content, audio_segments, order_index')
+                .eq('book_id', bookId)
+                .order('order_index', { ascending: true });
+            if (error) throw error;
+
+            const signSegments = async (segments) => {
+                if (!Array.isArray(segments)) return segments;
+                return Promise.all(segments.map(async (seg) => {
+                    const marker = '/book-audio/';
+                    const at = typeof seg?.url === 'string' ? seg.url.indexOf(marker) : -1;
+                    if (at === -1) return seg;
+                    const path = decodeURIComponent(seg.url.slice(at + marker.length).split('?')[0]);
+                    const { data: signed } = await supabaseClient.storage.from('book-audio').createSignedUrl(path, 3600);
+                    return signed?.signedUrl ? { ...seg, url: signed.signedUrl } : seg;
+                }));
+            };
+
+            const chapters = [];
+            for (let i = 0; i < (rows || []).length; i++) {
+                const c = rows[i];
+                const hasAudio = Array.isArray(c.audio_segments) && c.audio_segments.length > 0;
+                if (entitled) {
+                    chapters.push({ ...c, audio_segments: paidMode ? await signSegments(c.audio_segments) : c.audio_segments, locked: false });
+                } else {
+                    chapters.push({
+                        id: c.id, title: c.title, order_index: c.order_index,
+                        content: i === 0 && c.content ? String(c.content).slice(0, 1200) : null,
+                        audio_segments: null, has_audio: hasAudio, locked: true
+                    });
+                }
+            }
+
+            return res.status(200).json({ success: true, chapters, locked: !entitled, paidMode });
+        } catch (error) {
+            console.error('get-book-chapters error:', error);
+            return res.status(500).json({ success: false, error: 'Unable to load chapters right now' });
+        }
+    },
+
     'create-credit-checkout-session': async (req, res) => {
         const { credits, userId, userEmail } = req.body;
         if (!credits || !userId) {
