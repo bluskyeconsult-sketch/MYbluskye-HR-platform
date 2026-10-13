@@ -19,6 +19,15 @@ import {
     Clock, TrendingUp, XCircle
 } from 'lucide-react';
 
+// SECURITY (2026-10-13): the email action now requires a signed-in session.
+async function mailAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
+
 const SEO_URL_BASE = 'https://bluskyeconsult.com';
 
 export default function ArticleDetail() {
@@ -180,7 +189,7 @@ export default function ArticleDetail() {
                 try {
                     const res = await fetch('/api/index?action=email', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                         body: JSON.stringify({
                             to: sub.email,
                             subject: article.title,
