@@ -18,6 +18,9 @@ export default function ManageBooks() {
     const [searchTerm, setSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingBook, setEditingBook] = useState(null);
+    const [kdpPages, setKdpPages] = useState('');
+    const [kdpInk, setKdpInk] = useState('black');
+    const [kdpTrim, setKdpTrim] = useState('regular');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
@@ -599,12 +602,36 @@ export default function ManageBooks() {
                                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-primary-500"
                                     />
                                     <p className="text-xs text-slate-500 mt-1">Reference price shown alongside the Amazon link below — not charged directly on this site</p>
+                                    <div className="mt-2 grid grid-cols-3 gap-2">
+                                        <input
+                                            type="number"
+                                            min="24"
+                                            max="828"
+                                            value={kdpPages}
+                                            onChange={(e) => setKdpPages(e.target.value)}
+                                            placeholder="Pages"
+                                            title="Printed page count, used to work out Amazon's printing cost"
+                                            className="px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs"
+                                        />
+                                        <select value={kdpInk} onChange={(e) => setKdpInk(e.target.value)} className="px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs">
+                                            <option value="black">Black ink</option>
+                                            <option value="standard_color">Standard colour</option>
+                                            <option value="premium_color">Premium colour</option>
+                                        </select>
+                                        <select value={kdpTrim} onChange={(e) => setKdpTrim(e.target.value)} className="px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs">
+                                            <option value="regular">Up to 6.12 x 9 in</option>
+                                            <option value="large">Larger trim</option>
+                                        </select>
+                                    </div>
                                     <SuggestPriceButton
                                         itemType="book"
                                         name={bookForm.title}
                                         description={bookForm.description}
                                         category={bookForm.category}
                                         version="hardcopy"
+                                        pageCount={kdpPages}
+                                        ink={kdpInk}
+                                        trim={kdpTrim}
                                         bookId={editingBook?.id}
                                         onApply={(price) => setBookForm({ ...bookForm, price: price })}
                                     />
