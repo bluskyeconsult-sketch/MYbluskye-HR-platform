@@ -13,8 +13,18 @@
 // Now checks the real name, so this panel actually reflects whether the
 // credential the transporter uses is configured.
 
+import { supabase } from '../../lib/supabase';
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, XCircle, Loader2, AlertCircle, HelpCircle, Shield } from 'lucide-react';
+
+// SECURITY (2026-10-13): the email action now requires a signed-in session.
+async function mailAuthHeader() {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+    } catch (e) { return {}; }
+}
+
 
 export default function EmailTest() {
     const [email, setEmail] = useState('');
@@ -146,7 +156,7 @@ export default function EmailTest() {
         try {
             const response = await fetch('/api/index?action=email', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await mailAuthHeader()) },
                 body: JSON.stringify({ 
                     to: email, 
                     subject: `${template.subject} - ${new Date().toLocaleString()}`, 
