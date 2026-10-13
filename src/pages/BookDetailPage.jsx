@@ -73,6 +73,7 @@ export default function BookDetailPage() {
     // existing PDF-based reading above. This page previously had no
     // concept of chapters at all.
     const [chapters, setChapters] = useState([]);
+    const [chaptersLocked, setChaptersLocked] = useState(false);
     const [expandedChapterId, setExpandedChapterId] = useState(null);
     const [listeningChapterId, setListeningChapterId] = useState(null);
     const [generatingAudioFor, setGeneratingAudioFor] = useState(null);
@@ -123,12 +124,23 @@ export default function BookDetailPage() {
             // the PDF-based reading above - not every book will have
             // these populated, and that's fine; the section below
             // simply won't render if there's nothing here.
-            const { data: chaptersData } = await supabase
-                .from('book_chapters')
-                .select('id, title, content, audio_segments, order_index')
-                .eq('book_id', id)
-                .order('order_index', { ascending: true });
-            setChapters(sortChapters(chaptersData));
+            try {
+                const { data: { session: chapterSession } } = await supabase.auth.getSession();
+                const chapterRes = await fetch('/api/index?action=get-book-chapters', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(chapterSession?.access_token ? { Authorization: `Bearer ${chapterSession.access_token}` } : {})
+                    },
+                    body: JSON.stringify({ bookId: id })
+                });
+                const chapterJson = await chapterRes.json();
+                setChapters(sortChapters(chapterJson.chapters || []));
+                setChaptersLocked(!!chapterJson.locked);
+            } catch (chapterErr) {
+                console.error('Error loading chapters:', chapterErr);
+                setChapters([]);
+            }
         } catch (err) {
             console.error('Error loading book:', err);
             setError('Something went wrong loading this book.');
@@ -391,11 +403,17 @@ export default function BookDetailPage() {
             {chapters.length > 0 && (
                 <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-8">
                     <h2 className="text-xl font-bold text-white mb-4">Chapters</h2>
+                    {chaptersLocked && (
+                        <p className="text-slate-400 text-sm mb-4">
+                            The first chapter has a short sample. Buy this book to read every chapter and listen to the audio.
+                        </p>
+                    )}
                     <div className="space-y-2">
                         {chapters.map((chapter, idx) => {
                             const isExpanded = expandedChapterId === chapter.id;
                             const isListening = listeningChapterId === chapter.id;
-                            const hasAudio = chapter.audio_segments && chapter.audio_segments.length > 0;
+                            const isLocked = !!chapter.locked;
+                            const hasAudio = !isLocked && chapter.audio_segments && chapter.audio_segments.length > 0;
                             const isGenerating = generatingAudioFor === chapter.id;
 
                             return (
@@ -423,6 +441,10 @@ export default function BookDetailPage() {
                                                 >
                                                     {isListening ? 'Hide Player' : 'Listen'}
                                                 </button>
+                                            ) : isLocked ? (
+                                                <span className="px-3 py-1.5 border border-slate-700 text-slate-400 text-sm rounded-lg">
+                                                    {chapter.has_audio ? 'Audio: buy to listen' : 'Locked'}
+                                                </span>
                                             ) : isAdmin ? (
                                                 <button
                                                     onClick={() => handleGenerateChapterAudio(chapter.id)}
