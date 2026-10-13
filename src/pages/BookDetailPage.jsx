@@ -30,6 +30,8 @@ import {
 // this is trivially reversible once testing ends - just set back to
 // false.
 const TESTING_MODE_DISABLE_ECOPY_CHECKOUT = true;
+// Same switch for the separately priced audio version. Set to false when testing ends.
+const TESTING_MODE_DISABLE_AUDIO_CHECKOUT = true;
 
 // Chapter text saved with single line breaks would run together as markdown, so give each
 // line its own paragraph when the text has no blank lines at all.
@@ -73,7 +75,8 @@ export default function BookDetailPage() {
     // existing PDF-based reading above. This page previously had no
     // concept of chapters at all.
     const [chapters, setChapters] = useState([]);
-    const [chaptersLocked, setChaptersLocked] = useState(false);
+    const [hasAudioPurchase, setHasAudioPurchase] = useState(false);
+    const [checkingOutAudio, setCheckingOutAudio] = useState(false);
     const [expandedChapterId, setExpandedChapterId] = useState(null);
     const [listeningChapterId, setListeningChapterId] = useState(null);
     const [generatingAudioFor, setGeneratingAudioFor] = useState(null);
@@ -112,6 +115,14 @@ export default function BookDetailPage() {
                     .maybeSingle();
                 setHasPurchased(!!purchase);
 
+                const { data: audioPurchase } = await supabase
+                    .from('book_audio_purchases')
+                    .select('id')
+                    .eq('user_id', currentUser.id)
+                    .eq('book_id', id)
+                    .maybeSingle();
+                setHasAudioPurchase(!!audioPurchase);
+
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('user_type')
@@ -124,23 +135,7 @@ export default function BookDetailPage() {
             // the PDF-based reading above - not every book will have
             // these populated, and that's fine; the section below
             // simply won't render if there's nothing here.
-            try {
-                const { data: { session: chapterSession } } = await supabase.auth.getSession();
-                const chapterRes = await fetch('/api/index?action=get-book-chapters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(chapterSession?.access_token ? { Authorization: `Bearer ${chapterSession.access_token}` } : {})
-                    },
-                    body: JSON.stringify({ bookId: id })
-                });
-                const chapterJson = await chapterRes.json();
-                setChapters(sortChapters(chapterJson.chapters || []));
-                setChaptersLocked(!!chapterJson.locked);
-            } catch (chapterErr) {
-                console.error('Error loading chapters:', chapterErr);
-                setChapters([]);
-            }
+            await fetchChapters();
         } catch (err) {
             console.error('Error loading book:', err);
             setError('Something went wrong loading this book.');
@@ -243,13 +238,52 @@ export default function BookDetailPage() {
         }
     }
 
+    async function fetchChapters() {
+        try {
+            const { data: { session: chapterSession } } = await supabase.auth.getSession();
+            const chapterRes = await fetch('/api/index?action=get-book-chapters', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(chapterSession?.access_token ? { Authorization: `Bearer ${chapterSession.access_token}` } : {})
+                },
+                body: JSON.stringify({ bookId: id })
+            });
+            const chapterJson = await chapterRes.json();
+            setChapters(sortChapters(chapterJson.chapters || []));
+        } catch (chapterErr) {
+            console.error('Error loading chapters:', chapterErr);
+            setChapters([]);
+        }
+    }
+
+    async function handleBuyAudio() {
+        if (!user) {
+            navigate(`/sign-in?redirect=/books/${id}`);
+            return;
+        }
+        setCheckingOutAudio(true);
+        try {
+            const data = await authenticatedFetch('create-book-audio-checkout-session', {
+                bookId: id,
+                userId: user.id,
+                userEmail: user.email
+            });
+            window.location.href = data.url;
+        } catch (err) {
+            alert('Unable to start checkout: ' + err.message);
+        } finally {
+            setCheckingOutAudio(false);
+        }
+    }
+
     async function handleGenerateChapterAudio(chapterId) {
         setGeneratingAudioFor(chapterId);
         try {
             const data = await authenticatedFetch('generateChapterAudio', { chapterId });
             if (!data.success) throw new Error(data.error || 'Audio generation failed');
             // Refresh this chapter's data so the new audio_segments show up
-            setChapters(prev => prev.map(c => c.id === chapterId ? { ...c, audio_segments: data.segments } : c));
+            await fetchChapters();
         } catch (err) {
             alert('Failed to generate audio: ' + err.message);
         } finally {
@@ -393,6 +427,40 @@ export default function BookDetailPage() {
                                 <p className="text-slate-500 text-sm">E-copy not currently available for this title.</p>
                             )}
                         </div>
+
+                        {/* Audio version - priced and bought separately from the e-copy */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 mt-4">
+                            <h3 className="text-white font-semibold mb-2">Audio Version</h3>
+                            {book.audio_price ? (
+                                hasAudioPurchase ? (
+                                    <span className="flex items-center gap-1.5 text-emerald-400 text-sm">
+                                        <CheckCircle className="w-4 h-4" /> You own the audio version. Press Listen on any chapter below.
+                                    </span>
+                                ) : (
+                                    <>
+                                        <p className="text-slate-300 text-lg font-semibold mb-3">
+                                            ${Number(book.audio_price).toFixed(2)}
+                                        </p>
+                                        {!TESTING_MODE_DISABLE_AUDIO_CHECKOUT ? (
+                                            <button
+                                                onClick={handleBuyAudio}
+                                                disabled={checkingOutAudio}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50"
+                                            >
+                                                {checkingOutAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+                                                Buy Audio Version
+                                            </button>
+                                        ) : (
+                                            <p className="text-slate-500 text-sm italic">
+                                                Audio purchases are temporarily paused during our testing phase.
+                                            </p>
+                                        )}
+                                    </>
+                                )
+                            ) : (
+                                <p className="text-slate-500 text-sm">Audio version not currently available for this title.</p>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -403,17 +471,18 @@ export default function BookDetailPage() {
             {chapters.length > 0 && (
                 <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-8">
                     <h2 className="text-xl font-bold text-white mb-4">Chapters</h2>
-                    {chaptersLocked && (
+                    {chapters.some(c => c.text_locked || c.audio_locked) && (
                         <p className="text-slate-400 text-sm mb-4">
-                            The first chapter has a short sample. Buy this book to read every chapter and listen to the audio.
+                            Some chapters are free to try. The e-copy unlocks reading every chapter, and the audio version unlocks listening. They are bought separately.
                         </p>
                     )}
                     <div className="space-y-2">
                         {chapters.map((chapter, idx) => {
                             const isExpanded = expandedChapterId === chapter.id;
                             const isListening = listeningChapterId === chapter.id;
-                            const isLocked = !!chapter.locked;
-                            const hasAudio = !isLocked && chapter.audio_segments && chapter.audio_segments.length > 0;
+                            const textLocked = !!chapter.text_locked;
+                            const audioLocked = !!chapter.audio_locked;
+                            const hasAudio = !audioLocked && chapter.audio_segments && chapter.audio_segments.length > 0;
                             const isGenerating = generatingAudioFor === chapter.id;
 
                             return (
@@ -432,6 +501,7 @@ export default function BookDetailPage() {
                                         >
                                             <span className="text-slate-500 text-sm">{idx + 1}.</span>
                                             <span className="text-white font-medium">{chapter.title}</span>
+                                            {textLocked && <span className="text-slate-500 text-xs">locked</span>}
                                         </button>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             {hasAudio ? (
@@ -441,9 +511,9 @@ export default function BookDetailPage() {
                                                 >
                                                     {isListening ? 'Hide Player' : 'Listen'}
                                                 </button>
-                                            ) : isLocked ? (
+                                            ) : audioLocked && chapter.has_audio ? (
                                                 <span className="px-3 py-1.5 border border-slate-700 text-slate-400 text-sm rounded-lg">
-                                                    {chapter.has_audio ? 'Audio: buy to listen' : 'Locked'}
+                                                    Audio: buy to listen
                                                 </span>
                                             ) : isAdmin ? (
                                                 <button
@@ -457,6 +527,12 @@ export default function BookDetailPage() {
                                             ) : null}
                                         </div>
                                     </div>
+
+                                    {isExpanded && textLocked && (
+                                        <div className="px-4 pb-4 border-t border-slate-800 pt-4 text-slate-400 text-sm">
+                                            This chapter is locked. Buy the e-copy to read it.
+                                        </div>
+                                    )}
 
                                     <AnimatePresence initial={false}>
                                         {isExpanded && chapter.content && (
