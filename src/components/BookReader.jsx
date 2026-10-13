@@ -73,6 +73,8 @@ export default function BookReader({ fileUrl, title, isPreview = false, onClose 
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [direction, setDirection] = useState(1);
+    const [shown, setShown] = useState(1);
+    const [turn, setTurn] = useState(null);
     const [zoom, setZoom] = useState(1);
     const [theme, setTheme] = useState(() => (THEMES[store('odusbaba_reader_theme')] ? store('odusbaba_reader_theme') : 'paper'));
     const [areaWidth, setAreaWidth] = useState(0);
@@ -110,6 +112,17 @@ export default function BookReader({ fileUrl, title, isPreview = false, onClose 
     }, [numPages]);
     const next = useCallback(() => goTo(pageNumber + 1), [goTo, pageNumber]);
     const prev = useCallback(() => goTo(pageNumber - 1), [goTo, pageNumber]);
+
+    // Book-style page turn. Moving one page forward or back plays a leaf that
+    // swings over the spine. Bigger jumps (slider, Home, End) and reduced-motion
+    // users switch pages at once.
+    useEffect(() => {
+        if (!numPages) { setShown(pageNumber); return; }
+        if (turn) return;
+        if (pageNumber === shown) return;
+        if (reduce || Math.abs(pageNumber - shown) !== 1) { setShown(pageNumber); return; }
+        setTurn({ from: shown, to: pageNumber, dir: pageNumber > shown ? 1 : -1 });
+    }, [pageNumber, numPages, shown, turn, reduce]);
 
     // Remember where the reader stopped.
     useEffect(() => { if (numPages) store(pageKey, String(pageNumber)); }, [pageNumber, numPages, pageKey]);
@@ -262,27 +275,61 @@ export default function BookReader({ fileUrl, title, isPreview = false, onClose 
                                 </div>
                             }
                         >
-                            <AnimatePresence mode="wait" custom={direction} initial={false}>
-                                <motion.div
-                                    key={pageNumber}
-                                    custom={direction}
-                                    variants={pageVariants}
-                                    initial={reduce ? false : 'enter'}
-                                    animate="center"
-                                    exit={reduce ? undefined : 'exit'}
-                                    transition={{ duration: dur, ease: 'easeOut' }}
-                                    style={{ filter: th.filter, transformOrigin: direction > 0 ? 'left center' : 'right center' }}
-                                    className="rounded-lg overflow-hidden shadow-2xl shadow-black/60 bg-white"
+                            <div className="relative mx-auto" style={{ width: pageWidth, perspective: 2200 }}>
+                                {/* Page underneath. Going forward it is the page being revealed; going back it is the page being covered. */}
+                                <div
+                                    className="relative rounded-lg overflow-hidden shadow-2xl shadow-black/60 bg-white"
+                                    style={{ filter: th.filter }}
                                 >
                                     <Page
-                                        pageNumber={pageNumber}
+                                        pageNumber={turn ? (turn.dir > 0 ? turn.to : turn.from) : shown}
                                         width={pageWidth}
-                                        renderAnnotationLayer={true}
-                                        renderTextLayer={true}
+                                        renderAnnotationLayer={!turn}
+                                        renderTextLayer={!turn}
                                         loading={<div className="bg-white animate-pulse" style={{ width: pageWidth, height: pageWidth * 1.35 }} />}
                                     />
-                                </motion.div>
-                            </AnimatePresence>
+                                    {turn && (
+                                        <motion.div
+                                            className="absolute inset-0 pointer-events-none"
+                                            style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.38), rgba(0,0,0,0) 70%)' }}
+                                            initial={{ opacity: turn.dir > 0 ? 1 : 0 }}
+                                            animate={{ opacity: turn.dir > 0 ? 0 : 1 }}
+                                            transition={{ duration: 0.7, ease: 'easeInOut' }}
+                                        />
+                                    )}
+                                </div>
+
+                                {/* The leaf that turns */}
+                                {turn && (
+                                    <motion.div
+                                        key={`${turn.from}-${turn.to}`}
+                                        className="absolute inset-0 pointer-events-none"
+                                        style={{ transformOrigin: 'left center', transformStyle: 'preserve-3d', zIndex: 5 }}
+                                        initial={{ rotateY: turn.dir > 0 ? 0 : -100, opacity: 1 }}
+                                        animate={turn.dir > 0
+                                            ? { rotateY: [0, -70, -100], opacity: [1, 1, 0] }
+                                            : { rotateY: [-100, -70, 0], opacity: [0, 1, 1] }}
+                                        transition={{ duration: 0.7, ease: 'easeInOut', times: [0, 0.7, 1] }}
+                                        onAnimationComplete={() => { setShown(turn.to); setTurn(null); }}
+                                    >
+                                        <div
+                                            className="absolute inset-0 rounded-lg overflow-hidden bg-white shadow-2xl shadow-black/50"
+                                            style={{ backfaceVisibility: 'hidden', filter: th.filter }}
+                                        >
+                                            <Page
+                                                pageNumber={turn.dir > 0 ? turn.from : turn.to}
+                                                width={pageWidth}
+                                                renderAnnotationLayer={false}
+                                                renderTextLayer={false}
+                                            />
+                                        </div>
+                                        <div
+                                            className="absolute inset-0 rounded-lg bg-stone-200"
+                                            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', filter: th.filter }}
+                                        />
+                                    </motion.div>
+                                )}
+                            </div>
 
                             {isPreview && atEnd && (
                                 <motion.div
