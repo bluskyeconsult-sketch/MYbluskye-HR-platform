@@ -8448,6 +8448,96 @@ Keep the tone professional and constructive throughout - direct about issues whe
         }
     },
 
+    // ========== ASSESSMENT ANSWER KEYS STAY ON THE SERVER (NEW — 2026-10-14) ==========
+    // Members used to read the questions straight from the database,
+    // including the correct-answer flag on every option, and score their own
+    // test in the browser. Anyone could read the answers. Now:
+    //  - 'assessment-questions' sends a member the questions and options with
+    //    the answer keys removed
+    //  - 'assessment-objective-check' marks multiple-choice and true/false
+    //    answers on the server for the member's own attempt
+    // Admins still read and write the full rows directly from the editor.
+    'assessment-questions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+
+        const assessmentId = String(req.query?.assessmentId || '').trim();
+        if (!assessmentId) return res.status(400).json({ success: false, error: 'assessmentId is required' });
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('assessment_questions')
+                .select('*, options:assessment_options(*)')
+                .eq('assessment_id', assessmentId)
+                .order('sort_order', { ascending: true });
+            if (error) throw error;
+
+            const questions = (data || []).map(q => {
+                const { correct_answer: _ca, options, ...rest } = q;
+                return {
+                    ...rest,
+                    options: (options || [])
+                        .map(({ is_correct: _ic, ...o }) => o)
+                        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                };
+            });
+            return res.status(200).json({ success: true, questions });
+        } catch (error) {
+            console.error('assessment-questions error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Returns { results: { [questionId]: true | false | null } } for the
+    // multiple-choice and true/false questions of the caller's own attempt.
+    // null means the question has no recorded right answer (true/false only),
+    // which the scorer treats as full credit, as it always has.
+    'assessment-objective-check': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+
+        const userAssessmentId = req.body?.userAssessmentId;
+        const answers = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+        if (!userAssessmentId) return res.status(400).json({ success: false, error: 'userAssessmentId is required' });
+
+        try {
+            const { data: attempt, error: attemptError } = await supabaseClient
+                .from('user_assessments')
+                .select('id, user_id, assessment_id')
+                .eq('id', userAssessmentId)
+                .maybeSingle();
+            if (attemptError) throw attemptError;
+            if (!attempt || attempt.user_id !== auth.userId) {
+                return res.status(403).json({ success: false, error: 'That attempt does not belong to you.' });
+            }
+
+            const { data: questions, error: qError } = await supabaseClient
+                .from('assessment_questions')
+                .select('*, options:assessment_options(id, is_correct)') // '*' because a correct_answer column may or may not exist
+                .eq('assessment_id', attempt.assessment_id);
+            if (qError) throw qError;
+
+            const results = {};
+            for (const q of questions || []) {
+                const given = answers[q.id];
+                if (q.question_type === 'multiple_choice') {
+                    const key = (q.options || []).find(o => o.is_correct === true);
+                    results[q.id] = !!key && given === key.id;
+                } else if (q.question_type === 'true_false') {
+                    results[q.id] = (q.correct_answer === undefined || q.correct_answer === null)
+                        ? null
+                        : String(given).toLowerCase() === String(q.correct_answer).toLowerCase();
+                }
+            }
+            return res.status(200).json({ success: true, results });
+        } catch (error) {
+            console.error('assessment-objective-check error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // ========== BOOK STORE (NEW — 2026-08-23) ==========
     // Hardcopy purchases never touch this backend at all — the "Buy
     // Hardcopy" button on the frontend links straight to
