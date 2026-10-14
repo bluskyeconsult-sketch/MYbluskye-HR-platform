@@ -165,10 +165,23 @@ async function fetchWeWorkRemotelyLive() {
 // elsewhere for rate limiting. Signed-in members are counted by user id;
 // visitors who are not signed in are counted by IP address, so one visitor
 // cannot use up the allowance for everyone else.
-const MAX_LIVE_SEARCHES_PER_HOUR = 10;
-const MAX_GUEST_LIVE_SEARCHES_PER_HOUR = 5;
-const GUEST_JOOBLE_PER_HOUR = 3;       // Jooble calls per visitor (IP) per hour
-const JOOBLE_PER_HOUR_ALL = 40;        // Jooble calls across the whole site per hour, protects the keys
+// CHANGED (2026-10-14): limits can be raised in Vercel without a code change. Jooble removed its own request
+// limits on the keys for the UK, US, Canada, Australia, New Zealand, Ireland, Germany, UAE, South Africa and
+// Nigeria (ticket 1974824), so these caps now only protect server time and abuse, not the keys.
+//   LIVE_SEARCH_MEMBER_PER_HOUR   live searches per signed-in member per hour      (default 20)
+//   LIVE_SEARCH_GUEST_PER_HOUR    live searches per visitor (IP) per hour          (default 8)
+//   JOOBLE_GUEST_PER_HOUR         Jooble calls per visitor (IP) per hour           (default 8)
+//   JOOBLE_SITE_PER_HOUR          Jooble calls across the whole site per hour      (default 2000)
+// Set a value to 0 for "no limit" on that line. Identical searches are also answered from a short cache.
+function limitFromEnv(name, fallback) {
+    const raw = typeof process !== 'undefined' ? process.env[name] : undefined;
+    const n = raw === undefined || raw === '' ? NaN : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+const MAX_LIVE_SEARCHES_PER_HOUR = () => limitFromEnv('LIVE_SEARCH_MEMBER_PER_HOUR', 20);
+const MAX_GUEST_LIVE_SEARCHES_PER_HOUR = () => limitFromEnv('LIVE_SEARCH_GUEST_PER_HOUR', 8);
+const GUEST_JOOBLE_PER_HOUR = () => limitFromEnv('JOOBLE_GUEST_PER_HOUR', 8);
+const JOOBLE_PER_HOUR_ALL = () => limitFromEnv('JOOBLE_SITE_PER_HOUR', 2000);
 
 function who(userId, ip) { return userId ? { userId } : { ip: ip || 'unknown' }; }
 
@@ -179,9 +192,9 @@ export async function checkLiveSearchRateLimit(supabaseClient, userId, ip) {
         .select('id', { count: 'exact', head: true })
         .eq('event_type', 'live_job_search')
         .gte('created_at', since)
-        .contains('metadata', who(userId, ip));
-    const limit = userId ? MAX_LIVE_SEARCHES_PER_HOUR : MAX_GUEST_LIVE_SEARCHES_PER_HOUR;
-    if ((count || 0) >= limit) {
+        .contains('details', who(userId, ip));
+    const limit = userId ? MAX_LIVE_SEARCHES_PER_HOUR() : MAX_GUEST_LIVE_SEARCHES_PER_HOUR();
+    if (limit > 0 && (count || 0) >= limit) {
         return { allowed: false, message: 'Live job search limit reached for this hour - please try again shortly, or browse the job board directly.' };
     }
     return { allowed: true };
@@ -196,13 +209,15 @@ export async function checkJoobleAllowance(supabaseClient, userId, ip) {
         const { count: siteCount } = await supabaseClient
             .from('security_events').select('id', { count: 'exact', head: true })
             .eq('event_type', 'jooble_live_call').gte('created_at', since);
-        if ((siteCount || 0) >= JOOBLE_PER_HOUR_ALL) return false;
+        const siteLimit = JOOBLE_PER_HOUR_ALL();
+        if (siteLimit > 0 && (siteCount || 0) >= siteLimit) return false;
         if (!userId) {
             const { count } = await supabaseClient
                 .from('security_events').select('id', { count: 'exact', head: true })
                 .eq('event_type', 'jooble_live_call').gte('created_at', since)
-                .contains('metadata', { ip: ip || 'unknown' });
-            if ((count || 0) >= GUEST_JOOBLE_PER_HOUR) return false;
+                .contains('details', { ip: ip || 'unknown' });
+            const guestLimit = GUEST_JOOBLE_PER_HOUR();
+            if (guestLimit > 0 && (count || 0) >= guestLimit) return false;
         }
         return true;
     } catch {
@@ -214,7 +229,7 @@ export async function logJoobleCall(supabaseClient, userId, ip) {
     try {
         await supabaseClient.from('security_events').insert({
             event_type: 'jooble_live_call', severity: 'info',
-            metadata: userId ? { userId } : { ip: ip || 'unknown' }
+            details: userId ? { userId } : { ip: ip || 'unknown' }
         });
     } catch { /* non-critical */ }
 }
@@ -224,7 +239,7 @@ export async function logLiveSearch(supabaseClient, userId, keyword, ip) {
         await supabaseClient.from('security_events').insert({
             event_type: 'live_job_search',
             severity: 'info',
-            metadata: { ...who(userId, ip), keyword: keyword || null }
+            details: { ...who(userId, ip), keyword: keyword || null }
         });
     } catch {
         // Non-critical - never let logging failure block a real search.
