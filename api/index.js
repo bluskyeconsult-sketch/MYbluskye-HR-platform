@@ -219,22 +219,17 @@ async function checkAndBlockRateAbuse(ip, action) {
 async function logSecurityEvent(eventType, ip, severity = 'info', metadata = {}) {
     try {
         const supabaseClient = getSupabase();
-        const row = {
+        // The real column for the extra detail is "details" (jsonb); this
+        // table has no "metadata" column. Supabase returns a bad column as
+        // an error rather than throwing, so the old insert lost every event
+        // without a trace. Callers still pass the detail as `metadata`.
+        const { error } = await supabaseClient.from('security_events').insert({
             event_type: eventType,
             ip_address: ip,
             severity,
-            metadata,
+            details: metadata,
             created_at: new Date().toISOString()
-        };
-        let { error } = await supabaseClient.from('security_events').insert(row);
-        // Some copies of this table have no metadata column. Supabase returns
-        // that as an error rather than throwing, so the event used to be
-        // lost without a trace. Retry once without the extra detail so the
-        // event itself is still recorded.
-        if (error && /metadata/i.test(error.message || '')) {
-            const { metadata: _dropped, ...rest } = row;
-            ({ error } = await supabaseClient.from('security_events').insert(rest));
-        }
+        });
         if (error) console.warn('Security event logging failed:', error.message);
     } catch (err) {
         console.warn('Security event logging failed:', err.message);
@@ -8221,7 +8216,8 @@ Keep the tone professional and constructive throughout - direct about issues whe
             if (blockedRes.error) throw blockedRes.error;
             return res.status(200).json({
                 success: true,
-                events: eventsRes.data || [],
+                // The page reads `metadata`; the table column is `details`.
+                events: (eventsRes.data || []).map(e => ({ ...e, metadata: e.details || null })),
                 blocked: blockedRes.data || [],
                 last24h: { total: totalRes.count || 0, critical: criticalRes.count || 0 },
                 yourIp: getRequestIP(req)
@@ -8258,6 +8254,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const { error } = await supabaseClient.from('blocked_ips').insert({
                 ip_address: ip,
                 reason,
+                block_reason: reason,
                 expires_at: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
             });
             if (error) throw error;
