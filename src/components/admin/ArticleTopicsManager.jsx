@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { X, Loader2, Sparkles, Plus, Calendar, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { X, Loader2, Sparkles, Plus, Calendar, CheckCircle, XCircle, Clock, Trash2 } from 'lucide-react';
 
 export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
     const [bulkText, setBulkText] = useState('');
@@ -20,6 +20,35 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
     useEffect(() => {
         loadTopics();
     }, []);
+
+    // The popup must always be closable: Escape closes it, clicking the dark area
+    // outside it closes it, and the page behind it cannot scroll while it is open.
+    useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+        window.addEventListener('keydown', onKey);
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            document.body.style.overflow = prevOverflow;
+        };
+    }, [onClose]);
+
+    async function deleteTopics(body, confirmText) {
+        if (confirmText && !confirm(confirmText)) return;
+        setError('');
+        try {
+            const headers = await authHeaders();
+            const response = await fetch('/api/index?action=admin-delete-article-topics', {
+                method: 'POST', headers, body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Could not delete');
+            await loadTopics();
+        } catch (err) {
+            setError(err.message);
+        }
+    }
 
     async function authHeaders() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -48,6 +77,10 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
         const lines = bulkText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         if (lines.length === 0) {
             setError('Enter at least one topic, one per line.');
+            return;
+        }
+
+        if (lines.length > 15 && !confirm(`This will add ${lines.length} separate topics, one per line. Is that what you meant?`)) {
             return;
         }
 
@@ -105,16 +138,24 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
     }
 
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-4">
+        <div
+            className="fixed inset-0 bg-black/70 flex items-start sm:items-center justify-center z-[100] p-4 pt-24"
+            onMouseDown={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}
+        >
+            <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full max-h-[calc(100vh-7rem)] overflow-y-auto">
+                <div className="sticky top-0 z-10 flex justify-between items-center px-6 py-4 bg-slate-900 border-b border-slate-800 rounded-t-xl">
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-primary-400" /> Bulk Article Topics
                     </h2>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white">
-                        <X className="w-5 h-5" />
+                    <button
+                        onClick={onClose}
+                        aria-label="Close"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white text-sm"
+                    >
+                        <X className="w-4 h-4" /> Close
                     </button>
                 </div>
+                <div className="p-6">
 
                 <label className="flex items-start gap-2 text-xs text-slate-400 mb-3 bg-slate-950/50 border border-slate-800 rounded-lg p-2">
                     <input type="checkbox" checked={publishNow} onChange={(e) => setPublishNow(e.target.checked)} className="mt-0.5" />
@@ -143,7 +184,17 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
 
                 {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
-                <p className="text-slate-300 text-sm font-medium mb-2">Topics List ({topics.length})</p>
+                <div className="flex items-center justify-between mb-2">
+                    <p className="text-slate-300 text-sm font-medium">Topics List ({topics.length})</p>
+                    {topics.some(t => t.status !== 'generated') && (
+                        <button
+                            onClick={() => deleteTopics({ allPending: true }, 'Delete every topic that has not produced an article yet? Topics that already generated an article are kept.')}
+                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
+                        >
+                            <Trash2 className="w-3 h-3" /> Clear all not generated
+                        </button>
+                    )}
+                </div>
                 {loadingTopics ? (
                     <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-400" /></div>
                 ) : topics.length === 0 ? (
@@ -175,6 +226,14 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                                                 {generatingId === topic.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
                                                 Generate
                                             </button>
+                                            <button
+                                                onClick={() => deleteTopics({ topicIds: [topic.id] })}
+                                                aria-label="Delete topic"
+                                                title="Delete this topic"
+                                                className="p-1.5 text-slate-400 hover:text-red-400"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     )}
                                 </div>
@@ -182,6 +241,7 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                         ))}
                     </div>
                 )}
+                </div>
             </div>
         </div>
     );
