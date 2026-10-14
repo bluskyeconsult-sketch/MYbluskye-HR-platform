@@ -219,13 +219,23 @@ async function checkAndBlockRateAbuse(ip, action) {
 async function logSecurityEvent(eventType, ip, severity = 'info', metadata = {}) {
     try {
         const supabaseClient = getSupabase();
-        await supabaseClient.from('security_events').insert({
+        const row = {
             event_type: eventType,
             ip_address: ip,
             severity,
             metadata,
             created_at: new Date().toISOString()
-        });
+        };
+        let { error } = await supabaseClient.from('security_events').insert(row);
+        // Some copies of this table have no metadata column. Supabase returns
+        // that as an error rather than throwing, so the event used to be
+        // lost without a trace. Retry once without the extra detail so the
+        // event itself is still recorded.
+        if (error && /metadata/i.test(error.message || '')) {
+            const { metadata: _dropped, ...rest } = row;
+            ({ error } = await supabaseClient.from('security_events').insert(rest));
+        }
+        if (error) console.warn('Security event logging failed:', error.message);
     } catch (err) {
         console.warn('Security event logging failed:', err.message);
     }
@@ -8194,7 +8204,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const severity = req.query?.severity;
             let eventsQuery = supabaseClient
                 .from('security_events')
-                .select('id, event_type, ip_address, severity, metadata, created_at')
+                .select('*')
                 .order('created_at', { ascending: false })
                 .limit(200);
             if (severity && ['info', 'warning', 'critical'].includes(severity)) {
