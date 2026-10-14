@@ -2586,6 +2586,34 @@ const handlers = {
         }
     },
 
+    // NEW (2026-10-14): remove topics that were added by mistake (for example a
+    // whole pasted note that became dozens of one-line topics). Only topics that
+    // have NOT produced an article are removable, so generated articles keep
+    // their link to the topic they came from.
+    'admin-delete-article-topics': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const { topicIds, allPending } = req.body || {};
+        try {
+            let q = supabaseClient.from('article_topics').delete().in('status', ['pending', 'failed']);
+            if (allPending === true) {
+                q = q.not('id', 'is', null);
+            } else if (Array.isArray(topicIds) && topicIds.length > 0 && topicIds.length <= 500) {
+                q = q.in('id', topicIds);
+            } else {
+                return res.status(400).json({ error: 'Send topicIds (up to 500) or allPending: true' });
+            }
+            const { data, error } = await q.select('id');
+            if (error) throw error;
+            return res.status(200).json({ success: true, deleted: (data || []).length });
+        } catch (error) {
+            console.error('admin-delete-article-topics error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    },
+
     'generate-article-from-topic': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
