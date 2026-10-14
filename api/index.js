@@ -4610,8 +4610,21 @@ Return ONLY a JSON object: {
             // numerals), and a bare number/title on its own line
             // (e.g. "1. Introduction"). Each match's own position in
             // the text becomes a real split point.
-            const chapterPattern = /^\s*(chapter\s+(\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)\b.{0,80})$/gim;
-            const matches = [...fullText.matchAll(chapterPattern)];
+            // Heading must be "Chapter N" alone, "Chapter N: Title" (or - / . / dash),
+            // or "Chapter N Title" starting with a capital. This deliberately rejects
+            // body-text lines that merely begin with the word, such as
+            // "Chapter 2's Quibi case showed." or "Chapter 6, are the textbook cases.",
+            // which used to be split off as fake chapters and scramble the order.
+            const NUM_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
+            const chapterPattern = /^[ \t]*(chapter[ \t]+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?:[ \t]*[:.\-–—][ \t]*\S[^\n]{0,120}|[ \t]*[–—-]|[ \t]+[A-Z][^\n]{0,120})?)[ \t]*$/gim;
+            const DANGLING = /(?:\b(?:the|of|a|an|and|to|in|for|that|every|your|our|with|by|on|is|are)|[:–—-])$/i;
+            const matches = [...fullText.matchAll(chapterPattern)].filter(m => {
+                if (/[,;]$/.test(m[1].trim())) return false;
+                // The pattern is case-insensitive, so check the case of a bare
+                // "Chapter N Title" form here: a lowercase word means a sentence, not a heading.
+                const afterNum = m[1].slice(m[1].toLowerCase().indexOf(m[2].toLowerCase(), 7) + m[2].length);
+                return !(/^[ \t]+[A-Za-z]/.test(afterNum) && !/^[ \t]+[A-Z]/.test(afterNum));
+            });
 
             if (matches.length < 2) {
                 return res.status(400).json({
@@ -4622,32 +4635,40 @@ Return ONLY a JSON object: {
 
             const detectedChapters = [];
             for (let i = 0; i < matches.length; i++) {
-                const start = matches[i].index;
+                const headEnd = matches[i].index + matches[i][0].length;
                 const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
-                const rawTitle = matches[i][1].trim().replace(/\s+/g, ' ');
-                const content = fullText.slice(start, end).replace(rawTitle, '').trim();
+                let rawTitle = matches[i][1].trim().replace(/\s+/g, ' ');
+                let bodyStart = headEnd;
+                // A long title wrapped onto a second line ("Chapter 2: Product - The" / "Engine of ...")
+                // would otherwise be cut off mid-phrase. Join that one continuation line.
+                if (DANGLING.test(rawTitle)) {
+                    const cont = /^[ \t]*\r?\n[ \t]*([^\r\n]{1,80})[ \t]*(?:\r?\n|$)/.exec(fullText.slice(headEnd, end));
+                    if (cont) {
+                        rawTitle = (rawTitle + ' ' + cont[1].trim()).replace(/\s+/g, ' ');
+                        bodyStart = headEnd + cont[0].length;
+                    }
+                }
+                const numRaw = matches[i][2].toLowerCase();
+                const num = /^\d+$/.test(numRaw) ? parseInt(numRaw, 10) : NUM_WORDS[numRaw];
+                const content = fullText.slice(bodyStart, end).trim();
 
                 if (content.length > 50) {
-                    detectedChapters.push({ title: rawTitle.slice(0, 200), content });
+                    detectedChapters.push({ title: rawTitle.slice(0, 200), content, num });
                 }
             }
 
-            // A "Chapter N" line can also appear in a table of contents or
-            // inside body text. Keep only the fullest section for each
-            // heading so a stray reference can't create a duplicate or
-            // out-of-order chapter; original reading order is preserved.
+            // "Chapter N" headings can also appear in a table of contents or a
+            // "how to read this book" page. Keep only the fullest section for each
+            // chapter NUMBER, then put the chapters in true numeric order so
+            // "Chapter 6" can never be listed before "Chapter 1".
             {
-                const keyOf = (t) => (/^chapter\s+(\S+)/i.exec(t) || [])[1]?.toLowerCase();
                 const best = new Map();
                 detectedChapters.forEach((c, idx) => {
-                    const k = keyOf(c.title);
-                    if (!k) return;
-                    if (!best.has(k) || c.content.length > detectedChapters[best.get(k)].content.length) best.set(k, idx);
+                    if (!best.has(c.num) || c.content.length > detectedChapters[best.get(c.num)].content.length) best.set(c.num, idx);
                 });
-                const keep = new Set(best.values());
-                const filtered = detectedChapters.filter((c, idx) => !keyOf(c.title) || keep.has(idx));
+                const kept = [...best.values()].map(idx => detectedChapters[idx]).sort((x, y) => x.num - y.num);
                 detectedChapters.length = 0;
-                detectedChapters.push(...filtered);
+                detectedChapters.push(...kept);
             }
 
             if (detectedChapters.length < 2) {
