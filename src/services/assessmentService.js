@@ -18,6 +18,7 @@
 //    action with the right payload shape.
 
 import { supabase } from '../lib/supabase';
+import { authenticatedFetch } from '../lib/authFetch';
 
 const API_BASE = '/api/index';
 // FIXED (2026-08-20): removed OPENAI_API_KEY (import.meta.env.VITE_OPENAI_API_KEY)
@@ -323,13 +324,10 @@ export async function startAssessment(userId, assessmentId) {
         const sessionId = `${userId}_${assessmentId}_${Date.now()}`;
         const session = await recordAssessmentStart(userId, assessmentId, sessionId);
         
-        const { data: questions, error: questionsError } = await supabase
-            .from('assessment_questions')
-            .select('*, options:assessment_options(*)')
-            .eq('assessment_id', assessmentId)
-            .order('sort_order', { ascending: true });
-        
-        if (questionsError) throw questionsError;
+        // CHANGED (2026-10-14): questions now come from the server with the
+        // answer keys removed (is_correct / correct_answer), so a member can
+        // no longer read the right answers from the browser.
+        const { questions } = await authenticatedFetch(`assessment-questions&assessmentId=${encodeURIComponent(assessmentId)}`);
         
         return {
             success: true,
@@ -810,12 +808,14 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
         
         if (uaError) throw uaError;
         
-        const { data: questions, error: qError } = await supabase
-            .from('assessment_questions')
-            .select('*, options:assessment_options(*)')
-            .eq('assessment_id', userAssessment.assessment_id);
-        
-        if (qError) throw qError;
+        // CHANGED (2026-10-14): question details come from the server without
+        // answer keys, and multiple-choice / true-false marking is done by the
+        // server for this member's own attempt. Nothing here reads a key.
+        const { questions } = await authenticatedFetch(`assessment-questions&assessmentId=${encodeURIComponent(userAssessment.assessment_id)}`);
+        const { results: objective } = await authenticatedFetch('assessment-objective-check', {
+            userAssessmentId,
+            answers
+        });
         
         let totalScore = 0;
         let maxPossibleScore = 0;
@@ -867,8 +867,7 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
             if (question.question_type === 'multiple_choice') {
                 const selectedOption = question.options?.find(opt => opt.id === userAnswer);
                 userAnswerText = selectedOption?.option_text || userAnswer;
-                const correctOption = question.options?.find(opt => opt.is_correct === true);
-                if (correctOption && userAnswer === correctOption.id) {
+                if (objective?.[question.id] === true) {
                     score = maxPoints;
                     isCorrect = true;
                 }
@@ -891,9 +890,10 @@ export async function submitAssessmentAnswers(userAssessmentId, answers, timeSpe
                 // defined right answer — punishing the user for a data gap
                 // that isn't their fault is worse than being lenient here.
                 userAnswerText = userAnswer === 'true' ? 'True' : 'False';
-                if (question.correct_answer !== undefined && question.correct_answer !== null) {
-                    const correctAnswer = String(question.correct_answer).toLowerCase();
-                    if (String(userAnswer).toLowerCase() === correctAnswer) {
+                // The server returns true / false, or null when no right answer
+                // is recorded (full credit, as before).
+                if (objective?.[question.id] !== null && objective?.[question.id] !== undefined) {
+                    if (objective[question.id] === true) {
                         score = maxPoints;
                         isCorrect = true;
                     }
