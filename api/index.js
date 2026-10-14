@@ -11988,7 +11988,7 @@ Return the lesson as markdown with this structure:
             const { count: emailFailCount } = await supabaseClient
                 .from('security_events').select('id', { count: 'exact', head: true })
                 .eq('event_type', 'user_login_failed').gte('created_at', emailSince)
-                .contains('metadata', { email: normalizedEmail });
+                .contains('details', { email: normalizedEmail });
 
             if ((emailFailCount || 0) >= EMAIL_MAX_ATTEMPTS) {
                 return res.status(429).json({
@@ -12166,7 +12166,7 @@ Return the lesson as markdown with this structure:
                         .eq('event_type', 'admin_login_failed').eq('ip_address', ip).gte('created_at', since),
                     supabaseClient.from('security_events').select('id', { count: 'exact', head: true })
                         .eq('event_type', 'admin_login_failed').gte('created_at', since)
-                        .contains('metadata', { email: email.trim() })
+                        .contains('details', { email: email.trim() })
                 ]);
 
                 const failCount = Math.max(ipFailCount || 0, emailFailCount || 0);
