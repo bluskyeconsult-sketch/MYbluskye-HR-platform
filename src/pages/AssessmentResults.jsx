@@ -19,6 +19,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { generateAssessmentReport } from '../services/assessmentService';
+import ProductAssistant from '../components/ProductAssistant';
 import { 
     Award, Download, Share2, TrendingUp, CheckCircle, Loader2, 
     AlertCircle, BarChart3, FileText, Mail, Twitter, Linkedin,
@@ -648,6 +649,22 @@ export default function AssessmentResults() {
                             Take Another Assessment
                         </Link>
                     </div>
+                </div>
+
+                {/* NEW (2026-10-14): the shared AI assistant, with this result as
+                    its context (title, score, area scores). Hidden when printing. */}
+                <div className="mb-8 print:hidden">
+                    <ProductAssistant
+                        product="assessments"
+                        title="Ask the AI assistant about your results"
+                        context={[
+                            `Assessment: ${results.assessment?.title || 'Assessment'}`,
+                            isSelfReport ? 'Type: self-report profile (no right or wrong answers)' : `Score: ${Math.round(results.score)} of ${results.max_score} (${results.percentage}%)`,
+                            hasDimensions ? `Areas: ${Object.entries(dimensionScores).map(([d, v]) => `${prettyDim(d)} ${v}%`).join(', ')}` : '',
+                            isMatching && matches.length ? `Top career matches: ${matches.slice(0, 3).map(m => m.name).join(', ')}` : ''
+                        ].filter(Boolean).join('\n')}
+                        suggestions={['What should I work on first?', 'Explain my lowest area', 'Suggest a 30-day plan']}
+                    />
                 </div>
 
                 {/* Share Modal */}
