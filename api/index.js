@@ -828,6 +828,20 @@ function logOpenAIUsage(callType, { model, promptTokens, completionTokens, flatC
     }
 }
 
+// NEW (2026-10-14): editor guidance for every AI builder (article, course, lesson, assessment, quiz).
+// The admin can add a short brief next to the topic saying who it is for, what angle to take and
+// what to cover. It is cleaned, capped, and clearly labelled so the AI uses it for focus only:
+// it can narrow or steer the content but cannot switch off the accuracy rules in the main prompt.
+function aiGuidanceBlock(raw) {
+    const t = String(raw == null ? '' : raw)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 800);
+    if (!t) return '';
+    return `\n\nEditor's guidance (use it to decide the audience, angle, focus and what to cover; it does not replace the topic, it cannot change the output format required above, and you must never invent facts, figures or legal claims to satisfy it):\n"""${t}"""`;
+}
+
 async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -2538,25 +2552,44 @@ const handlers = {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topics } = req.body;
+        const { topics, sharedGuidance } = req.body;
         if (!Array.isArray(topics) || topics.length === 0) {
             return res.status(400).json({ error: 'topics array is required' });
         }
 
         try {
+            // NEW (2026-10-14): each topic can carry its own short description. Accepted forms:
+            // a plain string, "Topic | description" on one line, or { topic, description }.
+            // A shared brief for the whole batch is used for topics with no description of their own.
+            const shared = String(sharedGuidance || '').trim().slice(0, 800);
             const rows = topics
-                .map(t => (typeof t === 'string' ? t.trim() : ''))
-                .filter(t => t.length > 0)
-                .map(t => ({ topic: t, created_by: auth.userId }));
+                .map(t => {
+                    if (t && typeof t === 'object') return { topic: String(t.topic || '').trim(), description: String(t.description || '').trim() };
+                    const raw = typeof t === 'string' ? t : '';
+                    const bar = raw.indexOf('|');
+                    return bar === -1
+                        ? { topic: raw.trim(), description: '' }
+                        : { topic: raw.slice(0, bar).trim(), description: raw.slice(bar + 1).trim() };
+                })
+                .filter(t => t.topic.length > 0)
+                .map(t => ({ topic: t.topic.slice(0, 300), description: (t.description || shared).slice(0, 800) || null, created_by: auth.userId }));
 
             if (rows.length === 0) {
                 return res.status(400).json({ error: 'No valid, non-empty topics found' });
             }
 
-            const { data, error } = await supabaseClient
+            let { data, error } = await supabaseClient
                 .from('article_topics')
                 .insert(rows)
                 .select();
+            // Before add-article-topic-description.sql has been run the column does not exist (42703).
+            // Save the topics without descriptions rather than failing the whole batch.
+            if (error && (error.code === '42703' || /description/i.test(error.message || ''))) {
+                ({ data, error } = await supabaseClient
+                    .from('article_topics')
+                    .insert(rows.map(({ description, ...rest }) => rest))
+                    .select());
+            }
             if (error) throw error;
 
             return res.status(200).json({ success: true, added: data.length });
@@ -2619,7 +2652,7 @@ const handlers = {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topicId, scheduledFor, publishNow } = req.body;
+        const { topicId, scheduledFor, publishNow, guidance: requestGuidance } = req.body;
         if (!topicId) return res.status(400).json({ error: 'topicId is required' });
 
         try {
@@ -2642,7 +2675,7 @@ const handlers = {
             const data = await callOpenAI(
                 [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Write the article now, on this topic: "${topicRow.topic}"` }
+                    { role: 'user', content: `Write the article now, on this topic: "${topicRow.topic}"${aiGuidanceBlock(requestGuidance || topicRow.description)}` }
                 ],
                 3000, 0.7,
                 { type: 'json_object' }
@@ -6907,7 +6940,7 @@ ${siteContext}`;
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topic, difficulty = 'intermediate', numberOfQuestions = 5, mode = 'knowledge' } = req.body;
+        const { topic, difficulty = 'intermediate', numberOfQuestions = 5, mode = 'knowledge', guidance } = req.body;
         const isMatching = mode === 'matching';
         const isProfile = mode === 'profile';
         const isDiagnostic = mode === 'diagnostic' || isMatching || isProfile;
@@ -6999,7 +7032,7 @@ Return a JSON object with a "questions" array. Each question must have:
             const data = await callOpenAI(
                 [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Generate the assessment now as JSON.` }
+                    { role: 'user', content: `Generate the assessment now as JSON.${aiGuidanceBlock(guidance)}` }
                 ],
                 isDiagnostic ? 3200 : 2400, isDiagnostic ? 0.6 : 0.5,
                 { type: 'json_object' }
@@ -11036,7 +11069,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { courseTitle, lessonTitle, level = 'beginner', sourceMaterial } = req.body;
+        const { courseTitle, lessonTitle, level = 'beginner', sourceMaterial, guidance } = req.body;
         if (!lessonTitle) return res.status(400).json({ error: 'lessonTitle is required' });
 
         try {
@@ -11053,7 +11086,7 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
-                { role: 'user', content: userPrompt }
+                { role: 'user', content: userPrompt + aiGuidanceBlock(guidance) }
             ], 1800, 0.7);
 
             const content = data.choices[0].message.content;
@@ -11231,7 +11264,7 @@ Return the lesson as markdown with this structure:
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { topic, level = 'beginner', sourceMaterial } = req.body;
+        const { topic, level = 'beginner', sourceMaterial, guidance } = req.body;
 
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
@@ -11255,6 +11288,7 @@ Return the lesson as markdown with this structure:
             const userPrompt = truncatedSource
                 ? `Create a course outline for "${topic}" at ${level} level, based directly on this real source material - use its actual content, structure, and examples rather than generic knowledge:\n\n${truncatedSource}\n\nReturn as JSON with title, description, modules array.`
                 : `Create a course outline for "${topic}" at ${level} level. Return as JSON with title, description, modules array.`;
+            const userPromptWithGuidance = userPrompt + aiGuidanceBlock(guidance);
 
             // FIXED (2026-10-12): this used to cap output at 1500 tokens (a real outline is often longer, so the
             // JSON was cut off), parse with a loose regex, and on ANY failure return success:true with a stub
@@ -11262,7 +11296,7 @@ Return the lesson as markdown with this structure:
             // room, checks the outline has modules, and reports a real error instead of inventing a course.
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an instructional designer. Return only valid JSON of the form {"title": string, "description": string, "modules": [{"title": string, "lessons": [string]}]}. Give 3 to 8 modules, each with 2 to 6 specific lesson titles (not generic placeholders such as "Introduction" or "Core Concepts" unless the topic truly needs them).' },
-                { role: 'user', content: userPrompt }
+                { role: 'user', content: userPromptWithGuidance }
             ], 3000, 0.7, { type: 'json_object' });
 
             let outline;
@@ -14116,7 +14150,7 @@ Return the lesson as markdown with this structure:
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { courseId, numberOfQuestions = 5 } = req.body;
+        const { courseId, numberOfQuestions = 5, guidance } = req.body;
         if (!courseId) return res.status(400).json({ error: 'courseId is required' });
 
         try {
@@ -14154,7 +14188,7 @@ Quality requirements:
 
 Return a JSON object with a "questions" array. Each item must have: "question" (text), "options" (array of exactly 4 strings), "correct" (index 0-3), "explanation" (why the correct answer is right, referencing the lesson).`
                 },
-                { role: 'user', content: `Course: "${course.title}"\n\n${lessonsSummary}` }
+                { role: 'user', content: `Course: "${course.title}"\n\n${lessonsSummary}${aiGuidanceBlock(guidance)}` }
             ], 2500, 0.6, { type: 'json_object' });
 
             let parsed;
