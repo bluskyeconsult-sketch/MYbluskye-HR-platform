@@ -43,6 +43,7 @@ import {
     AlertCircle, WifiOff, Maximize2, Minimize2
 } from 'lucide-react';
 import ContentRenderer from '../../components/ContentRenderer';
+import AiGuidanceField, { guidanceLine } from '../../components/admin/AiGuidanceField';
 
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
@@ -138,6 +139,8 @@ export default function ArticleEditor() {
     // content generation/improvement.
     const [generatingImage, setGeneratingImage] = useState(false);
     const [aiTopic, setAiTopic] = useState('');
+    // NEW (2026-10-14): short brief that guides the AI beyond the topic.
+    const [aiGuidance, setAiGuidance] = useState('');
     const [showAIPanel, setShowAIPanel] = useState(false);
     const [copied, setCopied] = useState(false);
     const [wordCount, setWordCount] = useState(0);
@@ -295,7 +298,7 @@ export default function ArticleEditor() {
         
         try {
             const systemPrompt = 'You are a professional content writer for an HR and career platform. Write a complete, well-structured article in markdown with a top-level # title, clear section headers, and a conclusion. Return ONLY the article markdown, no preamble or commentary.';
-            const userMessage = `Write a professional article about: "${aiTopic}". Aim for 500-800 words with an introduction, 2-4 main sections, and a conclusion.`;
+            const userMessage = `Write a professional article about: "${aiTopic}". Aim for 500-800 words with an introduction, 2-4 main sections, and a conclusion.${guidanceLine(aiGuidance)}`;
             
             // FIXED (2026-08-22): no userId was ever sent, so this call
             // was silently treated as a guest request by checkAndDeductCredit
@@ -331,6 +334,7 @@ export default function ArticleEditor() {
             alert('✅ Article generated successfully!');
             setShowAIPanel(false);
             setAiTopic('');
+            setAiGuidance('');
         } catch (error) {
             console.error('AI generation error:', error);
             const fallbackContent = fallbackGenerateArticle(aiTopic);
@@ -344,6 +348,7 @@ export default function ArticleEditor() {
             alert('⚠️ AI service unavailable. Used template-based generation instead.');
             setShowAIPanel(false);
             setAiTopic('');
+            setAiGuidance('');
         } finally {
             setAiGenerating(false);
         }
@@ -570,6 +575,15 @@ export default function ArticleEditor() {
                                         {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                                     </button>
                                 </div>
+                            </div>
+                            <div className="md:col-span-3 order-last">
+                                <AiGuidanceField
+                                    value={aiGuidance}
+                                    onChange={setAiGuidance}
+                                    label="Brief description for Generate Article (optional)"
+                                    rows={2}
+                                    placeholder={'Audience, angle and key points. e.g. "For care workers in England. Plain English, what changed on 1 October and one worked example."'}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm text-slate-300 mb-2">Improve Content</label>
