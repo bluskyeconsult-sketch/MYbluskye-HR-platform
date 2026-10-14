@@ -6,10 +6,13 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import AiGuidanceField from './AiGuidanceField';
 import { X, Loader2, Sparkles, Plus, Calendar, CheckCircle, XCircle, Clock, Trash2 } from 'lucide-react';
 
 export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
     const [bulkText, setBulkText] = useState('');
+    // NEW (2026-10-14): one brief applied to every topic in the batch that has no description of its own.
+    const [sharedGuidance, setSharedGuidance] = useState('');
     const [adding, setAdding] = useState(false);
     const [topics, setTopics] = useState([]);
     const [loadingTopics, setLoadingTopics] = useState(true);
@@ -90,12 +93,13 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
             const response = await fetch('/api/index?action=admin-bulk-add-article-topics', {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ topics: lines })
+                body: JSON.stringify({ topics: lines, sharedGuidance: sharedGuidance.trim() || undefined })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to add topics');
 
             setBulkText('');
+            setSharedGuidance('');
             await loadTopics();
         } catch (err) {
             setError(err.message);
@@ -162,7 +166,7 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                     <span>Publish immediately. Leave this off to save each article as a draft you read first (recommended: AI can state laws and figures wrongly). A schedule date set below still applies.</span>
                 </label>
                 <p className="text-slate-400 text-sm mb-3">
-                    List as many topics as you like, one per line. Generate full article content for each one whenever you're ready — no need to write from scratch.
+                    List as many topics as you like, one per line. To give one topic its own brief, write it as <span className="text-slate-300">Topic | short description</span>. Generate full article content for each one whenever you're ready.
                 </p>
 
                 <textarea
@@ -171,6 +175,15 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                     rows={5}
                     placeholder={"How to write a standout CV in 2026\nRemote work interview tips\nNegotiating your first salary"}
                     className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm mb-3"
+                />
+
+                <AiGuidanceField
+                    className="mb-3"
+                    value={sharedGuidance}
+                    onChange={setSharedGuidance}
+                    label="Brief description for all these topics (optional)"
+                    rows={2}
+                    placeholder={'Audience, angle and tone for the whole batch. e.g. "For care workers and small care providers in England. Plain English, practical, UK law only."'}
                 />
 
                 <button
@@ -206,6 +219,7 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
                                 <div className="flex justify-between items-start gap-3">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-white text-sm truncate">{topic.topic}</p>
+                                        {topic.description && <p className="text-slate-400 text-xs mt-0.5 line-clamp-2" title={topic.description}>{topic.description}</p>}
                                         {statusBadge(topic.status)}
                                         {topic.error_message && <p className="text-red-400 text-xs mt-1">{topic.error_message}</p>}
                                     </div>
