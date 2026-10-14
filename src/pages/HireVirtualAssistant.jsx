@@ -34,6 +34,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import PageEdgeBanner from '../components/PageEdgeBanner';
 import ShareMenu from '../components/ShareMenu';
+import ProductAssistant from '../components/ProductAssistant';
 import { 
     Bot, Sparkles, DollarSign, Clock, Loader2, Star, Shield, 
     FileText, Briefcase, Users, Award, TrendingUp, 
@@ -1025,6 +1026,21 @@ export default function HireVirtualAssistant() {
                                         <div className="text-slate-300 whitespace-pre-wrap max-h-72 sm:max-h-96 overflow-y-auto prose prose-invert prose-xs sm:prose-sm">
                                             {output}
                                         </div>
+                                    </div>
+                                )}
+
+                                {/* NEW (2026-10-14): the shared AI assistant as a briefing
+                                    helper for single-turn assistants - what to delegate, how
+                                    to write the brief, how to review the result. Conversational
+                                    assistants already chat, so it is not shown for them. */}
+                                {selectedVA?.execution_type !== 'conversational' && (
+                                    <div className="mt-4 sm:mt-6">
+                                        <ProductAssistant
+                                            product="hireva"
+                                            title="Need help with your brief?"
+                                            context={`Assistant: ${vaLabels(selectedVA).task}\nWhat it does: ${String(selectedVA.longDescription || '').slice(0, 600)}${output ? `\nLatest result:\n${String(output).slice(0, 1800)}` : ''}`}
+                                            suggestions={['Help me write a clear brief', 'What should I include?', 'How do I review the result?']}
+                                        />
                                     </div>
                                 )}
                             </div>
