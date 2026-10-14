@@ -261,7 +261,7 @@ export default function SecurityDashboard() {
                                 <div className="min-w-0">
                                     <p className="text-white font-mono text-sm">{ip.ip_address}</p>
                                     <p className="text-slate-500 text-xs">Expires: {new Date(ip.expires_at).toLocaleString()}</p>
-                                    {ip.reason && <p className="text-slate-500 text-xs truncate">Reason: {ip.reason.replace(/_/g, ' ')}</p>}
+                                    {(ip.reason || ip.block_reason) && <p className="text-slate-500 text-xs truncate">Reason: {(ip.reason || ip.block_reason).replace(/_/g, ' ')}</p>}
                                 </div>
                                 <button onClick={() => handleUnblockIP(ip)} className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-xs hover:bg-emerald-700 flex-shrink-0">
                                     <Trash2 className="w-3 h-3 inline mr-1" /> Unblock
