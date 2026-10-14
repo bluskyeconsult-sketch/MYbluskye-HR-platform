@@ -36,6 +36,7 @@ import { supabase } from '../../lib/supabase';
 import { authenticatedFetch } from '../../lib/authFetch';
 import GenerateCourseQuizButton from '../../components/admin/GenerateCourseQuizButton';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
+import AiGuidanceField from '../../components/admin/AiGuidanceField';
 import { 
     Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
@@ -85,6 +86,8 @@ export default function AICourseBuilder() {
     
     // Form State
     const [topic, setTopic] = useState('');
+    // NEW (2026-10-14): short brief that guides the AI beyond the topic (audience, angle, what to cover).
+    const [guidance, setGuidance] = useState('');
     // NEW (2026-09-27): the direct document-upload pathway - lets an
     // admin ground a course in a real, uploaded DOC/PDF/EPUB rather
     // than a topic string alone.
@@ -245,7 +248,7 @@ export default function AICourseBuilder() {
             // FIXED (2026-08-29): confirmed real, reported 401 - this
             // action requires admin authorization, and this call never
             // sent one.
-            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: guidance.trim() || undefined });
             
             if (data.success) {
                 setGeneratedOutline(data.outline);
@@ -282,7 +285,7 @@ export default function AICourseBuilder() {
         
         try {
             // FIXED (2026-08-29): same confirmed regression.
-            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: guidance.trim() || undefined });
             
             if (!data.success) {
                 throw new Error(data.error || 'Failed to generate course outline');
@@ -331,7 +334,8 @@ export default function AICourseBuilder() {
                         courseTitle: outline.title || topic,
                         lessonTitle: mod.title || `Module ${i + 1}`,
                         level,
-                        sourceMaterial: sourceDocumentText || undefined
+                        sourceMaterial: sourceDocumentText || undefined,
+                        guidance: guidance.trim() || undefined
                     });
                     if (contentResult.success && contentResult.content) {
                         content = contentResult.content;
@@ -393,7 +397,7 @@ export default function AICourseBuilder() {
             if (includeQuizzes) {
                 setGenerationStatus('Generating quiz...');
                 try {
-                    await authenticatedFetch('generate-course-quiz', { courseId: newCourse.id });
+                    await authenticatedFetch('generate-course-quiz', { courseId: newCourse.id, guidance: guidance.trim() || undefined });
                 } catch (quizErr) {
                     console.warn('Quiz generation failed:', quizErr);
                 }
@@ -610,6 +614,13 @@ export default function AICourseBuilder() {
                                 disabled={loading}
                             />
                         </div>
+
+                        <AiGuidanceField
+                            value={guidance}
+                            onChange={setGuidance}
+                            disabled={loading}
+                            placeholder={'Who is this course for and what should they be able to do afterwards? e.g. "For new care assistants in England, practical and example-led, covering safeguarding basics and record keeping."'}
+                        />
 
                         {/* NEW (2026-09-27): direct document upload -
                             grounds the course in a real, uploaded
