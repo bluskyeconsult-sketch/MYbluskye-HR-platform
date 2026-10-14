@@ -21,6 +21,7 @@ import { GateGuard } from '../components/GateGuard';
 import PageEdgeBanner from '../components/PageEdgeBanner';
 import ShareMenu from '../components/ShareMenu';
 import ContentRenderer from '../components/ContentRenderer';
+import ProductAssistant from '../components/ProductAssistant';
 import PricingBadge from '../components/PricingBadge';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
@@ -732,6 +733,21 @@ Would you like me to provide more specific information?`;
                                 <div className="text-slate-300 prose prose-invert prose-sm max-w-none">
                                     <ContentRenderer content={output} />
                                 </div>
+                            </div>
+                        )}
+
+                        {/* NEW (2026-10-14): the shared AI assistant, offered
+                            once a result exists so the member can ask how to
+                            improve it. Context is the tool name plus the
+                            start of the result; the server builds the prompt. */}
+                        {output && (
+                            <div className="mt-4">
+                                <ProductAssistant
+                                    product="hr_tools"
+                                    title="Ask about this result"
+                                    context={`Tool: ${activeToolData?.name || 'HR tool'}\nResult so far:\n${String(output).slice(0, 2500)}`}
+                                    suggestions={['What should I improve first?', 'Explain this in simpler terms', 'What are the risks here?']}
+                                />
                             </div>
                         )}
 
