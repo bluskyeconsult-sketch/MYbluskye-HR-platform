@@ -1956,7 +1956,8 @@ async function findRecentCollectedJobs(supabaseClient, intent) {
             .eq('is_active', true).eq('status', 'pending_approval').eq('source', intent.country)
             .gte('created_at', since).order('created_at', { ascending: false }).limit(5);
         // Same rule as Career Coach: Jooble listings stay out of user-facing results until Jooble confirms permission in writing.
-        if (process.env.JOOBLE_CONFIRMED !== 'on') q = q.not('source_name', 'ilike', 'Jooble%');
+        // Jooble's written reply (ticket 1974824) bans storing its listings, so stored Jooble rows are never shown, whatever env flags say.
+        q = q.not('source_name', 'ilike', 'Jooble%');
         if (intent.city) q = q.ilike('location', `%${intent.city}%`);
         const terms = (intent.terms || []).map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
         if (terms.length) q = q.or(terms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
@@ -13090,7 +13091,7 @@ Return the lesson as markdown with this structure:
             let extQ = sb.from('external_jobs').select('id, title, company, location, description, source, source_name, external_url, salary_range').eq('is_active', true).eq('status', 'pending_approval').gte('created_at', since).order('created_at', { ascending: false }).limit(150);
             if (countries.length) extQ = extQ.in('source', countries);
             // Jooble listings are left out until Jooble confirms in writing that storing and showing them is allowed.
-            if (process.env.JOOBLE_CONFIRMED !== 'on') extQ = extQ.not('source_name', 'ilike', 'Jooble%');
+            extQ = extQ.not('source_name', 'ilike', 'Jooble%'); // stored Jooble rows are never shown (Jooble ticket 1974824)
             if (orFilter) extQ = extQ.or(orFilter);
             const [{ data: board }, { data: ext }] = await Promise.all([boardQ, extQ]);
 
