@@ -676,10 +676,10 @@ for (const [code, cfg] of Object.entries(JOOBLE_COUNTRIES)) {
         url: `https://${cfg.host}/api/(key hidden)`,
         type: 'api',
         // Only countries with a key set are active.
-        // CHANGED (2026-10-12): Jooble's written reply says its API is for real-time display, not for building a
-        // job database, and that listing data should be kept only a few hours. The daily fetch stores listings
-        // in external_jobs, so it is OFF unless JOOBLE_STORE=on is set in Vercel. Do not set it without Jooble's written OK.
-        get is_active() { return process.env.JOOBLE_STORE === 'on' && !!joobleKeyFor(code); },
+        // CHANGED (2026-10-14): Jooble's written reply (ticket 1974824) says saving its listings in our own
+        // database is NOT permitted, so this batch source is permanently off. Jooble is shown live in the chat
+        // search only (liveJobSearchService.js), with Jobs by Jooble attribution.
+        get is_active() { return false; }, // Jooble bans storing listings (ticket 1974824): never fetched into external_jobs; chat shows Jooble live only
         priority: 4,
         requiresEnv: cfg.env,
         skipConnectionTest: true,
