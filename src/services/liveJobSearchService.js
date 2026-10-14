@@ -375,10 +375,73 @@ async function fetchArbeitnowLive(terms) {
     }
 }
 
-function matchesTerms(job, terms) {
-    if (!terms || terms.length === 0) return true;
-    const hay = `${job.title || ''} ${job.description || ''}`.toLowerCase();
-    return terms.some(t => hay.includes(t.toLowerCase()));
+// NEW (2026-10-14): STRICT RELEVANCE GATE. Every live source, Jooble included, goes through the same
+// test, so a searcher only sees results that really match what they asked for. The old rule only
+// needed ONE search word to appear anywhere in the text, and Jooble results skipped the test
+// completely, so loosely related jobs filled the cards. Now a job must:
+//   1. have a working apply link;
+//   2. contain at least one role word in its TITLE (for "care assistant", "care" or "assistant");
+//   3. cover at least 60% of the role words across title and snippet;
+//   4. match the city if one was asked for (remote jobs are kept);
+//   5. clear a minimum score. Title hits count most, a city match and a visible sponsorship
+//      mention add points, and a sponsorship search with no mention costs a point.
+// Fewer, closer results are returned instead of padding the list. Generic words such as "jobs",
+// "visa" and "sponsorship" are not treated as role words.
+const MIN_RELEVANCE_SCORE = 3;
+const MAX_LIVE_RESULTS = 8;
+const GENERIC_TERMS = new Set(['job', 'jobs', 'work', 'working', 'position', 'positions', 'role', 'roles', 'vacancy', 'vacancies',
+    'opening', 'openings', 'hiring', 'career', 'careers', 'opportunity', 'opportunities', 'visa', 'sponsorship', 'sponsored',
+    'sponsor', 'sponsoring', 'relocation', 'permit', 'abroad', 'overseas', 'full', 'time', 'part', 'the', 'and', 'for', 'with',
+    'near', 'in', 'at', 'a', 'an', 'to', 'of', 'looking', 'find', 'need', 'want']);
+const SPONSOR_WORDS = /sponsor|visa|relocation|work permit|skilled worker|certificate of sponsorship|h-?1b|lmia|482|aewv/i;
+const SPAM_TITLE = /(earn\s*\$|\$\s*\d+\s*(per|\/)\s*(hour|day|week)\s*from home|no experience needed|unlimited income|get rich|crypto trader wanted)/i;
+
+export function roleTermsOf(terms) {
+    const all = (terms || [])
+        .flatMap(t => String(t).toLowerCase().split(/\s+/))
+        .map(t => t.replace(/[^a-z0-9+#.]/g, ''))
+        .filter(t => t.length >= 2);
+    const core = all.filter(t => !GENERIC_TERMS.has(t));
+    return core.length ? core : all;
+}
+
+function termRegex(term) {
+    const stem = term.length > 5 ? term.replace(/(ing|es|s)$/, '') : term.replace(/s$/, '');
+    return new RegExp('\\b' + stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+}
+
+// Returns a score, or null when the job must not be shown.
+export function scoreJob(job, roleTerms, { city, sponsorshipOnly }) {
+    if (!/^https?:\/\//i.test(job.external_apply_url || '')) return null;
+    if (!job.title || SPAM_TITLE.test(job.title)) return null;
+    const title = job.title.toLowerCase();
+    const desc = (job.description || '').toLowerCase();
+    let score = 0;
+    if (roleTerms.length) {
+        let titleHits = 0, anyHits = 0;
+        for (const t of roleTerms) {
+            const re = termRegex(t);
+            if (re.test(title)) { titleHits++; anyHits++; }
+            else if (re.test(desc)) anyHits++;
+        }
+        if (titleHits === 0 || anyHits / roleTerms.length < 0.6) return null;
+        score += titleHits * 3 + (anyHits - titleHits);
+    } else {
+        score += 1;
+    }
+    if (city) {
+        const loc = (job.location || '').toLowerCase();
+        const wanted = city.toLowerCase();
+        if (loc && !loc.includes(wanted) && !/remote|anywhere|nationwide|hybrid/.test(loc)) return null;
+        if (loc.includes(wanted)) score += 2;
+    }
+    if (sponsorshipOnly) {
+        if (SPONSOR_WORDS.test(`${title} ${desc}`)) { score += 3; job.sponsorship_mentioned = true; }
+        else score -= 1;
+    }
+    if (!job.company || /^unknown/i.test(job.company)) score -= 1;
+    if (job.salary_range) score += 0.5;
+    return score >= MIN_RELEVANCE_SCORE ? score : null;
 }
 
 // The real, main entry point. Returns { jobs, notes }:
@@ -426,18 +489,27 @@ export async function searchLiveExternalJobs({ keyword, terms, country, city, sp
     }
 
     const results = await withTimeout(Promise.all(searches), LIVE_SEARCH_TIMEOUT_MS, searches.map(() => []));
-    let allJobs = results.flat();
-    // A term must appear in the title or description; the country feeds are
-    // already filtered by the provider but remote feeds are not.
-    allJobs = allJobs.filter(j => j.source_name === 'Jooble' || matchesTerms(j, termList));
+    const fetched = results.flat();
+    // Every source, Jooble included, goes through the same strict relevance gate (see scoreJob).
+    const roleTerms = roleTermsOf(termList);
+    const scored = [];
+    for (const j of fetched) {
+        const s = scoreJob(j, roleTerms, { city, sponsorshipOnly });
+        if (s !== null) scored.push({ job: j, score: s });
+    }
     const seenJobs = new Set();
-    allJobs = allJobs.filter(j => { const k = `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}|${(j.location || '').toLowerCase()}`; if (seenJobs.has(k)) return false; seenJobs.add(k); return true; });
+    const unique = scored.filter(({ job: j }) => { const k = `${(j.title || '').toLowerCase()}|${(j.company || '').toLowerCase()}|${(j.location || '').toLowerCase()}`; if (seenJobs.has(k)) return false; seenJobs.add(k); return true; });
+    unique.sort((a, b) => b.score - a.score);
+    const allJobs = unique.slice(0, MAX_LIVE_RESULTS).map(({ job: j }) => {
+        // Jooble requires a visible "Jobs by Jooble" label with a clickable link on every result.
+        if (j.source_name === 'Jooble') { j.attribution = 'Jobs by Jooble'; j.attribution_url = 'https://jooble.org'; }
+        return j;
+    });
     if (sponsorshipOnly) notes.push('Live results are not checked for visa sponsorship - the user must confirm sponsorship with the employer.');
+    if (fetched.length > 0 && allJobs.length === 0) notes.push('Live sources returned results, but none matched the role closely enough to be worth showing, so none are listed. Suggest the user try a more specific job title or a nearby city.');
+    else if (allJobs.length > 0 && allJobs.length < 3) notes.push('Only a few live results matched the search closely. Say so plainly rather than padding the list.');
 
-    // Keep Jooble visible: if it returned results, make sure some reach the member.
-    const jooble = allJobs.filter(j => j.source_name === 'Jooble').slice(0, 5);
-    const others = allJobs.filter(j => j.source_name !== 'Jooble').slice(0, 10 - jooble.length);
-    const data = { jobs: [...others, ...jooble], notes };
+    const data = { jobs: allJobs, notes };
     cache.set(key, { data, timestamp: Date.now() });
     return data;
 }
