@@ -8208,7 +8208,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             const [eventsRes, blockedRes, totalRes, criticalRes] = await Promise.all([
                 eventsQuery,
-                supabaseClient.from('blocked_ips').select('*').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: false }),
+                supabaseClient.from('blocked_ips').select('*').gt('expires_at', new Date().toISOString()).is('unblocked_at', null).order('expires_at', { ascending: false }),
                 supabaseClient.from('security_events').select('id', { count: 'exact', head: true }).gte('created_at', since),
                 supabaseClient.from('security_events').select('id', { count: 'exact', head: true }).gte('created_at', since).eq('severity', 'critical')
             ]);
@@ -8276,8 +8276,18 @@ Keep the tone professional and constructive throughout - direct about issues whe
 
         try {
             const { data: row } = await supabaseClient.from('blocked_ips').select('ip_address').eq('id', id).maybeSingle();
-            const { error } = await supabaseClient.from('blocked_ips').delete().eq('id', id);
+            // Keep the row as history: stamp who lifted it and when, and end
+            // it now. The block check and the dashboard list only count rows
+            // that have not expired, so setting expires_at to now is what
+            // actually lifts the block.
+            const nowIso = new Date().toISOString();
+            const { data: lifted, error } = await supabaseClient
+                .from('blocked_ips')
+                .update({ expires_at: nowIso, unblocked_at: nowIso, unblocked_by: auth.userId, is_permanent: false })
+                .eq('id', id)
+                .select('id');
             if (error) throw error;
+            if (!lifted || lifted.length === 0) return res.status(404).json({ success: false, error: 'That block no longer exists.' });
             logSecurityEvent('admin_manual_ip_unblock', row?.ip_address || 'unknown', 'info', { by: auth.userId });
             return res.status(200).json({ success: true });
         } catch (error) {
