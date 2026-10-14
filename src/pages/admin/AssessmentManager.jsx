@@ -20,6 +20,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import AiGuidanceField from '../../components/admin/AiGuidanceField';
 import { 
     ClipboardList, Plus, Edit2, Trash2, Eye, Loader2, 
     CheckCircle, XCircle, BarChart3, BookOpen, AlertCircle,
@@ -228,6 +229,8 @@ export default function AssessmentManager() {
     
     // AI Generation State
     const [aiTopic, setAiTopic] = useState('');
+    // NEW (2026-10-14): short brief that guides the AI beyond the topic.
+    const [aiGuidance, setAiGuidance] = useState('');
     const [aiDifficulty, setAiDifficulty] = useState('intermediate');
     const [aiQuestionCount, setAiQuestionCount] = useState(10);
     // 'knowledge' = a test with right and wrong answers. 'diagnostic' = a self-assessment with no right
@@ -292,6 +295,7 @@ export default function AssessmentManager() {
                 },
                 body: JSON.stringify({
                     topic: aiTopic,
+                    guidance: aiGuidance.trim() || undefined,
                     difficulty: aiDifficulty,
                     numberOfQuestions: aiQuestionCount,
                     // match the assessment being extended, so a self-diagnostic never gets quiz questions
@@ -426,6 +430,7 @@ export default function AssessmentManager() {
                 },
                 body: JSON.stringify({
                     topic: aiTopic,
+                    guidance: aiGuidance.trim() || undefined,
                     difficulty: aiDifficulty,
                     numberOfQuestions: aiQuestionCount,
                     mode: aiMode
@@ -1167,6 +1172,13 @@ export default function AssessmentManager() {
                                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-purple-500"
                                 />
                             </div>
+
+                            <AiGuidanceField
+                                value={aiGuidance}
+                                onChange={setAiGuidance}
+                                label="Brief description (optional)"
+                                placeholder={'Who will take it and what should it measure? e.g. "For first-time team leaders in care homes. Focus on delegation and handling conflict, using realistic workplace situations."'}
+                            />
 
                             <div>
                                 <label className="block text-sm text-slate-400 mb-1">What kind of assessment?</label>
