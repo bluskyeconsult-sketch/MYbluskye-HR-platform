@@ -32,10 +32,12 @@
 // 8. Assessment details and questions no longer send timestamp columns the
 //    database fills in itself.
 //
-// NOTE FOR THE OWNER: the correct-answer flag (is_correct) is read in the
-// member's browser to mark multiple-choice answers. That is acceptable
-// while assessments are guidance only; if a score ever gates a certificate
-// or a payment, scoring must move to the server first.
+// NOTE FOR THE OWNER (updated 2026-10-14): multiple-choice and true/false
+// answers are now marked on the server (assessment-objective-check), and
+// members receive questions with the answer keys removed
+// (assessment-questions). After you run lock-assessment-answer-keys.sql,
+// only admins can read the question and option tables directly, which is
+// what this editor does, so nothing here changes.
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
