@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import ContentRenderer from '../../components/ContentRenderer';
 import AiGuidanceField, { guidanceLine } from '../../components/admin/AiGuidanceField';
+import ImageIdeasPicker from '../../components/admin/ImageIdeasPicker';
 
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
@@ -451,7 +452,7 @@ export default function ArticleEditor() {
     // returning the raw DALL-E URL, which expires after about an hour -
     // important for a published article that could stay live for
     // months, unlike a quick preview.
-    async function handleGenerateImage() {
+    async function handleGenerateImage(tailoredPrompt) {
         if (!article.title.trim()) {
             alert('Please add a title first, so the image reflects what the article is actually about');
             return;
@@ -460,7 +461,7 @@ export default function ArticleEditor() {
         setGeneratingImage(true);
         try {
             const { data: { session: imageSession } } = await supabase.auth.getSession();
-            const prompt = `A professional, editorial-style featured image for a blog article titled "${article.title}"${article.category ? `, in the category of ${article.category}` : ''}. Clean, modern, suitable for a professional HR/career website. No text or words in the image.`;
+            const prompt = (typeof tailoredPrompt === 'string' && tailoredPrompt.trim()) ? tailoredPrompt.trim() : `A professional, editorial-style featured image for a blog article titled "${article.title}"${article.category ? `, in the category of ${article.category}` : ''}. Clean, modern, suitable for a professional HR/career website. No text or words in the image.`;
 
             const response = await fetch('/api/index?action=generateArticleImage', {
                 method: 'POST',
@@ -731,13 +732,23 @@ export default function ArticleEditor() {
                                 is left completely untouched for anyone who
                                 prefers to paste their own. */}
                             <button
-                                onClick={handleGenerateImage}
+                                onClick={() => handleGenerateImage()}
                                 disabled={generatingImage || !article.title.trim()}
                                 className="mt-2 text-xs text-purple-400 hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-1"
                             >
                                 {generatingImage ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
                                 {generatingImage ? 'Generating...' : 'Generate image with AI'}
                             </button>
+                            <ImageIdeasPicker
+                                kind="article"
+                                className="mt-3"
+                                title={article.title}
+                                summary={article.excerpt || ''}
+                                content={article.content}
+                                guidance={aiGuidance}
+                                generating={generatingImage}
+                                onGenerate={(prompt) => handleGenerateImage(prompt)}
+                            />
                         </div>
 
                         <div>
