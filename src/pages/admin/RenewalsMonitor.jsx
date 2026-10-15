@@ -21,7 +21,7 @@ const DEFAULT_FORM = {
     renewalDate: '',
     billingCycle: 'yearly',
     cost: '',
-    currency: 'USD',
+    currency: 'GBP',
     notes: ''
 };
 
@@ -61,9 +61,21 @@ export default function RenewalsMonitor() {
         }
     }
 
+    // Date-only maths (a renewal "today" counts as 0 days, not -1) and UK day/month/year display,
+    // matching the date picker.
     function daysUntil(dateStr) {
-        const diff = new Date(dateStr) - new Date();
-        return Math.ceil(diff / (1000 * 60 * 60 * 24));
+        const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+        const now = new Date();
+        const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        return Math.round((Date.UTC(y, m - 1, d) - todayUtc) / 86400000);
+    }
+    function fmtDate(dateStr) {
+        const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    }
+    function money(cost, currency) {
+        const sym = { GBP: '£', USD: '$', EUR: '€', NGN: '₦' }[String(currency || '').toUpperCase()];
+        return sym ? `${sym}${cost}` : `${cost} ${currency || ''}`.trim();
     }
 
     function urgencyStyle(days) {
@@ -225,9 +237,9 @@ export default function RenewalsMonitor() {
                                     </div>
                                     <p className="text-slate-400 text-xs capitalize">{r.category || 'other'} · {r.billing_cycle}</p>
                                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
-                                        {r.first_registered_date && <span>Registered: {new Date(r.first_registered_date).toLocaleDateString()}</span>}
-                                        <span>Renews: {new Date(r.renewal_date).toLocaleDateString()}</span>
-                                        {r.cost != null && <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{r.cost} {r.currency}</span>}
+                                        {r.first_registered_date && <span>Registered: {fmtDate(r.first_registered_date)}</span>}
+                                        <span>Renews: {fmtDate(r.renewal_date)}</span>
+                                        {r.cost != null && <span>{money(r.cost, r.currency)}{r.billing_cycle === 'monthly' ? ' / month' : r.billing_cycle === 'yearly' ? ' / year' : ''}</span>}
                                     </div>
                                     {r.notes && <p className="text-slate-500 text-xs mt-2">{r.notes}</p>}
                                 </div>
@@ -300,7 +312,7 @@ export default function RenewalsMonitor() {
                                 />
                                 <input
                                     type="text"
-                                    placeholder="Currency"
+                                    placeholder="Currency (GBP, USD, EUR)"
                                     value={form.currency}
                                     onChange={(e) => setForm(f => ({ ...f, currency: e.target.value }))}
                                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
