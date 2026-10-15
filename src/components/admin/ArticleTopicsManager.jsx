@@ -115,7 +115,16 @@ export default function ArticleTopicsManager({ onClose, onArticleGenerated }) {
         setError('');
         try {
             const headers = await authHeaders();
-            const scheduledFor = scheduleDates[topicId] || null;
+            // The date box gives local time without a time zone ("2026-10-16T09:00"). Sent as-is, the
+            // server read it as UTC, so a BST schedule went live an hour early. Converted to a real instant here.
+            const rawWhen = scheduleDates[topicId] || '';
+            const whenDate = rawWhen ? new Date(rawWhen) : null;
+            if (rawWhen && (!whenDate || Number.isNaN(whenDate.getTime()))) {
+                setError('That schedule date is not valid.');
+                setGeneratingId(null);
+                return;
+            }
+            const scheduledFor = whenDate ? whenDate.toISOString() : null;
             const response = await fetch('/api/index?action=generate-article-from-topic', {
                 method: 'POST',
                 headers,
