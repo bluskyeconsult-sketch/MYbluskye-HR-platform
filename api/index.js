@@ -1270,6 +1270,38 @@ const LESSON_IMAGE_KINDS = {
     icon: 'A single bold, simple, centred icon-style illustration on a plain background.'
 };
 
+// NEW (2026-10-15): tailored image briefs. Instead of one generic prompt built from a title, the AI
+// reads the actual piece and proposes specific pictures (what is shown, why it fits, alt text), which
+// the editor can pick and edit before any image is paid for. Images never contain text.
+const IMAGE_SAFETY_SUFFIX = ' Absolutely no text, letters, numbers, logos, watermarks or captions anywhere in the image. No recognisable real people.';
+function withImageSafety(prompt) {
+    const p = String(prompt || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, 900);
+    return /no text/i.test(p) ? p : p + IMAGE_SAFETY_SUFFIX;
+}
+const IMAGE_BRIEF_KINDS = {
+    article: 'a wide featured/hero image for a blog article on a UK HR, employment and careers platform',
+    course: 'a course cover image for an online learning platform',
+    lesson: 'an illustration inside a lesson that helps a learner understand or remember something',
+    other: 'an illustration for professional content'
+};
+async function buildImageBrief({ kind = 'article', title = '', summary = '', content = '', guidance = '', style = '', count = 3 }) {
+    const k = IMAGE_BRIEF_KINDS[kind] ? kind : 'other';
+    const n = Math.max(1, Math.min(4, parseInt(count, 10) || 3));
+    const clean = (v, max) => String(v || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, max);
+    const ai = await callOpenAI([
+        { role: 'system', content: `You are an art director choosing pictures for ${IMAGE_BRIEF_KINDS[k]}. Read the piece and propose exactly ${n} DIFFERENT image ideas that are specific to what this piece actually says, not generic stock pictures. Rules: (1) show a concrete subject, setting or visual metaphor taken from the piece's real content; (2) avoid clichés such as handshakes, lightbulbs, glowing brains, robots, unexplained gears or people pointing at screens, unless the piece is truly about them; (3) vary the approach: one fairly literal scene, one visual metaphor, one simple and uncluttered; (4) no readable text, signs, charts with numbers, logos or screenshots, because the image tool cannot draw text; (5) no identifiable real people; show a natural mix of ages, genders and backgrounds where people appear; (6) say the composition, setting, mood, colour and lighting in the prompt, 2 to 3 sentences, ending with the instruction that there is no text. ${style ? `House style to follow: ${clean(style, 300)}` : ''} Reply as JSON: {"ideas":[{"label":"<3-6 word name>","description":"<1 plain sentence for the editor: what it shows and why it fits this piece>","prompt":"<full image prompt>","alt_text":"<short description for screen readers, under 125 characters>"}]}` },
+        { role: 'user', content: `Title: ${clean(title, 200) || 'n/a'}\nSummary: ${clean(summary, 400) || 'n/a'}${guidance ? `\nEditor's guidance: ${clean(guidance, 800)}` : ''}\n\nPiece text:\n${clean(content, 6000) || '(no body text yet - work from the title and summary)'}` }
+    ], 1100, 0.7, { type: 'json_object' });
+    let parsed = {};
+    try { parsed = JSON.parse(ai.choices[0].message.content); } catch { parsed = {}; }
+    return (Array.isArray(parsed.ideas) ? parsed.ideas : []).slice(0, n).map(i => ({
+        label: clean(i?.label, 60) || 'Image idea',
+        description: clean(i?.description, 300),
+        prompt: withImageSafety(clean(i?.prompt, 800)),
+        alt_text: clean(i?.alt_text, 160).replace(/["\[\]]+/g, '')
+    })).filter(i => clean(i.prompt, 800).length >= 20);
+}
+
 async function callOpenAIImage(prompt) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -11351,8 +11383,10 @@ Return the lesson as markdown with this structure:
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { prompt } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+        const { prompt: rawPrompt } = req.body;
+        if (!rawPrompt) return res.status(400).json({ error: 'Prompt is required' });
+
+        const prompt = withImageSafety(rawPrompt);
 
         try {
             // FIXED (2026-09-13): callOpenAIImage now returns a real
@@ -11566,13 +11600,43 @@ Return the lesson as markdown with this structure:
     // Supabase Storage, the same proven pattern generateLessonAudio
     // already uses for audio files, so the URL saved to the article
     // never expires.
+    // NEW (2026-10-15): suggests specific, tailored pictures for an article, course cover or lesson.
+    'suggest-image-ideas': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const kind = String(req.body?.kind || 'article');
+        const perm = kind === 'article' ? 'can_manage_content' : 'can_manage_courses';
+        const auth = await requirePermission(req, supabaseClient, perm);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`image-ideas:${auth.userId}`, 30)) return res.status(429).json({ error: 'Too many requests - please wait.' });
+
+        const title = String(req.body?.title || '').trim();
+        const summary = String(req.body?.summary || '').trim();
+        const content = String(req.body?.content || '').trim();
+        if (!title && !content) return res.status(400).json({ error: 'Add a title or some content first so the ideas fit your piece.' });
+        const styleKey = String(req.body?.style || '');
+        try {
+            const ideas = await buildImageBrief({
+                kind, title, summary, content,
+                guidance: req.body?.guidance,
+                style: LESSON_IMAGE_STYLES[styleKey] || '',
+                count: req.body?.count || 3
+            });
+            if (!ideas.length) return res.status(200).json({ success: false, error: 'No usable ideas came back. Try again, or add a little more detail.' });
+            return res.status(200).json({ success: true, ideas });
+        } catch (error) {
+            console.error('suggest-image-ideas error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     generateArticleImage: async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { prompt, articleId } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+        const { prompt: rawPrompt, articleId } = req.body;
+        if (!rawPrompt) return res.status(400).json({ error: 'Prompt is required' });
+        const prompt = withImageSafety(rawPrompt);
 
         try {
             // FIXED (2026-09-13): callOpenAIImage now returns a real
@@ -14076,11 +14140,23 @@ Return the lesson as markdown with this structure:
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { courseId, title, description } = req.body;
+        const { courseId, title, description, imagePrompt } = req.body;
         if (!courseId || !title) return res.status(400).json({ error: 'courseId and title are required' });
 
         try {
-            const prompt = `A professional, modern course cover illustration for an online course titled "${title}". ${description ? `The course is about: ${description}.` : ''} Clean, flat-design style suitable for an HR/career-education platform, no text or words in the image.`;
+            // Tailored: use the editor's chosen prompt, else let the AI read the course and design one.
+            let prompt = imagePrompt ? withImageSafety(imagePrompt) : '';
+            if (!prompt) {
+                try {
+                    const ideas = await buildImageBrief({ kind: 'course', title, summary: description, count: 1 });
+                    if (ideas[0]) prompt = ideas[0].prompt;
+                } catch (briefErr) {
+                    console.warn('Cover image brief failed, using generic prompt:', briefErr.message);
+                }
+            }
+            if (!prompt) {
+                prompt = withImageSafety(`A professional, modern course cover illustration for an online course titled "${title}". ${description ? `The course is about: ${description}.` : ''} Clean, flat-design style suitable for an HR/career-education platform.`);
+            }
             const imageBuffer = await callOpenAIImage(prompt);
 
             const filePath = `course-covers/${courseId}-${Date.now()}.png`;
