@@ -130,15 +130,15 @@ function composeVaInput(keys, values) {
 // same job. Both run on the same AI; the specialist collects more detail and applies a market's
 // conventions, the quick tool is the fast first pass. Stated honestly so people can choose.
 const QUICK_TOOL_NOTE = {
-    'CV Optimizer': 'Quick ATS check of your CV with the top changes to make. For a full rewrite to one country\'s CV standard (UK, US, Irish, German, GCC or Indian), choose the matching CV specialist.',
-    'Cover Letter Writer': 'Fast first draft from a job advert and your skills. Sofia Garcia asks for the same inputs and is the specialist version.',
-    'Interview Prep Coach': 'Feedback on one question and answer you paste in. For a full set of role-specific questions with answer frameworks, choose Priya Patel.',
-    'LinkedIn Profile Writer': 'Rewrites your About section and headline. Michael Chen covers the whole profile, including experience and skills.',
-    'Salary Negotiation Coach': 'A script for one negotiation, from what you tell it. Klaus Weber adds market-rate context for your role and location (general knowledge, not live data).',
-    'Professional Bio Writer': 'One short third-person bio. Yuki Tanaka writes short, medium and detailed versions.',
-    'Career Change Strategist': 'A realistic outline of a pivot. Maria Santos builds a fuller, staged transition roadmap.',
-    'Resignation Letter Writer': 'A short, gracious resignation letter. Lisa van der Berg also handles recommendation and complaint letters.',
-    'Email Response Drafter': 'Replies to an email you received. Sarah Johnson writes any business email from scratch.'
+    'CV Optimizer': 'Quick ATS check of your CV with the top changes to make. For a full rewrite to one country\'s CV standard (UK, US, Irish, German, Gulf or Indian), choose the matching CV assistant.',
+    'Cover Letter Writer': 'Fast first draft from a job advert and your skills. "Cover Letter Tailored to a Job Ad" asks for the same inputs and is the specialist version.',
+    'Interview Prep Coach': 'Feedback on one question and answer you paste in. For a full set of role-specific questions with answer frameworks, choose "Role-Specific Interview Questions & Answers".',
+    'LinkedIn Profile Writer': 'Rewrites your About section and headline. "Full LinkedIn Profile Makeover" covers the whole profile, including experience and skills.',
+    'Salary Negotiation Coach': 'A script for one negotiation, from what you tell it. "Salary Negotiation with Market Data" adds market-rate context for your role and location (general knowledge, not live data).',
+    'Professional Bio Writer': 'One short third-person bio. "Professional Bios: Short, Medium & Long" writes all three lengths.',
+    'Career Change Strategist': 'A realistic outline of a pivot. "Career Transition Roadmap" builds a fuller, staged plan.',
+    'Resignation Letter Writer': 'A short, gracious resignation letter. "Recommendation, Resignation & Complaint Letters" also handles recommendation and complaint letters.',
+    'Email Response Drafter': 'Replies to an email you received. "Professional Business Emails" writes any business email from scratch.'
 };
 function specialistNote(va) {
     if (!va) return null;
