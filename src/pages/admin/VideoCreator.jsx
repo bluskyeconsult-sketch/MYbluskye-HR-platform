@@ -18,6 +18,7 @@ import toast from 'react-hot-toast';
 // runs entirely on the visitor's own device via WebAssembly, no
 // server cost, no new account. Real, confirmed v0.12+ API.
 import SlideVideoStudio from './SlideVideoStudio';
+import VideoFinishStudio from './VideoFinishStudio';
 
 const ASPECT_RATIOS = [
     { value: '9:16', label: '9:16 Vertical (Reels/Shorts/TikTok)' },
@@ -30,6 +31,7 @@ export default function VideoCreator() {
     // video providers - Apify's image-based slideshow versus Google
     // Veo's AI-generated video from a text prompt alone.
     const [provider, setProvider] = useState('apify');
+    const [freeMode, setFreeMode] = useState('slides');
 
     // NEW (2026-10-03): state for the genuinely free, browser-based
     // FFmpeg.wasm tab - separate from the Apify image state above,
@@ -231,8 +233,8 @@ export default function VideoCreator() {
                     }
 
                     const statusHeaders = await authHeaders();
-                    const statusResponse = await fetch(`/api/index?action=check-veo-video-status&operationName=${encodeURIComponent(operationName)}&durationSeconds=${veoDuration}`, { headers: statusHeaders });
-                    const statusData = await statusResponse.json();
+                    const response = await fetch(`/api/index?action=check-veo-video-status&operationName=${encodeURIComponent(operationName)}&durationSeconds=${veoDuration}`, { headers: statusHeaders });
+                    const statusData = await response.json();
                     if (!statusData.success) throw new Error(statusData.error || 'Status check failed');
 
                     if (!statusData.done) {
@@ -472,7 +474,25 @@ export default function VideoCreator() {
             </>
             )}
 
-            {provider === 'free' && <SlideVideoStudio />}
+            {provider === 'free' && (
+                <>
+                    <div className="flex gap-2 mb-4">
+                        <button
+                            onClick={() => setFreeMode('slides')}
+                            className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${freeMode === 'slides' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                        >
+                            Make a slide video
+                        </button>
+                        <button
+                            onClick={() => setFreeMode('finish')}
+                            className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${freeMode === 'finish' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                        >
+                            Finish a video: add voice and captions
+                        </button>
+                    </div>
+                    {freeMode === 'slides' ? <SlideVideoStudio /> : <VideoFinishStudio />}
+                </>
+            )}
         </div>
     );
 }
