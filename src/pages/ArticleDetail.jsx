@@ -69,11 +69,30 @@ export default function ArticleDetail() {
         setLoading(true);
         setError(null);
 
-        const { data, error: supabaseError } = await supabase
+        // SECURITY/SYNC (2026-10-15): the public page used to fetch by slug with no published check,
+        // so a draft or a scheduled article could be opened early by anyone who knew its link.
+        // Public visitors now only get published articles; a signed-in admin can still open an
+        // unpublished one (to preview it), and those views are not counted.
+        let { data, error: supabaseError } = await supabase
             .from('articles')
             .select('*')
             .eq('slug', slug)
-            .single();
+            .eq('is_published', true)
+            .maybeSingle();
+
+        let previewOnly = false;
+        if (!data) {
+            try {
+                const { data: { user: viewer } } = await supabase.auth.getUser();
+                if (viewer) {
+                    const { data: viewerProfile } = await supabase.from('profiles').select('user_type').eq('id', viewer.id).maybeSingle();
+                    if (viewerProfile?.user_type === 'admin' || viewerProfile?.user_type === 'super_admin') {
+                        const res2 = await supabase.from('articles').select('*').eq('slug', slug).maybeSingle();
+                        if (res2.data) { data = res2.data; supabaseError = null; previewOnly = true; }
+                    }
+                }
+            } catch (previewErr) { /* not an admin: treated as not found below */ }
+        }
 
         if (supabaseError || !data) {
             setError('Article not found');
@@ -85,10 +104,12 @@ export default function ArticleDetail() {
         await checkUserSavedStatus(data.id);
         await loadRelatedArticles(data);
         
-        await supabase
-            .from('articles')
-            .update({ view_count: (data.view_count || 0) + 1 })
-            .eq('id', data.id);
+        if (!previewOnly) {
+            await supabase
+                .from('articles')
+                .update({ view_count: (data.view_count || 0) + 1 })
+                .eq('id', data.id);
+        }
             
         setLoading(false);
     }
