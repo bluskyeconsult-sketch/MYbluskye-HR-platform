@@ -6,10 +6,12 @@
 // Everything happens in the browser: no upload, no cost.
 
 import { useState, useRef, useMemo } from 'react';
-import { Upload, Play, Square, Download, Loader2, Film, Captions, Volume2, AlertTriangle, Trash2 } from 'lucide-react';
+import { Upload, Play, Square, Download, Loader2, Film, Captions, Volume2, AlertTriangle, Trash2, Wand2 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import {
-    CAPTION_STYLES, CAPTION_POSITIONS, CAPTION_SIZES,
-    parseCaptions, withEnds, cuesToSrt, readDuration, runFinish
+    CAPTION_STYLES, CAPTION_POSITIONS, CAPTION_SIZES, ACCENT_PRESETS,
+    parseCaptions, withEnds, cuesToSrt, readDuration, runFinish,
+    transcribeAudio, buildCuesFromTranscript
 } from '../../services/videoFinishEngine';
 
 let cueId = 1;
@@ -32,7 +34,8 @@ export default function VideoFinishStudio() {
     const [cues, setCues] = useState([]);
     const [captionsOn, setCaptionsOn] = useState(true);
 
-    const [captionStyle, setCaptionStyle] = useState('karaoke');
+    const [captionStyle, setCaptionStyle] = useState('pill');
+    const [captionUpper, setCaptionUpper] = useState(false);
     const [captionPosition, setCaptionPosition] = useState('bottom');
     const [captionSize, setCaptionSize] = useState('medium');
     const [captionBox, setCaptionBox] = useState(false);
@@ -43,6 +46,15 @@ export default function VideoFinishStudio() {
     const [voiceVolume, setVoiceVolume] = useState(100);
     const [videoVolume, setVideoVolume] = useState(33);
     const [shortSide, setShortSide] = useState(1080);
+
+    // automatic captions from the audio
+    const [txSource, setTxSource] = useState('voice');
+    const [txPrecise, setTxPrecise] = useState(false);
+    const [txLanguage, setTxLanguage] = useState('en');
+    const [maxWords, setMaxWords] = useState(5);
+    const [txStatus, setTxStatus] = useState('');
+    const [txNote, setTxNote] = useState('');
+    const cuesFromVoice = useRef(false);
 
     const [busy, setBusy] = useState('');
     const [progress, setProgress] = useState(0);
@@ -87,18 +99,62 @@ export default function VideoFinishStudio() {
         });
         if (!parsed.length) { setError('No caption text found. Paste your script or load an .srt file.'); return; }
         setError('');
-        setCues(parsed.map((c) => ({ id: cueId++, start: Number(c.start.toFixed(2)), text: c.text })));
+        cuesFromVoice.current = false;
+        setCues(parsed.map((c) => ({ id: cueId++, start: Number(c.start.toFixed(2)), end: c.end, text: c.text, exact: c.exact, wt: c.wt })));
     }
 
-    function updateCue(id, patch) { setCues((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c))); }
+    const txFile = (txSource === 'voice' && voiceFile) ? voiceFile : videoFile;
+    const txSeconds = (txSource === 'voice' && voiceInfo) ? voiceInfo.duration : (videoInfo?.duration || 0);
+    const txCost = (txSeconds / 60) * (txPrecise ? 0.006 : 0.003);
+
+    // Speech -> words -> timed captions. Cheapest model by default; "precise" uses the model that returns exact word times.
+    async function transcribe() {
+        if (!txFile) { setError('Add your video or voiceover first.'); return; }
+        setError(''); setTxNote(''); setTxStatus('Starting...');
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const out = await transcribeAudio({
+                file: txFile, precise: txPrecise, language: txLanguage === 'auto' ? '' : txLanguage,
+                accessToken: session?.access_token, onStatus: setTxStatus
+            });
+            const built = buildCuesFromTranscript(out.chunks, out.env, { maxWords, fixBrand });
+            if (!built.length) throw new Error('No speech was found in that audio.');
+            const useOffset = txFile === voiceFile ? voiceOffset : 0;
+            cuesFromVoice.current = txFile === voiceFile;
+            setCues(built.map((c) => ({ id: cueId++, start: Number((c.start + useOffset).toFixed(2)), end: c.end + useOffset, text: c.text, exact: true, wt: c.wt })));
+            setTxNote(`${built.length} captions made. Cost about $${out.cost.toFixed(3)}. Check the wording below, especially names.`);
+        } catch (e) {
+            console.error('Transcribe error:', e);
+            setError(e.message || 'Transcription failed.');
+        } finally {
+            setTxStatus('');
+        }
+    }
+
+    function changeVoiceOffset(v) {
+        const delta = v - voiceOffset;
+        setVoiceOffset(v);
+        // captions made from the voiceover travel with it
+        if (cuesFromVoice.current && delta) setCues((cs) => cs.map((c) => ({ ...c, start: Math.max(0, +(c.start + delta).toFixed(2)), end: c.end != null ? c.end + delta : c.end })));
+    }
+
+    function updateCue(id, patch) {
+        setCues((cs) => cs.map((c) => {
+            if (c.id !== id) return c;
+            const next = { ...c, ...patch };
+            if (patch.start != null && c.end != null) next.end = c.end + (patch.start - c.start);
+            return next;
+        }));
+    }
 
     const opts = {
-        captionStyle, captionPosition, captionSize, captionBox, accent, captionShift,
+        captionStyle, captionPosition, captionSize, captionBox, captionUpper, accent, captionShift,
         voiceOffset, voiceVolume: voiceVolume / 100, videoVolume: videoVolume / 100, shortSide
     };
 
     async function run(record) {
         if (!videoFile) { setError('Add your video first.'); return; }
+        if (total > 600) { setError('Videos up to 10 minutes are supported. This one is longer.'); return; }
         setError(''); setResult(null); setProgress(0);
         stopRef.current = false;
         setBusy(record ? 'record' : 'preview');
@@ -157,7 +213,7 @@ export default function VideoFinishStudio() {
                     <div className="grid sm:grid-cols-3 gap-3 mt-3">
                         <div>
                             <label className={lbl}>Voice starts at: {voiceOffset.toFixed(1)} s</label>
-                            <input type="range" min="0" max="10" step="0.1" value={voiceOffset} onChange={(e) => setVoiceOffset(+e.target.value)} className="w-full" />
+                            <input type="range" min="0" max="10" step="0.1" value={voiceOffset} onChange={(e) => changeVoiceOffset(+e.target.value)} className="w-full" />
                         </div>
                         <div>
                             <label className={lbl}>Voice volume: {voiceVolume}%</label>
@@ -182,7 +238,46 @@ export default function VideoFinishStudio() {
                 </label>
                 {captionsOn && (
                     <>
-                        <label className={lbl}>Paste your script. Plain text is spread across the voiceover by word count. Lines that start with a time ("0:04.3 Hello there") or an .srt file give exact timing.</label>
+                        <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 mb-4">
+                            <div className="flex items-center gap-1.5 text-sm text-slate-200 mb-2"><Wand2 className="w-4 h-4 text-sky-400" /> Get captions automatically from the audio</div>
+                            <div className="grid sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label className={lbl}>Listen to</label>
+                                    <select value={txSource} onChange={(e) => setTxSource(e.target.value)} className={inp}>
+                                        <option value="voice">The voiceover file</option>
+                                        <option value="video">The video's own sound</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={lbl}>Language</label>
+                                    <select value={txLanguage} onChange={(e) => setTxLanguage(e.target.value)} className={inp}>
+                                        <option value="en">English</option>
+                                        <option value="auto">Detect automatically</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={lbl}>Words per caption</label>
+                                    <select value={maxWords} onChange={(e) => setMaxWords(+e.target.value)} className={inp}>
+                                        <option value={3}>3 (fast reels style)</option>
+                                        <option value={5}>5 (balanced)</option>
+                                        <option value={7}>7 (fuller lines)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <label className="flex items-start gap-2 text-xs text-slate-400 mt-3">
+                                <input type="checkbox" className="mt-0.5" checked={txPrecise} onChange={(e) => setTxPrecise(e.target.checked)} />
+                                <span>Exact word timing (uses the Whisper model, double the price). Leave off to use the cheapest model, which is timed against the real pauses in your audio and is accurate for clear voiceovers.</span>
+                            </label>
+                            <div className="flex flex-wrap items-center gap-3 mt-3">
+                                <button onClick={transcribe} disabled={!!txStatus || !txFile} className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm hover:bg-sky-500 disabled:opacity-50 flex items-center gap-2">
+                                    {txStatus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} {txStatus || 'Make captions from audio'}
+                                </button>
+                                {txFile && txSeconds > 0 && <span className="text-xs text-slate-500">Estimated cost for {fmt(txSeconds)}: about ${txCost.toFixed(3)}</span>}
+                            </div>
+                            {txNote && <p className="text-xs text-emerald-400 mt-2">{txNote}</p>}
+                        </div>
+
+                        <label className={lbl}>Or paste your script. Plain text is spread across the voiceover by word count. Lines that start with a time ("0:04.3 Hello there") or an .srt file give exact timing.</label>
                         <textarea rows={6} value={script} onChange={(e) => setScript(e.target.value)} className={inp} placeholder="Paste the audio script here" />
                         <div className="flex flex-wrap items-center gap-3 mt-2">
                             <button onClick={() => buildCaptions()} disabled={!script.trim()} className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm hover:bg-sky-500 disabled:opacity-50">Build captions</button>
@@ -209,16 +304,28 @@ export default function VideoFinishStudio() {
                                     {CAPTION_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                                 </select></div>
                             <div><label className={lbl}>Highlight colour</label>
-                                <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} className="w-full h-9 bg-slate-800 border border-slate-700 rounded-lg" /></div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {ACCENT_PRESETS.map((c) => (
+                                        <button key={c.value} type="button" title={c.name} onClick={() => setAccent(c.value)}
+                                            className={`w-7 h-7 rounded-full border-2 ${accent.toLowerCase() === c.value.toLowerCase() ? 'border-white' : 'border-transparent'}`}
+                                            style={{ background: c.value }} />
+                                    ))}
+                                    <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} className="w-7 h-7 bg-transparent border-0 p-0 cursor-pointer" title="Any colour" />
+                                </div></div>
                         </div>
                         <div className="grid sm:grid-cols-2 gap-3 mt-3">
                             <div>
                                 <label className={lbl}>Shift all captions: {captionShift > 0 ? '+' : ''}{captionShift.toFixed(1)} s (later is positive)</label>
                                 <input type="range" min="-3" max="3" step="0.1" value={captionShift} onChange={(e) => setCaptionShift(+e.target.value)} className="w-full" />
                             </div>
-                            <label className="flex items-center gap-2 text-sm text-slate-300 mt-5">
-                                <input type="checkbox" checked={captionBox} onChange={(e) => setCaptionBox(e.target.checked)} /> Dark box behind the words
-                            </label>
+                            <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
+                                <label className="flex items-center gap-2 text-sm text-slate-300">
+                                    <input type="checkbox" checked={captionUpper} onChange={(e) => setCaptionUpper(e.target.checked)} /> CAPITALS
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-slate-300">
+                                    <input type="checkbox" checked={captionBox} onChange={(e) => setCaptionBox(e.target.checked)} /> Dark box behind the words
+                                </label>
+                            </div>
                         </div>
 
                         {cues.length > 0 && (
@@ -237,7 +344,7 @@ export default function VideoFinishStudio() {
                                         </div>
                                     ))}
                                 </div>
-                                {!/-->|\d:\d\d/.test(script) && (
+                                {!cues.some((c) => c.exact) && !/-->|\d:\d\d/.test(script) && (
                                     <p className="text-xs text-amber-400 mt-2 flex items-start gap-1"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> Times for a plain script are estimated from word counts. Press Preview and nudge the start times or the shift slider until the words land with the voice.</p>
                                 )}
                             </div>
@@ -266,6 +373,9 @@ export default function VideoFinishStudio() {
                     )}
                 </div>
                 <canvas ref={canvasRef} width={1280} height={720} className="w-full max-h-[70vh] object-contain bg-black rounded-lg border border-slate-800" />
+                {total > 180 && !busy && (
+                    <p className="text-xs text-amber-400 mb-3 flex items-start gap-1"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> This video is {fmt(total)} long. Making it takes that long in real time, so keep this tab open and in front the whole time.</p>
+                )}
                 {busy && (
                     <div className="mt-3">
                         <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
