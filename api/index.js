@@ -2698,7 +2698,16 @@ const handlers = {
             // Two topics can produce the same headline; a repeated slug made the insert fail after the AI cost was spent.
             const { data: slugClash } = await supabaseClient.from('articles').select('id').eq('slug', slug).maybeSingle();
             if (slugClash) slug = `${slug}-${Date.now().toString(36)}`;
-            const isScheduled = !!scheduledFor;
+            let scheduledIsoValue = null;
+            if (scheduledFor) {
+                const d = new Date(scheduledFor);
+                if (Number.isNaN(d.getTime())) {
+                    await supabaseClient.from('article_topics').update({ status: 'pending', updated_at: new Date().toISOString() }).eq('id', topicId);
+                    return res.status(400).json({ error: 'scheduledFor is not a valid date' });
+                }
+                scheduledIsoValue = d.toISOString();
+            }
+            const isScheduled = !!scheduledIsoValue; // a date already in the past is published by the next scheduler run
             // NEW (2026-10-12): AI-written HR and employment articles used to go live the moment they were generated.
             // They now save as drafts for a human to read, unless a date is set or "publish now" is chosen on purpose.
             const goLiveNow = !isScheduled && publishNow === true;
@@ -2717,7 +2726,7 @@ const handlers = {
                     category: parsed.category || null,
                     slug,
                     is_published: goLiveNow,
-                    scheduled_for: isScheduled ? scheduledFor : null,
+                    scheduled_for: isScheduled ? scheduledIsoValue : null,
                     published_at: goLiveNow ? new Date().toISOString() : null,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
