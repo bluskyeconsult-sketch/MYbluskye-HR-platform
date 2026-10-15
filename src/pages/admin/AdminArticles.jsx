@@ -53,7 +53,7 @@ export default function AdminArticles() {
     const [totalPages, setTotalPages] = useState(1);
     const [selectedArticles, setSelectedArticles] = useState(new Set());
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-    const [stats, setStats] = useState({ total: 0, published: 0, draft: 0, views: 0, avgReadTime: 0 });
+    const [stats, setStats] = useState({ total: 0, published: 0, draft: 0, scheduled: 0, views: 0, avgReadTime: 0 });
     const [user, setUser] = useState(null);
     const [isAuthorized, setIsAuthorized] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -98,14 +98,15 @@ export default function AdminArticles() {
 
     async function loadStats() {
         try {
-            const { data } = await supabase.from('articles').select('is_published, view_count, content');
+            const { data } = await supabase.from('articles').select('is_published, scheduled_for, view_count, content');
             const total = data?.length || 0;
             const published = data?.filter(a => a.is_published).length || 0;
-            const draft = data?.filter(a => !a.is_published).length || 0;
+            const scheduled = data?.filter(a => !a.is_published && a.scheduled_for).length || 0;
+            const draft = data?.filter(a => !a.is_published && !a.scheduled_for).length || 0;
             const views = data?.reduce((sum, a) => sum + (a.view_count || 0), 0) || 0;
             const totalWords = data?.reduce((sum, a) => sum + (a.content?.length || 0), 0) || 0;
             const avgReadTime = totalWords > 0 && published > 0 ? Math.round(totalWords / published / 200) : 5;
-            setStats({ total, published, draft, views, avgReadTime });
+            setStats({ total, published, draft, scheduled, views, avgReadTime });
         } catch (err) {
             console.error('Error loading article stats:', err);
         }
@@ -141,7 +142,9 @@ export default function AdminArticles() {
                 .order('created_at', { ascending: false });
             
             if (selectedCategory !== 'all') query = query.eq('category', selectedCategory);
-            if (selectedStatus !== 'all') query = query.eq('is_published', selectedStatus === 'published');
+            if (selectedStatus === 'published') query = query.eq('is_published', true);
+            else if (selectedStatus === 'scheduled') query = query.eq('is_published', false).not('scheduled_for', 'is', null);
+            else if (selectedStatus === 'draft') query = query.eq('is_published', false).is('scheduled_for', null);
             if (searchTerm) query = query.or(`title.ilike.%${searchTerm}%,content.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
             if (dateRange.from) query = query.gte('created_at', dateRange.from);
             if (dateRange.to) query = query.lte('created_at', dateRange.to);
@@ -205,7 +208,7 @@ export default function AdminArticles() {
         try {
             await supabase
                 .from('articles')
-                .update({ is_published: !currentlyPublished, updated_at: new Date().toISOString() })
+                .update({ is_published: !currentlyPublished, scheduled_for: null, ...(!currentlyPublished ? { published_at: new Date().toISOString() } : {}), updated_at: new Date().toISOString() })
                 .eq('id', id);
             
             toast.success(`Article ${!currentlyPublished ? 'published' : 'unpublished'}`);
@@ -242,7 +245,7 @@ export default function AdminArticles() {
         const rows = articlesData.map(a => [
             `"${a.title?.replace(/"/g, '""') || ''}"`,
             a.category || '',
-            a.is_published ? 'published' : 'draft',
+            a.is_published ? 'published' : (a.scheduled_for ? `scheduled for ${a.scheduled_for}` : 'draft'),
             a.view_count || 0,
             new Date(a.created_at).toLocaleDateString(),
             a.author || ''
@@ -260,7 +263,11 @@ export default function AdminArticles() {
         setSelectedArticles(newSet); 
     }
 
-    function getStatusBadge(isPublished) {
+    function getStatusBadge(isPublished, scheduledFor) {
+        if (!isPublished && scheduledFor) {
+            const when = new Date(scheduledFor);
+            return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-sky-500/20 text-sky-300" title="Click to publish now instead"><Clock className="w-3 h-3" /> Scheduled {when.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>;
+        }
         return isPublished 
             ? <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400"><Globe className="w-3 h-3" /> Published</span>
             : <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/20 text-amber-400"><EyeOff className="w-3 h-3" /> Draft</span>;
@@ -346,7 +353,7 @@ export default function AdminArticles() {
                 </div>
 
                 {/* Stats Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                         <p className="text-slate-400 text-sm">Total Articles</p>
                         <p className="text-2xl font-bold text-white">{stats.total}</p>
@@ -358,6 +365,10 @@ export default function AdminArticles() {
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                         <p className="text-slate-400 text-sm">Drafts</p>
                         <p className="text-2xl font-bold text-amber-400">{stats.draft}</p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
+                        <p className="text-slate-400 text-sm">Scheduled</p>
+                        <p className="text-2xl font-bold text-sky-300">{stats.scheduled || 0}</p>
                     </div>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                         <p className="text-slate-400 text-sm">Total Views</p>
@@ -398,6 +409,7 @@ export default function AdminArticles() {
                             <option value="all">All Status</option>
                             <option value="published">Published</option>
                             <option value="draft">Draft</option>
+                            <option value="scheduled">Scheduled</option>
                         </select>
                         <input 
                             type="date" 
@@ -488,7 +500,7 @@ export default function AdminArticles() {
                                     <div className="flex flex-wrap items-center gap-2 mb-3">
                                         <span className="text-xs px-2 py-1 bg-primary-500/20 text-primary-400 rounded-full">{article.category || 'Uncategorized'}</span>
                                         <button onClick={() => toggleStatus(article.id, article.is_published)}>
-                                            {getStatusBadge(article.is_published)}
+                                            {getStatusBadge(article.is_published, article.scheduled_for)}
                                         </button>
                                         <span className="text-slate-400 text-xs flex items-center gap-1">
                                             <Eye className="w-3 h-3" /> {article.view_count || 0}
@@ -547,7 +559,7 @@ export default function AdminArticles() {
                                             </td>
                                             <td className="px-4 py-3">
                                                 <button onClick={() => toggleStatus(article.id, article.is_published)} className="cursor-pointer">
-                                                    {getStatusBadge(article.is_published)}
+                                                    {getStatusBadge(article.is_published, article.scheduled_for)}
                                                 </button>
                                             </td>
                                             <td className="px-4 py-3 text-slate-300 text-sm">
