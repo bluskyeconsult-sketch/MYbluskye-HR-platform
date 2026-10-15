@@ -148,6 +148,7 @@ export default function ArticleEditor() {
     const [notificationSent, setNotificationSent] = useState(false);
     const [aiFallbackUsed, setAiFallbackUsed] = useState(false);
     const [fullscreen, setFullscreen] = useState(false);
+    const [scheduleLocal, setScheduleLocal] = useState('');
 
     useEffect(() => {
         if (id && id !== 'new') loadArticle();
@@ -192,27 +193,67 @@ export default function ArticleEditor() {
                 ...data,
                 tags: data.tags || []
             });
+            setScheduleLocal(!data.is_published && data.scheduled_for ? toLocalInput(data.scheduled_for) : '');
         }
         setLoading(false);
     }
 
     const generateSlug = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    async function saveArticle(publish = false) {
+    // NEW (2026-10-15): scheduling. The date box works in the editor's own local time; it is
+    // converted to a UTC instant before saving, so "09:00" means 09:00 where the editor is
+    // (BST or GMT) and the public feed goes live at exactly that moment.
+    function toLocalInput(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function describeSchedule(localValue) {
+        const d = new Date(localValue);
+        if (!localValue || Number.isNaN(d.getTime())) return '';
+        return d.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function saveArticle(publish = false, schedule = false) {
         if (!article.title.trim()) {
             alert('Please enter a title');
             return;
         }
-        
+
+        // Scheduling needs a real future date. It saves the article as not yet public with the
+        // go-live time set; the scheduler (cron + database job) publishes it at that moment.
+        let scheduledIso = null;
+        if (schedule) {
+            const when = new Date(scheduleLocal);
+            if (!scheduleLocal || Number.isNaN(when.getTime())) {
+                alert('Choose the date and time to publish first.');
+                return;
+            }
+            if (when.getTime() < Date.now() + 2 * 60 * 1000) {
+                alert('The publish time must be at least a few minutes in the future. To publish right now, use Publish.');
+                return;
+            }
+            if (!article.content.trim()) {
+                alert('This article has no content yet. Add content before scheduling it.');
+                return;
+            }
+            scheduledIso = when.toISOString();
+        }
+        const hadSchedule = !!article.scheduled_for && !article.is_published;
+
         setSaving(true);
         // FIXED: is_published boolean, not a status string — matches the
         // real column the public articles-list handler filters on.
         const articleData = {
             ...article,
-            is_published: publish,
+            is_published: publish && !schedule,
+            // Publish now and Save Draft both clear any schedule; only Schedule sets one.
+            scheduled_for: schedule ? scheduledIso : null,
             slug: article.slug || generateSlug(article.title),
             updated_at: new Date().toISOString(),
-            published_at: publish && !article.is_published ? new Date().toISOString() : article.published_at
+            published_at: (publish && !schedule) && !article.is_published ? new Date().toISOString() : article.published_at
         };
 
         try {
@@ -239,9 +280,15 @@ export default function ArticleEditor() {
 
             if (result.error) throw result.error;
 
-            alert(publish ? '✅ Article published successfully!' : '✅ Article saved as draft');
-            
-            if (publish && article.send_notification && !notificationSent) {
+            if (schedule) {
+                alert(`✅ Article scheduled. It will go live on ${describeSchedule(scheduleLocal)}.`);
+            } else if (publish) {
+                alert('✅ Article published successfully!');
+            } else {
+                alert(hadSchedule ? '✅ Saved as draft. The schedule was removed.' : '✅ Article saved as draft');
+            }
+
+            if (publish && !schedule && article.send_notification && !notificationSent) {
                 setNotificationSent(true);
                 await sendNotification(savedArticle);
             }
@@ -547,6 +594,9 @@ export default function ArticleEditor() {
                         <button onClick={() => saveArticle(false)} disabled={saving} className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition disabled:opacity-50 flex items-center gap-2">
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save Draft
                         </button>
+                        <button onClick={() => saveArticle(true, true)} disabled={saving || !scheduleLocal} title={scheduleLocal ? `Publish on ${describeSchedule(scheduleLocal)}` : 'Pick a date and time in "Schedule" below first'} className="px-4 py-2 bg-slate-800 border border-primary-500/40 text-primary-300 rounded-lg hover:bg-slate-700 transition disabled:opacity-40 flex items-center gap-2">
+                            <Clock className="w-4 h-4" /> Schedule
+                        </button>
                         <button onClick={() => saveArticle(true)} disabled={saving} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-500 transition disabled:opacity-50 flex items-center gap-2">
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Publish
                         </button>
@@ -699,6 +749,29 @@ export default function ArticleEditor() {
                                     {aiImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Improve with AI
                                 </button>
                             </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                            <label htmlFor="schedule_at" className="block text-slate-300 text-sm font-medium mb-2 flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-primary-400" /> Schedule (optional)
+                            </label>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <input
+                                    id="schedule_at"
+                                    type="datetime-local"
+                                    value={scheduleLocal}
+                                    onChange={(e) => setScheduleLocal(e.target.value)}
+                                    className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                                {scheduleLocal && (
+                                    <button type="button" onClick={() => setScheduleLocal('')} className="text-xs text-slate-400 hover:text-white">Clear</button>
+                                )}
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">
+                                {scheduleLocal
+                                    ? `Press Schedule at the top to go live on ${describeSchedule(scheduleLocal)} (your local time). It stays hidden from the public feed until then.`
+                                    : 'Leave empty to publish now or save a draft. Pick a date and time, then press Schedule, to release it on the public feed automatically.'}
+                            </p>
                         </div>
 
                         <div className="flex items-center gap-3 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
