@@ -11600,6 +11600,64 @@ Return the lesson as markdown with this structure:
     // Supabase Storage, the same proven pattern generateLessonAudio
     // already uses for audio files, so the URL saved to the article
     // never expires.
+    // NEW (2026-10-15): turns speech into text for video captions. The browser sends the audio in
+    // short 16 kHz mono WAV pieces (each well under the 4.5 MB request limit) and joins the results.
+    // Default model is the cheapest one OpenAI offers for transcription (gpt-4o-mini-transcribe,
+    // listed at $0.003 per minute) which returns text only; the browser then times it against the
+    // real pauses in the audio. "precise" uses whisper-1 (listed at $0.006 per minute), the model
+    // that returns exact word timestamps.
+    'transcribe-audio-captions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await requireAdmin(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status).json({ error: authCheck.error });
+        if (!checkRateLimit(`transcribe:${authCheck.userId}`, 30)) return res.status(429).json({ error: 'Too many requests - please wait a minute.' });
+
+        const b64 = String(req.body?.audioBase64 || '');
+        if (!b64) return res.status(400).json({ error: 'No audio received.' });
+        if (b64.length > 3_900_000) return res.status(413).json({ error: 'That audio piece is too large. Please try again.' });
+        const buf = Buffer.from(b64, 'base64');
+        if (buf.length < 1000 || buf.slice(0, 4).toString('ascii') !== 'RIFF') return res.status(400).json({ error: 'Audio must be a WAV piece.' });
+
+        const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+        if (!apiKey) return res.status(500).json({ error: 'OpenAI API key not configured' });
+
+        const precise = req.body?.precise === true;
+        const model = precise ? 'whisper-1' : 'gpt-4o-mini-transcribe';
+        const seconds = Math.max(1, Math.min(120, Number(req.body?.seconds) || Math.round(buf.length / 32000)));
+        const language = /^[a-z]{2}$/.test(String(req.body?.language || '')) ? String(req.body.language) : '';
+        const vocab = String(req.body?.vocabulary || 'BluSkye Integrated Consult, ODUSBABA, bluskyeconsult.com')
+            .replace(/[\u0000-\u001F]/g, ' ').trim().slice(0, 200);
+
+        try {
+            const form = new FormData();
+            form.append('file', new Blob([buf], { type: 'audio/wav' }), 'chunk.wav');
+            form.append('model', model);
+            form.append('response_format', precise ? 'verbose_json' : 'json');
+            if (precise) form.append('timestamp_granularities[]', 'word');
+            if (language) form.append('language', language);
+            if (vocab) form.append('prompt', vocab);
+            form.append('temperature', '0');
+
+            const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                body: form
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data?.error?.message || `Transcription failed (HTTP ${response.status})`);
+
+            const cost = (seconds / 60) * (precise ? 0.006 : 0.003);
+            logOpenAIUsage('audio_transcription', { model, flatCost: cost });
+            const words = Array.isArray(data.words)
+                ? data.words.map(w => ({ w: String(w.word || '').trim(), s: Number(w.start) || 0, e: Number(w.end) || 0 })).filter(w => w.w)
+                : [];
+            return res.status(200).json({ success: true, model, text: String(data.text || '').trim(), words, estimatedCost: cost });
+        } catch (error) {
+            console.error('transcribe-audio-captions error:', error);
+            return res.status(200).json({ success: false, error: error.message });
+        }
+    },
+
     // NEW (2026-10-15): suggests specific, tailored pictures for an article, course cover or lesson.
     'suggest-image-ideas': async (req, res) => {
         const supabaseClient = getSupabase();
