@@ -6,7 +6,7 @@
 // Everything happens in the browser: no upload, no cost.
 
 import { useState, useRef, useMemo } from 'react';
-import { Upload, Play, Square, Download, Loader2, Film, Captions, Volume2, AlertTriangle, Trash2, Wand2 } from 'lucide-react';
+import { Upload, Play, Square, Download, Loader2, Film, Type, Volume2, AlertTriangle, Trash2, Wand2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
     CAPTION_STYLES, CAPTION_POSITIONS, CAPTION_SIZES, ACCENT_PRESETS,
@@ -232,7 +232,7 @@ export default function VideoFinishStudio() {
             </div>
 
             <div className={card}>
-                <h3 className="text-white font-semibold flex items-center gap-2 mb-1"><Captions className="w-4 h-4 text-sky-400" /> 3. Animated captions</h3>
+                <h3 className="text-white font-semibold flex items-center gap-2 mb-1"><Type className="w-4 h-4 text-sky-400" /> 3. Animated captions</h3>
                 <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
                     <input type="checkbox" checked={captionsOn} onChange={(e) => setCaptionsOn(e.target.checked)} /> Burn captions into the video
                 </label>
