@@ -5429,7 +5429,7 @@ ${siteContext}`;
                 renewal_date: renewalDate,
                 billing_cycle: billingCycle || 'yearly',
                 cost: cost != null ? Number(cost) : null,
-                currency: currency || 'USD',
+                currency: currency || 'GBP',
                 notes: notes || null,
                 updated_at: new Date().toISOString()
             };
