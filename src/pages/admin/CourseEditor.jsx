@@ -22,6 +22,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import LessonMediaTools from '../../components/admin/LessonMediaTools';
+import ImageIdeasPicker from '../../components/admin/ImageIdeasPicker';
 import { 
     Save, Eye, Plus, Trash2, Sparkles, Loader2, 
     Image, Volume2, FileText, ChevronDown, ChevronUp,
@@ -89,7 +90,7 @@ export default function CourseEditor() {
         setLoading(false);
     }
 
-    async function generateCoverImage() {
+    async function generateCoverImage(tailoredPrompt) {
         if (!course.title) {
             alert('Please enter a course title first');
             return;
@@ -108,7 +109,7 @@ export default function CourseEditor() {
                     'Authorization': `Bearer ${session?.access_token}`
                 },
                 body: JSON.stringify({
-                    prompt: `Professional course cover image for: ${course.title}. Style: ${course.illustration_style}, professional, educational, clean design`
+                    prompt: (typeof tailoredPrompt === 'string' && tailoredPrompt.trim()) ? tailoredPrompt.trim() : `Professional course cover image for: ${course.title}. Style: ${course.illustration_style}, professional, educational, clean design`
                 })
             });
             
@@ -555,7 +556,7 @@ export default function CourseEditor() {
                                     placeholder="https://..."
                                 />
                                 <button
-                                    onClick={generateCoverImage}
+                                    onClick={() => generateCoverImage()}
                                     disabled={generatingImage}
                                     className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50 flex items-center justify-center gap-2 flex-shrink-0"
                                 >
@@ -563,6 +564,16 @@ export default function CourseEditor() {
                                     Generate AI
                                 </button>
                             </div>
+                            <ImageIdeasPicker
+                                kind="course"
+                                className="mt-3"
+                                title={course.title}
+                                summary={course.description || ''}
+                                content={(lessons || []).map(l => `${l.title || ''}`).filter(Boolean).join('\n')}
+                                style={course.illustration_style}
+                                generating={generatingImage}
+                                onGenerate={(prompt) => generateCoverImage(prompt)}
+                            />
                         </div>
                         <div>
                             <label className="block text-sm text-slate-400 mb-1">Illustration Style</label>
