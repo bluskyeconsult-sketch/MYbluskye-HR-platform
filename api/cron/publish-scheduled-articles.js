@@ -28,7 +28,7 @@ export default async function handler(req, res) {
 
         const { data: dueArticles, error: fetchError } = await supabase
             .from('articles')
-            .select('id, title')
+            .select('id, title, slug, send_notification')
             .eq('is_published', false)
             .not('scheduled_for', 'is', null)
             .lte('scheduled_for', now);
@@ -47,7 +47,30 @@ export default async function handler(req, res) {
         if (updateError) throw updateError;
 
         console.log(`Published ${dueArticles.length} scheduled articles:`, dueArticles.map(a => a.title));
-        return res.status(200).json({ success: true, published: dueArticles.length });
+
+        // NEW (2026-10-15): an article scheduled with "notify subscribers" ticked now sends that
+        // notification at the moment it goes live (before, only a manual Publish ever notified).
+        // Uses the same internal-secret route the platform already trusts for service calls.
+        let notified = 0;
+        const toNotify = dueArticles.filter(a => a.send_notification);
+        if (toNotify.length > 0) {
+            const secret = process.env.INTERNAL_SERVICE_SECRET;
+            const host = req.headers['x-forwarded-host'] || req.headers.host;
+            if (!secret || !host) {
+                console.warn('Scheduled article notifications skipped: INTERNAL_SERVICE_SECRET or host missing');
+            } else {
+                const results = await Promise.allSettled(toNotify.map(a =>
+                    fetch(`https://${host}/api/index?action=notify-article-subscribers`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+                        body: JSON.stringify({ articleId: a.id, articleTitle: a.title, articleSlug: a.slug })
+                    })
+                ));
+                notified = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+            }
+        }
+
+        return res.status(200).json({ success: true, published: dueArticles.length, notified });
     } catch (error) {
         console.error('publish-scheduled-articles cron error:', error);
         return res.status(500).json({ error: error.message });
