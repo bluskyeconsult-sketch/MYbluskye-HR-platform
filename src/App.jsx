@@ -922,7 +922,15 @@ function AppContent() {
                 guessed, hardcoded pixel value - correct regardless of
                 screen size or the navbar wrapping to two lines. */}
             <PageAmbience />
-            <div style={{ paddingTop: 'var(--navbar-height, 4rem)', position: 'relative', zIndex: 1 }}>
+            {/* FIXED (2026-10-16): pop-ups on every page were hiding behind the menu.
+                Cause: this wrapper had zIndex: 1, which makes it its own stacking
+                layer BELOW the navbar (z-50). Every pop-up inside it, whatever its
+                own z-index, was therefore painted under the menu. Without the
+                zIndex the wrapper still sits above the fixed background (it comes
+                later in the page, so it paints later) and the navbar still covers
+                scrolled content, but pop-ups at z-50 now paint above the menu
+                because they come later in the page than the navbar. */}
+            <div style={{ paddingTop: 'var(--navbar-height, 4rem)', position: 'relative' }}>
                 <ScrollingBanner />
                 <WorkforceConsentPrompt />
                 <FraudSafetyBanner />
