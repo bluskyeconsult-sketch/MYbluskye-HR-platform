@@ -739,6 +739,7 @@ const MediaLibrary = lazy(() => import('./pages/admin/MediaLibrary'));
 const AmbienceStudio = lazy(() => import('./pages/admin/AmbienceStudio'));
 const PersonalMediaStudio = lazy(() => import('./pages/admin/PersonalMediaStudio'));
 const AdminSupportTickets = lazy(() => import('./pages/admin/AdminSupportTickets'));
+const AdminInbox = lazy(() => import('./pages/admin/AdminInbox'));
 const AICourseBuilder = lazy(() => import('./pages/admin/AICourseBuilder'));
 const AdminSkills = lazy(() => import('./pages/admin/AdminSkills'));
 const AdminTesterFeedback = lazy(() => import('./pages/admin/AdminTesterFeedback'));
@@ -1018,6 +1019,7 @@ function AppContent() {
                             <Route path="/admin/media-library" element={<ProtectedRoute requireAdmin><AdminLayout><MediaLibrary /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/personal-media-studio" element={<ProtectedRoute requireAdmin><AdminLayout><PersonalMediaStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/support-tickets" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSupportTickets /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/inbox" element={<ProtectedRoute requireAdmin><AdminLayout><AdminInbox /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/ai-course-builder" element={<ProtectedRoute requireAdmin><AdminLayout><AICourseBuilder /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/skills" element={<ProtectedRoute requireAdmin><AdminLayout><AdminSkills /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/tester-feedback" element={<ProtectedRoute requireAdmin><AdminLayout><AdminTesterFeedback /></AdminLayout></ProtectedRoute>} />
