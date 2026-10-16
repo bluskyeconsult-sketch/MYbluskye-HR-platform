@@ -68,13 +68,22 @@ const difficultyLevels = [
     { value: 'expert', label: 'Expert', color: 'bg-amber-500/20 text-amber-400', icon: Zap, description: 'Master-level content', badge: '🏆' }
 ];
 
+// FIXED (2026-10-16): these used to be technology, business, design, marketing, personal and language. None of
+// those match the category tabs on the public Courses page (which filters on the exact category text), so every
+// AI-built course was missing from every category tab and showed only under "All Courses". They now use the same
+// names as the Course Editor and the public page, so a new course appears in the right tab.
 const categories = [
-    { id: 'technology', name: 'Technology & Programming', icon: Brain },
-    { id: 'business', name: 'Business & Management', icon: Briefcase },
-    { id: 'design', name: 'Design & Creative', icon: Palette },
-    { id: 'marketing', name: 'Marketing & Sales', icon: TrendingUp },
-    { id: 'personal', name: 'Personal Development', icon: Users },
-    { id: 'language', name: 'Language Learning', icon: Globe }
+    { id: 'HR Fundamentals', name: 'HR Fundamentals', icon: Shield },
+    { id: 'Recruitment', name: 'Recruitment', icon: Users },
+    { id: 'Employee Relations', name: 'Employee Relations', icon: Heart },
+    { id: 'Performance Management', name: 'Performance Management', icon: TrendingUp },
+    { id: 'Compliance', name: 'Compliance', icon: Shield },
+    { id: 'Diversity & Inclusion', name: 'Diversity & Inclusion', icon: Globe },
+    { id: 'Talent Management', name: 'Talent Management', icon: Award },
+    { id: 'Leadership', name: 'Leadership', icon: Star },
+    { id: 'Communication', name: 'Communication', icon: Share2 },
+    { id: 'Career Development', name: 'Career Development', icon: Briefcase },
+    { id: 'Self-Employment', name: 'Self-Employment', icon: Clipboard }
 ];
 
 // ============================================
@@ -98,7 +107,7 @@ export default function AICourseBuilder() {
     const [durationHours, setDurationHours] = useState(5);
     const [targetAudience, setTargetAudience] = useState('');
     const [learningObjectives, setLearningObjectives] = useState('');
-    const [category, setCategory] = useState('technology');
+    const [category, setCategory] = useState('HR Fundamentals');
     // NEW (2026-09-25): genuinely missing before - courses were
     // always hardcoded to price: 0 with no editable field at all.
     const [price, setPrice] = useState(0);
@@ -248,7 +257,7 @@ export default function AICourseBuilder() {
             // FIXED (2026-08-29): confirmed real, reported 401 - this
             // action requires admin authorization, and this call never
             // sent one.
-            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: guidance.trim() || undefined });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: composeGuidance() });
             
             if (data.success) {
                 setGeneratedOutline(data.outline);
@@ -273,6 +282,16 @@ export default function AICourseBuilder() {
     // established. includeImages/includeAudio/includeQuizzes/
     // includeAssignments are collected but have no effect yet — see file
     // header.
+    // NEW (2026-10-16): Target Audience and Learning Objectives were collected on the form but never sent to the AI,
+    // so they had no effect. They are now added to the guidance used for the outline, the lessons and the quiz.
+    function composeGuidance() {
+        const parts = [guidance.trim()];
+        if (targetAudience.trim()) parts.push(`Target audience: ${targetAudience.trim()}`);
+        if (learningObjectives.trim()) parts.push(`By the end learners should be able to: ${learningObjectives.trim()}`);
+        const text = parts.filter(Boolean).join(' ');
+        return text || undefined;
+    }
+
     async function handleGenerateCourse(e) {
         if (e && e.preventDefault) e.preventDefault();
         
@@ -285,7 +304,7 @@ export default function AICourseBuilder() {
         
         try {
             // FIXED (2026-08-29): same confirmed regression.
-            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: guidance.trim() || undefined });
+            const data = await authenticatedFetch('generate-course', { topic, level, sourceMaterial: sourceDocumentText || undefined, guidance: composeGuidance() });
             
             if (!data.success) {
                 throw new Error(data.error || 'Failed to generate course outline');
@@ -335,7 +354,7 @@ export default function AICourseBuilder() {
                         lessonTitle: mod.title || `Module ${i + 1}`,
                         level,
                         sourceMaterial: sourceDocumentText || undefined,
-                        guidance: guidance.trim() || undefined
+                        guidance: composeGuidance()
                     });
                     if (contentResult.success && contentResult.content) {
                         content = contentResult.content;
@@ -397,7 +416,7 @@ export default function AICourseBuilder() {
             if (includeQuizzes) {
                 setGenerationStatus('Generating quiz...');
                 try {
-                    await authenticatedFetch('generate-course-quiz', { courseId: newCourse.id, guidance: guidance.trim() || undefined });
+                    await authenticatedFetch('generate-course-quiz', { courseId: newCourse.id, guidance: composeGuidance() });
                 } catch (quizErr) {
                     console.warn('Quiz generation failed:', quizErr);
                 }
