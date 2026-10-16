@@ -33,6 +33,11 @@ export default function EmployerSourcesManager() {
     const [importing, setImporting] = useState(false);
     const [importResult, setImportResult] = useState(null);
     const [importProgress, setImportProgress] = useState(null);
+    // NEW (2026-10-16): the list and the import error list show 30 per page instead of one endless list
+    const PAGE_SIZE = 30;
+    const [page, setPage] = useState(0);
+    const [filterText, setFilterText] = useState('');
+    const [errPage, setErrPage] = useState(0);
     const fileInputRef = useRef(null);
 
     const [scraping, setScraping] = useState(false);
@@ -75,6 +80,14 @@ export default function EmployerSourcesManager() {
     }
 
     useEffect(() => { loadSources(); }, []);
+    useEffect(() => { setPage(0); }, [filterText]);
+
+    const filteredSources = filterText.trim()
+        ? sources.filter(x => (x.company_name || '').toLowerCase().includes(filterText.trim().toLowerCase()))
+        : sources;
+    const pageCount = Math.max(1, Math.ceil(filteredSources.length / PAGE_SIZE));
+    const safePage = Math.min(page, pageCount - 1);
+    const pageRows = filteredSources.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
     async function loadSources() {
         setLoading(true);
@@ -207,7 +220,7 @@ export default function EmployerSourcesManager() {
 
         setImporting(true);
         setError(null);
-        setImportResult(null);
+        setImportResult(null); setErrPage(0);
 
         // FIXED (2026-09-13): confirmed real, live bug - a genuine
         // 45,189-row CSV exceeded Vercel's hard 4.5MB request body
@@ -417,16 +430,49 @@ export default function EmployerSourcesManager() {
                     <div className="mt-3 p-3 bg-slate-800/50 rounded-lg text-sm">
                         <p className="text-emerald-400">✓ Added: {importResult.added}</p>
                         <p className="text-slate-400">Skipped (already existed or invalid): {importResult.skipped}</p>
-                        {importResult.errors?.length > 0 && (
-                            <div className="mt-2 text-red-400 text-xs">
-                                {importResult.errors.map((e, i) => (
-                                    <p key={i}>• {e.company}: {e.error}</p>
-                                ))}
-                            </div>
-                        )}
+                        {importResult.errors?.length > 0 && (() => {
+                            const errs = importResult.errors;
+                            const groups = {};
+                            errs.forEach(e => { const k = String(e.error || '').replace(/"[^"]*"/g, '"…"'); groups[k] = (groups[k] || 0) + 1; });
+                            const errPages = Math.max(1, Math.ceil(errs.length / PAGE_SIZE));
+                            const ep = Math.min(errPage, errPages - 1);
+                            return (
+                                <div className="mt-2 text-xs">
+                                    <p className="text-red-300 font-medium">{errs.length} row{errs.length === 1 ? '' : 's'} not imported:</p>
+                                    <ul className="text-red-400 mt-1 mb-2">
+                                        {Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([msg, n]) => <li key={msg}>• {n} × {msg}</li>)}
+                                    </ul>
+                                    <div className="text-red-400">
+                                        {errs.slice(ep * PAGE_SIZE, ep * PAGE_SIZE + PAGE_SIZE).map((e, i) => (
+                                            <p key={i}>• {e.company}: {e.error}</p>
+                                        ))}
+                                    </div>
+                                    {errPages > 1 && (
+                                        <div className="flex items-center gap-3 mt-2 text-slate-300">
+                                            <button disabled={ep === 0} onClick={() => setErrPage(ep - 1)} className="px-2 py-1 bg-slate-700 rounded disabled:opacity-40">Previous</button>
+                                            <span>Page {ep + 1} of {errPages}</span>
+                                            <button disabled={ep >= errPages - 1} onClick={() => setErrPage(ep + 1)} className="px-2 py-1 bg-slate-700 rounded disabled:opacity-40">Next</button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </div>
                 )}
             </div>
+
+            {/* Search + count */}
+            {!loading && sources.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <input
+                        value={filterText}
+                        onChange={e => setFilterText(e.target.value)}
+                        placeholder="Search companies by name"
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white w-full sm:w-72"
+                    />
+                    <span className="text-xs text-slate-500">{filteredSources.length.toLocaleString('en-GB')} compan{filteredSources.length === 1 ? 'y' : 'ies'}{filterText.trim() ? ' match' : ''}</span>
+                </div>
+            )}
 
             {/* Existing sources table */}
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-x-auto">
@@ -451,7 +497,7 @@ export default function EmployerSourcesManager() {
                             </tr>
                         </thead>
                         <tbody>
-                            {sources.map(source => (
+                            {pageRows.map(source => (
                                 <tr key={source.id} className="border-b border-slate-800/50">
                                     <td className="p-3 text-white">
                                         <a href={source.website_url} target="_blank" rel="noopener noreferrer" className="hover:text-primary-400">
@@ -507,6 +553,16 @@ export default function EmployerSourcesManager() {
                     </table>
                 )}
             </div>
+
+            {!loading && filteredSources.length > PAGE_SIZE && (
+                <div className="flex items-center justify-center gap-3 mt-3 text-sm text-slate-300">
+                    <button disabled={safePage === 0} onClick={() => setPage(0)} className="px-2.5 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">First</button>
+                    <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="px-3 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Previous</button>
+                    <span>Page {safePage + 1} of {pageCount}</span>
+                    <button disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} className="px-3 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Next</button>
+                    <button disabled={safePage >= pageCount - 1} onClick={() => setPage(pageCount - 1)} className="px-2.5 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Last</button>
+                </div>
+            )}
 
             {finder && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setFinder(null)}>
