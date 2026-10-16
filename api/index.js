@@ -3475,7 +3475,7 @@ Return JSON: {
         const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { itemType, name, description, category, version, bookId, pageCount, ink, trim } = req.body;
+        const { itemType, name, description, category, executionType, version, bookId, pageCount, ink, trim } = req.body;
         if (!itemType || !name) return res.status(400).json({ error: 'itemType and name are required' });
 
         const validTypes = ['book', 'course', 'virtual_assistant', 'hr_tool'];
@@ -3510,6 +3510,14 @@ Return JSON: {
                 }
             } catch (ctxErr) {
                 console.warn('suggest-price live context failed, using static fallback:', ctxErr.message);
+            }
+
+            // NEW (2026-10-16): a Virtual Assistant is NOT sold per use for dollars. People spend plan credits
+            // (1 per use, 2 for a conversational assistant), and the dollar price is the value shown on its card.
+            // So the price should reflect how big the job is, on one consistent ladder, not be the same for all.
+            if (itemType === 'virtual_assistant') {
+                const conv = executionType === 'conversational';
+                contextByType.virtual_assistant += ` IMPORTANT: users do not pay this amount per use. They spend plan credits (${conv ? '2 credits, because this assistant is conversational and remembers the thread' : '1 credit, because this assistant does one focused task per use'}); the dollar price is the value shown on the assistant's card. Use ONE consistent price ladder: $4.99 for a quick, narrow task (a short message, a checklist, a one-off rewrite); $7.99 for a standard document or analysis (a CV review, a job advert, a policy summary); $9.99 for a detailed professional deliverable (a full cover letter pack, an appraisal, a structured plan); $12.99 for specialist employer or HR work that needs judgement (investigation plans, disciplinary documents, rota or compliance work); $14.99 only for the most substantial, multi-part deliverables.${conv ? ' Add about $2 to the ladder price for a conversational assistant, up to a maximum of $14.99.' : ''} Always end prices in .99 and never exceed $14.99.`;
             }
 
             let costInfo = null;
