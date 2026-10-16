@@ -273,7 +273,17 @@ function ThreadView({ data, onChanged, onUpdate }) {
 
 function MessageCard({ m, onAttachment }) {
     const out = m.direction === 'out';
-    const warn = !out && ['fail', 'softfail', 'permerror'].some((x) => [m.auth_results?.spf, m.auth_results?.dkim, m.auth_results?.dmarc].includes(x));
+    const authFail = !out && ['fail', 'softfail', 'permerror'].some((x) => [m.auth_results?.spf, m.auth_results?.dkim, m.auth_results?.dmarc].includes(x));
+    const flags = out ? [] : (m.auth_results?.flags || []);
+    const WARN = {
+        reply_to_differs: 'Replies to this message would normally go to a different address than the one it came from. We reply to the sender address only.',
+        name_shows_other_address: 'The sender name displays a different email address from the one it really came from.',
+        name_imitates_us: 'The sender name imitates BluSkye or ODUSBABA, but the message did not come from our own domain.',
+        lookalike_domain: 'The sender domain looks very like ours but is not ours. This is a typical impersonation trick.',
+        risky_attachment: 'This message carries an attachment type that can run code or hide malware. Do not open it.',
+        archive_attachment: 'This message carries a compressed archive. These often hide malware. Only open it if you were expecting it.'
+    };
+    const serious = authFail || flags.some((f) => ['name_shows_other_address', 'name_imitates_us', 'lookalike_domain', 'risky_attachment'].includes(f));
     const toLine = (m.to_addrs || []).map((a) => a.email).join(', ');
     return (
         <div className={`rounded-xl border p-4 ${out ? 'bg-primary-900/10 border-primary-800/40' : 'bg-slate-900 border-slate-800'}`}>
@@ -285,7 +295,9 @@ function MessageCard({ m, onAttachment }) {
                 </div>
                 <div className="text-xs text-slate-500 flex-shrink-0">{fmtFull(m.received_at)}</div>
             </div>
-            {warn && <div className="flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-3 py-2 mb-2"><Shield className="w-4 h-4 flex-shrink-0" /><span>This message failed a sender check, so it may not really come from who it says. Be careful with links, attachments and requests for money or details.</span></div>}
+            {authFail && <div className="flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-3 py-2 mb-2"><Shield className="w-4 h-4 flex-shrink-0" /><span>This message failed a sender check, so it may not really come from who it says. Do not click links, open attachments, or act on requests for money, passwords or details.</span></div>}
+            {flags.filter((f) => WARN[f]).map((f) => <div key={f} className="flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-3 py-2 mb-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>{WARN[f]}</span></div>)}
+            {flags.includes('no_auth') && !authFail && <div className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-lg px-3 py-2 mb-2">Sender could not be verified (no check result from the mail server). Treat requests for money, passwords or personal details with suspicion.</div>}
             {m.is_bounce && <div className="flex items-start gap-2 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-lg px-3 py-2 mb-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>This looks like a delivery failure notice for an email you sent.</span></div>}
             {m.send_status === 'sending' && <div className="text-xs text-amber-300 mb-2">Sending…</div>}
             {m.send_status === 'failed' && <div className="text-xs text-red-300 bg-red-500/10 rounded-lg px-3 py-2 mb-2">This reply was not sent: {m.send_error}</div>}
@@ -293,7 +305,7 @@ function MessageCard({ m, onAttachment }) {
             {(m.attachments || []).length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
                     {m.attachments.map((a, i) => a.path
-                        ? <button key={i} onClick={() => onAttachment(m.id, i)} className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-1.5"><FileText className="w-3.5 h-3.5" />{a.name} <span className="text-slate-500">{fmtSize(a.size)}</span></button>
+                        ? <button key={i} onClick={() => { if ((serious || /\.(exe|scr|bat|cmd|msi|js|vbs|lnk|jar|hta|iso|docm|xlsm|pptm|html?|svg|zip|rar|7z)$/i.test(a.name)) && !window.confirm('This file may be unsafe. Opening it could harm your computer. Only continue if you were expecting it from someone you trust. Open it anyway?')) return; onAttachment(m.id, i); }} className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-1.5"><FileText className="w-3.5 h-3.5" />{a.name} <span className="text-slate-500">{fmtSize(a.size)}</span></button>
                         : <span key={i} className="flex items-center gap-1.5 text-xs bg-slate-800/50 text-slate-500 rounded-lg px-2.5 py-1.5"><FileText className="w-3.5 h-3.5" />{a.name} {a.skipped ? `(${a.skipped})` : '(sent)'}</span>)}
                 </div>
             )}
