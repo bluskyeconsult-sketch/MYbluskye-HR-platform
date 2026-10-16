@@ -56,8 +56,16 @@ export default function CoursesPage() {
         { id: 'Employee Relations', name: 'Employee Relations', icon: Target },
         { id: 'Performance Management', name: 'Performance Management', icon: TrendingUp },
         { id: 'Compliance', name: 'Compliance', icon: Shield },
-        { id: 'Diversity', name: 'Diversity & Inclusion', icon: Users },
-        { id: 'Talent Management', name: 'Talent Management', icon: Trophy }
+        // FIXED (2026-10-16): the Course Editor saves "Diversity & Inclusion" but this tab filtered on "Diversity",
+        // so courses saved with the editor's name never matched it. The tab now uses the editor's name (older
+        // courses saved as "Diversity" are still matched in the filter below). Leadership, Communication,
+        // Career Development and Self-Employment are offered by the editor and builder, so they get tabs too.
+        { id: 'Diversity & Inclusion', name: 'Diversity & Inclusion', icon: Users },
+        { id: 'Talent Management', name: 'Talent Management', icon: Trophy },
+        { id: 'Leadership', name: 'Leadership', icon: Target },
+        { id: 'Communication', name: 'Communication', icon: Users },
+        { id: 'Career Development', name: 'Career Development', icon: TrendingUp },
+        { id: 'Self-Employment', name: 'Self-Employment', icon: Shield }
     ];
 
     const sortOptions = [
@@ -175,7 +183,7 @@ export default function CoursesPage() {
         }
         
         if (selectedCategory !== 'all') {
-            filtered = filtered.filter(c => c.category === selectedCategory);
+            filtered = filtered.filter(c => c.category === selectedCategory || (selectedCategory === 'Diversity & Inclusion' && c.category === 'Diversity'));
         }
         
         filtered.sort((a, b) => {
