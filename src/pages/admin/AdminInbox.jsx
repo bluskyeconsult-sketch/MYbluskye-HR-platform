@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Mail, Search, RefreshCw, Settings, Send, Wand2, AlertTriangle, X, Plus, Trash2, Tag, FileText, LifeBuoy, User, Shield } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import { authenticatedFetch } from '../../lib/authFetch';
 import MailMessageFrame from '../../components/admin/MailMessageFrame';
@@ -333,15 +334,16 @@ function ReplyBox({ thread, messages, account, onSent }) {
 }
 
 function ComposeModal({ accounts, onClose, onSent }) {
-    return (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl mt-8">
+    return createPortal(
+        <div className="fixed inset-0 z-[1000] bg-black/70 flex items-start justify-center overflow-y-auto p-4 pt-10">
+            <div className="w-full max-w-2xl my-4">
                 <div className="flex justify-end mb-1"><button onClick={onClose} className="text-slate-300 hover:text-white"><X className="w-5 h-5" /></button></div>
                 {accounts.length === 0
                     ? <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-sm text-slate-300">No mailbox is connected yet. Open Settings to see what is missing.</div>
                     : <Composer title="New message" accounts={accounts} onSent={onSent} />}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 
@@ -483,9 +485,9 @@ function SettingsModal({ accounts, canManage, onClose, onChanged }) {
         try { await authenticatedFetch('mail-template-delete', { id }); loadTpl(); } catch (e) { toast.error(e.message); }
     }
 
-    return (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5">
+    return createPortal(
+        <div className="fixed inset-0 z-[1000] bg-black/70 flex items-start justify-center overflow-y-auto p-4 pt-10">
+            <div className="w-full max-w-2xl my-4 bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-white">Inbox settings</h2><button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button></div>
 
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Mailboxes</p>
@@ -542,6 +544,7 @@ function SettingsModal({ accounts, canManage, onClose, onChanged }) {
                     </div>
                 )}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
