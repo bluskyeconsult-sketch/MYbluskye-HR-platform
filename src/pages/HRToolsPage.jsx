@@ -15,6 +15,7 @@
 // api/index.js, reusing the existing callOpenAI() pattern.
 
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { authenticatedFetch } from '../lib/authFetch';
 import { useCapability } from '../hooks/useCapability';
 import { GateGuard } from '../components/GateGuard';
@@ -562,6 +563,25 @@ Would you like me to provide more specific information?`;
                         })}
                     </div>
                 ) : null}
+
+                {/* NEW (2026-10-16): free calculators. They are plain sums with no AI, so they need no sign-in or credits. */}
+                {!activeCustomTool && !activeTool && (
+                    <div className="mt-8">
+                        <h2 className="text-xl font-bold text-white mb-4">Free calculators</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <Link
+                                to="/hr-tools/holiday-notice-calculator"
+                                className="block bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-left hover:border-primary-500/30 transition-all duration-200 group"
+                            >
+                                <div className="w-12 h-12 rounded-lg bg-emerald-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition">
+                                    <ClipboardList className="w-6 h-6 text-emerald-400" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-white mb-1 group-hover:text-primary-400 transition">Holiday Pay and Notice Calculator</h3>
+                                <p className="text-slate-400 text-sm">Work out statutory holiday, holiday owed when someone leaves, and notice periods. Free and instant.</p>
+                            </Link>
+                        </div>
+                    </div>
+                )}
 
                 {activeCustomTool ? null : !activeTool && customTools.length > 0 ? (
                     <div className="mt-8">
