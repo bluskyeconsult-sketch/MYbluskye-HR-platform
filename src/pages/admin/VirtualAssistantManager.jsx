@@ -15,7 +15,8 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { generateVirtualAssistantWithAI, createVirtualAssistantFromAI } from '../../services/aiVirtualAssistantService';
+import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
+import { generateVirtualAssistantWithAI, createVirtualAssistantFromAI, normalizeVACategory } from '../../services/aiVirtualAssistantService';
 import { 
     Bot, Plus, Edit2, Trash2, Eye, Loader2, Sparkles, 
     CheckCircle, XCircle, DollarSign, Clock, Tag, Zap,
@@ -68,7 +69,11 @@ export default function VirtualAssistantManager() {
         { id: 'resume', name: 'Resume & CV', icon: FileText, color: 'bg-blue-500/20 text-blue-400' },
         { id: 'career', name: 'Career Advice', icon: Briefcase, color: 'bg-emerald-500/20 text-emerald-400' },
         { id: 'writing', name: 'Writing', icon: MessageCircle, color: 'bg-purple-500/20 text-purple-400' },
-        { id: 'productivity', name: 'Productivity', icon: TrendingUp, color: 'bg-amber-500/20 text-amber-400' }
+        { id: 'productivity', name: 'Productivity', icon: TrendingUp, color: 'bg-amber-500/20 text-amber-400' },
+        // FIXED (2026-10-16): employer_ops is a real, allowed category (the Rota Assistant uses it and the public
+        // Hire VA page already has a tab for it) but it was missing here, so employer-facing VAs could not be
+        // created or edited with the right category, and editing the Rota Assistant silently changed it.
+        { id: 'employer_ops', name: 'Employer & Workforce Tools', icon: Users, color: 'bg-cyan-500/20 text-cyan-400' }
     ];
 
     useEffect(() => {
@@ -126,7 +131,9 @@ export default function VirtualAssistantManager() {
                 long_description: generated.long_description,
                 features: generated.features || [],
                 price: generated.price,
-                category: generated.category || 'resume',
+                category: normalizeVACategory(generated.category),
+                execution_type: 'single_turn',
+                required_tier: 'free',
                 processing_time_minutes: generated.processing_time_minutes || 5,
                 sample_prompt: generated.sample_prompt || '',
                 sample_output: generated.sample_output || '',
@@ -146,7 +153,16 @@ export default function VirtualAssistantManager() {
         
         const { data: { user } } = await supabase.auth.getUser();
         
-        const result = await createVirtualAssistantFromAI(formData, user.id);
+        let result = { success: false };
+        try {
+            result = await createVirtualAssistantFromAI(formData, user.id);
+        } catch (err) {
+            // FIXED (2026-10-16): a failed save used to leave the button spinning with no message.
+            console.error('Create VA error:', err);
+            alert('Could not create the Virtual Assistant: ' + (err.message || 'unknown error'));
+            setSaving(false);
+            return;
+        }
         
         if (result.success) {
             setShowAIModal(false);
@@ -175,19 +191,31 @@ export default function VirtualAssistantManager() {
         
         const { data: { user } } = await supabase.auth.getUser();
         
+        let saveError = null;
         if (editingVA) {
-            await supabase
+            const { error } = await supabase
                 .from('virtual_assistants')
                 .update(formData)
                 .eq('id', editingVA.id);
+            saveError = error;
         } else {
-            await supabase
+            const { error } = await supabase
                 .from('virtual_assistants')
                 .insert({
                     ...formData,
                     created_by: user.id,
                     created_at: new Date().toISOString()
                 });
+            saveError = error;
+        }
+        
+        // FIXED (2026-10-16): save errors (for example a category the database does not allow) were ignored,
+        // so the window closed as if it had worked. Now the admin sees the reason and the window stays open.
+        if (saveError) {
+            console.error('Save VA error:', saveError);
+            alert('Could not save: ' + saveError.message);
+            setSaving(false);
+            return;
         }
         
         setShowModal(false);
@@ -438,6 +466,31 @@ export default function VirtualAssistantManager() {
                                             ))}
                                         </div>
                                     </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Category</label>
+                                            <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Execution type</label>
+                                            <select value={formData.execution_type || 'single_turn'} onChange={e => setFormData({ ...formData, execution_type: e.target.value })} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                                <option value="single_turn">Single-turn (one input, one output)</option>
+                                                <option value="conversational">Conversational (remembers the thread)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Required plan</label>
+                                            <select value={formData.required_tier || 'free'} onChange={e => setFormData({ ...formData, required_tier: e.target.value })} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                                <option value="free">Free</option>
+                                                <option value="registered">Registered or higher</option>
+                                                <option value="professional">Professional or higher</option>
+                                                <option value="employer">Employer or higher</option>
+                                                <option value="business">Business only</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                     <button
                                         onClick={saveFromAI}
                                         disabled={saving}
@@ -496,6 +549,13 @@ export default function VirtualAssistantManager() {
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">Price ($)</label>
                                     <input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                                    <SuggestPriceButton
+                                        itemType="virtual_assistant"
+                                        name={formData.name || formData.title}
+                                        description={formData.description}
+                                        category={formData.category}
+                                        onApply={(suggested) => setFormData({ ...formData, price: suggested })}
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">Category</label>
