@@ -7340,6 +7340,87 @@ ${siteContext}`;
     },
 
     // ========== GENERATE ASSESSMENT ==========
+    // NEW (2026-10-16): suggests which KIND of assessment (knowledge test, self-rating profile, self-diagnostic or
+    // career matching) and which CATEGORY fits a topic and short brief, so the admin does not have to choose by hand.
+    // Uses the AI; if the AI is unavailable or returns something unusable it falls back to simple keyword rules,
+    // so the admin always gets a sensible starting choice (which they can change). It only suggests - nothing is
+    // created or saved here.
+    'suggest-assessment-kind': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+
+        const topic = String((req.body && req.body.topic) || '').trim().slice(0, 300);
+        const guidance = String((req.body && req.body.guidance) || '').trim().slice(0, 1500);
+        if (!topic) return res.status(400).json({ error: 'Topic is required' });
+
+        const MODES = ['knowledge', 'profile', 'diagnostic', 'matching'];
+        const CATEGORIES = ['personality', 'emotional_intelligence', 'leadership', 'communication', 'problem_solving', 'team_collaboration', 'career_aptitude', 'technical', 'general'];
+        const text = `${topic} ${guidance}`.toLowerCase();
+
+        const keywordSuggestion = () => {
+            let category = 'general';
+            if (/emotional|empathy|self[- ]awareness|eq\b/.test(text)) category = 'emotional_intelligence';
+            else if (/leader|manage|supervis|delegat/.test(text)) category = 'leadership';
+            else if (/communicat|speaking|writing|presentation|listening/.test(text)) category = 'communication';
+            else if (/problem|critical thinking|decision|analytic|reasoning/.test(text)) category = 'problem_solving';
+            else if (/team|collaborat|conflict|cooperat/.test(text)) category = 'team_collaboration';
+            else if (/personalit|behaviou?r|traits?|temperament/.test(text)) category = 'personality';
+            else if (/excel|software|coding|programming|data|technical|systems?|engineer|compliance|law|policy|health and safety/.test(text)) category = 'technical';
+
+            let mode = 'knowledge';
+            let reason = 'It has facts and skills that can be marked right or wrong, so a scored knowledge test fits.';
+            if (/which (career|job|work|role)|career match|what (job|career|work|role).*(suit|fit)|best (career|job)|interests?\b/.test(text)) {
+                mode = 'matching';
+                reason = 'It is about which kinds of work suit someone, so career matching fits.';
+            } else if (/on track|am i ready|goal|re-?engineer|transition|align|switch(ing)? career|change career|become (a|an)\b/.test(text)) {
+                mode = 'diagnostic';
+                reason = 'It is about how close someone is to a goal, so a self-diagnostic with gaps and an action plan fits.';
+            } else if (/self[- ]?rat|self[- ]?assess|strengths?|profile|how (do )?i\b|my (skills|style)/.test(text) ||
+                (['personality', 'emotional_intelligence', 'leadership', 'communication', 'team_collaboration'].includes(category) &&
+                    !/test|quiz|exam|knowledge|certif|law|policy|compliance/.test(text))) {
+                mode = 'profile';
+                reason = 'It is about how people rate their own behaviour and skills, so a self-rating profile fits.';
+            }
+            if (mode === 'diagnostic' || mode === 'matching') category = 'career_aptitude';
+            return { mode, category, reason };
+        };
+
+        let result = null;
+        try {
+            const system = `You help an HR platform administrator choose the right KIND and CATEGORY for a new assessment.
+
+KINDS (choose exactly one):
+- "knowledge": a test with right and wrong answers, scored as a percentage. For facts, rules, procedures and technical skills.
+- "profile": a self-rating profile with no right answers. People rate how much behaviours describe them, in soft skills such as communication, leadership, emotional intelligence or teamwork, and get strengths and areas to develop.
+- "diagnostic": a self-diagnostic with no right answers. Shows how closely someone's current situation matches a goal or chosen career, the gaps, and an action plan.
+- "matching": career matching with no right answers. Shows which kinds of work someone is most drawn to.
+
+CATEGORIES (choose exactly one id): ${CATEGORIES.join(', ')}.
+Rules: if the kind is "diagnostic" or "matching" the category MUST be "career_aptitude". Use "general" only when nothing else fits.
+
+Reply as JSON: {"mode": "...", "category": "...", "reason": "one plain-English sentence, under 25 words, saying why this kind fits"}.`;
+            const user = `Topic: ${topic}\nBrief description: ${guidance || '(none given)'}`;
+            const data = await callOpenAI(
+                [{ role: 'system', content: system }, { role: 'user', content: user }],
+                200, 0.2, { type: 'json_object' }
+            );
+            const parsed = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
+            if (MODES.includes(parsed.mode) && CATEGORIES.includes(parsed.category)) {
+                result = {
+                    mode: parsed.mode,
+                    category: (parsed.mode === 'diagnostic' || parsed.mode === 'matching') ? 'career_aptitude' : parsed.category,
+                    reason: String(parsed.reason || '').slice(0, 300) || 'This kind fits the topic best.',
+                    source: 'ai'
+                };
+            }
+        } catch (e) {
+            console.error('suggest-assessment-kind AI step failed, using keyword rules:', e.message);
+        }
+        if (!result) result = { ...keywordSuggestion(), source: 'keywords' };
+        return res.status(200).json({ success: true, ...result });
+    },
+
     'generate-assessment': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_courses');
