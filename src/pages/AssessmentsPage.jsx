@@ -226,10 +226,11 @@ export default function AssessmentsPage() {
             filtered = filtered.filter(a => a.assessment_type === selectedCategory);
         }
         
+        // Newest first, so a newly created assessment shows at the top. Ties and missing dates fall back to title.
         filtered.sort((a, b) => {
-            const titleA = a?.title || '';
-            const titleB = b?.title || '';
-            return titleA.localeCompare(titleB);
+            const diff = new Date(b?.created_at || 0) - new Date(a?.created_at || 0);
+            if (diff !== 0 && !Number.isNaN(diff)) return diff;
+            return (a?.title || '').localeCompare(b?.title || '');
         });
         
         setFilteredAssessments(filtered);
