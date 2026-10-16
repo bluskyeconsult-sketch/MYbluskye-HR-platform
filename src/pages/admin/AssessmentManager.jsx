@@ -17,7 +17,7 @@
 //    the same pattern already used by this file's own manual multiple-choice
 //    form.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import AiGuidanceField from '../../components/admin/AiGuidanceField';
@@ -236,6 +236,13 @@ export default function AssessmentManager() {
     // 'knowledge' = a test with right and wrong answers. 'diagnostic' = a self-assessment with no right
     // answers that reports how closely someone's situation matches their chosen goal, with an action plan.
     const [aiMode, setAiMode] = useState('knowledge');
+    // NEW (2026-10-16): the AI suggests the kind and category from the topic and brief. aiModeTouched is true once the
+    // admin picks a kind by hand, so a later automatic suggestion never overrides a deliberate choice.
+    const [aiCategory, setAiCategory] = useState('general');
+    const [aiSuggestion, setAiSuggestion] = useState(null);
+    const [suggesting, setSuggesting] = useState(false);
+    const [aiModeTouched, setAiModeTouched] = useState(false);
+    const aiOpenRef = useRef(false);
     const [aiGeneratedQuestions, setAiGeneratedQuestions] = useState([]);
     const [generating, setGenerating] = useState(false);
     
@@ -259,6 +266,17 @@ export default function AssessmentManager() {
     useEffect(() => {
         if (isAdmin) loadAssessments();
     }, [isAdmin, loadAssessments]);
+
+    // Each time the AI generator is closed, forget the previous suggestion so the next one starts fresh.
+    useEffect(() => {
+        aiOpenRef.current = showAIGeneratorModal;
+        if (!showAIGeneratorModal) {
+            setAiSuggestion(null);
+            setAiModeTouched(false);
+            setAiMode('knowledge');
+            setAiCategory('general');
+        }
+    }, [showAIGeneratorModal]);
     
     // Filtered assessments
     const filteredAssessments = assessments.filter(a => {
@@ -271,6 +289,39 @@ export default function AssessmentManager() {
     // AI-ASSISTED FUNCTIONS
     // ============================================
     
+    // Asks the server to suggest the kind and category. force=true (the "Let AI choose" button) always applies the
+    // suggestion; automatic calls (topic field left) apply it only if the admin has not picked a kind by hand.
+    const suggestKind = async (force = false) => {
+        // Not when adding questions to an existing assessment: its kind is already fixed by what it contains.
+        if (selectedAssessment || !aiTopic.trim() || suggesting) return;
+        if (!force && aiModeTouched) return;
+        setSuggesting(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=suggest-assessment-kind', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({ topic: aiTopic, guidance: aiGuidance.trim() || undefined })
+            });
+            const data = await response.json();
+            if (!aiOpenRef.current) return; // the generator was closed while waiting
+            if (data.success && ['knowledge', 'profile', 'diagnostic', 'matching'].includes(data.mode)) {
+                setAiMode(data.mode);
+                setAiCategory(ASSESSMENT_TYPES.some(t => t.id === data.category) ? data.category : 'general');
+                setAiSuggestion({ mode: data.mode, reason: data.reason, source: data.source });
+                if (force) setAiModeTouched(false);
+            }
+        } catch (err) {
+            // A failed suggestion is harmless: the admin can still choose by hand.
+            console.error('Suggestion failed:', err);
+        } finally {
+            setSuggesting(false);
+        }
+    };
+
     const generateAIQuestions = async () => {
         if (!aiTopic.trim()) {
             alert('Please enter a topic for AI question generation');
@@ -454,7 +505,7 @@ export default function AssessmentManager() {
                 : matching
                 ? `A career-matching profile with no right or wrong answers. It shows which kinds of work you are most drawn to, with example roles and a way to test each match in real life.`
                 : diagnostic
-                ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${aiTopic}, where you are drifting, and a step-by-step plan to get back on track.`
+                ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${cleanTopic}, where you are drifting, and a step-by-step plan to get back on track.`
                 : `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
             
             const { data: newAssessment, error: assessmentError } = await supabase
@@ -469,7 +520,10 @@ export default function AssessmentManager() {
                         : diagnostic
                         ? 'Answer honestly about your life as it is now, not as you would like it to be. There are no right or wrong answers. Your result shows where you are aligned, where you are drifting, and what to do next.'
                         : `Complete this assessment to evaluate your ${aiTopic} knowledge. Answer each question thoughtfully.`,
-                    assessment_type: profile ? 'self_assessment' : diagnostic ? 'career_aptitude' : 'general',
+                    // Career checks and matching keep 'career_aptitude' (the manager and scorer rely on it). Knowledge tests and
+                    // self-rating profiles now take the category chosen above, so they appear under the right tab for users.
+                    // (Profiles used to be saved as 'self_assessment', a value that matched no category tab.)
+                    assessment_type: diagnostic ? 'career_aptitude' : (ASSESSMENT_TYPES.some(t => t.id === aiCategory) ? aiCategory : 'general'),
                     difficulty: aiDifficulty,
                     time_limit_minutes: Math.ceil(aiQuestionCount * 1.5),
                     question_count: generatedQuestions.length,
@@ -1168,6 +1222,7 @@ export default function AssessmentManager() {
                                     type="text"
                                     value={aiTopic}
                                     onChange={(e) => setAiTopic(e.target.value)}
+                                    onBlur={() => { if (!aiSuggestion) suggestKind(false); }}
                                     placeholder="e.g., Leadership in Remote Teams, Data Analytics, Customer Service Excellence"
                                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-purple-500"
                                 />
@@ -1181,7 +1236,23 @@ export default function AssessmentManager() {
                             />
 
                             <div>
-                                <label className="block text-sm text-slate-400 mb-1">What kind of assessment?</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-sm text-slate-400">What kind of assessment?</label>
+                                    {!selectedAssessment && <button
+                                        type="button"
+                                        onClick={() => suggestKind(true)}
+                                        disabled={suggesting || !aiTopic.trim()}
+                                        className="text-xs px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-300 hover:bg-purple-500/20 disabled:opacity-40 flex items-center gap-1.5 transition"
+                                    >
+                                        {suggesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                        {suggesting ? 'Choosing...' : 'Let AI choose'}
+                                    </button>}
+                                </div>
+                                {!selectedAssessment && aiSuggestion && !aiModeTouched && (
+                                    <p className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2 mb-2">
+                                        AI chose <strong>{{ knowledge: 'Knowledge test', diagnostic: 'Self-diagnostic', profile: 'Self-rating profile', matching: 'Career matching' }[aiSuggestion.mode]}</strong>. {aiSuggestion.reason} You can change it below.
+                                    </p>
+                                )}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {[
                                         { id: 'knowledge', title: 'Knowledge test', text: 'Right and wrong answers, scored as a percentage. Use for skills and facts.' },
@@ -1192,7 +1263,7 @@ export default function AssessmentManager() {
                                         <button
                                             type="button"
                                             key={m.id}
-                                            onClick={() => setAiMode(m.id)}
+                                            onClick={() => { setAiMode(m.id); setAiModeTouched(true); }}
                                             className={`text-left rounded-xl border p-3 transition ${aiMode === m.id ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'}`}
                                         >
                                             <p className="text-white text-sm font-medium">{m.title}</p>
@@ -1201,6 +1272,19 @@ export default function AssessmentManager() {
                                     ))}
                                 </div>
                             </div>
+
+                            {!selectedAssessment && (aiMode === 'knowledge' || aiMode === 'profile') && (
+                                <div>
+                                    <label className="block text-sm text-slate-400 mb-1">Category (where users will find it)</label>
+                                    <select
+                                        value={aiCategory}
+                                        onChange={(e) => setAiCategory(e.target.value)}
+                                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                                    >
+                                        {ASSESSMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -1228,7 +1312,7 @@ export default function AssessmentManager() {
 
                             <button
                                 onClick={selectedAssessment ? generateAIQuestions : createAICompleteAssessment}
-                                disabled={generating || !aiTopic.trim()}
+                                disabled={generating || suggesting || !aiTopic.trim()}
                                 className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all duration-200 flex items-center justify-center gap-2"
                             >
                                 {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
