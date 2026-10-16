@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { DollarSign, Loader2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function SuggestPriceButton({ itemType, name, description, category, version, bookId, pageCount, ink, trim, onApply }) {
+export default function SuggestPriceButton({ itemType, name, description, category, executionType, version, bookId, pageCount, ink, trim, onApply }) {
     const [loading, setLoading] = useState(false);
     const [suggestion, setSuggestion] = useState(null);
 
@@ -32,7 +32,7 @@ export default function SuggestPriceButton({ itemType, name, description, catego
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ itemType, name, description, category, version, bookId, pageCount, ink, trim })
+                body: JSON.stringify({ itemType, name, description, category, executionType, version, bookId, pageCount, ink, trim })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Could not get a suggestion');
