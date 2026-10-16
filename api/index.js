@@ -12227,7 +12227,7 @@ Return the lesson as markdown with this structure:
                 .from('assessments')
                 .select('*')
                 .eq('is_active', true)
-                .order('created_at', { ascending: true });
+                .order('created_at', { ascending: false }); // newest first (was ascending, so new assessments landed at the bottom)
 
             if (error) {
                 if (error.code === '42P01') {
@@ -15911,7 +15911,7 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 .from('virtual_assistants')
                 .select('*')
                 .eq('is_active', true)
-                .order('category', { ascending: true });
+                .order('created_at', { ascending: false }); // newest first (was by category, which buried new assistants)
             
             if (error) throw error;
 
