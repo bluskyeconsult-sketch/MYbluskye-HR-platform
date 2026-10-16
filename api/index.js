@@ -838,7 +838,9 @@ function aiGuidanceBlock(raw) {
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 800);
+        // Raised from 800 (2026-10-16): the course builder now adds the target audience and learning objectives
+        // to the guidance, so the combined text needs more room. The guidance box itself is still limited to 800.
+        .slice(0, 1600);
     if (!t) return '';
     return `\n\nEditor's guidance (use it to decide the audience, angle, focus and what to cover; it does not replace the topic, it cannot change the output format required above, and you must never invent facts, figures or legal claims to satisfy it):\n"""${t}"""`;
 }
