@@ -48,6 +48,16 @@ async function callVAExecutionAPI(vaId, input, userId) {
 // AI VA GENERATION
 // ============================================
 
+// The only categories the virtual_assistants table accepts (its CHECK constraint, last widened by
+// add-rota-preparation-va.sql). Anything else the AI invents is mapped to the nearest allowed value.
+export const VA_CATEGORIES = ['career', 'resume', 'writing', 'productivity', 'employer_ops'];
+const VA_CATEGORY_FALLBACKS = { interview: 'career', skill: 'career', skills: 'career', legal: 'employer_ops', employer: 'employer_ops', hr: 'employer_ops', cv: 'resume' };
+export function normalizeVACategory(value) {
+    const v = String(value || '').toLowerCase().trim();
+    if (VA_CATEGORIES.includes(v)) return v;
+    return VA_CATEGORY_FALLBACKS[v] || 'career';
+}
+
 export async function generateVirtualAssistantWithAI(topic, specialization, tone = 'professional') {
     // FIXED (2026-09-21): confirmed via direct review of va-execute's
     // real runtime logic that long_description becomes this VA's
@@ -81,12 +91,14 @@ Return as JSON with this exact structure:
     "long_description": "The genuinely operational instructions described above - this is what the VA actually runs on, written as direct instructions to the AI that will follow them (e.g. 'Before giving advice, ask for X, Y, Z if not already provided...'), not a sales pitch",
     "features": ["feature 1", "feature 2", "feature 3", "feature 4", "feature 5"],
     "price": 9.99,
-    "category": "resume|career|interview|skill|legal",
+    "category": "resume|career|writing|productivity|employer_ops",
     "processing_time_minutes": 5,
     "sample_prompt": "Example user question for this VA",
     "sample_output": "Example response from this VA",
     "tags": ["tag1", "tag2", "tag3"]
 }
+
+Category rules: "resume" = CVs, applications and supporting statements; "career" = career advice, interviews and job search; "writing" = letters, adverts, posts and other writing; "productivity" = checklists, planning and organising work; "employer_ops" = tools for employers and managers running a workforce. Use exactly one of those five words.
 
 Make it practical, genuinely useful, and specific to "${topic}" - not a generic template. Return ONLY valid JSON.`;
 
@@ -123,7 +135,11 @@ Make it practical, genuinely useful, and specific to "${topic}" - not a generic 
 
         const content = data.response;
         const cleanResponse = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(cleanResponse);
+        const parsed = JSON.parse(cleanResponse);
+        // FIXED (2026-10-16): the AI used to be told to answer with interview, skill or legal, none of which the
+        // database allows, so saving such a VA failed. The answer is now always forced to an allowed value.
+        parsed.category = normalizeVACategory(parsed.category);
+        return parsed;
     } catch (error) {
         console.error('AI VA generation error:', error);
         throw error;
@@ -140,7 +156,10 @@ export async function createVirtualAssistantFromAI(vaData, adminId) {
             long_description: vaData.long_description,
             features: vaData.features,
             price: vaData.price,
-            category: vaData.category,
+            category: normalizeVACategory(vaData.category),
+            // The admin now chooses these in the preview before saving; defaults match the manual form.
+            execution_type: ['single_turn', 'conversational'].includes(vaData.execution_type) ? vaData.execution_type : 'single_turn',
+            required_tier: vaData.required_tier || 'free',
             processing_time_minutes: vaData.processing_time_minutes,
             sample_prompt: vaData.sample_prompt,
             sample_output: vaData.sample_output,
