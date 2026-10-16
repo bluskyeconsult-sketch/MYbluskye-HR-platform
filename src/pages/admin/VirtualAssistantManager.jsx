@@ -203,7 +203,7 @@ export default function VirtualAssistantManager() {
                 .from('virtual_assistants')
                 .insert({
                     ...formData,
-                    created_by: user.id,
+                    // created_by removed (2026-10-16): the virtual_assistants table has no such column.
                     created_at: new Date().toISOString()
                 });
             saveError = error;
