@@ -704,6 +704,7 @@ const TesterLoginPage = lazy(() => import('./pages/tester/TesterLoginPage'));
 const TesterRegisterPage = lazy(() => import('./pages/tester/TesterRegisterPage'));
 const TesterDashboard = lazy(() => import('./pages/tester/TesterDashboard'));
 const HRToolsPage = lazy(() => import('./pages/HRToolsPage'));
+const HolidayNoticeCalculator = lazy(() => import('./pages/HolidayNoticeCalculator'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 import AdminLayout from './components/admin/AdminLayout';
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
@@ -972,6 +973,8 @@ function AppContent() {
                             <Route path="/visa-pathways" element={<AnimatedPage><VisaPathwaysPage /></AnimatedPage>} />
                             <Route path="/blog" element={<AnimatedPage><BlogPage /></AnimatedPage>} />
                             <Route path="/hr-tools" element={<AnimatedPage><HRToolsPage /></AnimatedPage>} />
+                            {/* NEW (2026-10-16): free, no-AI calculator for holiday and notice. Public on purpose. */}
+                            <Route path="/hr-tools/holiday-notice-calculator" element={<AnimatedPage><HolidayNoticeCalculator /></AnimatedPage>} />
                             
                             {/* Assessment Routes */}
                             <Route path="/assessments" element={<AnimatedPage><AssessmentsPage /></AnimatedPage>} />
