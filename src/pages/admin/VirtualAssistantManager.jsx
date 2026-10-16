@@ -36,6 +36,72 @@ export default function VirtualAssistantManager() {
     const [aiSpecialization, setAiSpecialization] = useState('');
     const [aiTone, setAiTone] = useState('professional');
     const [aiGeneratedVA, setAiGeneratedVA] = useState(null);
+    // NEW (2026-10-16): AI price suggestion in the AI preview, and the review-all-prices tool for VAs already built.
+    const [aiPriceNote, setAiPriceNote] = useState('');
+    const [showPriceReview, setShowPriceReview] = useState(false);
+    const [priceRows, setPriceRows] = useState([]);      // { id, name, current, suggested, reasoning, status, apply }
+    const [priceReviewRunning, setPriceReviewRunning] = useState(false);
+    const [applyingPrices, setApplyingPrices] = useState(false);
+
+    // What a use of a VA really costs the person: credits, not dollars. The dollar price is the value shown on the
+    // card, so it should rise with how big the job is, not be the same for everything.
+    const creditsPerUse = (va) => (va?.execution_type === 'conversational' ? 2 : 1);
+    const money = (n) => (Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : '$0.00');
+
+    async function fetchPriceSuggestion(va) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch('/api/index?action=suggest-price', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+            body: JSON.stringify({
+                itemType: 'virtual_assistant',
+                name: va.name || va.title,
+                description: va.description,
+                category: va.category,
+                executionType: va.execution_type || 'single_turn'
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not get a price suggestion');
+        return data;
+    }
+
+    async function runPriceReview() {
+        setPriceReviewRunning(true);
+        const rows = assistants.map(a => ({ id: a.id, name: a.name, current: Number(a.price) || 0, suggested: null, reasoning: '', status: 'waiting', apply: false, va: a }));
+        setPriceRows(rows);
+        let next = 0;
+        const worker = async () => {
+            while (next < rows.length) {
+                const i = next++;
+                try {
+                    const s = await fetchPriceSuggestion(rows[i].va);
+                    const price = Math.round(Number(s.suggestedPrice) * 100) / 100;
+                    rows[i] = { ...rows[i], suggested: price, reasoning: s.reasoning || '', status: 'done', apply: Number.isFinite(price) && price > 0 && price !== rows[i].current };
+                } catch (err) {
+                    rows[i] = { ...rows[i], status: 'failed', reasoning: err.message };
+                }
+                setPriceRows([...rows]);
+            }
+        };
+        await Promise.all([worker(), worker(), worker()]);
+        setPriceReviewRunning(false);
+    }
+
+    async function applySelectedPrices() {
+        const chosen = priceRows.filter(r => r.apply && Number.isFinite(r.suggested) && r.suggested > 0);
+        if (chosen.length === 0) return;
+        setApplyingPrices(true);
+        let failed = 0;
+        for (const r of chosen) {
+            const { error } = await supabase.from('virtual_assistants').update({ price: r.suggested }).eq('id', r.id);
+            if (error) failed++;
+        }
+        setApplyingPrices(false);
+        alert(failed ? `${chosen.length - failed} prices updated, ${failed} failed.` : `${chosen.length} prices updated.`);
+        setShowPriceReview(false);
+        loadAssistants();
+    }
 
     const [formData, setFormData] = useState({
         name: '',
@@ -140,6 +206,17 @@ export default function VirtualAssistantManager() {
                 tags: generated.tags || [],
                 is_active: true
             });
+            // Ask the pricing assistant for a price straight away so the preview never shows a made-up default.
+            setAiPriceNote('Working out a price...');
+            try {
+                const s = await fetchPriceSuggestion({ ...generated, category: normalizeVACategory(generated.category), execution_type: 'single_turn' });
+                const price = Math.round(Number(s.suggestedPrice) * 100) / 100;
+                if (Number.isFinite(price) && price > 0) setFormData(prev => ({ ...prev, price }));
+                setAiPriceNote(s.reasoning || '');
+            } catch (priceErr) {
+                console.warn('Price suggestion failed:', priceErr.message);
+                setAiPriceNote('Could not get a price suggestion. Enter one, or use Suggest Price.');
+            }
         } catch (error) {
             console.error('AI generation error:', error);
             alert('Error generating VA. Please try again.');
@@ -167,6 +244,7 @@ export default function VirtualAssistantManager() {
         if (result.success) {
             setShowAIModal(false);
             setAiGeneratedVA(null);
+            setAiPriceNote('');
             setAiTopic('');
             setAiSpecialization('');
             loadAssistants();
@@ -291,6 +369,12 @@ export default function VirtualAssistantManager() {
                 </div>
                 <div className="flex gap-3">
                     <button
+                        onClick={() => { setShowPriceReview(true); setPriceRows([]); }}
+                        className="px-4 py-2 bg-slate-800 border border-slate-700 text-slate-200 rounded-lg hover:bg-slate-700 flex items-center gap-2"
+                    >
+                        <DollarSign className="w-4 h-4" /> Review Prices
+                    </button>
+                    <button
                         onClick={() => { setShowAIModal(true); setAiGeneratedVA(null); setAiTopic(''); setAiSpecialization(''); }}
                         className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 flex items-center gap-2"
                     >
@@ -369,7 +453,7 @@ export default function VirtualAssistantManager() {
                             </div>
                             <p className="text-slate-400 text-sm line-clamp-2 mb-3">{va.description}</p>
                             <div className="flex justify-between items-center mb-3">
-                                <span className="text-lg font-bold text-primary-400">${va.price}</span>
+                                <span className="text-lg font-bold text-primary-400">{money(va.price)} <span className="text-xs font-normal text-slate-500">· {creditsPerUse(va)} credit{creditsPerUse(va) > 1 ? 's' : ''}/use</span></span>
                                 <span className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" /> {va.processing_time_minutes} min</span>
                             </div>
                             <div className="flex flex-wrap gap-1 mb-3">
@@ -481,6 +565,20 @@ export default function VirtualAssistantManager() {
                                             </select>
                                         </div>
                                         <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Price shown on the card ($)</label>
+                                            <input type="number" step="0.01" min="0" value={formData.price} onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) })} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm" />
+                                            <p className="text-[11px] text-slate-500 mt-1">People pay {formData.execution_type === 'conversational' ? '2 credits' : '1 credit'} per use. This is the value shown on the card.</p>
+                                            <SuggestPriceButton
+                                                itemType="virtual_assistant"
+                                                name={formData.name || formData.title}
+                                                description={formData.description}
+                                                category={formData.category}
+                                                executionType={formData.execution_type}
+                                                onApply={(suggested) => setFormData({ ...formData, price: suggested })}
+                                            />
+                                            {aiPriceNote && <p className="text-[11px] text-slate-400 mt-2">{aiPriceNote}</p>}
+                                        </div>
+                                        <div>
                                             <label className="block text-xs text-slate-400 mb-1">Required plan</label>
                                             <select value={formData.required_tier || 'free'} onChange={e => setFormData({ ...formData, required_tier: e.target.value })} className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
                                                 <option value="free">Free</option>
@@ -502,6 +600,57 @@ export default function VirtualAssistantManager() {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Review prices modal (NEW 2026-10-16) */}
+            {showPriceReview && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                        <div className="flex items-start justify-between mb-2">
+                            <h2 className="text-xl font-bold text-white">Review Virtual Assistant prices</h2>
+                            <button onClick={() => setShowPriceReview(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+                        </div>
+                        <p className="text-slate-400 text-sm mb-4">
+                            The pricing assistant looks at each assistant and suggests a price. Nothing changes until you tick the ones you want and press Apply. It makes one AI call per assistant ({assistants.length} in total).
+                        </p>
+                        {priceRows.length === 0 ? (
+                            <button onClick={runPriceReview} disabled={priceReviewRunning || assistants.length === 0} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2">
+                                <Sparkles className="w-4 h-4" /> Suggest prices for all {assistants.length}
+                            </button>
+                        ) : (
+                            <>
+                                <div className="flex items-center justify-between mb-2 text-xs text-slate-400">
+                                    <span>{priceRows.filter(r => r.status === 'done').length} of {priceRows.length} done{priceReviewRunning ? '...' : ''}</span>
+                                    <span>
+                                        <button className="underline mr-3" onClick={() => setPriceRows(priceRows.map(r => ({ ...r, apply: r.status === 'done' && r.suggested > 0 && r.suggested !== r.current })))}>Tick all changes</button>
+                                        <button className="underline" onClick={() => setPriceRows(priceRows.map(r => ({ ...r, apply: false })))}>Untick all</button>
+                                    </span>
+                                </div>
+                                <div className="divide-y divide-slate-800 border border-slate-800 rounded-lg">
+                                    {priceRows.map((r, i) => (
+                                        <div key={r.id} className="p-3 flex items-start gap-3">
+                                            <input type="checkbox" className="mt-1" checked={r.apply} disabled={r.status !== 'done'} onChange={e => setPriceRows(priceRows.map((x, j) => j === i ? { ...x, apply: e.target.checked } : x))} />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-white text-sm font-medium truncate">{r.name}</p>
+                                                <p className="text-slate-500 text-xs">{r.status === 'waiting' ? 'Waiting...' : r.status === 'failed' ? `Failed: ${r.reasoning}` : r.reasoning}</p>
+                                            </div>
+                                            <div className="text-right text-sm whitespace-nowrap">
+                                                <span className="text-slate-400">{money(r.current)}</span>
+                                                {r.status === 'done' && <span className="text-emerald-400 font-semibold"> → {money(r.suggested)}</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-3 mt-4">
+                                    <button onClick={applySelectedPrices} disabled={applyingPrices || priceReviewRunning || !priceRows.some(r => r.apply)} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+                                        {applyingPrices ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Apply {priceRows.filter(r => r.apply).length} selected
+                                    </button>
+                                    <button onClick={() => setShowPriceReview(false)} className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800">Close</button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -554,6 +703,7 @@ export default function VirtualAssistantManager() {
                                         name={formData.name || formData.title}
                                         description={formData.description}
                                         category={formData.category}
+                                        executionType={formData.execution_type}
                                         onApply={(suggested) => setFormData({ ...formData, price: suggested })}
                                     />
                                 </div>
