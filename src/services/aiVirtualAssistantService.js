@@ -165,7 +165,7 @@ export async function createVirtualAssistantFromAI(vaData, adminId) {
             sample_output: vaData.sample_output,
             tags: vaData.tags,
             is_active: true,
-            created_by: adminId,
+            // created_by removed (2026-10-16): the virtual_assistants table has no such column, so including it made every save fail.
             created_at: new Date().toISOString()
         })
         .select()
