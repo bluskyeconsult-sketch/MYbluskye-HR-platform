@@ -158,7 +158,7 @@ export async function getActiveAssessments() {
         .from('assessments')
         .select('*')
         .eq('is_active', true)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false }); // newest first
     
     if (error) throw error;
     return data || [];
