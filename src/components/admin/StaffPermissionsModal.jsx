@@ -20,7 +20,8 @@ const PERMISSION_OPTIONS = [
     { key: 'can_view_analytics', label: 'View Analytics', description: 'Read-only access to visitor/usage data' },
     { key: 'can_manage_security', label: 'Manage Security', description: 'View security settings, audit log' },
     { key: 'can_manage_communications', label: 'Manage Communications', description: 'Newsletter, email tests' },
-    { key: 'can_manage_finance', label: 'Manage Finance', description: 'Refund requests, affiliate payouts' }
+    { key: 'can_manage_finance', label: 'Manage Finance', description: 'Refund requests, affiliate payouts' },
+    { key: 'can_access_inbox', label: 'Access Inbox', description: 'Read and reply to company email (support@, privacy@). Sensitive: grant sparingly' }
 ];
 
 export default function StaffPermissionsModal({ mode, existingUser, onClose, onSuccess }) {
