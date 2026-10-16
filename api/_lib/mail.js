@@ -95,9 +95,50 @@ export function addrList(field) {
 }
 
 export function parseAuthResults(header) {
-    const h = String(header || '').toLowerCase();
+    // The receiving mail server adds its own header at the very top. An attacker can add fake ones lower down,
+    // so only the first (topmost) is trusted.
+    const first = Array.isArray(header) ? header[0] : header;
+    const h = String(first || '').toLowerCase();
     const pick = (k) => { const m = h.match(new RegExp(`\\b${k}=(pass|fail|softfail|neutral|none|temperror|permerror)`)); return m ? m[1] : null; };
     return { spf: pick('spf'), dkim: pick('dkim'), dmarc: pick('dmarc') };
+}
+
+// Looks for signs of a masked or look-alike sender. Returns short codes the Inbox turns into warnings.
+const RISKY_EXT = /\.(exe|scr|com|bat|cmd|msi|js|jse|vbs|vbe|wsf|ps1|jar|lnk|hta|iso|img|dll|reg|docm|xlsm|pptm|xlam|one|html?|svg)$/i;
+const CAUTION_EXT = /\.(zip|rar|7z|gz|ace|arj)$/i;
+function editDistance(a, b) {
+    const m = a.length, n = b.length; if (Math.abs(m - n) > 3) return 9;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = cur;
+    }
+    return prev[n];
+}
+export function senderRiskFlags({ from, replyTo, auth, attachments }) {
+    const flags = [];
+    const own = (process.env.MAIL_OWN_DOMAINS || 'bluskyeconsult.com').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+    const domain = String((from && from.email) || '').split('@')[1] || '';
+    const isOwn = own.includes(domain);
+    if (!auth || (!auth.spf && !auth.dkim && !auth.dmarc)) flags.push('no_auth');
+    const rt = (replyTo && replyTo.email) || '';
+    if (rt && rt.split('@')[1] && rt.split('@')[1] !== domain) flags.push('reply_to_differs');
+    const name = String((from && from.name) || '');
+    const embedded = name.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    if (embedded && embedded[0].toLowerCase() !== String(from.email || '').toLowerCase()) flags.push('name_shows_other_address');
+    if (!isOwn && /(blu\s?sky|odusbaba)/i.test(name)) flags.push('name_imitates_us');
+    if (!isOwn && domain) {
+        const base = domain.split('.').slice(-2, -1)[0] || '';
+        for (const o of own) {
+            const ob = o.split('.')[0];
+            if ((base && editDistance(base, ob) <= 2) || /bluskye|odusbaba/.test(domain)) { flags.push('lookalike_domain'); break; }
+        }
+    }
+    const names = (attachments || []).map((a) => String(a.filename || ''));
+    if (names.some((n) => RISKY_EXT.test(n) || /\.\w{2,4}\.(exe|scr|js|bat|vbs|lnk)$/i.test(n))) flags.push('risky_attachment');
+    else if (names.some((n) => CAUTION_EXT.test(n))) flags.push('archive_attachment');
+    return [...new Set(flags)];
 }
 
 export function looksLikeBounce(fromEmail, subject) {
@@ -221,6 +262,7 @@ export async function ingestParsed({ sb, account, folder, uid, flags, internalDa
     const text = String(parsed.text || '').slice(0, 200000);
     const html = parsed.html ? String(parsed.html).slice(0, 400000) : null;
     const auth = parseAuthResults(parsed.headers && parsed.headers.get ? parsed.headers.get('authentication-results') : '');
+    if (direction === 'in') auth.flags = senderRiskFlags({ from, replyTo: addrList(parsed.replyTo)[0], auth, attachments: parsed.attachments });
     const isRead = direction === 'out' ? true : !!(flags && (flags.has ? flags.has('\\Seen') : false));
     const bounce = direction === 'in' && looksLikeBounce(from.email, subject);
 
