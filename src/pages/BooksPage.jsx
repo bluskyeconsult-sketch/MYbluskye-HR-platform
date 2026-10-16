@@ -48,7 +48,7 @@ export default function BooksPage() {
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
-    const [sortBy, setSortBy] = useState('title');
+    const [sortBy, setSortBy] = useState('newest');
 
     const categories = [
         { id: 'all', name: 'All Books', icon: '📚' },
@@ -235,8 +235,8 @@ export default function BooksPage() {
                         onChange={(e) => setSortBy(e.target.value)}
                         className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                     >
-                        <option value="title">Sort by Title</option>
                         <option value="newest">Newest First</option>
+                        <option value="title">Sort by Title</option>
                         <option value="price_asc">Price: Low to High</option>
                         <option value="price_desc">Price: High to Low</option>
                         <option value="rating">Sort by Rating</option>
