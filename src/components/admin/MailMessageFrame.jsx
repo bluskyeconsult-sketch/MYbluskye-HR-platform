@@ -37,12 +37,29 @@ export function prepareEmailHtml(html, text, showImages) {
         const st = el.getAttribute('style') || '';
         if (/url\s*\(|expression|@import|javascript:/i.test(st)) el.removeAttribute('style');
     });
+    let mismatched = 0;
     doc.querySelectorAll('a').forEach((a) => {
         const href = (a.getAttribute('href') || '').trim();
-        if (!/^(https?:|mailto:|tel:)/i.test(href)) a.removeAttribute('href');
-        else { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer nofollow'); }
+        if (!/^(https?:|mailto:|tel:)/i.test(href)) { a.removeAttribute('href'); return; }
+        a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer nofollow');
+        if (/^https?:/i.test(href)) {
+            let host = '';
+            try { host = new URL(href).hostname.replace(/^www\./, ''); } catch (e) { /* ignore */ }
+            const shown = (a.textContent || '').trim();
+            const looksLikeUrl = /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/|$|\s)/i.test(shown);
+            let shownHost = '';
+            if (looksLikeUrl) { try { shownHost = new URL(/^https?:/i.test(shown) ? shown.split(/\s/)[0] : `https://${shown.split(/\s|\//)[0]}`).hostname.replace(/^www\./, ''); } catch (e) { /* ignore */ } }
+            const bad = looksLikeUrl && shownHost && host && shownHost !== host && !host.endsWith('.' + shownHost);
+            if (bad) mismatched++;
+            // every link shows where it really goes
+            const tag = doc.createElement('span');
+            tag.textContent = ` [goes to ${host || 'unknown'}]`;
+            tag.setAttribute('style', `font-size:11px;font-weight:600;color:${bad ? '#b91c1c' : '#64748b'}`);
+            a.after(tag);
+            a.setAttribute('title', href);
+        }
     });
-    return { html: doc.body.innerHTML, blocked };
+    return { html: doc.body.innerHTML, blocked, mismatched };
 }
 
 export default function MailMessageFrame({ html, text }) {
@@ -68,6 +85,11 @@ export default function MailMessageFrame({ html, text }) {
 
     return (
         <div>
+            {prepared.mismatched > 0 && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2 mb-2">
+                    {prepared.mismatched} link{prepared.mismatched === 1 ? '' : 's'} in this message show one web address but lead to another. That is a common phishing trick. Do not click them.
+                </div>
+            )}
             {prepared.blocked > 0 && !showImages && (
                 <div className="flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs rounded-lg px-3 py-2 mb-2">
                     <span>{prepared.blocked} remote image{prepared.blocked === 1 ? '' : 's'} blocked to protect your privacy.</span>
