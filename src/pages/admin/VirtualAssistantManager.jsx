@@ -107,7 +107,7 @@ export default function VirtualAssistantManager() {
         const { data, error } = await supabase
             .from('virtual_assistants')
             .select('*')
-            .order('category', { ascending: true });
+            .order('created_at', { ascending: false }); // newest first
         
         if (!error) setAssistants(data || []);
         setLoading(false);
