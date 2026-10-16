@@ -57,7 +57,8 @@ export default function CourseEditor() {
     const categories = [
         'HR Fundamentals', 'Recruitment', 'Employee Relations', 
         'Performance Management', 'Compliance', 'Diversity & Inclusion', 
-        'Talent Management', 'Leadership', 'Communication'
+        'Talent Management', 'Leadership', 'Communication',
+        'Career Development', 'Self-Employment'
     ];
 
     useEffect(() => {
