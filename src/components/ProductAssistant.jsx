@@ -18,6 +18,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles, Send, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { askAssistant } from '../lib/aiAssistant';
+import AiDisclaimer from './AiDisclaimer';
 
 export default function ProductAssistant({ product = 'general', title = 'Ask the AI assistant', context = '', suggestions = [], defaultOpen = false }) {
     const [open, setOpen] = useState(defaultOpen);
@@ -119,8 +120,9 @@ export default function ProductAssistant({ product = 'general', title = 'Ask the
                         </button>
                     </form>
                     <p className="text-xs text-slate-500 mt-2">
-                        Each question uses 1 AI credit{remaining !== null && remaining !== undefined ? ` · ${remaining === 'unlimited' ? 'unlimited' : remaining} left` : ''}. Guidance only, not professional advice.
+                        Each question uses 1 AI credit{remaining !== null && remaining !== undefined ? ` · ${remaining === 'unlimited' ? 'unlimited' : remaining} left` : ''}.
                     </p>
+                    <AiDisclaimer compact className="mt-1" />
                 </div>
             )}
         </div>
