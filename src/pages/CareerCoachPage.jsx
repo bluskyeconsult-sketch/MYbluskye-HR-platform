@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { COACH_CONSENT_TEXT } from '../services/careerCoachService';
+import AiDisclaimer from '../components/AiDisclaimer';
 import { Compass, ShieldCheck, Loader2, AlertTriangle, ExternalLink, Copy, Check, Target, BarChart3, Briefcase, ClipboardList, Trash2, Upload, Download, FilePlus } from 'lucide-react';
 
 const COUNTRY_OPTIONS = [
@@ -335,7 +336,8 @@ export default function CareerCoachPage() {
                                         {analysis.courses?.length > 0 && <div><h3 className="text-white font-semibold mb-1">Courses on ODUSBABA that may help</h3><ul className="space-y-1">{analysis.courses.map(c => <li key={c.id}><Link className="text-primary-400 hover:underline" to={`/courses/${c.id}`}>{c.title}</Link></li>)}</ul></div>}
                                         {analysis.notice_removed_eligibility_claim && <p className="text-xs text-amber-300">A statement about visa eligibility was removed from this review because Career Coach cannot give immigration advice.</p>}
                                         {analysis.visa_note && <p className="text-xs text-slate-500">{analysis.visa_note} See <Link className="underline" to="/visa-pathways">Visa Pathways</Link>.</p>}
-                                        <p className="text-xs text-slate-500">AI-generated guidance. Check it against your own records.</p>
+                                        <AiDisclaimer compact />
+                                        <p className="text-xs text-slate-500">Check it against your own records.</p>
                                     </div>
                                 )}
                             </>
