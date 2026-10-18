@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Sparkles, Loader2, Wrench, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 
 export default function CustomHRToolManager() {
     const [topic, setTopic] = useState('');
@@ -159,6 +160,13 @@ export default function CustomHRToolManager() {
                         <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
                             <p className="text-slate-500 text-xs mb-1">Operating instructions (what the tool actually runs on):</p>
                             <p className="text-slate-300 text-sm whitespace-pre-wrap">{generatedTool.system_prompt}</p>
+                        </div>
+                        <div className="mb-4">
+                            <LegalReviewButton
+                                contentType="HR tool (name, description and operating instructions)"
+                                content={() => `Tool name: ${generatedTool.name}\nDescription: ${generatedTool.description}\n\nOperating instructions the tool runs on:\n${generatedTool.system_prompt}`}
+                                context={`Public HR tool for ${requiredTier} tier members. Topic: ${topic}`}
+                            />
                         </div>
                         <button
                             onClick={handleSave}
