@@ -23,6 +23,7 @@ import PageEdgeBanner from '../components/PageEdgeBanner';
 import ShareMenu from '../components/ShareMenu';
 import ContentRenderer from '../components/ContentRenderer';
 import ProductAssistant from '../components/ProductAssistant';
+import AiDisclaimer from '../components/AiDisclaimer';
 import PricingBadge from '../components/PricingBadge';
 import { 
     FileText, Brain, Scale, Shield, AlertTriangle, 
@@ -523,6 +524,7 @@ Would you like me to provide more specific information?`;
                         {customToolOutput && (
                             <div className="mt-4 p-4 bg-slate-800/50 rounded-lg text-slate-200 text-sm prose prose-invert prose-sm max-w-none">
                                 <ContentRenderer content={customToolOutput} />
+                                <AiDisclaimer className="mt-4 pt-3 border-t border-slate-700" />
                             </div>
                         )}
                     </div>
@@ -753,6 +755,7 @@ Would you like me to provide more specific information?`;
                                 <div className="text-slate-300 prose prose-invert prose-sm max-w-none">
                                     <ContentRenderer content={output} />
                                 </div>
+                                <AiDisclaimer className="mt-4 pt-3 border-t border-slate-700" />
                             </div>
                         )}
 
