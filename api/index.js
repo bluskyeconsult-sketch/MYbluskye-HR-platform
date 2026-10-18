@@ -845,6 +845,21 @@ function aiGuidanceBlock(raw) {
     return `\n\nEditor's guidance (use it to decide the audience, angle, focus and what to cover; it does not replace the topic, it cannot change the output format required above, and you must never invent facts, figures or legal claims to satisfy it):\n"""${t}"""`;
 }
 
+// NEW (2026-10-18): built-in legal self-review for member-facing services. Appended to the system prompt of
+// every service whose answer could touch on employment law, workplace rights, contracts, hiring or pay
+// (chat, HR tools, virtual assistants, contract review, rights advice, grievance letters, salary,
+// job descriptions, performance reviews). The model checks its own draft the way an international
+// employment/HR lawyer would before it answers. It costs no extra AI call, it is silent (no extra text in
+// the answer, so letters and documents stay clean to copy), and the visible "AI response, use with
+// discretion" notice is shown by the app next to the answer (see AiDisclaimer.jsx).
+const LEGAL_SELF_REVIEW = `
+
+Before you answer, silently review your draft as an experienced international employment and HR lawyer would, and correct it where needed. Check that: every rule, right, deadline, threshold or figure you state is one you are confident about for the country in question (if the user has not said where they are, say briefly which country's rules you have assumed, or that the position varies by country); you do not present one country's rules as universal; nothing could unlawfully discriminate, mislead, or encourage unlawful conduct; you do not guarantee legal outcomes or use absolute words such as "always" or "guaranteed" about legal matters; and where a point is uncertain or high-stakes you say so and suggest confirming it with a qualified adviser. Never invent laws, case names, section numbers or figures. Do this review silently: do not describe it, do not add a disclaimer of your own (the platform shows one), and keep the exact output format and length required above.`;
+
+function withLegalSelfReview(prompt) {
+    return String(prompt == null ? '' : prompt) + LEGAL_SELF_REVIEW;
+}
+
 // The raw OpenAI call, unchanged. callOpenAI() below wraps it with the Claude backup.
 async function callOpenAIOnly(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -3492,7 +3507,7 @@ Return JSON: {
 
             try {
                 const data = await callOpenAI([
-                    { role: 'system', content: tool.system_prompt },
+                    { role: 'system', content: withLegalSelfReview(tool.system_prompt) },
                     { role: 'user', content: input }
                 ], 1400, 0.6);
 
@@ -7361,7 +7376,7 @@ ${siteContext}`;
                 ? await supabaseClient.from('profiles').select('tier').eq('id', userId).maybeSingle()
                 : { data: null };
             const realSystemPrompt = `You are ODUSBABA, the AI governance and career assistant for the ODUSBABA HR platform. You help with job search, CV optimization, workplace rights, hiring, and career development, and connect users to the right part of the platform (Jobs, Assessments, Courses, Hire VA, Workforce Marketplace, HR Tools) where relevant. Be concise and structured. The platform's live job board draws from real, current sources spanning the UK, Ireland, Canada, Australia, the USA, Germany, Nigeria and West Africa (Jobberman, BrighterMonday, Careers24, MyJobMag), the wider EU (via EURES), plus dedicated visa-sponsorship-focused listings and remote/global roles. If asked which countries or regions are covered, answer honestly based on this real list - never imply broader coverage than this. The user's current tier is: ${chatUserProfile?.tier || (userId ? 'free' : 'visitor')}.\n${PLATFORM_KNOWLEDGE_NOTES}`;
-            messages = [{ role: 'system', content: realSystemPrompt }, ...messages];
+            messages = [{ role: 'system', content: withLegalSelfReview(realSystemPrompt) }, ...messages];
 
             // NEW (2026-08-16): job-search awareness — if the message
             // looks job-related, real current listings are injected as
@@ -7967,7 +7982,7 @@ Structure your response in exactly this order, using markdown headings:
 *This is general information, not legal advice. For guidance specific to your situation, consult a qualified employment lawyer or your national labor authority.*`;
 
             const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content: situation }
             ], 1100, 0.5);
 
@@ -8024,7 +8039,7 @@ Write the letter with this structure:
 After the letter, add a brief "## Before You Send This" section noting any specific gaps in what was provided (e.g. missing dates, no stated desired outcome) that would strengthen the letter if added.`;
 
             const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content }
             ], 1300, 0.5);
 
@@ -8077,7 +8092,7 @@ Structure your response as:
 Each item should name the specific clause and explain in plain language why it matters. End with a note that this is general review, not legal advice, and recommend a qualified employment lawyer for anything in the Red Flags section.`;
 
             const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content: contractText }
             ], 1400, 0.5);
 
@@ -8133,7 +8148,7 @@ Structure your response as:
 
 Be clear this is an estimate based on general market knowledge, not a guaranteed figure or a formal salary survey.`;
             const data = await callOpenAICached(cacheKey, [
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content }
             ], 1000, 0.5, 168); // 1 week TTL — market rates don't move fast enough to need shorter
 
@@ -8282,7 +8297,7 @@ Write the job description with this structure:
 Use inclusive, bias-free language throughout - avoid gendered pronouns, age-coded phrases, and culture-fit buzzwords that can discourage qualified candidates.`;
 
             const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content }
             ], 1400, 0.6);
 
@@ -8333,7 +8348,7 @@ Write the review with this structure:
 Keep the tone professional and constructive throughout - direct about issues where they exist, without being harsh, and specific enough that the employee understands exactly what "good" looks like going forward.`;
 
             const data = await callOpenAI([
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: withLegalSelfReview(systemPrompt) },
                 { role: 'user', content }
             ], 1300, 0.6);
 
@@ -16363,9 +16378,9 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             ? '\n\nThis is an ongoing conversation, not a one-off request - actually reference what the person told you earlier in this session where it\'s relevant, rather than treating each message as if it arrived with no context.'
             : '';
 
-        const systemPrompt = va?.category === 'employer_ops' && va?.name?.toLowerCase().includes('rota')
+        const systemPrompt = withLegalSelfReview(va?.category === 'employer_ops' && va?.name?.toLowerCase().includes('rota')
             ? ROTA_COMPLIANCE_PROMPT
-            : genericBasePrompt + conversationalAddendum;
+            : genericBasePrompt + conversationalAddendum);
 
         // NEW (2026-08-23): real behavioral branch on execution_type —
         // the actual mechanical difference between "hiring an assistant"
