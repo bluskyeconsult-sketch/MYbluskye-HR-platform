@@ -845,7 +845,8 @@ function aiGuidanceBlock(raw) {
     return `\n\nEditor's guidance (use it to decide the audience, angle, focus and what to cover; it does not replace the topic, it cannot change the output format required above, and you must never invent facts, figures or legal claims to satisfy it):\n"""${t}"""`;
 }
 
-async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
+// The raw OpenAI call, unchanged. callOpenAI() below wraps it with the Claude backup.
+async function callOpenAIOnly(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
     const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI API key not configured');
 
@@ -870,6 +871,96 @@ async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, response
         completionTokens: data.usage?.completion_tokens
     });
     return data;
+}
+
+// NEW (2026-10-18): Claude is now the automatic backup for EVERY text call that goes through
+// callOpenAI() (assessment, course, lesson, VA, HR tool, price suggestion and career coach builders and
+// the rest), not only the two chat endpoints. OpenAI is still always tried first. Only if OpenAI fails
+// (outage, rate limit, exhausted quota, network error) is the same prompt sent to Claude, and the answer
+// is returned in the exact shape OpenAI returns (choices[0].message.content, usage), so no caller needs
+// to change. If ANTHROPIC_API_KEY is not set, behaviour is exactly as before: the OpenAI error is thrown.
+// Image and voice generation are separate OpenAI calls and are not covered by this backup.
+function toClaudeRequest(messages, responseFormat) {
+    const systemParts = [];
+    const turns = [];
+    for (const m of (messages || [])) {
+        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+        if (!content.trim()) continue;
+        if (m.role === 'system') { systemParts.push(content); continue; }
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
+        const last = turns[turns.length - 1];
+        if (last && last.role === role) last.content += '\n\n' + content; else turns.push({ role, content });
+    }
+    if (turns.length === 0) throw new Error('No user message to send to the backup model');
+    if (turns[0].role !== 'user') turns.unshift({ role: 'user', content: '(Continue the conversation below.)' });
+    if (responseFormat && responseFormat.type === 'json_object') {
+        systemParts.push('Respond with a single valid JSON object only. No markdown code fences and no text before or after the JSON.');
+    }
+    return { system: systemParts.join('\n\n'), turns };
+}
+
+function cleanClaudeJson(text) {
+    let t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start !== -1 && end > start) t = t.slice(start, end + 1);
+    return t;
+}
+
+async function callClaudeAsOpenAI(messages, maxTokens, responseFormat) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('Anthropic API key not configured (ANTHROPIC_API_KEY missing)');
+    const model = process.env.ANTHROPIC_FALLBACK_MODEL || 'claude-sonnet-5';
+    const { system, turns } = toClaudeRequest(messages, responseFormat);
+
+    // temperature is deliberately not sent: current Claude models reject it (see callAnthropic below).
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: maxTokens, ...(system ? { system } : {}), messages: turns })
+    });
+    if (!response.ok) {
+        let detail = '';
+        try { detail = (await response.json()).error?.message || ''; } catch (e) { /* ignore */ }
+        throw new Error(detail || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    if (responseFormat && responseFormat.type === 'json_object') text = cleanClaudeJson(text);
+    if (!text) throw new Error('Claude returned an empty answer');
+
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    // Claude Sonnet pricing: $3 per 1M input tokens, $15 per 1M output tokens. Logged separately so the
+    // usage monitor shows how often the backup was needed.
+    logOpenAIUsage('anthropic_fallback', {
+        model,
+        flatCost: (inputTokens * 3 / 1_000_000) + (outputTokens * 15 / 1_000_000)
+    });
+
+    return {
+        id: data.id,
+        model,
+        choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: data.stop_reason === 'max_tokens' ? 'length' : 'stop' }],
+        usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
+        _provider: 'anthropic'
+    };
+}
+
+async function callOpenAI(messages, maxTokens = 800, temperature = 0.7, responseFormat = null) {
+    try {
+        return await callOpenAIOnly(messages, maxTokens, temperature, responseFormat);
+    } catch (openAiError) {
+        if (!process.env.ANTHROPIC_API_KEY) throw openAiError;
+        console.warn('OpenAI call failed, trying Claude backup:', openAiError.message);
+        try {
+            return await callClaudeAsOpenAI(messages, maxTokens, responseFormat);
+        } catch (claudeError) {
+            console.error('Claude backup also failed:', claudeError.message);
+            throw new Error(`OpenAI: ${openAiError.message}; Claude backup: ${claudeError.message}`);
+        }
+    }
 }
 
 // NEW (2026-09-30): real Anthropic (Claude) integration - genuinely
@@ -1181,10 +1272,12 @@ async function callGemini(messages, systemPrompt, maxTokens = 800, temperature =
 async function callAIWithFallback(messages, systemPrompt, maxTokens = 800, temperature = 0.7) {
     try {
         const fullMessages = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
+        // callOpenAI() now tries OpenAI, then Claude (if ANTHROPIC_API_KEY is set). Gemini below is the
+        // last resort, used only if both of those fail. data._provider says which one answered.
         const data = await callOpenAI(fullMessages, maxTokens, temperature);
-        return { text: data.choices[0].message.content, provider: 'openai' };
+        return { text: data.choices[0].message.content, provider: data._provider || 'openai' };
     } catch (openAiError) {
-        console.warn('callOpenAI failed, falling back to Gemini:', openAiError.message);
+        console.warn('OpenAI and Claude both failed, falling back to Gemini:', openAiError.message);
         try {
             const text = await callGemini(messages, systemPrompt, maxTokens, temperature);
             return { text, provider: 'gemini' };
