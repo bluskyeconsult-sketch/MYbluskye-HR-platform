@@ -21,6 +21,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import AiGuidanceField from '../../components/admin/AiGuidanceField';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import { 
     ClipboardList, Plus, Edit2, Trash2, Eye, Loader2, 
     CheckCircle, XCircle, BarChart3, BookOpen, AlertCircle,
@@ -505,7 +506,7 @@ export default function AssessmentManager() {
                 : matching
                 ? `A career-matching profile with no right or wrong answers. It shows which kinds of work you are most drawn to, with example roles and a way to test each match in real life.`
                 : diagnostic
-                ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${cleanTopic}, where you are drifting, and a step-by-step plan to get back on track.`
+                ? `A self-assessment with no right or wrong answers. It shows how closely your current situation matches your goal for ${aiTopic}, where you are drifting, and a step-by-step plan to get back on track.`
                 : `Professional assessment measuring knowledge and skills in ${aiTopic}. Designed for ${aiDifficulty} level professionals.`;
             
             const { data: newAssessment, error: assessmentError } = await supabase
@@ -1323,6 +1324,16 @@ export default function AssessmentManager() {
                                 <div className="mt-6 border-t border-slate-800 pt-4">
                                     <div className="flex justify-between items-center mb-3">
                                         <h3 className="text-white font-semibold">Generated Questions ({aiGeneratedQuestions.length})</h3>
+                                        <LegalReviewButton
+                                            contentType="assessment questions"
+                                            content={() => aiGeneratedQuestions.map((q, i) => {
+                                                const opts = Array.isArray(q.options) && q.options.length ? '\n' + q.options.map((o, k) => `   ${String.fromCharCode(65 + k)}. ${typeof o === 'string' ? o : (o?.option_text || o?.text || '')}`).join('\n') : '';
+                                                const ans = q.correct !== undefined ? `\n   Marked correct: ${q.correct}` : (q.correct_answer !== undefined ? `\n   Marked correct: ${q.correct_answer}` : '');
+                                                const why = q.explanation ? `\n   Explanation: ${q.explanation}` : '';
+                                                return `${i + 1}. ${q.question_text || q.question || ''}${opts}${ans}${why}`;
+                                            }).join('\n\n')}
+                                            context={`Assessment on: ${aiTopic}`}
+                                        />
                                     </div>
                                     <div className="space-y-2 max-h-60 overflow-y-auto">
                                         {aiGeneratedQuestions.map((q, idx) => (
