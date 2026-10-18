@@ -23,7 +23,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
+import AiDisclaimer from './AiDisclaimer';
+import {
     MessageCircle, X, Send, Bot, User, Sparkles, Briefcase, 
     FileText, Award, TrendingUp, Users, Zap, Loader2, Shield,
     CreditCard, ChevronDown, Copy, Check, AlertCircle, Scale,
@@ -969,6 +970,8 @@ export default function ODUSBABAChat() {
                                     </p>
                                 )}
                                 
+                                <AiDisclaimer compact className="mt-2" />
+
                                 {/* Security Notice */}
                                 <p className="text-[10px] text-slate-600 text-center mt-2">
                                     🔒 Secure conversation • Your data is protected
