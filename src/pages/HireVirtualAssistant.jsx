@@ -35,6 +35,7 @@ import { supabase } from '../lib/supabase';
 import PageEdgeBanner from '../components/PageEdgeBanner';
 import ShareMenu from '../components/ShareMenu';
 import ProductAssistant from '../components/ProductAssistant';
+import AiDisclaimer from '../components/AiDisclaimer';
 import { 
     Bot, Sparkles, DollarSign, Clock, Loader2, Star, Shield, 
     FileText, Briefcase, Users, Award, TrendingUp, 
@@ -996,6 +997,7 @@ export default function HireVirtualAssistant() {
                                         >
                                             Clear conversation
                                         </button>
+                                        <AiDisclaimer compact />
                                     </div>
                                 )}
 
@@ -1026,6 +1028,7 @@ export default function HireVirtualAssistant() {
                                         <div className="text-slate-300 whitespace-pre-wrap max-h-72 sm:max-h-96 overflow-y-auto prose prose-invert prose-xs sm:prose-sm">
                                             {output}
                                         </div>
+                                        <AiDisclaimer className="mt-3 pt-3 border-t border-slate-700" />
                                     </div>
                                 )}
 
@@ -1162,4 +1165,3 @@ export default function HireVirtualAssistant() {
             </div>
         </div>
     );
-}
