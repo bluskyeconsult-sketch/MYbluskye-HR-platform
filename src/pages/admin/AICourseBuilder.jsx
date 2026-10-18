@@ -37,6 +37,7 @@ import { authenticatedFetch } from '../../lib/authFetch';
 import GenerateCourseQuizButton from '../../components/admin/GenerateCourseQuizButton';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
 import AiGuidanceField from '../../components/admin/AiGuidanceField';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import { 
     Sparkles, Loader2, BookOpen, Clock, Users, AlertCircle,
     CheckCircle, XCircle, Plus, Trash2, Edit2, Save, X,
@@ -999,7 +1000,14 @@ export default function AICourseBuilder() {
                                 </div>
                                 
                                 <div className="border-t border-slate-800 pt-4">
-                                    <h4 className="text-white font-semibold mb-3">Course Modules</h4>
+                                    <div className="flex items-center justify-between gap-3 mb-3">
+                                        <h4 className="text-white font-semibold">Course Modules</h4>
+                                        <LegalReviewButton
+                                            contentType="course outline"
+                                            content={() => `Course: ${generatedOutline.title}\n${generatedOutline.description || ''}\n\n` + (generatedOutline.modules || []).map((m, i) => `Module ${i + 1}: ${m.title}\n${m.description || ''}${Array.isArray(m.objectives) && m.objectives.length ? '\nObjectives: ' + m.objectives.join('; ') : ''}`).join('\n\n')}
+                                            context={`Course outline on: ${topic || generatedOutline.title}`}
+                                        />
+                                    </div>
                                     <div className="space-y-2">
                                         {generatedOutline.modules.map((mod, idx) => (
                                             <div 
