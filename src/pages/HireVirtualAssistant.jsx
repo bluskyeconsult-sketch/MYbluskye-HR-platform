@@ -1165,3 +1165,4 @@ export default function HireVirtualAssistant() {
             </div>
         </div>
     );
+}
