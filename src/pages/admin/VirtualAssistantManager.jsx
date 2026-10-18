@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import { generateVirtualAssistantWithAI, createVirtualAssistantFromAI, normalizeVACategory } from '../../services/aiVirtualAssistantService';
 import { 
     Bot, Plus, Edit2, Trash2, Eye, Loader2, Sparkles, 
@@ -550,6 +551,13 @@ export default function VirtualAssistantManager() {
                                             ))}
                                         </div>
                                     </div>
+                                    <div className="mt-3">
+                                        <LegalReviewButton
+                                            contentType="virtual assistant (description and operating instructions)"
+                                            content={() => `Name: ${aiGeneratedVA.name}\nTitle: ${aiGeneratedVA.title}\nDescription: ${aiGeneratedVA.description}\nFeatures: ${(aiGeneratedVA.features || []).join('; ')}\n\nOperating instructions the assistant runs on:\n${formData.long_description || aiGeneratedVA.long_description || ''}`}
+                                            context="AI assistant that members pay credits to use on career and HR tasks"
+                                        />
+                                    </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
                                         <div>
                                             <label className="block text-xs text-slate-400 mb-1">Category</label>
@@ -678,6 +686,13 @@ export default function VirtualAssistantManager() {
                             <div>
                                 <label className="block text-sm text-slate-400 mb-1">Long Description</label>
                                 <textarea value={formData.long_description} onChange={e => setFormData({...formData, long_description: e.target.value})} rows="3" className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                                <div className="mt-2">
+                                    <LegalReviewButton
+                                        contentType="virtual assistant (description and operating instructions)"
+                                        content={() => `Name: ${formData.name}\nTitle: ${formData.title}\nDescription: ${formData.description}\n\nOperating instructions the assistant runs on:\n${formData.long_description || ''}`}
+                                        context="AI assistant that members pay credits to use on career and HR tasks"
+                                    />
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm text-slate-400 mb-1">Features</label>
