@@ -21,6 +21,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import SuggestPriceButton from '../../components/admin/SuggestPriceButton';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import LessonMediaTools from '../../components/admin/LessonMediaTools';
 import ImageIdeasPicker from '../../components/admin/ImageIdeasPicker';
 import { 
@@ -669,6 +670,13 @@ export default function CourseEditor() {
                                                     {generatingContent ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
                                                     Generate Content
                                                 </button>
+                                                <LegalReviewButton
+                                                    contentType="course lesson"
+                                                    content={() => `Course: ${course.title}\nLesson: ${lesson.title}\n\n${lesson.content || ''}`}
+                                                    context={`Lesson ${idx + 1} of the course "${course.title}" (category: ${course.category || 'general'})`}
+                                                    className="py-2"
+                                                />
+
                                                 <button
                                                     onClick={() => generateLessonAudio(lesson.id, lesson.content)}
                                                     disabled={generatingAudio}
