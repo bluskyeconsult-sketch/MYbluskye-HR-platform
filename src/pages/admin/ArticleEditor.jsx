@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import ContentRenderer from '../../components/ContentRenderer';
 import AiGuidanceField, { guidanceLine } from '../../components/admin/AiGuidanceField';
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import ImageIdeasPicker from '../../components/admin/ImageIdeasPicker';
 
 const MAX_EXCERPT_LENGTH = 160;
@@ -755,7 +756,14 @@ export default function ArticleEditor() {
                             <label className="block text-sm font-medium text-slate-300 mb-1">Content (Markdown supported)</label>
                             <textarea rows={18} value={article.content} onChange={(e) => setArticle({ ...article, content: e.target.value })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Write your article content here... Use markdown for formatting." />
                             <div className="mt-2 flex justify-between items-center">
-                                <p className="text-xs text-slate-500">{wordCount} words • {readTime} min read</p>
+                                <div className="flex items-center gap-3">
+                                    <p className="text-xs text-slate-500">{wordCount} words • {readTime} min read</p>
+                                    <LegalReviewButton
+                                        contentType="published article"
+                                        content={() => `Title: ${article.title || ''}\n\n${article.content || ''}`}
+                                        context={`Public article on an HR and career platform. Category: ${article.category || 'general'}`}
+                                    />
+                                </div>
                                 <button onClick={handleImproveContent} disabled={isAiLoading || !article.content} className="text-xs text-purple-400 hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-1">
                                     {aiImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Improve with AI
                                 </button>
