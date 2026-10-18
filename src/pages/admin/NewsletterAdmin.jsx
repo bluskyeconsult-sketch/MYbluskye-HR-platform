@@ -28,7 +28,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { 
+import LegalReviewButton from '../../components/admin/LegalReviewButton';
+import {
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
     Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2,
     Copy, Play, Pause, BarChart3, Plus, Search, Filter,
@@ -172,7 +173,7 @@ export default function NewsletterAdmin() {
             .from('newsletters')
             .select('*')
             .order('created_at', { ascending: false });
-        setNewsletters(newData || []);
+        setNewsletters(newsData || []);
         setLoading(false);
     }
 
@@ -790,7 +791,14 @@ export default function NewsletterAdmin() {
                                         required
                                         placeholder="<h1>Hello</h1><p>Your content here...</p>"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">HTML formatting supported</p>
+                                    <div className="flex items-center gap-3 mt-1">
+                                        <p className="text-xs text-slate-500">HTML formatting supported</p>
+                                        <LegalReviewButton
+                                            contentType="newsletter"
+                                            content={() => `Subject: ${formData.subject || ''}\n\n${(formData.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`}
+                                            context="Email newsletter sent to platform members and subscribers"
+                                        />
+                                    </div>
                                 </div>
                                 
                                 <div className="grid grid-cols-2 gap-4">
