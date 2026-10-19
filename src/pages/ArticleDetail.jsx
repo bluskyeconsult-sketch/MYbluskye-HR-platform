@@ -18,7 +18,8 @@ import {
     AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check, MessageCircle,
     Clock, TrendingUp, XCircle, Hash
 } from 'lucide-react';
-import { buildShare } from '../lib/shareCaption';
+import { buildShare, withUtm } from '../lib/shareCaption';
+import { trackShare } from '../lib/shareTracking';
 
 // SECURITY (2026-10-13): the email action now requires a signed-in session.
 async function mailAuthHeader() {
@@ -240,7 +241,7 @@ export default function ArticleDetail() {
     const articleShare = buildShare({
         kind: 'article',
         title: article?.title,
-        url: window.location.href,
+        url: withUtm(window.location.href, 'copy_caption', 'article'),
         details: { category: article?.category, tags: article?.tags, excerpt: article?.excerpt },
         saved: {
             caption: article?.share_caption,
@@ -248,7 +249,12 @@ export default function ArticleDetail() {
         }
     });
 
+    // Tracking tags per channel (utm_source=...) and a count of which Share buttons get used.
+    const linkFor = (source) => withUtm(window.location.href, source, 'article');
+    const noteShare = (channel) => trackShare({ kind: 'article', channel, url: window.location.href });
+
     const copyPostCaption = async () => {
+        noteShare('copy_caption');
         try {
             await navigator.clipboard.writeText(articleShare.copyText);
             setCopiedPost(true);
@@ -257,11 +263,12 @@ export default function ArticleDetail() {
     };
 
     const shareUrls = {
-        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${articleShare.plainText} ${window.location.href}`)}`,
-        twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleShare.xText)}&url=${encodeURIComponent(window.location.href)}&hashtags=${encodeURIComponent(articleShare.xHashtags)}`,
-        linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`,
-        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`,
+        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${articleShare.plainText} ${linkFor('whatsapp')}`)}`,
+        twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleShare.xText)}&url=${encodeURIComponent(linkFor('twitter'))}&hashtags=${encodeURIComponent(articleShare.xHashtags)}`,
+        linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(linkFor('linkedin'))}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkFor('facebook'))}`,
         copy: () => {
+            noteShare('copy_link');
             navigator.clipboard.writeText(window.location.href);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
@@ -484,6 +491,7 @@ export default function ArticleDetail() {
                                             href={shareUrls.whatsapp}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={() => noteShare('whatsapp')}
                                             className="p-2 hover:bg-slate-700 rounded-lg transition text-[#25D366]"
                                         >
                                             <MessageCircle className="w-4 h-4" />
@@ -492,6 +500,7 @@ export default function ArticleDetail() {
                                             href={shareUrls.twitter}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={() => noteShare('twitter')}
                                             className="p-2 hover:bg-slate-700 rounded-lg transition text-[#1DA1F2]"
                                         >
                                             <Twitter className="w-4 h-4" />
@@ -500,6 +509,7 @@ export default function ArticleDetail() {
                                             href={shareUrls.linkedin}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={() => noteShare('linkedin')}
                                             className="p-2 hover:bg-slate-700 rounded-lg transition text-[#0077B5]"
                                         >
                                             <Linkedin className="w-4 h-4" />
@@ -508,6 +518,7 @@ export default function ArticleDetail() {
                                             href={shareUrls.facebook}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={() => noteShare('facebook')}
                                             className="p-2 hover:bg-slate-700 rounded-lg transition text-[#1877F2]"
                                         >
                                             <Facebook className="w-4 h-4" />
