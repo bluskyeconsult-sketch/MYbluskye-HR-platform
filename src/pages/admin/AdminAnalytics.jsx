@@ -6,6 +6,7 @@ import {
   BarChart3, PieChart, LineChart, Activity
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import ShareStatsCard from '../../components/admin/ShareStatsCard';
 
 // FIXED (2026-09-04): confirmed real, live bug via direct file review -
 // this created its own disconnected Supabase client via createClient(),
@@ -292,6 +293,9 @@ export default function AdminAnalytics() {
             </div>
           </>
         )}
+
+        {/* NEW (2026-10-19): how the Share buttons are used (channels, content types, top pages) */}
+        <ShareStatsCard days={dateRange} />
       </div>
     </div>
   );
