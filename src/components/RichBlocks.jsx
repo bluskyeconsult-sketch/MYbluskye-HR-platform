@@ -8,7 +8,7 @@
 // Default mode: blocks animate as they mount (the stepped lesson reader).
 // Everything respects "reduce motion" through the `reduce` flag.
 
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
     X, CheckCircle, Copy, Check,
@@ -16,6 +16,9 @@ import {
     ZoomIn, HelpCircle, Quote as QuoteIcon, XCircle
 } from 'lucide-react';
 import { inlinePieces } from '../lib/lessonChunker';
+
+// NEW (2026-10-19): charts, formulas and diagrams load only when a lesson uses one.
+const LessonVisual = lazy(() => import('./LessonVisuals'));
 
 // Builds framer-motion props for either mount-time or scroll-into-view reveal.
 export function mp(reduce, scroll, from, delay = 0, duration = 0.45) {
@@ -351,6 +354,13 @@ export function Block({ block, onZoom, reduce, scroll = false, delay = 0 }) {
         case 'quote': return <Pullquote block={block} />;
         case 'video': return <VideoBlock block={block} />;
         case 'check': return <CheckBlock block={block} />;
+        case 'chart':
+        case 'formula':
+        case 'diagram': return (
+            <Suspense fallback={<div className="my-6 text-center text-sm text-slate-400">Loading…</div>}>
+                <LessonVisual block={block} />
+            </Suspense>
+        );
         case 'h3': return <h4 className="text-lg font-semibold text-white mt-6 mb-2">{block.text}</h4>;
         case 'ul': return (
             <ul className="my-4 space-y-2">
