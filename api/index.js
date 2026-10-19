@@ -834,6 +834,102 @@ function logOpenAIUsage(callType, { model, promptTokens, completionTokens, flatC
 // The admin can add a short brief next to the topic saying who it is for, what angle to take and
 // what to cover. It is cleaned, capped, and clearly labelled so the AI uses it for focus only:
 // it can narrow or steer the content but cannot switch off the accuracy rules in the main prompt.
+// ========== ACCURATE CHARTS, FORMULAS AND CALCULATIONS (NEW, 2026-10-19) ==========
+// The AI writes the DATA (a :::chart JSON block, a :::formula LaTeX block, a :::diagram
+// Mermaid block) and the browser draws it, so numbers are never "painted" by an image model.
+// Any {{= expression}} in the lesson is calculated here with mathjs, not by the AI.
+// validateLessonVisuals() rejects charts whose numbers do not add up; the caller asks the AI
+// to fix them once, and anything still wrong is removed rather than shown wrong.
+let _mathjs = null;
+async function getMathjs() {
+    if (_mathjs !== null) return _mathjs || null;
+    try { _mathjs = await import('mathjs'); } catch (e) { console.warn('mathjs not installed, calculations left as written:', e.message); _mathjs = false; }
+    return _mathjs || null;
+}
+
+const CALC_SAFE = /^[0-9+\-*/^().,%\s]*(?:(?:sqrt|abs|round|pow|min|max|log|sin|cos|tan|pi|e|mean|sum)\b[0-9+\-*/^().,%\s]*)*$/i;
+
+async function applyLessonCalcs(text) {
+    const src = String(text || '');
+    if (!/\{\{=/.test(src)) return src;
+    const m = await getMathjs();
+    if (!m) return src.replace(/\{\{=\s*([^}]*)\}\}/g, '$1');
+    return src.replace(/\{\{=\s*([^}]{1,200})\}\}/g, (all, expr) => {
+        try {
+            if (!CALC_SAFE.test(expr)) return expr;
+            const v = m.evaluate(expr.replace(/%/g, '/100'));
+            const n = typeof v === 'number' ? v : Number(v && v.valueOf ? v.valueOf() : v);
+            if (!Number.isFinite(n)) return expr;
+            return String(Math.round(n * 1e6) / 1e6);
+        } catch (e) { return expr; }
+    });
+}
+
+function lessonVisualBlocks(content) {
+    const re = /^[ \t]*:::(chart|formula|diagram)[ \t]*([^\n]*)\n([\s\S]*?)\n[ \t]*:::[ \t]*$/gm;
+    const out = []; let m;
+    while ((m = re.exec(content)) !== null) out.push({ kind: m[1], title: m[2].trim(), body: m[3], full: m[0] });
+    return out;
+}
+
+function checkVisual(b) {
+    if (b.kind === 'chart') {
+        let j;
+        try { j = JSON.parse(b.body); } catch (e) { return 'chart "' + b.title + '" is not valid JSON'; }
+        if (!['bar', 'line', 'pie', 'area'].includes(j.type)) return 'chart type must be bar, line, pie or area';
+        if (!Array.isArray(j.labels) || j.labels.length < 2 || j.labels.length > 12) return 'chart needs 2 to 12 labels';
+        if (!Array.isArray(j.series) || !j.series.length || j.series.length > 4) return 'chart needs 1 to 4 series';
+        for (const s of j.series) {
+            if (!Array.isArray(s.values) || s.values.length !== j.labels.length) return 'every series must have exactly one value per label';
+            if (s.values.some(v => typeof v !== 'number' || !Number.isFinite(v))) return 'chart values must be plain numbers';
+        }
+        if (j.type === 'pie') {
+            const vals = j.series[0].values;
+            if (vals.some(v => v < 0)) return 'pie values cannot be negative';
+            const total = vals.reduce((a, c) => a + c, 0);
+            if (String(j.unit || '').trim() === '%' && Math.abs(total - 100) > 0.5) return 'pie percentages add up to ' + Math.round(total * 100) / 100 + ', not 100';
+            if (total <= 0) return 'pie total is zero';
+        }
+        return null;
+    }
+    if (b.kind === 'formula') {
+        const t = b.body.trim();
+        if (!t) return 'formula is empty';
+        let d = 0; for (const c of t) { if (c === '{') d++; if (c === '}') d--; if (d < 0) break; }
+        return d !== 0 ? 'formula has unbalanced braces' : null;
+    }
+    if (b.kind === 'diagram') {
+        return /^\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|gantt|pie|mindmap|timeline)\b/.test(b.body) ? null : 'diagram must start with flowchart, graph, sequenceDiagram, etc.';
+    }
+    return null;
+}
+
+function validateLessonVisuals(content) {
+    const problems = [];
+    for (const b of lessonVisualBlocks(content)) { const p = checkVisual(b); if (p) problems.push(p); }
+    return problems;
+}
+
+function stripBadLessonVisuals(content) {
+    let out = String(content || '');
+    for (const b of lessonVisualBlocks(out)) { if (checkVisual(b)) out = out.replace(b.full, ''); }
+    return out.replace(/\n{3,}/g, '\n\n');
+}
+
+// Runs the calculation + validation + one repair attempt on freshly generated lesson text.
+async function finaliseLessonVisuals(content, regenerate) {
+    let text = await applyLessonCalcs(content);
+    let problems = validateLessonVisuals(text);
+    if (problems.length && typeof regenerate === 'function') {
+        try { text = await applyLessonCalcs(await regenerate(text, problems)); } catch (e) { console.warn('visual repair failed:', e.message); }
+        problems = validateLessonVisuals(text);
+    }
+    if (problems.length) text = stripBadLessonVisuals(text);
+    return text;
+}
+
+const LESSON_VISUAL_RULES = ' Numbers, charts and maths: NEVER put numbers, labels or graphs inside illustrations. For any chart write a block \':::chart Title\' then ONE line of JSON like {"type":"bar","unit":"%","labels":["A","B"],"series":[{"name":"Share","values":[60,40]}]} then \':::\' (type is bar, line, pie or area; one value per label; plain numbers only; a pie with unit "%" must add up to exactly 100). For a formula write \':::formula\' then LaTeX then \':::\'. For a flow or relationship diagram write \':::diagram\' then Mermaid code (flowchart TD ...) then \':::\'. Never do arithmetic yourself: wherever a calculated number appears in the text, a check option or a chart, write it as {{= expression}} (for example {{= 2400*0.15}}) and the system will calculate it. Only use these blocks when they genuinely help; most lessons need at most one or two.';
+
 function aiGuidanceBlock(raw) {
     const t = String(raw == null ? '' : raw)
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -11915,15 +12011,22 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
             // limit for the same, real prompt-size/cost reasons.
             const truncatedSource = sourceMaterial ? sourceMaterial.slice(0, 12000) : null;
             const userPrompt = truncatedSource
-                ? `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Base this directly on the real source material below - use its actual content and examples rather than generic knowledge. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'.\n\nSource material:\n${truncatedSource}`
-                : `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'. Aim for genuinely useful depth, not a placeholder.`;
+                ? `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Base this directly on the real source material below - use its actual content and examples rather than generic knowledge. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'.${LESSON_VISUAL_RULES}\n\nSource material:\n${truncatedSource}`
+                : `Write the full lesson content for "${lessonTitle}", part of the course "${courseTitle || 'this course'}", at ${level} level. Include a brief introduction, the core teaching content organized with clear paragraphs or short sections, and a brief summary of key takeaways at the end. Format the lesson for a modern lesson reader using this light markup: use \'## \' headings for sections; keep paragraphs short (2-4 sentences); add one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; define 2-3 key words with a line \':::term Word | plain-English definition\'; where a process has steps use \':::steps\' then numbered lines \'1. ...\' then \':::\'; end with one self-check question written as \':::check\' then \'Q: question\', then 3 option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'; where a picture would help understanding, put a line [[illustration: concept | what the picture shows | short alt text]] (use at most 2, kind is one of concept, scene, process, comparison, cover, icon, and the picture must not need any text). Close with a short summary starting \'In summary\'. Aim for genuinely useful depth, not a placeholder.${LESSON_VISUAL_RULES}`;
 
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
                 { role: 'user', content: userPrompt + aiGuidanceBlock(guidance) }
             ], 1800, 0.7);
 
-            const content = data.choices[0].message.content;
+            // NEW (2026-10-19): calculate {{= ...}} with mathjs, check chart/formula blocks, one repair pass.
+            const content = await finaliseLessonVisuals(data.choices[0].message.content, async (text, problems) => {
+                const fix = await callOpenAI([
+                    { role: 'system', content: 'You fix lesson text. Return the COMPLETE lesson again with only the listed problems corrected. Keep every other word and the same markup.' },
+                    { role: 'user', content: 'Problems to fix: ' + problems.join('; ') + '\n\nLesson:\n' + text }
+                ], 2200, 0.2);
+                return fix.choices[0].message.content;
+            });
             return res.status(200).json({ success: true, content });
         } catch (error) {
             console.error('generate-lesson-content error:', error);
