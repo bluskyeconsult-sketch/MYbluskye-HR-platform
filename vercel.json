@@ -43,12 +43,96 @@
     },
     "api/cron/sync-mailboxes.js": {
       "maxDuration": 120
+    },
+    "api/og.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
     {
       "source": "/sitemap.xml",
       "destination": "/api/index?action=sitemap"
+    },
+    {
+      "source": "/share-image/:type/:key",
+      "destination": "/api/og?type=:type&key=:key"
+    },
+    {
+      "source": "/articles/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=article&key=:slug"
+    },
+    {
+      "source": "/jobs/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=job&key=:id"
+    },
+    {
+      "source": "/courses/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=course&key=:id"
+    },
+    {
+      "source": "/books/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=book&key=:id"
+    },
+    {
+      "source": "/assessments/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=assessment&key=:id"
+    },
+    {
+      "source": "/hr-tools",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=page&key=hr-tools"
+    },
+    {
+      "source": "/hire-va",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|TelegramBot|Slackbot|Slack-ImgProxy|Discordbot|Pinterest|redditbot|SkypeUriPreview|Mastodon|Cardyb|Embedly|vkShare|Viber).*"
+        }
+      ],
+      "destination": "/api/index?action=share-preview&type=page&key=hire-va"
     },
     {
       "source": "/(.*)",
