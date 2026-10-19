@@ -42,6 +42,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import * as mailLib from './_lib/mail.js';
+import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
 
 // ============================================
@@ -3708,6 +3709,94 @@ Respond with one JSON object only: {"caption":"...","hashtags":["...","...","...
         } catch (error) {
             console.error('generate-share-caption error:', error.message);
             return res.status(500).json({ error: 'The caption could not be written just now. Please try again in a moment.' });
+        }
+    },
+
+    // ========== SOCIAL PREVIEW PAGE (NEW, 2026-10-19) ==========
+    // Served ONLY to social-network crawlers (vercel.json sends Facebook, LinkedIn, X, WhatsApp, Telegram,
+    // Slack, Discord... here for /articles/:slug, /jobs/:id, /courses/:id, /books/:id, /assessments/:id and
+    // two tool pages). It returns a tiny page whose title, description and image tags are correct, because
+    // those crawlers do not run the site's JavaScript. Real visitors and Google get the normal app untouched.
+    'share-preview': async (req, res) => {
+        const type = String(req.query.type || '');
+        let key = String(req.query.key || '');
+        try { key = decodeURIComponent(key); } catch (e) { /* keep as is */ }
+        const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+        const base = (host === 'bluskyeconsult.com' || host === 'www.bluskyeconsult.com') ? `https://${host}` : inviteSiteUrl();
+        try {
+            const item = await getShareItem(getSupabase(), type, key, base);
+            if (!item) {
+                res.setHeader('Cache-Control', 'public, s-maxage=60');
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                return res.status(404).send('<!doctype html><title>Not found</title><p>This page is not available.</p>');
+            }
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=86400');
+            return res.status(200).send(renderPreviewHtml(item, base));
+        } catch (error) {
+            console.error('share-preview error:', error.message);
+            res.setHeader('Cache-Control', 'no-store');
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.status(500).send('<!doctype html><title>ODUSBABA</title><p>Please try again shortly.</p>');
+        }
+    },
+
+    // ========== SHARE TRACKING (NEW, 2026-10-19) ==========
+    // Counts which Share buttons are used and where. No names, emails or IP addresses are stored: only
+    // the kind of item, the channel and the page path. Never blocks the visitor: always answers ok.
+    'track-share': async (req, res) => {
+        if (req.method !== 'POST') return res.status(405).json({ ok: false });
+        const ip = getRequestIP(req);
+        if (!checkRateLimit(`track-share:${ip}`, 60)) return res.status(429).json({ ok: false });
+        const { kind, channel, path } = req.body || {};
+        const KINDS = ['article', 'job', 'course', 'book', 'assessment', 'tool', 'va', 'generic'];
+        const CHANNELS = ['whatsapp', 'facebook', 'twitter', 'linkedin', 'email', 'native', 'copy_link', 'copy_caption'];
+        if (!KINDS.includes(kind) || !CHANNELS.includes(channel)) return res.status(400).json({ ok: false });
+        const cleanPath = String(path || '').split(/[?#]/)[0].slice(0, 200);
+        if (!cleanPath.startsWith('/')) return res.status(400).json({ ok: false });
+        try {
+            await getSupabase().from('share_events').insert([{ kind, channel, path: cleanPath }]);
+        } catch (e) { /* table not created yet or a brief database problem: never bother the visitor */ }
+        return res.json({ ok: true });
+    },
+
+    // Admin only: how the Share buttons have been used (last N days).
+    'share-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_content');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const days = Math.min(90, Math.max(1, parseInt((req.body && req.body.days) || req.query.days, 10) || 30));
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        try {
+            const { data, error } = await supabaseClient
+                .from('share_events')
+                .select('kind, channel, path, created_at')
+                .gte('created_at', since)
+                .order('created_at', { ascending: false })
+                .limit(20000);
+            if (error) {
+                if (error.code === '42P01') return res.json({ success: true, tableMissing: true, days, total: 0, byChannel: [], byKind: [], topPaths: [], daily: [] });
+                throw error;
+            }
+            const rows = data || [];
+            const tally = (keyFn) => {
+                const m = new Map();
+                rows.forEach(r => { const k = keyFn(r); m.set(k, (m.get(k) || 0) + 1); });
+                return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+            };
+            return res.json({
+                success: true,
+                days,
+                total: rows.length,
+                truncated: rows.length >= 20000,
+                byChannel: tally(r => r.channel),
+                byKind: tally(r => r.kind),
+                topPaths: tally(r => r.path).slice(0, 10),
+                daily: tally(r => String(r.created_at).slice(0, 10)).sort((a, b) => a.name.localeCompare(b.name))
+            });
+        } catch (error) {
+            console.error('share-stats error:', error.message);
+            return res.status(500).json({ error: 'Could not load share statistics.' });
         }
     },
 
@@ -17365,10 +17454,16 @@ export default async function handler(req, res) {
     // would never have anything real to measure, since security_events
     // was previously only written for specific named events like a
     // failed login, not general traffic.
-    logSecurityEvent('api_request', requestIP, 'info', { action: req.query.action || null }); // fire-and-forget, never awaited
+    // NEW (2026-10-19): the social-preview page is read-only public data fetched by crawlers (Facebook,
+    // LinkedIn, WhatsApp...) that share a small number of IP addresses, so it is neither counted nor
+    // subject to the abuse lock-out; otherwise a busy crawler IP could be blocked and previews would vanish.
+    const isCrawlerPreview = req.query.action === 'share-preview';
+    if (!isCrawlerPreview) {
+        logSecurityEvent('api_request', requestIP, 'info', { action: req.query.action || null }); // fire-and-forget, never awaited
 
-    if (await checkAndBlockRateAbuse(requestIP, req.query.action)) {
-        return res.status(403).json({ error: 'Access denied' });
+        if (await checkAndBlockRateAbuse(requestIP, req.query.action)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
     }
 
     const { action } = req.query;
