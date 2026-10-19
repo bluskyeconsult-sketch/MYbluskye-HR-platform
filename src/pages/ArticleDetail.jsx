@@ -16,8 +16,9 @@ import ContentRenderer from '../components/ContentRenderer';
 import { 
     Calendar, User, Eye, ArrowLeft, Share2, Send, Sparkles, Loader2,
     AlertCircle, Bookmark, Twitter, Linkedin, Facebook, Copy, Check, MessageCircle,
-    Clock, TrendingUp, XCircle
+    Clock, TrendingUp, XCircle, Hash
 } from 'lucide-react';
+import { buildShare } from '../lib/shareCaption';
 
 // SECURITY (2026-10-13): the email action now requires a signed-in session.
 async function mailAuthHeader() {
@@ -41,6 +42,7 @@ export default function ArticleDetail() {
     const [error, setError] = useState(null);
     const [showAIAssist, setShowAIAssist] = useState(false);
     const [showShareMenu, setShowShareMenu] = useState(false);
+    const [copiedPost, setCopiedPost] = useState(false);
     const [user, setUser] = useState(null);
     const [isSaved, setIsSaved] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -232,9 +234,31 @@ export default function ArticleDetail() {
         }
     }
 
+    // UPDATED (2026-10-19): a matching caption and hashtags travel with every share. A caption saved
+    // in the article editor (share_caption / share_hashtags) wins; otherwise one is built from the
+    // article's own title, category, tags and excerpt.
+    const articleShare = buildShare({
+        kind: 'article',
+        title: article?.title,
+        url: window.location.href,
+        details: { category: article?.category, tags: article?.tags, excerpt: article?.excerpt },
+        saved: {
+            caption: article?.share_caption,
+            hashtags: String(article?.share_hashtags || '').split(/[\s,]+/).filter(Boolean)
+        }
+    });
+
+    const copyPostCaption = async () => {
+        try {
+            await navigator.clipboard.writeText(articleShare.copyText);
+            setCopiedPost(true);
+            setTimeout(() => setCopiedPost(false), 2000);
+        } catch (e) { /* clipboard blocked: nothing to do */ }
+    };
+
     const shareUrls = {
-        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${article?.title} ${window.location.href}`)}`,
-        twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(article?.title)}&url=${encodeURIComponent(window.location.href)}`,
+        whatsapp: `https://wa.me/?text=${encodeURIComponent(`${articleShare.plainText} ${window.location.href}`)}`,
+        twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleShare.xText)}&url=${encodeURIComponent(window.location.href)}&hashtags=${encodeURIComponent(articleShare.xHashtags)}`,
         linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`,
         facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`,
         copy: () => {
@@ -489,8 +513,18 @@ export default function ArticleDetail() {
                                             <Facebook className="w-4 h-4" />
                                         </a>
                                         <button
+                                            onClick={copyPostCaption}
+                                            className="p-2 hover:bg-slate-700 rounded-lg transition text-slate-400"
+                                            title="Copy post caption (caption, link and hashtags) for LinkedIn, Facebook or Instagram"
+                                            aria-label="Copy post caption"
+                                        >
+                                            {copiedPost ? <Check className="w-4 h-4 text-emerald-400" /> : <Hash className="w-4 h-4" />}
+                                        </button>
+                                        <button
                                             onClick={shareUrls.copy}
                                             className="p-2 hover:bg-slate-700 rounded-lg transition text-slate-400"
+                                            title="Copy link"
+                                            aria-label="Copy link"
                                         >
                                             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                                         </button>
