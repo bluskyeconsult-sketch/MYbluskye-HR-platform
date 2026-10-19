@@ -12121,8 +12121,12 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
         const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
-        const { bookId, elaborateWithAI = false } = req.body;
+        const { bookId, elaborateWithAI = false, mode, guidance } = req.body;
         if (!bookId) return res.status(400).json({ error: 'bookId is required' });
+        // NEW (2026-10-19): 'expand' turns each chapter into a properly taught lesson (hook, objectives, worked
+        // examples, checks, recap) that stays inside what the book says; 'preserve' is the earlier behaviour
+        // (the chapter's own text wrapped with objectives and takeaways); 'raw' copies the text with no AI.
+        const convMode = !elaborateWithAI ? 'raw' : (mode === 'expand' ? 'expand' : 'preserve');
 
         try {
             const { data: book, error: bookError } = await supabaseClient
@@ -12188,9 +12192,54 @@ Return the lesson as markdown with this structure:
             // all) so one chapter's AI failure doesn't sink the
             // whole batch - each one already has its own, real
             // fallback to the original text.
-            const lessonContents = await Promise.allSettled(
-                chaptersWithContent.map(async (chapter, i) => {
-                    if (!elaborateWithAI) return chapter.content;
+            const EXPAND_SOURCE_LIMIT = 14000;   // longer chapters keep the safe 'preserve' route so nothing is cut
+            const outline = chaptersWithContent.map((c, i) => `${i + 1}. ${c.title || `Chapter ${i + 1}`}`).join('\n');
+            const expandSystemPrompt = (i) => `You are an experienced instructional designer turning ONE chapter of the book "${book.title}" by ${book.author || 'the author'} into a proper course lesson. This is lesson ${i + 1} of ${chaptersWithContent.length}.
+
+Course outline (so the lesson flows with the others):
+${outline}
+
+Stay inside the frame of the source chapter:
+- Every idea, claim, framework, term and example in the lesson must come from the chapter or follow directly from it. Keep the author's terminology and meaning.
+- You MAY expand the teaching: explain ideas more clearly, add short worked examples and analogies (clearly illustrative, not presented as facts), add practice steps and reflection questions, and connect to the previous and next lessons.
+- You MUST NOT invent statistics, studies, quotations, names, dates or claims the chapter does not contain, and must not contradict it.
+- Cover everything important in the chapter; do not drop its main points.
+
+Shape the lesson like a real course lesson: a short hook (1-2 sentences, and one line connecting to the previous lesson when there is one), then \'## Learning Objectives\' with 2-4 bullets, then the teaching in 3-5 \'## \' sections with short paragraphs (2-4 sentences), then \'## Try It\' with one practical exercise or reflection, a closing \'## Key Takeaways\' with 3-5 bullets, and one line leading into the next lesson when there is one.
+
+Use this light markup where it genuinely helps: one or two callouts written as a line \':::tip\', \':::note\', \':::warning\' or \':::example\' then the text then a line \':::\'; 2-3 key words as \':::term Word | plain-English definition\'; processes as \':::steps\' then numbered lines then \':::\'; end with one self-check question as \':::check\' then \'Q: question\', three option lines starting \'- \' with the correct one starting \'+ \' instead, then \'Explain: why\', then \':::\'. Do not use HTML.${LESSON_VISUAL_RULES}`;
+
+            const expandOne = async (chapter, i) => {
+                const prev = i > 0 ? (chaptersWithContent[i - 1].title || `Chapter ${i}`) : null;
+                const next = i < chaptersWithContent.length - 1 ? (chaptersWithContent[i + 1].title || `Chapter ${i + 2}`) : null;
+                const r = await callOpenAI([
+                    { role: 'system', content: expandSystemPrompt(i) },
+                    { role: 'user', content: `Chapter title: "${chapter.title || `Chapter ${i + 1}`}"\nPrevious lesson: ${prev || 'none (this is the first lesson)'}\nNext lesson: ${next || 'none (this is the last lesson)'}\n\nSource chapter:\n${chapter.content}${aiGuidanceBlock(guidance)}` }
+                ], 3500, 0.5);
+                const text = await finaliseLessonVisuals(r.choices[0].message.content, async (t, problems) => {
+                    const fix = await callOpenAI([
+                        { role: 'system', content: 'You fix lesson text. Return the COMPLETE lesson again with only the listed problems corrected. Keep every other word and the same markup.' },
+                        { role: 'user', content: 'Problems to fix: ' + problems.join('; ') + '\n\nLesson:\n' + t }
+                    ], 3800, 0.2);
+                    return fix.choices[0].message.content;
+                });
+                // A reply that is tiny next to its source means the AI summarised instead of teaching: keep the original.
+                if (text.trim().length < Math.min(chapter.content.length, 1500) * 0.6) throw new Error('expanded lesson came back too short');
+                return text;
+            };
+
+            // Chapters run in small groups so a long book does not hit OpenAI rate limits.
+            const lessonContents = new Array(chaptersWithContent.length);
+            const GROUP = 4;
+            for (let g = 0; g < chaptersWithContent.length; g += GROUP) {
+                const slice = chaptersWithContent.slice(g, g + GROUP);
+                const settled = await Promise.allSettled(slice.map(async (chapter, k) => {
+                    const i = g + k;
+                    if (convMode === 'raw') return chapter.content;
+                    if (convMode === 'expand' && chapter.content.length <= EXPAND_SOURCE_LIMIT) {
+                        try { return await expandOne(chapter, i); }
+                        catch (expandError) { console.warn(`Expansion failed for chapter "${chapter.title}", using the structured version:`, expandError.message); }
+                    }
                     try {
                         const elaborated = await callOpenAI([
                             { role: 'system', content: elaborationSystemPrompt },
@@ -12201,8 +12250,9 @@ Return the lesson as markdown with this structure:
                         console.warn(`AI elaboration failed for chapter "${chapter.title}", using original content:`, elaborationError.message);
                         return chapter.content;
                     }
-                })
-            );
+                }));
+                settled.forEach((r, k) => { lessonContents[g + k] = r; });
+            }
 
             const lessonRows = chaptersWithContent.map((chapter, i) => ({
                 course_id: newCourse.id,
@@ -12218,7 +12268,7 @@ Return the lesson as markdown with this structure:
 
             logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'course_generated_from_book', tier: 'admin', wasAllowed: true }); // fire-and-forget
 
-            return res.status(200).json({ success: true, course: newCourse, lessonsCreated: chaptersWithContent.length });
+            return res.status(200).json({ success: true, course: newCourse, lessonsCreated: chaptersWithContent.length, mode: convMode });
         } catch (error) {
             console.error('generate-course-from-book error:', error);
             return res.status(500).json({ error: error.message });
