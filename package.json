@@ -65,6 +65,7 @@
     "react-markdown": "^9.0.1",
     "react-pdf": "^10.5.0",
     "react-router-dom": "^6.20.1",
+    "sharp": "^0.33.5",
     "stripe": "^17.4.0",
     "xml2js": "^0.6.2"
   },
