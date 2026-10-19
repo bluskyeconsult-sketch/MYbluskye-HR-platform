@@ -149,6 +149,24 @@ function fitForX(caption, hashtags) {
     return caption.length <= room ? caption : caption.slice(0, room - 1).replace(/\s+\S*$/, '') + '…';
 }
 
+// Adds tracking tags to a shared link so the site's analytics shows which channel brought each visitor:
+//   https://site/jobs/5  ->  https://site/jobs/5?utm_source=whatsapp&utm_medium=social&utm_campaign=share&utm_content=job
+// Any utm_ tags already on the address (for example when a visitor who arrived from a shared link shares
+// it again) are replaced, and every other part of the address is left exactly as it was.
+export function withUtm(url, source, kind = 'generic') {
+    try {
+        const u = new URL(url);
+        [...u.searchParams.keys()].filter(k => k.toLowerCase().startsWith('utm_')).forEach(k => u.searchParams.delete(k));
+        u.searchParams.set('utm_source', source);
+        u.searchParams.set('utm_medium', source === 'email' ? 'email' : 'social');
+        u.searchParams.set('utm_campaign', 'share');
+        u.searchParams.set('utm_content', kind);
+        return u.toString();
+    } catch (e) {
+        return url;
+    }
+}
+
 export function buildShare({ kind, title, url = '', text = '', details = {}, saved = {} } = {}) {
     const k = kind || 'generic';
     const d = details || {};
