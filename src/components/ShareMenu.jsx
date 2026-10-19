@@ -5,14 +5,28 @@
 // plus copy-link - genuinely more reliable than depending solely on
 // navigator.share(), which only exists on some mobile browsers and
 // never on desktop Chrome/Firefox.
+//
+// UPDATED (2026-10-19): every share now carries a matching caption and hashtags.
+//   - X gets a caption that fits with the link, plus real hashtags.
+//   - WhatsApp and email get the caption (no hashtags, they do not use them).
+//   - "Copy post caption" copies caption + link + hashtags for LinkedIn, Facebook
+//     and Instagram, which ignore pre-filled text from a share link.
+// What is being shared is worked out from the page address, so existing uses
+// of <ShareMenu url title text /> keep working unchanged. Optional extras:
+//   kind      'job' | 'article' | 'course' | 'book' | 'assessment' | 'tool' | 'va' | 'generic'
+//   details   { company, location, category, tags, author, excerpt }
+//   caption   a caption saved by the admin (wins over the generated one)
+//   hashtags  hashtags saved by the admin (array, with or without '#')
 
 import { useState, useRef, useEffect } from 'react';
-import { Share2, X, Copy, Check } from 'lucide-react';
+import { Share2, X, Copy, Check, Hash } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { buildShare, inferKind } from '../lib/shareCaption';
 
-export default function ShareMenu({ url, title, text }) {
+export default function ShareMenu({ url, title, text, kind, details, caption, hashtags }) {
     const [open, setOpen] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [copiedPost, setCopiedPost] = useState(false);
     const menuRef = useRef(null);
 
     useEffect(() => {
@@ -24,13 +38,23 @@ export default function ShareMenu({ url, title, text }) {
     }, [open]);
 
     const shareUrl = url || (typeof window !== 'undefined' ? window.location.href : '');
-    const shareText = text || title || '';
+    const resolvedKind = kind || inferKind(typeof window !== 'undefined' ? window.location.pathname : '');
+
+    // Cheap string work, so it is simply rebuilt on each render.
+    const share = buildShare({
+        kind: resolvedKind,
+        title,
+        url: shareUrl,
+        text,
+        details,
+        saved: { caption, hashtags }
+    });
 
     const channels = [
         {
             name: 'WhatsApp',
             color: 'hover:bg-emerald-500/10 hover:text-emerald-400',
-            href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`
+            href: `https://wa.me/?text=${encodeURIComponent(`${share.plainText} ${shareUrl}`)}`
         },
         {
             name: 'Facebook',
@@ -40,7 +64,7 @@ export default function ShareMenu({ url, title, text }) {
         {
             name: 'X (Twitter)',
             color: 'hover:bg-slate-500/10 hover:text-slate-300',
-            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`
+            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(share.xText)}&url=${encodeURIComponent(shareUrl)}&hashtags=${encodeURIComponent(share.xHashtags)}`
         },
         {
             name: 'LinkedIn',
@@ -50,7 +74,7 @@ export default function ShareMenu({ url, title, text }) {
         {
             name: 'Email',
             color: 'hover:bg-amber-500/10 hover:text-amber-400',
-            href: `mailto:?subject=${encodeURIComponent(title || '')}&body=${encodeURIComponent(`${shareText}\n\n${shareUrl}`)}`
+            href: `mailto:?subject=${encodeURIComponent(title || share.caption)}&body=${encodeURIComponent(`${share.plainText}\n\n${shareUrl}`)}`
         }
     ];
 
@@ -62,6 +86,17 @@ export default function ShareMenu({ url, title, text }) {
             setTimeout(() => setCopied(false), 2000);
         } catch {
             toast.error('Could not copy link');
+        }
+    }
+
+    async function handleCopyPost() {
+        try {
+            await navigator.clipboard.writeText(share.copyText);
+            setCopiedPost(true);
+            toast.success('Caption and hashtags copied. Paste them into your post.');
+            setTimeout(() => setCopiedPost(false), 2000);
+        } catch {
+            toast.error('Could not copy the caption');
         }
     }
 
@@ -95,6 +130,14 @@ export default function ShareMenu({ url, title, text }) {
                             {channel.name}
                         </a>
                     ))}
+                    <button
+                        onClick={handleCopyPost}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 transition text-left border-t border-slate-800"
+                        title="Copies the caption, link and hashtags - best for LinkedIn, Facebook and Instagram"
+                    >
+                        {copiedPost ? <Check className="w-4 h-4 text-emerald-400" /> : <Hash className="w-4 h-4" />}
+                        {copiedPost ? 'Copied!' : 'Copy post caption'}
+                    </button>
                     <button
                         onClick={handleCopyLink}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 transition text-left border-t border-slate-800"
