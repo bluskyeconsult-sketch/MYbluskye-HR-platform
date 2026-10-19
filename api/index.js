@@ -930,6 +930,14 @@ async function finaliseLessonVisuals(content, regenerate) {
 
 const LESSON_VISUAL_RULES = ' Numbers, charts and maths: NEVER put numbers, labels or graphs inside illustrations. For any chart write a block \':::chart Title\' then ONE line of JSON like {"type":"bar","unit":"%","labels":["A","B"],"series":[{"name":"Share","values":[60,40]}]} then \':::\' (type is bar, line, pie or area; one value per label; plain numbers only; a pie with unit "%" must add up to exactly 100). For a formula write \':::formula\' then LaTeX then \':::\'. For a flow or relationship diagram write \':::diagram\' then Mermaid code (flowchart TD ...) then \':::\'. Never do arithmetic yourself: wherever a calculated number appears in the text, a check option or a chart, write it as {{= expression}} (for example {{= 2400*0.15}}) and the system will calculate it. Only use these blocks when they genuinely help; most lessons need at most one or two.';
 
+// NEW (2026-10-19): numeric topics automatically get told to include a chart or formula, so the
+// admin never has to remember to ask for one.
+function lessonVisualNudge(courseTitle, lessonTitle) {
+    const t = `${courseTitle || ''} ${lessonTitle || ''}`;
+    if (!/\b(math|maths|mathematic|statistic|percent|percentage|budget|financ|accounting|interest|ratio|calculat|probabilit|analytics|metric|kpi|payroll|salary|forecast|graph|chart|algebra|geometry|physics|economic|trend|data|numeric|arithmetic|equation|formula)/i.test(t)) return '';
+    return ' This topic is numeric: include at least one :::chart, :::formula or worked {{= }} calculation wherever it makes the idea clearer.';
+}
+
 function aiGuidanceBlock(raw) {
     const t = String(raw == null ? '' : raw)
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -3273,12 +3281,13 @@ Return JSON only: {"draft": "the reply text", "needs_input": ["question for the 
 - "excerpt": a 1-2 sentence summary for article listings
 - "content": the full article body in clean Markdown (using ## and ### headings, plain paragraphs, and - for bullet lists as appropriate) - genuinely substantive, at least 600 words. Do NOT use HTML tags anywhere - the site's public article renderer displays Markdown, not HTML, and HTML tags would show up as literal, visible text to every reader. CRITICAL list formatting: every "-" bullet item must start at the very beginning of the line, with zero leading spaces or indentation - even a few leading spaces before a "-" makes the renderer treat the entire list as a code block (monospace font, dark background box) instead of a real, styled list. Leave one blank line before the first bullet and after the last one in every list.
 - "seo_title": a search-optimized title, under 60 characters
-- "category": one short category label (e.g. "Career Advice", "Job Search", "Workplace Skills")`;
+- "category": one short category label (e.g. "Career Advice", "Job Search", "Workplace Skills")
+When the article uses numbers, statistics or comparisons, you may add visuals inside "content" (write the JSON on ONE line and escape its quotes as \\" because it sits inside a JSON string).${LESSON_VISUAL_RULES}`;
 
             const data = await callOpenAI(
                 [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Write the article now, on this topic: "${topicRow.topic}"${aiGuidanceBlock(requestGuidance || topicRow.description)}` }
+                    { role: 'user', content: `Write the article now, on this topic: "${topicRow.topic}"${lessonVisualNudge('', topicRow.topic).replace('wherever', 'only where')}${aiGuidanceBlock(requestGuidance || topicRow.description)}` }
                 ],
                 3000, 0.7,
                 { type: 'json_object' }
@@ -3290,6 +3299,17 @@ Return JSON only: {"draft": "the reply text", "needs_input": ["question for the 
             } catch (parseErr) {
                 await supabaseClient.from('article_topics').update({ status: 'failed', error_message: 'AI returned invalid output', updated_at: new Date().toISOString() }).eq('id', topicId);
                 return res.status(500).json({ error: 'Article generation produced invalid output - please try again.' });
+            }
+
+            // NEW (2026-10-19): same calculation + chart check as lessons (one repair pass, bad blocks removed)
+            if (typeof parsed.content === 'string') {
+                parsed.content = await finaliseLessonVisuals(parsed.content, async (text, problems) => {
+                    const fix = await callOpenAI([
+                        { role: 'system', content: 'You fix article text. Return the COMPLETE article again as plain Markdown with only the listed problems corrected. Keep every other word and the same markup.' },
+                        { role: 'user', content: 'Problems to fix: ' + problems.join('; ') + '\n\nArticle:\n' + text }
+                    ], 3200, 0.2);
+                    return fix.choices[0].message.content;
+                });
             }
 
             if (!parsed.title || !parsed.content) {
@@ -7950,6 +7970,7 @@ Quality requirements:
 - Avoid ambiguous wording where more than one option could reasonably be defended as correct
 - Match the stated difficulty genuinely - ${difficulty === 'beginner' ? 'testing foundational understanding' : difficulty === 'advanced' ? 'testing nuanced, applied understanding, not just recall' : 'testing solid working knowledge, not just definitions'}
 - If "${topic}" involves behavioral, leadership, or soft-skill judgment (rather than pure factual knowledge), include 1-2 open-ended "scenario" questions that present a realistic situation and ask how the person would respond - these get evaluated on reasoning quality, not a single correct answer
+- Never do arithmetic yourself: write any calculated number in a question, option or explanation as {{= expression}} (for example {{= 2400*0.15}}) and the system will calculate it. The four options of a question must be different
 - Assign each question a "dimension" - a short label for what specific aspect it measures within this topic (e.g. for a leadership assessment: "Decision Making", "Team Communication", "Conflict Resolution" - use dimensions genuinely relevant to "${topic}", not generic placeholders)
 
 Return a JSON object with a "questions" array. Each question must have:
@@ -7977,13 +7998,21 @@ Return a JSON object with a "questions" array. Each question must have:
             }
 
             const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : (Array.isArray(parsed) ? parsed : []);
+            // NEW (2026-10-19): calculate any {{= ...}} with mathjs, and drop questions whose options repeat
+            for (const q of rawQuestions) {
+                if (!q) continue;
+                if (typeof q.question === 'string') q.question = await applyLessonCalcs(q.question);
+                if (typeof q.explanation === 'string') q.explanation = await applyLessonCalcs(q.explanation);
+                if (Array.isArray(q.options)) q.options = await Promise.all(q.options.map(o => typeof o === 'string' ? applyLessonCalcs(o) : o));
+            }
 
             // Real validation - filters out anything malformed rather
             // than silently passing it through to the assessment
             // builder, where a bad correct-answer index would make a
             // question unscorable or always wrong for every test-taker.
             const validQuestions = rawQuestions.filter(q => {
-                if (!q.question || typeof q.question !== 'string') return false;
+                if (!q || !q.question || typeof q.question !== 'string') return false;
+                if (Array.isArray(q.options) && new Set(q.options.map(o => String(o).trim().toLowerCase())).size !== q.options.length) return false;
                 if (q.question_type === 'scenario') return true;
                 if (isDiagnostic) return q.question_type === 'likert_scale';
                 return Array.isArray(q.options) && q.options.length === 4
@@ -12016,8 +12045,8 @@ ${urls.map(u => `  <url>\n    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>$
 
             const data = await callOpenAI([
                 { role: 'system', content: 'You are an experienced instructional designer writing real, substantive lesson content for an online course - not an outline or summary. Write in clear, plain language a learner can follow without additional material.' },
-                { role: 'user', content: userPrompt + aiGuidanceBlock(guidance) }
-            ], 1800, 0.7);
+                { role: 'user', content: userPrompt + lessonVisualNudge(courseTitle, lessonTitle) + aiGuidanceBlock(guidance) }
+            ], 2200, 0.7);
 
             // NEW (2026-10-19): calculate {{= ...}} with mathjs, check chart/formula blocks, one repair pass.
             const content = await finaliseLessonVisuals(data.choices[0].message.content, async (text, problems) => {
@@ -15224,6 +15253,7 @@ Quality requirements:
 - Distractors (wrong options) must be plausible, not obviously wrong or joke answers
 - Questions must be answerable from the given lesson content specifically, not from outside knowledge
 - Spread questions across the different lessons rather than clustering on one
+- Never do arithmetic yourself: write any calculated number in a question, option or explanation as {{= expression}} (for example {{= 2400*0.15}}) and the system will calculate it. The four options must be different
 
 Return a JSON object with a "questions" array. Each item must have: "question" (text), "options" (array of exactly 4 strings), "correct" (index 0-3), "explanation" (why the correct answer is right, referencing the lesson).`
                 },
@@ -15239,8 +15269,16 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             // FIXED (2026-10-12): questions were used as returned. A question with the wrong number of options or
             // an out-of-range answer index would be saved and then mark every learner wrong. Malformed ones are now
             // dropped, and the existing quiz is only deleted once a valid replacement is ready.
+            // NEW (2026-10-19): calculate any {{= ...}} in questions, options and explanations (mathjs)
+            for (const q of (Array.isArray(parsed.questions) ? parsed.questions : [])) {
+                if (!q) continue;
+                if (typeof q.question === 'string') q.question = await applyLessonCalcs(q.question);
+                if (typeof q.explanation === 'string') q.explanation = await applyLessonCalcs(q.explanation);
+                if (Array.isArray(q.options)) q.options = await Promise.all(q.options.map(o => typeof o === 'string' ? applyLessonCalcs(o) : o));
+            }
             const questions = (Array.isArray(parsed.questions) ? parsed.questions : []).filter(q =>
-                q && typeof q.question === 'string' && q.question.trim()
+                !(q && Array.isArray(q.options) && new Set(q.options.map(o => String(o).trim().toLowerCase())).size !== q.options.length)
+                && q && typeof q.question === 'string' && q.question.trim()
                 && Array.isArray(q.options) && q.options.length === 4 && q.options.every(o => typeof o === 'string' && o.trim())
                 && Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3);
 
