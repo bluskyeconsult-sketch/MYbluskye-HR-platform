@@ -565,7 +565,7 @@ export default function JobDetailPage() {
               <button onClick={handleSave} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
                 <Bookmark className={`w-5 h-5 ${saved ? 'fill-primary-400 text-primary-400' : 'text-slate-400'}`} />
               </button>
-              <ShareMenu url={typeof window !== 'undefined' ? window.location.href : ''} title={job?.title} text={`Check out this job: ${job?.title} at ${job?.company}`} />
+              <ShareMenu url={typeof window !== 'undefined' ? window.location.href : ''} title={job?.title} text={`Check out this job: ${job?.title} at ${job?.company}`} kind="job" details={{ company: job?.company, location: job?.location }} />
               <button onClick={handleReport} className="p-2 rounded-lg bg-slate-800 hover:bg-red-500/20 transition">
                 <Flag className="w-5 h-5 text-slate-400" />
               </button>
