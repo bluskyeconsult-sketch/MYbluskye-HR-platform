@@ -32,7 +32,7 @@ const SENTENCE_END = /[.!?:)"”'’]$/;
 const FRAGMENT_SPACE = /\s/;
 
 function normalise(text) {
-    return String(text ?? '').replace(/\r\n?/g, '\n').replace(/ /g, ' ');
+    return String(text ?? '').replace(/\r\n?/g, '\n').replace(/ /g, ' ');
 }
 
 // A line that is clearly program code.
@@ -130,6 +130,16 @@ function splitSpecial(lines) {
                 flush();
                 const emb = embedForVideo(rest);
                 if (emb) segs.push({ special: { type: 'video', ...emb, url: rest } });
+                continue;
+            }
+            if (['chart', 'formula', 'diagram'].includes(kind)) {
+                // NEW (2026-10-19): data-driven visuals; the body is kept raw (JSON, LaTeX or Mermaid)
+                flush();
+                const body = [];
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim() !== ':::') { body.push(lines[j]); j++; }
+                segs.push({ special: { type: kind, title: rest, raw: body.join('\n').trim() } });
+                i = j;
                 continue;
             }
             if ([...CALLOUTS, 'steps', 'stats', 'check'].includes(kind)) {
@@ -269,6 +279,7 @@ function sizeOf(block) {
     if (block.type === 'term') return wordCount(block.text) + 8;
     if (block.type === 'steps') return block.items.reduce((n, x) => n + wordCount(x), 0) + 10;
     if (block.type === 'stats') return 30;
+    if (block.type === 'chart' || block.type === 'formula' || block.type === 'diagram') return 45;
     if (block.type === 'table') return 40;
     if (block.type === 'quote') return wordCount(block.text);
     if (block.type === 'p') return wordCount(block.text);
@@ -365,7 +376,7 @@ export function parseBlocks(content) {
 
 // True when text uses the rich lesson markup (callouts, steps, stats, pictures, etc.).
 export function hasRichMarkup(content) {
-    return /^\s*:::(tip|note|warning|example|key|term|steps|stats|video|check)\b/mi.test(String(content || ''));
+    return /^\s*:::(tip|note|warning|example|key|term|steps|stats|video|check|chart|formula|diagram)\b/mi.test(String(content || ''));
 }
 
 export function readingMinutes(content) {
