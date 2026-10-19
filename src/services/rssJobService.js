@@ -289,7 +289,10 @@ const API_SOURCES = {
     USA_USAJOBS: {
         name: 'USAJobs',
         country: 'US',
-        url: 'https://data.usajobs.gov/api/Search?ResultsPerPage=25',
+        // FIXED (2026-10-19): the old address asked for 25 results with no sort order, so every sync got the
+        // same 25 listings back ("25 found, 0 new" for a week). Now asks for the newest postings first,
+        // from the last 14 days, 50 at a time.
+        url: 'https://data.usajobs.gov/api/Search?ResultsPerPage=50&SortField=DatePosted&SortDirection=Desc&DatePosted=14',
         type: 'api',
         // Read at request time (getter), trimmed, so a variable added
         // or corrected in Vercel is picked up and stray spaces/quotes
@@ -1608,13 +1611,21 @@ async function saveJobToDatabase(job, sponsorship) {
         // (duplicates), and maybeSingle() errors when 2+ rows match,
         // silently letting yet another duplicate through. Now compares
         // the same stored value and uses limit(1).
-        const { data: existingRows } = await supabase
-            .from('external_jobs')
-            .select('id, external_url, approved_job_id')
-            .eq('title', (job.title || '').substring(0, 500))
-            .eq('source_name', (job.source_name || '').substring(0, 500))
-            .gte('created_at', sevenDaysAgo)
-            .limit(1);
+        // FIXED (2026-10-19): federal job titles repeat constantly ("Registered Nurse", "Program Analyst" at
+        // many agencies and places), so matching USAJobs on title alone treated genuinely new postings as
+        // duplicates. USAJobs postings are matched by their own unique link instead.
+        const jobLink = job.external_url || job.applicationLink || job.link || job.url || null;
+        let existingQuery = supabase.from('external_jobs').select('id, external_url, approved_job_id');
+        if (job.source_name === 'USAJobs' && jobLink) {
+            existingQuery = existingQuery.eq('external_url', jobLink).limit(1);
+        } else {
+            existingQuery = existingQuery
+                .eq('title', (job.title || '').substring(0, 500))
+                .eq('source_name', (job.source_name || '').substring(0, 500))
+                .gte('created_at', sevenDaysAgo)
+                .limit(1);
+        }
+        const { data: existingRows } = await existingQuery;
         const existing = existingRows?.[0];
 
         if (existing) {
