@@ -46,6 +46,7 @@ import ContentRenderer from '../../components/ContentRenderer';
 import AiGuidanceField, { guidanceLine } from '../../components/admin/AiGuidanceField';
 import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import ImageIdeasPicker from '../../components/admin/ImageIdeasPicker';
+import { authenticatedFetch } from '../../lib/authFetch';
 
 const MAX_EXCERPT_LENGTH = 160;
 const MAX_TITLE_LENGTH = 120;
@@ -143,6 +144,33 @@ export default function ArticleEditor() {
     const [aiTopic, setAiTopic] = useState('');
     // NEW (2026-10-14): short brief that guides the AI beyond the topic.
     const [aiGuidance, setAiGuidance] = useState('');
+    // NEW (2026-10-19): share caption + hashtags, written once here and used by every Share button.
+    const [captionBusy, setCaptionBusy] = useState(false);
+    const [captionError, setCaptionError] = useState('');
+
+    async function handleGenerateShareCaption() {
+        if (!article.title.trim()) { setCaptionError('Add a title first.'); return; }
+        setCaptionBusy(true);
+        setCaptionError('');
+        try {
+            const r = await authenticatedFetch('generate-share-caption', {
+                title: article.title,
+                excerpt: article.excerpt,
+                content: article.content,
+                category: article.category,
+                tags: article.tags
+            });
+            setArticle(prev => ({
+                ...prev,
+                share_caption: r.caption,
+                share_hashtags: (r.hashtags || []).map(h => `#${h}`).join(' ')
+            }));
+        } catch (err) {
+            setCaptionError(err.message || 'The caption could not be written just now.');
+        } finally {
+            setCaptionBusy(false);
+        }
+    }
     const [showAIPanel, setShowAIPanel] = useState(false);
     const [copied, setCopied] = useState(false);
     const [wordCount, setWordCount] = useState(0);
@@ -687,6 +715,39 @@ export default function ArticleEditor() {
                             <label className="block text-sm font-medium text-slate-300 mb-1">Excerpt (SEO Meta Description)</label>
                             <textarea rows={2} value={article.excerpt} onChange={(e) => setArticle({ ...article, excerpt: e.target.value.slice(0, MAX_EXCERPT_LENGTH) })} className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Brief summary for search engines..." />
                             <p className="text-xs text-slate-500 mt-1">{article.excerpt.length}/{MAX_EXCERPT_LENGTH} characters</p>
+                        </div>
+
+                        {/* NEW (2026-10-19): the caption and hashtags every Share button uses for this article. */}
+                        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <label className="block text-sm font-medium text-slate-300">Social share caption and hashtags</label>
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateShareCaption}
+                                    disabled={captionBusy}
+                                    className="px-3 py-1.5 text-sm bg-primary-500/20 text-primary-300 border border-primary-500/30 rounded-lg hover:bg-primary-500/30 flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {captionBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                    {article.share_caption ? 'Rewrite' : 'Generate share caption'}
+                                </button>
+                            </div>
+                            <textarea
+                                rows={2}
+                                maxLength={220}
+                                value={article.share_caption || ''}
+                                onChange={(e) => setArticle({ ...article, share_caption: e.target.value })}
+                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                placeholder="Leave empty and a caption is built automatically from the title and excerpt."
+                            />
+                            <input
+                                type="text"
+                                value={article.share_hashtags || ''}
+                                onChange={(e) => setArticle({ ...article, share_hashtags: e.target.value })}
+                                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                placeholder="#HR #CareerAdvice #ODUSBABA (3 to 4 is best)"
+                            />
+                            {captionError && <p className="text-xs text-red-400">{captionError}</p>}
+                            <p className="text-xs text-slate-500">Used on X, WhatsApp, email and the "Copy post caption" button. Hashtags help discovery on X and LinkedIn; they do not change Google ranking.</p>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
