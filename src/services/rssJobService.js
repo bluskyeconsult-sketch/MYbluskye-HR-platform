@@ -306,6 +306,10 @@ const API_SOURCES = {
                 'Accept': 'application/json'
             };
         },
+        // NEW (2026-10-19): read 4 pages of 50 (up to 200 of the newest postings) per sync.
+        extraPages: 3,
+        pageParam: 'Page',
+        pageSize: 50,
         is_active: true,
         priority: 2,
         sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship'],
@@ -1583,6 +1587,34 @@ async function fetchFromAPI(source, requestContext = {}) {
                     // without needing another guess.
                     console.warn(`${source.name} returned 0 jobs after parsing. Raw response sample: ${JSON.stringify(data).substring(0, 500)}`);
                     return { jobs: [], error: 'Parsed successfully but found 0 jobs - the response shape may not match what this parser expects. Check server logs for a raw response sample.' };
+                }
+                // NEW (2026-10-19): sources that declare extraPages (USAJobs) read further pages too.
+                // A failure on a later page keeps everything already collected instead of losing it.
+                if (source.extraPages > 0 && source.pageParam && !built && jobs.length >= (source.pageSize || 1)) {
+                    const seen = new Set(jobs.map(j => j.external_url || j.url || j.title));
+                    for (let p = 2; p <= source.extraPages + 1; p++) {
+                        try {
+                            const pageController = new AbortController();
+                            const pageTimer = setTimeout(() => pageController.abort(), source.timeout || REQUEST_TIMEOUT);
+                            const sep = requestUrl.includes('?') ? '&' : '?';
+                            const pageResponse = await fetch(`${requestUrl}${sep}${source.pageParam}=${p}`, {
+                                method: 'GET',
+                                headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
+                                signal: pageController.signal
+                            });
+                            clearTimeout(pageTimer);
+                            if (!pageResponse.ok) { console.warn(`${source.name} page ${p}: HTTP ${pageResponse.status}, keeping earlier pages`); break; }
+                            const pageJobs = source.parseFunction(await pageResponse.json()) || [];
+                            for (const j of pageJobs) {
+                                const key = j.external_url || j.url || j.title;
+                                if (!seen.has(key)) { seen.add(key); jobs.push(j); }
+                            }
+                            if (pageJobs.length < (source.pageSize || 1)) break;
+                        } catch (pageError) {
+                            console.warn(`${source.name} page ${p} failed, keeping earlier pages:`, pageError.message);
+                            break;
+                        }
+                    }
                 }
                 return { jobs, error: null };
             } catch (parseError) {
