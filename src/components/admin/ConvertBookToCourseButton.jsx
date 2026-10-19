@@ -22,6 +22,9 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
     const navigate = useNavigate();
     const [showModal, setShowModal] = useState(false);
     const [elaborateWithAI, setElaborateWithAI] = useState(true);
+    // NEW (2026-10-19): 'expand' = real course lessons grown from the chapter; 'preserve' = chapter text kept whole
+    const [mode, setMode] = useState('expand');
+    const [guidance, setGuidance] = useState('');
     const [converting, setConverting] = useState(false);
     const [conversionError, setConversionError] = useState(null);
 
@@ -36,7 +39,7 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ bookId, elaborateWithAI })
+                body: JSON.stringify({ bookId, elaborateWithAI, mode, guidance: guidance.trim() || undefined })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Conversion failed');
@@ -82,10 +85,10 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
                         </div>
 
                         <p className="text-slate-300 text-sm mb-4">
-                            Convert <strong className="text-white">"{bookTitle}"</strong> into a course. Each chapter with real content becomes one lesson.
+                            Convert <strong className="text-white">"{bookTitle}"</strong> into a course. Each chapter with real content becomes one lesson, saved as a draft for you to review.
                         </p>
 
-                        <label className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-800 mb-5">
+                        <label className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-800 mb-3">
                             <input
                                 type="checkbox"
                                 checked={elaborateWithAI}
@@ -94,13 +97,38 @@ export default function ConvertBookToCourseButton({ bookId, bookTitle, onConvert
                             />
                             <div>
                                 <p className="text-white text-sm font-medium flex items-center gap-1.5">
-                                    <Sparkles className="w-3.5 h-3.5 text-primary-400" /> Use AI to add learning structure
+                                    <Sparkles className="w-3.5 h-3.5 text-primary-400" /> Use AI Assist
                                 </p>
                                 <p className="text-slate-400 text-xs mt-0.5">
-                                    Adds learning objectives and key takeaways to each lesson, while preserving the book's real content exactly. Uncheck to convert with the raw chapter text only.
+                                    Uncheck to copy the chapter text as it is, with no AI.
                                 </p>
                             </div>
                         </label>
+
+                        {elaborateWithAI && (
+                            <div className="mb-3 space-y-2">
+                                <label className={`block p-3 rounded-lg cursor-pointer border ${mode === 'expand' ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 bg-slate-800/50'}`}>
+                                    <input type="radio" name="convmode" checked={mode === 'expand'} onChange={() => setMode('expand')} className="mr-2" />
+                                    <span className="text-white text-sm font-medium">Build a proper course (recommended)</span>
+                                    <p className="text-slate-400 text-xs mt-1 ml-5">Each chapter becomes a taught lesson: a hook, objectives, clear sections, worked examples, a practice task, a self-check question and a recap, flowing into the next lesson. It stays within what the book says and will not invent facts or statistics.</p>
+                                </label>
+                                <label className={`block p-3 rounded-lg cursor-pointer border ${mode === 'preserve' ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 bg-slate-800/50'}`}>
+                                    <input type="radio" name="convmode" checked={mode === 'preserve'} onChange={() => setMode('preserve')} className="mr-2" />
+                                    <span className="text-white text-sm font-medium">Keep the book's text whole</span>
+                                    <p className="text-slate-400 text-xs mt-1 ml-5">Adds learning objectives and key takeaways around the chapter's own text, unchanged.</p>
+                                </label>
+                                {mode === 'expand' && (
+                                    <textarea
+                                        value={guidance}
+                                        onChange={(e) => setGuidance(e.target.value)}
+                                        rows={2}
+                                        maxLength={600}
+                                        placeholder="Optional: tell the AI how to teach it (for example: for new managers, practical, friendly tone)"
+                                        className="w-full p-2 text-sm bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500"
+                                    />
+                                )}
+                            </div>
+                        )}
 
                         {conversionError && (
                             <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg mb-4">
