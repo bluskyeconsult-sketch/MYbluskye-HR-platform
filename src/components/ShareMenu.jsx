@@ -21,7 +21,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Share2, X, Copy, Check, Hash } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { buildShare, inferKind } from '../lib/shareCaption';
+import { buildShare, inferKind, withUtm } from '../lib/shareCaption';
+import { trackShare } from '../lib/shareTracking';
 
 export default function ShareMenu({ url, title, text, kind, details, caption, hashtags }) {
     const [open, setOpen] = useState(false);
@@ -40,11 +41,15 @@ export default function ShareMenu({ url, title, text, kind, details, caption, ha
     const shareUrl = url || (typeof window !== 'undefined' ? window.location.href : '');
     const resolvedKind = kind || inferKind(typeof window !== 'undefined' ? window.location.pathname : '');
 
+    // Each channel gets its own tracking tags (utm_source=whatsapp, linkedin...) so analytics can show
+    // which channel brought each visitor. The copied caption is tagged copy_caption.
+    const linkFor = (source) => withUtm(shareUrl, source, resolvedKind);
+
     // Cheap string work, so it is simply rebuilt on each render.
     const share = buildShare({
         kind: resolvedKind,
         title,
-        url: shareUrl,
+        url: linkFor('copy_caption'),
         text,
         details,
         saved: { caption, hashtags }
@@ -53,32 +58,49 @@ export default function ShareMenu({ url, title, text, kind, details, caption, ha
     const channels = [
         {
             name: 'WhatsApp',
+            id: 'whatsapp',
             color: 'hover:bg-emerald-500/10 hover:text-emerald-400',
-            href: `https://wa.me/?text=${encodeURIComponent(`${share.plainText} ${shareUrl}`)}`
+            href: `https://wa.me/?text=${encodeURIComponent(`${share.plainText} ${linkFor('whatsapp')}`)}`
         },
         {
             name: 'Facebook',
+            id: 'facebook',
             color: 'hover:bg-blue-500/10 hover:text-blue-400',
-            href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
+            href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkFor('facebook'))}`
         },
         {
             name: 'X (Twitter)',
+            id: 'twitter',
             color: 'hover:bg-slate-500/10 hover:text-slate-300',
-            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(share.xText)}&url=${encodeURIComponent(shareUrl)}&hashtags=${encodeURIComponent(share.xHashtags)}`
+            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(share.xText)}&url=${encodeURIComponent(linkFor('twitter'))}&hashtags=${encodeURIComponent(share.xHashtags)}`
         },
         {
             name: 'LinkedIn',
+            id: 'linkedin',
             color: 'hover:bg-sky-500/10 hover:text-sky-400',
-            href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`
+            href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(linkFor('linkedin'))}`
         },
         {
             name: 'Email',
+            id: 'email',
             color: 'hover:bg-amber-500/10 hover:text-amber-400',
-            href: `mailto:?subject=${encodeURIComponent(title || share.caption)}&body=${encodeURIComponent(`${share.plainText}\n\n${shareUrl}`)}`
+            href: `mailto:?subject=${encodeURIComponent(title || share.caption)}&body=${encodeURIComponent(`${share.plainText}\n\n${linkFor('email')}`)}`
         }
     ];
 
+    const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+    // The phone's own share sheet: reaches Instagram, Telegram, Messenger, SMS and every other app installed.
+    async function handleNativeShare() {
+        trackShare({ kind: resolvedKind, channel: 'native', url: shareUrl });
+        setOpen(false);
+        try {
+            await navigator.share({ title: title || share.caption, text: share.plainText, url: linkFor('native') });
+        } catch (e) { /* the visitor closed the share sheet */ }
+    }
+
     async function handleCopyLink() {
+        trackShare({ kind: resolvedKind, channel: 'copy_link', url: shareUrl });
         try {
             await navigator.clipboard.writeText(shareUrl);
             setCopied(true);
@@ -90,6 +112,7 @@ export default function ShareMenu({ url, title, text, kind, details, caption, ha
     }
 
     async function handleCopyPost() {
+        trackShare({ kind: resolvedKind, channel: 'copy_caption', url: shareUrl });
         try {
             await navigator.clipboard.writeText(share.copyText);
             setCopiedPost(true);
@@ -124,12 +147,20 @@ export default function ShareMenu({ url, title, text, kind, details, caption, ha
                             href={channel.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={() => setOpen(false)}
+                            onClick={() => { trackShare({ kind: resolvedKind, channel: channel.id, url: shareUrl }); setOpen(false); }}
                             className={`block px-3 py-2 text-sm text-slate-300 transition ${channel.color}`}
                         >
                             {channel.name}
                         </a>
                     ))}
+                    {canNativeShare && (
+                        <button
+                            onClick={handleNativeShare}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 transition text-left"
+                        >
+                            More apps...
+                        </button>
+                    )}
                     <button
                         onClick={handleCopyPost}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 transition text-left border-t border-slate-800"
