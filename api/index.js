@@ -1027,6 +1027,16 @@ async function buildWeeklyDigest(supabaseClient) {
     return { subject, content: `<div style="font-family:Arial,sans-serif;">${sections.join('')}<p style="color:#64748b;font-size:12px;margin:26px 0 0;">Week of ${esc(weekOf)}</p></div>` };
 }
 
+// NEW (2026-10-20): per-subscriber newsletter unsubscribe link. The newsletter footer used to point at
+// /newsletter/unsubscribe, a page that does not exist. The link now carries the address plus a signed code, so nobody
+// can unsubscribe someone else, and works for every newsletter, manual or automatic.
+function newsletterUnsubUrl(email) {
+    const e = String(email || '').trim().toLowerCase();
+    const secret = process.env.UNSUBSCRIBE_SECRET || process.env.CRON_SECRET || '';
+    const sig = crypto.createHmac('sha256', secret).update('nl:' + e).digest('hex').slice(0, 40);
+    return `${(process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=newsletter-unsubscribe&e=${encodeURIComponent(e)}&s=${sig}`;
+}
+
 function aiGuidanceBlock(raw) {
     const t = String(raw == null ? '' : raw)
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -1946,7 +1956,7 @@ const emailTemplates = {
             ${data.content || ''}
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
-            <p style="color:#475569;font-size:12px;">You received this because you subscribed. <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/newsletter/unsubscribe" style="color:#10b981;">Unsubscribe</a></p>
+            <p style="color:#475569;font-size:12px;">You received this because you subscribed to the ODUSBABA newsletter. <a href="${data.unsubscribeUrl || (process.env.SITE_URL || 'https://bluskyeconsult.com')}" style="color:#10b981;">Unsubscribe</a></p>
         </div>
     </div>
 </body>
@@ -1973,7 +1983,7 @@ const emailTemplates = {
             </div>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
-            <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
+            <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership${data.unsubscribeUrl ? ` · <a href="${data.unsubscribeUrl}" style="color:#10b981;">Unsubscribe</a>` : ''}</p>
         </div>
     </div>
 </body>
@@ -11428,6 +11438,92 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         return res.status(200).send(page('You are unsubscribed', 'You will not receive any more invitations from us. Sorry to see you go.'));
     },
 
+    // NEW (2026-10-20): newsletter unsubscribe page. Opening the link only shows a confirm button (so email scanners
+    // cannot unsubscribe people by accident); pressing it marks the subscriber unsubscribed and adds the address to the
+    // do-not-email list.
+    'newsletter-unsubscribe': async (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Frame-Options', 'DENY');
+        const page = (title, msg, btn) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;"><div style="max-width:440px;margin:12vh auto;background:#fff;padding:32px;border-radius:14px;text-align:center;box-shadow:0 4px 24px rgba(15,23,42,.08);"><h2 style="color:#0B3C5D;margin:0 0 12px;">${title}</h2><p style="color:#475569;line-height:1.6;">${msg}</p>${btn || ''}</div></body></html>`;
+        const email = String(req.query.e || '').trim().toLowerCase();
+        const sig = String(req.query.s || '');
+        const secret = process.env.UNSUBSCRIBE_SECRET || process.env.CRON_SECRET || '';
+        const expected = crypto.createHmac('sha256', secret).update('nl:' + email).digest('hex').slice(0, 40);
+        const sigOk = secret && sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+        if (!email || email.length > 254 || !sigOk || !checkRateLimit(`nl-unsub:${getClientIp(req)}`, 30)) {
+            return res.status(200).send(page('Link not valid', 'This link is invalid or has expired. If you keep receiving emails you do not want, reply to one and we will remove you.'));
+        }
+        if (req.method !== 'POST') {
+            const action = `${inviteSiteUrl()}/api/index?action=newsletter-unsubscribe&e=${encodeURIComponent(email)}&s=${encodeURIComponent(sig)}`;
+            return res.status(200).send(page('Unsubscribe from the newsletter', 'Click below to stop receiving the ODUSBABA newsletter.', `<form method="POST" action="${action}"><button type="submit" style="margin-top:18px;background:#0B3C5D;color:#fff;border:0;padding:12px 26px;border-radius:10px;font-size:15px;cursor:pointer;">Unsubscribe</button></form>`));
+        }
+        try {
+            const supabaseClient = getSupabase();
+            await supabaseClient.from('newsletter_subscribers').update({ status: 'unsubscribed' }).eq('email', email);
+            await supabaseClient.from('email_suppression').upsert({ email, reason: 'unsubscribed', source: 'newsletter_link' }, { onConflict: 'email' });
+        } catch (e) { console.error('newsletter-unsubscribe error:', e.message); }
+        return res.status(200).send(page('You are unsubscribed', 'You will not receive the newsletter any more. Sorry to see you go.'));
+    },
+
+    // NEW (2026-10-20): sends newsletters whose scheduled time has arrived. Called every 15 minutes by a scheduled job
+    // (CRON_SECRET protected). Each due newsletter is CLAIMED first (sent_at is set in one atomic update), so two runs
+    // can never send the same one twice. Goes to all active subscribers who are not on the do-not-email list.
+    // Only newsletters scheduled within the last 24 hours are picked up, so an old forgotten draft can never go out.
+    'send-scheduled-newsletters': async (req, res) => {
+        const authHeader = req.headers.authorization;
+        if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const supabaseClient = getSupabase();
+        const started = Date.now();
+        const BUDGET_MS = 240000;
+        try {
+            const nowIso = new Date().toISOString();
+            const { data: due } = await supabaseClient.from('newsletters').select('id, subject, content, content_html')
+                .eq('is_sent', false).is('sent_at', null).not('scheduled_for', 'is', null).lte('scheduled_for', nowIso).gte('scheduled_for', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()).order('scheduled_for', { ascending: true }).limit(2);
+            if (!due || due.length === 0) return res.status(200).json({ success: true, sent: 0, newsletters: 0 });
+
+            const transporter = getTransporter();
+            const from = `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`;
+            const results = [];
+            for (const nl of due) {
+                const { data: claimed } = await supabaseClient.from('newsletters').update({ sent_at: new Date().toISOString() })
+                    .eq('id', nl.id).eq('is_sent', false).is('sent_at', null).select('id');
+                if (!claimed || claimed.length === 0) continue;   // another run already took it
+
+                const { data: subs } = await supabaseClient.from('newsletter_subscribers').select('email').eq('status', 'active').limit(20000);
+                const { data: sup } = await supabaseClient.from('email_suppression').select('email').limit(50000);
+                const blocked = new Set((sup || []).map(r => String(r.email || '').toLowerCase()));
+                const list = [...new Set((subs || []).map(r => String(r.email || '').trim().toLowerCase()).filter(e => e && !blocked.has(e)))];
+
+                let ok = 0, failed = 0, cut = false;
+                for (let i = 0; i < list.length; i += 5) {
+                    if (Date.now() - started > BUDGET_MS) { cut = true; break; }
+                    const chunk = list.slice(i, i + 5);
+                    await Promise.all(chunk.map(async (to) => {
+                        try {
+                            const unsub = newsletterUnsubUrl(to);
+                            await transporter.sendMail({
+                                from, to, subject: nl.subject,
+                                html: emailTemplates.newsletter({ content: nl.content_html || nl.content, unsubscribeUrl: unsub }),
+                                headers: { 'List-Unsubscribe': `<${unsub}>` }
+                            });
+                            ok++;
+                        } catch (e) { failed++; console.error('scheduled newsletter: could not email', to, e.message); }
+                    }));
+                }
+                await supabaseClient.from('newsletters').update({ is_sent: true, sent_at: new Date().toISOString(), recipient_count: ok }).eq('id', nl.id);
+                results.push({ id: nl.id, sent: ok, failed, skippedForTime: cut ? list.length - ok - failed : 0 });
+                if (cut) break;
+            }
+            return res.status(200).json({ success: true, newsletters: results.length, results });
+        } catch (error) {
+            console.error('send-scheduled-newsletters error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // NEW (2026-10-20): one-click unsubscribe from the automatic member engagement emails
     // (engage-inactive-members cron). The link carries the member id plus a signed code, so nobody can
     // unsubscribe someone else by guessing. Adds the address to the do-not-email list and turns the
@@ -15094,7 +15190,11 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             let emailSubject = subject;
 
             if (!emailHtml && type && emailTemplates[type]) {
-                emailHtml = emailTemplates[type](templateData || {});
+                // NEW (2026-10-20): newsletter emails get a working, personal unsubscribe link.
+                const tplData = (type === 'newsletter' || type === 'newsletter_welcome')
+                    ? { ...(templateData || {}), unsubscribeUrl: newsletterUnsubUrl(to) }
+                    : (templateData || {});
+                emailHtml = emailTemplates[type](tplData);
                 emailSubject = subject || 'ODUSBABA Notification';
             }
 
