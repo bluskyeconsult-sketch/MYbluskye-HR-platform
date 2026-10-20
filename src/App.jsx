@@ -363,7 +363,7 @@ function Navbar() {
                         at any size. Dark outline (paint-order stroke) keeps it
                         readable over the artwork. To go back to the stacked
                         version, restore the previous <a> block. */}
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-3 shrink-0 mr-6">
                         <Logo size="2xl" showText={false} />
                         {/* Platform name beside the logo on wide screens only (xl = 1280px+),
                             so the navigation links keep their room on smaller screens. */}
