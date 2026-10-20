@@ -11339,6 +11339,38 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         return res.status(200).send(page('You are unsubscribed', 'You will not receive any more invitations from us. Sorry to see you go.'));
     },
 
+    // NEW (2026-10-20): one-click unsubscribe from the automatic member engagement emails
+    // (engage-inactive-members cron). The link carries the member id plus a signed code, so nobody can
+    // unsubscribe someone else by guessing. Adds the address to the do-not-email list and turns the
+    // member's email notifications off.
+    'member-unsubscribe': async (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Frame-Options', 'DENY');
+        const page = (title, msg, btn) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;"><div style="max-width:440px;margin:12vh auto;background:#fff;padding:32px;border-radius:14px;text-align:center;box-shadow:0 4px 24px rgba(15,23,42,.08);"><h2 style="color:#0B3C5D;margin:0 0 12px;">${title}</h2><p style="color:#475569;line-height:1.6;">${msg}</p>${btn || ''}</div></body></html>`;
+        const uid = String(req.query.u || '');
+        const sig = String(req.query.s || '');
+        const secret = process.env.UNSUBSCRIBE_SECRET || process.env.CRON_SECRET || '';
+        const expected = crypto.createHmac('sha256', secret).update(uid).digest('hex').slice(0, 40);
+        const sigOk = secret && sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+        if (!/^[0-9a-fA-F-]{20,40}$/.test(uid) || !sigOk || !checkRateLimit(`member-unsub:${getClientIp(req)}`, 30)) {
+            return res.status(200).send(page('Link not valid', 'This link is invalid or has expired. If you keep receiving emails you do not want, reply to one and we will remove you.'));
+        }
+        if (req.method !== 'POST') {
+            const action = `${inviteSiteUrl()}/api/index?action=member-unsubscribe&u=${encodeURIComponent(uid)}&s=${encodeURIComponent(sig)}`;
+            return res.status(200).send(page('Stop reminder emails', 'Click below to stop the reminder emails about completing your profile and applying for jobs. Your account stays as it is.', `<form method="POST" action="${action}"><button type="submit" style="margin-top:18px;background:#0B3C5D;color:#fff;border:0;padding:12px 26px;border-radius:10px;font-size:15px;cursor:pointer;">Unsubscribe</button></form>`));
+        }
+        try {
+            const supabaseClient = getSupabase();
+            const { data: prof } = await supabaseClient.from('profiles').select('email').eq('id', uid).maybeSingle();
+            if (prof?.email) {
+                await supabaseClient.from('email_suppression').upsert({ email: String(prof.email).toLowerCase(), reason: 'unsubscribed', source: 'engagement_link' }, { onConflict: 'email' });
+                await supabaseClient.from('profiles').update({ email_notifications: false }).eq('id', uid);
+            }
+        } catch (e) { console.error('member-unsubscribe error:', e.message); }
+        return res.status(200).send(page('You are unsubscribed', 'You will not receive any more reminder emails from us.'));
+    },
+
     // NEW (2026-10-07): server-side, exact status counts for the external
     // jobs manager. The browser-side version read the table through RLS
     // and Supabase's default 1000-row cap, so counts could under-report
