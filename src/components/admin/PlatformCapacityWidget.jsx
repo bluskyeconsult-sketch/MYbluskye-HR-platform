@@ -70,7 +70,7 @@ export default function PlatformCapacityWidget() {
     return (
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-semibold">Platform Capacity (Supabase Free Tier)</h2>
+                <h2 className="text-white font-semibold">Platform Capacity (Supabase {data.plan || 'Free'} plan)</h2>
                 <button onClick={loadCapacity} className="text-xs text-slate-400 hover:text-white">Refresh</button>
             </div>
 
@@ -82,7 +82,7 @@ export default function PlatformCapacityWidget() {
                             Recommended: upgrade Supabase to Pro
                         </p>
                         <p className="text-amber-400/80 text-xs mt-1">
-                            {data.highestMetric} is at {data.highestPercentage}% of the free tier limit — crossing {data.threshold}% is the safe point to upgrade, before you hit the hard cap.
+                            {data.highestMetric} is at {data.highestPercentage}% of the {data.plan || 'Free'} plan limit — crossing {data.threshold}% is the safe point to upgrade, before you hit the hard cap.
                         </p>
                         <a
                             href="https://supabase.com/dashboard/org/_/billing"
@@ -99,7 +99,7 @@ export default function PlatformCapacityWidget() {
             <div className="space-y-4">
                 {data.metrics.map((metric) => {
                     const Icon = METRIC_ICONS[metric.name] || Database;
-                    const barColor = metric.percentage >= 70 ? 'bg-amber-500' : metric.percentage >= 90 ? 'bg-red-500' : 'bg-emerald-500';
+                    const barColor = metric.percentage >= 90 ? 'bg-red-500' : metric.percentage >= 70 ? 'bg-amber-500' : 'bg-emerald-500';
                     return (
                         <div key={metric.name}>
                             <div className="flex items-center justify-between mb-1.5">
