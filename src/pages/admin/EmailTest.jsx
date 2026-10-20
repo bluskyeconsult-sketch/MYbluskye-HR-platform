@@ -41,7 +41,7 @@ export default function EmailTest() {
                 <html>
                 <head><meta charset="UTF-8"></head>
                 <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color:#0f172a;color:#e2e8f0; border-radius: 16px; padding: 30px;">
                         <div style="text-align: center;">
                             <div style="font-size: 48px;">📧</div>
                             <h1 style="color: #10b981;">Email Test Successful!</h1>
@@ -67,7 +67,7 @@ export default function EmailTest() {
                 <html>
                 <head><meta charset="UTF-8"></head>
                 <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; overflow: hidden;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color:#0f172a;color:#e2e8f0; border-radius: 16px; overflow: hidden;">
                         <div style="background: linear-gradient(135deg, #0ea5e9, #3b82f6); padding: 30px; text-align: center;">
                             <h1 style="color: white; margin: 0;">ODUSBABA Newsletter</h1>
                             <p style="color: #cbd5e1; margin-top: 8px;">Test Edition</p>
@@ -101,7 +101,7 @@ export default function EmailTest() {
                 <html>
                 <head><meta charset="UTF-8"></head>
                 <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; margin: 0; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 16px; padding: 30px;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color:#0f172a;color:#e2e8f0; border-radius: 16px; padding: 30px;">
                         <div style="text-align: center;">
                             <div style="font-size: 48px;">🎉</div>
                             <h1 style="color: #0ea5e9;">Welcome to ODUSBABA!</h1>
