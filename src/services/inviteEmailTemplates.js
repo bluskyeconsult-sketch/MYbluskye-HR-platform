@@ -1,6 +1,8 @@
 // src/services/inviteEmailTemplates.js
 //
 // Tier-specific invitation emails (v2, 2026-10-07).
+// REWRITTEN (2026-10-19): professional, organisation-voice copy that opens with the problem a reader
+// faces and then shows what ODUSBABA provides. No first-person founder voice. Facts are unchanged.
 //
 // SOURCES OF TRUTH - so nothing here silently drifts from the real product:
 //  * AI-credit numbers are passed in from the backend's TIER_MONTHLY_ALLOWANCE
@@ -42,33 +44,33 @@ export function escapeHtml(str) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-const WHO = `I'm Joseph Odugboye, founder of BluSkye Integrated Consult, and I built ODUSBABA, an AI-powered HR and career platform.`;
+const WHO = `ODUSBABA is an AI-powered HR and career platform from BluSkye Integrated Consult.`;
 
 export function getTierDefaults(tier, { credits = {} } = {}) {
     const c = (k) => credits[k] ?? '';
     const f = PLAN_FACTS;
     const defaults = {
         job_seeker: {
-            subject: '{{firstName}}, your free AI career toolkit is ready',
-            preheader: 'Verified jobs, a 24/7 AI career advisor, CV tools and certificates. Free to join.',
-            headline: 'Your next career move, with an AI in your corner',
-            intro: `Hi {{firstName}},\n\n${WHO} It brings verified jobs, practical AI tools and real learning into one place.\n\nA free account takes about a minute, and I would like to invite you to try it.`,
+            subject: 'Job searching is easier with the right tools in one place',
+            preheader: 'Verified jobs, AI CV and cover letter tools, a 24/7 career advisor and certificates. Free to join.',
+            headline: 'A smarter, safer way to find your next role',
+            intro: `Hello {{firstName}},\n\nA job search usually means scattered listings, uncertainty about which employers are genuine, and no clear way to see how your CV measures up.\n\n${WHO} It brings verified opportunities, practical AI tools and structured learning together, so every step of the search is easier to manage. A free account takes about a minute to create.`,
             bullets: [
                 { title: 'Verified jobs, fewer dead ends', text: 'Browse opportunities from trusted employers and official government portals across 8 countries, including sponsor-verified employers.' },
-                { title: 'AI career assistants', text: `A CV Optimizer, Cover Letter Writer, Salary Coach, LinkedIn makeover and more, with ${c('registered')} free AI credits every month.` },
-                { title: 'ODUSBABA Chat, 24/7', text: 'Ask about jobs, CV tips, interview preparation or salary negotiation at any hour.' },
-                { title: 'Know your strengths', text: `Psychometric and skills assessments (${f.job_seeker.assessments} included) that show your strengths, skill gaps and career matches.` },
-                { title: 'Learn and get certified', text: 'Practical, AI-assisted courses with verifiable certificates you can share on LinkedIn.' },
-                { title: 'Protected from scams', text: 'Employer verification, fraud reporting and safety guidance, so you can apply with confidence.' }
+                { title: 'A stronger CV and cover letter', text: `AI assistants for the CV Optimizer, Cover Letter Writer, Salary Coach and LinkedIn makeover, with ${c('registered')} free AI credits every month.` },
+                { title: 'Guidance whenever it is needed', text: 'ODUSBABA Chat is available 24/7 for job questions, CV tips, interview preparation and salary negotiation.' },
+                { title: 'Clarity on strengths and next steps', text: `Psychometric and skills assessments (${f.job_seeker.assessments} included) that highlight strengths, skill gaps and career matches.` },
+                { title: 'Skills you can prove', text: 'Practical, AI-assisted courses with verifiable certificates that can be shared on LinkedIn.' },
+                { title: 'Protection from job scams', text: 'Employer verification, fraud reporting and safety guidance support confident applications.' }
             ],
             stepsTitle: 'Get started in 3 steps',
             steps: [
-                { title: 'Create your free account', text: 'It takes about a minute.' },
-                { title: 'Complete your profile and try the CV Optimizer', text: 'A stronger CV is the fastest win.' },
-                { title: 'Set job alerts and start applying', text: 'Let new openings come to you.' }
+                { title: 'Create a free account', text: 'It takes about a minute.' },
+                { title: 'Complete the profile and run the CV Optimizer', text: 'A stronger CV is the quickest improvement to a search.' },
+                { title: 'Set job alerts and start applying', text: 'New openings are delivered as they appear.' }
             ],
             snapshot: {
-                title: 'What your free account includes',
+                title: 'What a free account includes',
                 rows: [
                     { label: 'Price', value: f.job_seeker.price },
                     { label: 'Job applications', value: f.job_seeker.applications },
@@ -77,32 +79,32 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                     { label: 'Saved jobs / job alerts', value: `${f.job_seeker.saved} / ${f.job_seeker.alerts}` },
                     { label: 'Newsletter and articles', value: 'Included' }
                 ],
-                note: 'Need more later? You can upgrade to Professional at any time.'
+                note: 'Additional tools are available by upgrading to Professional at any time.'
             },
-            closing: `There is no cost to join. If you have any questions, just reply to this email and the ODUSBABA team will get back to you.`,
-            ps: `P.S. Not sure where to begin? Try the CV Optimizer first. It is the quickest way to see what ODUSBABA can do for you.`,
-            ctaLabel: 'Create my free account'
+            closing: `There is no cost to join. Questions are welcome: reply to this email and the ODUSBABA team will respond.`,
+            ps: `Tip: the CV Optimizer is the quickest way to see what ODUSBABA can do for an application.`,
+            ctaLabel: 'Create a free account'
         },
 
         professional: {
-            subject: '{{firstName}}, a platform built to make you stand out',
-            preheader: 'Unlimited applications, a visible Trust Score, verified skills and a network that responds.',
-            headline: 'Stand out where it counts',
-            intro: `Hi {{firstName}},\n\n${WHO} The Professional plan is for people whose careers depend on being seen as credible: verified skills, a visible Trust Score, and a network that actually responds.\n\nI would like to invite you to try it.`,
+            subject: 'Make your skills visible and credible to employers',
+            preheader: 'Unlimited applications, a visible Trust Score, verified skills and direct access to professionals.',
+            headline: 'Turn experience into verified credibility',
+            intro: `Hello {{firstName}},\n\nStrong experience can still go unnoticed when employers have no way to verify it.\n\n${WHO} The Professional plan addresses this directly: skills are authenticated through AI and human review, a visible Trust Score gives employers confidence, and a verified professional network keeps opportunities coming.`,
             bullets: [
-                { title: 'Unlimited applications, saved jobs and alerts', text: 'Apply as widely as you like and never miss a relevant opening.' },
+                { title: 'Unlimited applications, saved jobs and alerts', text: 'Apply as widely as the search requires and stay on top of every relevant opening.' },
                 { title: 'A visible Trust Score', text: 'Every skill is authenticated through AI and human review, so employers see proof, not just claims.' },
-                { title: 'Connect with verified professionals', text: 'Message and build relationships with professionals across the Workforce Marketplace worldwide.' },
-                { title: 'Serious AI firepower', text: `${c('professional')} AI credits every month for the CV Optimizer, Cover Letter Writer, Salary Coach, LinkedIn makeover and more, plus a 24/7 AI career advisor.` },
-                { title: `${f.professional.assessments} assessments a month`, text: 'Psychometric and skills evaluations to sharpen your positioning and find skill gaps.' },
-                { title: 'Unlimited skill submissions', text: 'Keep your profile current as you grow, with no cap.' },
-                { title: 'Learn, certify and earn', text: 'Courses with verifiable certificates, plus an affiliate programme that pays commission when people you refer join.' }
+                { title: 'A network of verified professionals', text: 'Message and build relationships with professionals across the Workforce Marketplace worldwide.' },
+                { title: 'High-capacity AI support', text: `${c('professional')} AI credits every month for the CV Optimizer, Cover Letter Writer, Salary Coach and LinkedIn makeover, plus a 24/7 AI career advisor.` },
+                { title: `${f.professional.assessments} assessments a month`, text: 'Psychometric and skills evaluations that sharpen positioning and reveal skill gaps.' },
+                { title: 'Unlimited skill submissions', text: 'The profile stays current as the career grows, with no cap.' },
+                { title: 'Certified learning and an affiliate programme', text: 'Courses with verifiable certificates, plus commission when referred people join.' }
             ],
             stepsTitle: 'How to begin',
             steps: [
-                { title: 'Create your free account', text: 'You can explore everything on the free Registered plan first.' },
-                { title: 'Build your profile and submit your skills', text: 'Start earning a Trust Score employers can see.' },
-                { title: 'Upgrade to Professional when you are ready', text: `Unlock unlimited skills, networking and ${c('professional')} AI credits.` }
+                { title: 'Create a free account', text: 'Everything on the free Registered plan can be explored first.' },
+                { title: 'Build the profile and submit skills', text: 'This starts a Trust Score that employers can see.' },
+                { title: 'Upgrade to Professional when ready', text: `Unlock unlimited skills, networking and ${c('professional')} AI credits.` }
             ],
             snapshot: {
                 title: 'Professional plan at a glance',
@@ -115,32 +117,32 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                     { label: 'Assessments', value: `${f.professional.assessments} included` },
                     { label: 'Saved jobs / job alerts', value: `${f.professional.saved} / ${f.professional.alerts}` }
                 ],
-                note: 'Start free as a Registered member and upgrade only when you feel the difference.'
+                note: 'Start free as a Registered member and upgrade only when the extra capability is needed.'
             },
-            closing: `Questions about which plan fits you? Reply to this email and the ODUSBABA team will help.`,
-            ps: `P.S. Your first step costs nothing. Create the free account, look around, and decide afterwards.`,
+            closing: `Questions about which plan fits? Reply to this email and the ODUSBABA team will help.`,
+            ps: `The first step costs nothing: create the free account, explore, and decide afterwards.`,
             ctaLabel: 'Explore ODUSBABA'
         },
 
         employer: {
-            subject: '{{firstName}}, hire faster with AI doing the heavy lifting',
-            preheader: 'Post up to 20 jobs a month, manage applicants and screen smarter with AI.',
-            headline: 'Hire faster, with AI doing the heavy lifting',
-            intro: `Hi {{firstName}},\n\n${WHO} For hiring teams it brings job posting, applicant management and AI-assisted screening into one place, with employer verification built in so candidates trust you and you can trust them.\n\nPosting 20 jobs a month on the Employer plan works out at about $${EMPLOYER_PER_POST} per job post, and you can explore the platform with a free account before you commit to anything.`,
+            subject: 'Hiring with less admin: posting, applicants and screening in one place',
+            preheader: 'Post up to 20 jobs a month, manage applicants in one place and screen with assessments.',
+            headline: 'Hire with less admin and more confidence',
+            intro: `Hello {{firstName}},\n\nRecruitment often means paying per listing, juggling inboxes and spreadsheets, and screening applicants without a consistent method.\n\n${WHO} For hiring teams it brings job posting, applicant management and AI-assisted screening into one platform, with employer verification built in so candidates trust the listing and employers can trust the candidates.\n\nPosting 20 jobs a month on the Employer plan works out at about $${EMPLOYER_PER_POST} per post, and the platform can be explored with a free account before any commitment.`,
             bullets: [
                 { title: 'Post up to 20 jobs a month', text: 'Reach candidates without paying per listing.' },
                 { title: 'Every applicant in one place', text: 'Review and manage applications without juggling inboxes and spreadsheets.' },
-                { title: 'A company profile that builds trust', text: 'Show candidates who you are before they apply, within a platform that verifies employers.' },
-                { title: 'Screen smarter with assessments', text: `${f.employer.assessments} assessments a month to compare candidates on skills and personality objectively.` },
-                { title: 'AI that works on your hiring tasks', text: `${c('employer')} AI credits every month for AI assistants and the 24/7 ODUSBABA advisor.` },
-                { title: 'Reach verified professionals', text: 'Contact skilled, verified professionals directly through the Workforce Marketplace, and set up to 10 job alerts.' },
+                { title: 'A company profile that builds trust', text: 'Candidates see who you are before they apply, on a platform that verifies employers.' },
+                { title: 'Consistent, objective screening', text: `${f.employer.assessments} assessments a month to compare candidates on skills and personality.` },
+                { title: 'AI support for hiring tasks', text: `${c('employer')} AI credits every month for AI assistants and the 24/7 ODUSBABA advisor.` },
+                { title: 'Direct access to verified professionals', text: 'Contact skilled, verified professionals through the Workforce Marketplace, and set up to 10 job alerts.' },
                 { title: 'A safer hiring environment', text: 'Employer verification, fraud reporting and clear safety guidance protect your brand and your candidates.' }
             ],
-            stepsTitle: 'Your first week, simply',
+            stepsTitle: 'A simple first week',
             steps: [
-                { title: 'Create your free account', text: 'Look around before you commit to anything.' },
-                { title: 'Set up your company profile', text: 'This is what candidates see first.' },
-                { title: 'Post your first job on the Employer plan', text: 'Then review applicants in one place.' }
+                { title: 'Create a free account', text: 'Explore the platform before committing to a plan.' },
+                { title: 'Set up the company profile', text: 'This is what candidates see first.' },
+                { title: 'Post the first job on the Employer plan', text: 'Then review applicants in one place.' }
             ],
             snapshot: {
                 title: 'Employer plan at a glance',
@@ -154,32 +156,32 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                     { label: 'Assessments', value: `${f.employer.assessments} included` },
                     { label: 'Job alerts', value: f.employer.alerts }
                 ],
-                note: 'Start with a free account to explore. Upgrade when you are ready to post.'
+                note: 'Start with a free account to explore. Upgrade when ready to post.'
             },
             closing: `Reply to this email with the roles you are hiring for and the ODUSBABA team will help you get set up.`,
-            ps: `P.S. You can create a free account and explore before you decide on a plan.`,
-            ctaLabel: 'See what ODUSBABA can do for hiring'
+            ps: `A free account allows the platform to be explored before choosing a plan.`,
+            ctaLabel: 'See how ODUSBABA supports hiring'
         },
 
         business: {
-            subject: '{{firstName}}, one platform for your whole hiring operation',
+            subject: 'One platform for continuous, team-based hiring',
             preheader: 'Unlimited postings, team seats, API access and high-volume AI, with dedicated support.',
-            headline: 'One platform for your whole hiring operation',
-            intro: `Hi {{firstName}},\n\n${WHO} The Business plan is designed for organisations that hire continuously and want their team, their data and their AI tools working together.\n\nReply to this email if you would like a walkthrough for your team.`,
+            headline: 'One platform for the whole hiring operation',
+            intro: `Hello {{firstName}},\n\nOrganisations that hire continuously need their team, their data and their tools working together rather than in separate systems.\n\n${WHO} The Business plan is designed for exactly that: unlimited postings, shared team access, API connectivity and high-volume AI support under one roof.\n\nReply to this email to arrange a walkthrough for your team.`,
             bullets: [
-                { title: 'Unlimited job postings', text: 'Hire at the pace your business needs, with no posting caps.' },
-                { title: 'Bring your whole team', text: 'Team accounts for up to 5 users, all working from one place.' },
-                { title: 'API access', text: 'Connect ODUSBABA to the systems and workflows you already use.' },
+                { title: 'Unlimited job postings', text: 'Hire at the pace the business needs, with no posting caps.' },
+                { title: 'A shared workspace for the team', text: 'Team accounts for up to 5 users, all working from one place.' },
+                { title: 'API access', text: 'Connect ODUSBABA to the systems and workflows already in use.' },
                 { title: 'High-volume AI support', text: `${c('business')} AI credits every month for AI assistants and the 24/7 ODUSBABA advisor.` },
                 { title: `${f.business.assessments} assessments a month`, text: 'Standardised skills and psychometric screening across every hire.' },
                 { title: 'Applicants, company profile and unlimited alerts', text: 'Everything in the Employer plan, without the limits.' },
-                { title: 'Dedicated support', text: 'Business customers get dedicated support. Reply to this email to arrange a walkthrough for your team.' }
+                { title: 'Dedicated support', text: 'Business customers receive dedicated support, and a walkthrough can be arranged by replying to this email.' }
             ],
             stepsTitle: 'A simple way to start',
             steps: [
-                { title: 'Create your free account', text: 'Explore the platform with no commitment.' },
-                { title: 'Reply to arrange a walkthrough', text: 'The ODUSBABA team will show you how it fits your hiring process.' },
-                { title: 'Roll out to your team', text: 'Add colleagues and start posting.' }
+                { title: 'Create a free account', text: 'Explore the platform with no commitment.' },
+                { title: 'Reply to arrange a walkthrough', text: 'The ODUSBABA team will show how it fits your hiring process.' },
+                { title: 'Roll out to the team', text: 'Add colleagues and start posting.' }
             ],
             snapshot: {
                 title: 'Business plan at a glance',
@@ -192,17 +194,17 @@ export function getTierDefaults(tier, { credits = {} } = {}) {
                     { label: 'Assessments', value: `${f.business.assessments} included` },
                     { label: 'Job alerts', value: f.business.alerts }
                 ],
-                note: 'Not sure which plan fits? Reply and we will work it out together.'
+                note: 'Not sure which plan fits? Reply and the team will work it out with you.'
             },
-            closing: `Reply to this email and the ODUSBABA team will show you where ODUSBABA can save your organisation time.`,
-            ps: `P.S. A short walkthrough is usually enough to see whether it fits. Reply to this email to arrange one.`,
-            ctaLabel: 'Explore the Business experience'
+            closing: `Reply to this email and the ODUSBABA team will show where the platform can save your organisation time.`,
+            ps: `A short walkthrough is usually enough to judge the fit. Reply to this email to arrange one.`,
+            ctaLabel: 'Explore the Business plan'
         }
     };
     return defaults[tier] || null;
 }
 
-export const REMINDER_INTRO = `Hi {{firstName}},\n\nA quick, one-time reminder in case my earlier invitation got buried. There is no pressure at all. If ODUSBABA looks useful, here is the short version again:`;
+export const REMINDER_INTRO = `Hello {{firstName}},\n\nA brief, one-time reminder of the ODUSBABA invitation, in case it was missed. There is no obligation. If it looks useful, here is the short version again:`;
 
 function textToHtml(text) {
     return escapeHtml(text).split(/\n{2,}/).map(p => `<p style="margin:0 0 16px;line-height:1.65;color:#334155;font-size:16px;">${p.replace(/\n/g, '<br>')}</p>`).join('');
@@ -283,7 +285,7 @@ export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUr
      <a href="${escapeHtml(signupUrl)}" style="display:inline-block;background:#0B3C5D;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 34px;border-radius:10px;">${escapeHtml(ctaLabel)} &rarr;</a>
      ${codeHtml}
   </td></tr>
-  <tr><td style="padding:22px 32px 6px;">${closing ? textToHtml(closing) : ''}<p style="margin:0 0 14px;color:#334155;font-size:16px;">Warm regards,<br><strong>${escapeHtml(senderName)}</strong><br><span style="color:#64748b;font-size:14px;">${escapeHtml(senderTitle)}</span></p>${ps ? `<p style="margin:0;color:#475569;font-size:14px;line-height:1.6;font-style:italic;">${escapeHtml(ps).replace(/\n/g, '<br>')}</p>` : ''}</td></tr>
+  <tr><td style="padding:22px 32px 6px;">${closing ? textToHtml(closing) : ''}<p style="margin:0 0 14px;color:#334155;font-size:16px;">Kind regards,<br><strong>${escapeHtml(senderName)}</strong><br><span style="color:#64748b;font-size:14px;">${escapeHtml(senderTitle)}</span></p>${ps ? `<p style="margin:0;color:#475569;font-size:14px;line-height:1.6;font-style:italic;">${escapeHtml(ps).replace(/\n/g, '<br>')}</p>` : ''}</td></tr>
   <tr><td style="padding:24px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">
      <p style="margin:0 0 6px;color:#64748b;font-size:12px;line-height:1.6;">You are receiving this one-time invitation from BluSkye Integrated Consult because we believe ODUSBABA may be relevant to you. We will not add you to any mailing list unless you register.</p>
      ${postalAddress ? `<p style="margin:0 0 6px;color:#64748b;font-size:12px;">${escapeHtml(postalAddress)}</p>` : ''}
@@ -301,7 +303,7 @@ export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUr
         ...(isReminder ? [] : [affiliateTitle.toUpperCase(), affiliateText, '']),
         `${ctaLabel}: ${signupUrl}`,
         testerCode ? `Your invite code: ${testerCode}` : '',
-        '', closing, '', 'Warm regards,', senderName, senderTitle, '',
+        '', closing, '', 'Kind regards,', senderName, senderTitle, '',
         ps, '',
         postalAddress || '',
         `Unsubscribe: ${unsubscribeUrl}`
