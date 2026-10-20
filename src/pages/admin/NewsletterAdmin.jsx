@@ -52,6 +52,8 @@ export default function NewsletterAdmin() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
+    // NEW (2026-10-20): when set, the form edits this existing unsent newsletter instead of creating a new one.
+    const [editingId, setEditingId] = useState(null);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedNewsletter, setSelectedNewsletter] = useState(null);
     const [formData, setFormData] = useState({
@@ -94,6 +96,7 @@ export default function NewsletterAdmin() {
         if (location.state?.incomingDraft) {
             const { subject, content } = location.state.incomingDraft;
             setFormData({ title: subject, subject, content, scheduled_for: '', send_now: false });
+            setEditingId(null);
             setShowCreateModal(true);
             // Clear the router state so refreshing this page doesn't
             // reopen the same draft indefinitely.
@@ -132,6 +135,7 @@ export default function NewsletterAdmin() {
                 scheduled_for: '',
                 send_now: false
             });
+            setEditingId(null);
             setShowCreateModal(true);
         } catch (error) {
             console.error('Digest generation failed:', error);
@@ -173,7 +177,7 @@ export default function NewsletterAdmin() {
             .from('newsletters')
             .select('*')
             .order('created_at', { ascending: false });
-        setNewsletters(newsData || []);
+        setNewsletters(newData || []);
         setLoading(false);
     }
 
@@ -252,25 +256,33 @@ export default function NewsletterAdmin() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             
-            const { error } = await supabase.from('newsletters').insert({
+            // FIXED (2026-10-20): the date box gives local (UK) time without a time zone, which the database
+            // read as UTC, so a 08:30 schedule landed an hour early in summer. It is now converted properly.
+            const scheduledIso = formData.scheduled_for ? new Date(formData.scheduled_for).toISOString() : null;
+            const fields = {
                 title: formData.title,
                 subject: formData.subject,
                 content: formData.content,
                 content_html: formData.content,
-                scheduled_for: formData.scheduled_for || null,
-                created_by: user?.id
-            });
+                scheduled_for: scheduledIso
+            };
+            const { error } = editingId
+                ? await supabase.from('newsletters').update(fields).eq('id', editingId).eq('is_sent', false)
+                : await supabase.from('newsletters').insert({ ...fields, created_by: user?.id });
             
             if (error) throw error;
             
             setShowCreateModal(false);
+            setEditingId(null);
             setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false });
             await loadData();
             await loadStats();
             
-            alert(formData.send_now
-                ? 'Newsletter created. Use "Send Now" on the list to actually send it to subscribers.'
-                : 'Newsletter created successfully!');
+            alert(editingId
+                ? (scheduledIso ? 'Changes saved. It will be sent automatically at the scheduled time.' : 'Changes saved.')
+                : formData.send_now
+                    ? 'Newsletter created. Use "Send Now" on the list to actually send it to subscribers.'
+                    : (scheduledIso ? 'Newsletter created. It will be sent automatically at the scheduled time.' : 'Newsletter created successfully!'));
             
         } catch (error) {
             console.error('Error creating newsletter:', error);
@@ -293,6 +305,14 @@ export default function NewsletterAdmin() {
         try {
             const newsletter = newsletters.find(n => n.id === newsletterId);
             if (!newsletter) throw new Error('Newsletter not found');
+            // NEW (2026-10-20): never send twice. The automatic sender marks a newsletter the moment it starts.
+            const { data: fresh } = await supabase.from('newsletters').select('is_sent, sent_at').eq('id', newsletterId).maybeSingle();
+            if (fresh && (fresh.is_sent || fresh.sent_at)) {
+                alert('This newsletter has already been sent, or is being sent right now. Refresh the page to see the result.');
+                setSending(false);
+                await loadData();
+                return;
+            }
             
             let activeSubscribers;
             
@@ -395,6 +415,17 @@ export default function NewsletterAdmin() {
 
     // FIXED: same broken action as handleSendNow — now sends a real test
     // email to the current admin's own address via the real `email` action.
+    // NEW (2026-10-20): opens an unsent newsletter in the form so its wording and schedule can be changed.
+    function handleEdit(newsletter) {
+        const d = newsletter.scheduled_for ? new Date(newsletter.scheduled_for) : null;
+        const local = d && !Number.isNaN(d.getTime())
+            ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+            : '';
+        setEditingId(newsletter.id);
+        setFormData({ title: newsletter.title || '', subject: newsletter.subject || '', content: newsletter.content_html || newsletter.content || '', scheduled_for: local, send_now: false });
+        setShowCreateModal(true);
+    }
+
     async function handleSendTest(newsletter) {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -566,7 +597,7 @@ export default function NewsletterAdmin() {
                     screens. Now wraps onto additional rows instead. */}
                 <div className="flex flex-wrap gap-2">
                     <button
-                        onClick={() => setShowCreateModal(true)}
+                        onClick={() => { setEditingId(null); setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false }); setShowCreateModal(true); }}
                         className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
                     >
                         <Plus className="w-4 h-4" />
@@ -651,7 +682,7 @@ export default function NewsletterAdmin() {
                         <Mail className="w-12 h-12 text-slate-600 mx-auto mb-3" />
                         <p className="text-slate-400">No newsletters found</p>
                         <button
-                            onClick={() => setShowCreateModal(true)}
+                            onClick={() => { setEditingId(null); setFormData({ title: '', subject: '', content: '', scheduled_for: '', send_now: false }); setShowCreateModal(true); }}
                             className="mt-3 text-primary-400 hover:text-primary-300 text-sm"
                         >
                             Create your first newsletter →
@@ -702,6 +733,15 @@ export default function NewsletterAdmin() {
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                 </button>
+                                                {!newsletter.is_sent && !newsletter.sent_at && (
+                                                    <button
+                                                        onClick={() => handleEdit(newsletter)}
+                                                        className="p-1.5 text-slate-400 hover:text-white transition"
+                                                        title="Edit (wording and schedule)"
+                                                    >
+                                                        <Edit className="w-4 h-4" />
+                                                    </button>
+                                                )}
                                                 {getDerivedStatus(newsletter) === 'draft' && (
                                                     <>
                                                         <button
@@ -752,8 +792,8 @@ export default function NewsletterAdmin() {
                     <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-bold text-white">Create Newsletter</h2>
-                                <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white transition">
+                                <h2 className="text-xl font-bold text-white">{editingId ? 'Edit Newsletter' : 'Create Newsletter'}</h2>
+                                <button onClick={() => { setShowCreateModal(false); setEditingId(null); }} className="text-slate-400 hover:text-white transition">
                                     <XCircle className="w-5 h-5" />
                                 </button>
                             </div>
@@ -803,13 +843,14 @@ export default function NewsletterAdmin() {
                                 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Schedule (Optional)</label>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Schedule (Optional, UK time)</label>
                                         <input
                                             type="datetime-local"
                                             value={formData.scheduled_for}
                                             onChange={e => setFormData({...formData, scheduled_for: e.target.value})}
                                             className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                                         />
+                                        <p className="text-xs text-slate-500 mt-1">A scheduled newsletter is sent automatically to all active subscribers within 15 minutes of that time.</p>
                                     </div>
                                     <div className="flex items-end">
                                         <label className="flex items-center gap-2 cursor-pointer">
@@ -831,11 +872,11 @@ export default function NewsletterAdmin() {
                                         className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
                                     >
                                         {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                                        {sending ? 'Creating...' : (formData.send_now ? 'Create & Send' : 'Create Newsletter')}
+                                        {sending ? 'Saving...' : (editingId ? 'Save changes' : (formData.send_now ? 'Create & Send' : 'Create Newsletter'))}
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setShowCreateModal(false)}
+                                        onClick={() => { setShowCreateModal(false); setEditingId(null); }}
                                         className="flex-1 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition"
                                     >
                                         Cancel
