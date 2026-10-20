@@ -297,6 +297,12 @@ export default function SignInPage() {
                                 <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                                 <p className="text-red-400 text-sm">{error}</p>
                             </div>
+                            {/* NEW (2026-10-20): a gentle reminder for anyone who has just registered. */}
+                            {!/confirm your email first/i.test(error) && /invalid email or password/i.test(error) && (
+                                <p className="text-slate-400 text-xs mt-2 ml-6">
+                                    Just registered? Please confirm your email first, and check your junk or spam folder for the confirmation email.
+                                </p>
+                            )}
                             {/* NEW (2026-08-30): a real, self-service path
                                 for anyone whose confirmation email never
                                 arrived - "Invalid email or password" is
@@ -308,7 +314,7 @@ export default function SignInPage() {
                                 itself reveal the distinction). */}
                             {confirmationResent ? (
                                 <p className="text-slate-400 text-xs mt-2 ml-6">
-                                    If an account with this email needs confirming, a new confirmation email has been sent.
+                                    If an account with this email needs confirming, a new confirmation email has been sent. Please check your inbox and your junk or spam folder, as it can take a few minutes to arrive.
                                 </p>
                             ) : (
                                 <button
