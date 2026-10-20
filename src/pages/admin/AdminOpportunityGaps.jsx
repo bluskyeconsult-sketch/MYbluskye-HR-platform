@@ -92,7 +92,7 @@ export default function AdminOpportunityGaps() {
                 </button>
             </div>
             <p className="text-slate-400 text-sm mb-6">
-                AI-identified needs and opportunities from real user searches and chat activity over the last 30 days — with a concrete suggested build for each, not just a description of the problem.
+                AI-identified needs and opportunities from real user searches and chat activity over the last 90 days — with a concrete suggested build for each, not just a description of the problem.
             </p>
 
             {/* Trending Topics — same data source powers the public "Latest Trend Corner" */}
@@ -134,7 +134,9 @@ export default function AdminOpportunityGaps() {
                                 Evidence: {gap.support} search{gap.support === 1 ? '' : 'es'} ({gap.confidence} confidence){gap.supporting_queries?.length ? ': ' + gap.supporting_queries.join('; ') : ''}
                             </p>
                         )}
-                        {gap.closest_existing && <p className="text-xs text-amber-300 mb-3">Similar to something you already have: {gap.closest_existing}. Consider improving or promoting that first.</p>}
+                        {(gap.existing_matches?.length > 0 || gap.closest_existing) && (
+                            <p className="text-xs text-amber-300 mb-3">You may already offer this: {(gap.existing_matches?.length ? gap.existing_matches : [gap.closest_existing]).join('; ')}. If people are searching for it, they may not be finding it, so check how easy it is to discover before building anything new.</p>
+                        )}
 
                         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-3">
                             <p className="text-xs text-emerald-400 font-semibold mb-1">Suggested Build</p>
