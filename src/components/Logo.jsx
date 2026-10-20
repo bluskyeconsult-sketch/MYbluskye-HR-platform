@@ -62,7 +62,7 @@ const SIZE_CONFIG = {
     // the navbar per an explicit "still not visible enough" request.
     '2xl': {
         logoH: 'h-12 sm:h-14',
-        icon: 'w-32 h-32',
+        icon: 'w-12 h-12 sm:w-14 sm:h-14',
         text: 'text-2xl sm:text-3xl',
         subtext: 'text-sm sm:text-base',
         gap: 'gap-4'
