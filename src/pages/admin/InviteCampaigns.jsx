@@ -30,21 +30,69 @@ const BASES = [
 
 const EMAIL_RE = /^[A-Za-z0-9._%+\-']+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}$/;
 
+// FIXED (2026-10-20): the old reader dropped empty columns, so "ada@x.com,,Acme,Leeds" (no first name) shifted
+// "Acme" into the first-name slot and the email greeted the person as "Acme". Columns now keep their positions,
+// a header row (email, name, company, town) is recognised in any order, and quoted values containing commas work.
+function splitCsvLine(line) {
+    const out = [];
+    let cur = '', q = false;
+    const sep = line.includes('\t') ? '\t' : (line.includes(';') && !line.includes(',') ? ';' : ',');
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) {
+            if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') q = false;
+            else cur += ch;
+        } else if (ch === '"') q = true;
+        else if (ch === sep) { out.push(cur.trim()); cur = ''; }
+        else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+}
+
+const HEADER_ALIASES = {
+    email: ['email', 'e-mail', 'email address', 'emailaddress'],
+    name: ['name', 'first name', 'firstname', 'first_name', 'given name', 'contact name'],
+    company: ['company', 'company_name', 'company name', 'organisation', 'organization', 'employer'],
+    town: ['town', 'city', 'location']
+};
+
 function parseContacts(text) {
     const contacts = [], invalid = [], seen = new Set();
     let duplicates = 0;
-    for (const raw of text.split(/\r?\n/)) {
-        const line = raw.trim();
+    let map = null;   // column positions when a header row is present
+    for (const raw of String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/)) {
+        const line = raw.replace(/\uFEFF/g, '').trim();
         if (!line) continue;
-        const parts = line.split(/[,;\t]/).map(p => p.trim().replace(/^"|"$/g, '')).filter(Boolean);
-        const email = parts.find(p => p.includes('@'));
-        if (!email) { if (!/^(e-?mail|name|first)/i.test(line)) invalid.push(line.slice(0, 60)); continue; }
-        const e = email.toLowerCase();
-        if (!EMAIL_RE.test(e)) { invalid.push(email.slice(0, 60)); continue; }
+        const parts = splitCsvLine(line);
+        if (!line.includes('@')) {
+            const lower = parts.map(p => p.toLowerCase());
+            const m = {};
+            for (const [key, names] of Object.entries(HEADER_ALIASES)) {
+                const idx = lower.findIndex(p => names.includes(p));
+                if (idx >= 0) m[key] = idx;
+            }
+            if (m.email !== undefined) { map = m; continue; }
+            if (!/^(e-?mail|name|first)/i.test(line)) invalid.push(line.slice(0, 60));
+            continue;
+        }
+        let email, name = '', company = '', town = '';
+        if (map && parts[map.email] && parts[map.email].includes('@')) {
+            email = parts[map.email];
+            name = map.name !== undefined ? (parts[map.name] || '') : '';
+            company = map.company !== undefined ? (parts[map.company] || '') : '';
+            town = map.town !== undefined ? (parts[map.town] || '') : '';
+        } else {
+            const at = parts.findIndex(p => p.includes('@'));
+            email = parts[at];
+            const rest = parts.filter((_, i) => i !== at);          // blank columns keep their place
+            [name = '', company = '', town = ''] = rest;
+        }
+        const e = String(email || '').toLowerCase();
+        if (!EMAIL_RE.test(e)) { invalid.push(String(email || '').slice(0, 60)); continue; }
         if (seen.has(e)) { duplicates++; continue; }
         seen.add(e);
-        const others = parts.filter(p => p !== email && !p.includes('@'));
-        const [name = '', company = '', town = ''] = others;
         contacts.push({ email: e, firstName: name.split(/\s+/)[0] || '', company, town });
     }
     return { contacts, invalid, duplicates };
