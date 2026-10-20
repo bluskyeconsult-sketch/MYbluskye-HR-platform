@@ -207,14 +207,14 @@ export default function SystemHealthDashboard() {
                 .select('*', { count: 'exact', head: true })
                 .eq('is_active', true);
             
-            data.vaTasks = { total: count || 0, assistants: vaActive || 0 };
+            data.vaTasks = { total: truth?.usage?.vaTasks ?? count ?? 0, assistants: vaActive || 0 };
             checks.push({
                 name: 'Hire VA',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - start,
-                details: error ? error.message : `${vaActive || 0} active assistants available; ${count || 0} task${count === 1 ? '' : 's'} requested by clients so far`,
+                details: error ? error.message : `${vaActive || 0} active assistants available; ${data.vaTasks.total} task${data.vaTasks.total === 1 ? '' : 's'} requested by clients so far`,
                 icon: Bot,
-                metric: `${count || 0} tasks`
+                metric: `${data.vaTasks.total} tasks`
             });
         } catch (err) {
             data.vaTasks = { total: 0 };
@@ -770,7 +770,8 @@ export default function SystemHealthDashboard() {
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5">
                     <h4 className="text-amber-400 font-semibold flex items-center gap-2 mb-3">
                         <AlertCircle className="w-4 h-4" />
-                        Diagnostic Recommendations                    </h4>
+                        Diagnostic Recommendations
+                    </h4>
                     <ul className="text-sm text-slate-300 space-y-2">
                         {health.checks.find(c => c.name === 'OpenAI API')?.status !== 'healthy' && (
                             <li className="flex items-start gap-2">
