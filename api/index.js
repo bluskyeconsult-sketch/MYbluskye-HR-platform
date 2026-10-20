@@ -1689,7 +1689,7 @@ async function sendTesterCodeEmail(email, code) {
             from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
             to: email,
             subject: 'Your ODUSBABA Tester Invite Code',
-            html: `<p>Thanks for your interest in becoming an ODUSBABA tester.</p><p>Your invite code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${code}</p><p>Enter this code during sign-up to activate your tester access. This code is unique to you and can only be used once.</p>`
+            html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#334155;line-height:1.6;"><p>Thank you for your interest in testing ODUSBABA, the AI-powered HR and career platform from BluSkye Integrated Consult.</p><p style="margin-bottom:4px;">Your personal invite code:</p><p style="font-size:24px;font-weight:bold;letter-spacing:3px;color:#0B3C5D;margin:0 0 16px;">${escHtml(code)}</p><p>Enter this code during sign-up to activate tester access, which includes the AI career tools, assessments and learning. The code is unique to you and can be used once.</p><p style="color:#64748b;font-size:13px;">Questions? Reply to this email and the ODUSBABA team will help.</p></div>`
         });
         return { success: true };
     } catch (error) {
@@ -1791,6 +1791,11 @@ function getMockAssessments() {
 // COMPLETE EMAIL TEMPLATES (ALL 10 TEMPLATES)
 // ============================================
 
+// NEW (2026-10-19): values placed into the HTML emails below are escaped, so a company name or message can never inject markup.
+const escHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// REWRITTEN (2026-10-19): the welcome, newsletter-welcome, tester-welcome, employer-invitation and job-alert emails now
+// lead with what the reader gains and the next step, in a professional organisation voice.
 const emailTemplates = {
     employer_invitation: (data) => `<!DOCTYPE html>
 <html>
@@ -1798,13 +1803,18 @@ const emailTemplates = {
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
-            <h1 style="color:#10b981;margin:0;">You're Already Listed as a Verified Sponsor</h1>
+            <h1 style="color:#10b981;margin:0;">${escHtml(data.companyName)} is listed as a Verified Sponsor</h1>
         </div>
         <div style="padding:24px;">
             <p style="color:#e2e8f0;">Hello,</p>
-            <p style="color:#e2e8f0;"><strong>${data.companyName}</strong> already appears on ODUSBABA's directory of confirmed, government-registered skilled worker sponsors.</p>
-            <p style="color:#94a3b8;">Claim your listing to post your own open roles directly, connect with qualified candidates, and carry a "Verified Sponsor" badge that job seekers already trust.</p>
-            <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/sign-up" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">Claim Your Listing</a>
+            <p style="color:#e2e8f0;"><strong>${escHtml(data.companyName)}</strong> already appears in ODUSBABA's directory of confirmed, government-registered skilled worker sponsors, so candidates searching for sponsored roles can find the organisation today.</p>
+            <p style="color:#94a3b8;margin-bottom:6px;">Claiming the listing gives the organisation:</p>
+            <ul style="color:#94a3b8;margin:0 0 8px;padding-left:20px;line-height:1.7;">
+                <li>The ability to post its own open roles directly</li>
+                <li>Direct contact with qualified, sponsorship-seeking candidates</li>
+                <li>A "Verified Sponsor" badge that job seekers already trust</li>
+            </ul>
+            <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/sign-up" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">Claim the listing</a>
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
@@ -1840,7 +1850,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">ODUSBABA Newsletter</h1>
         </div>
         <div style="padding:24px;color:#94a3b8;">
@@ -1858,12 +1868,17 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
-            <h1 style="color:#10b981;margin:0;">Welcome to ODUSBABA Newsletter!</h1>
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+            <h1 style="color:#10b981;margin:0;">You are subscribed to the ODUSBABA Newsletter</h1>
         </div>
         <div style="padding:24px;">
-            <p style="color:#94a3b8;">Hello ${data.name || 'there'},</p>
-            <p style="color:#94a3b8;">Thank you for subscribing! You'll receive weekly insights on job opportunities, career tips, and industry trends.</p>
+            <p style="color:#94a3b8;">Hello ${escHtml(data.name || 'there')},</p>
+            <p style="color:#94a3b8;">Thank you for subscribing. Each week the newsletter brings together the information that saves time in a job search or hiring process:</p>
+            <ul style="color:#94a3b8;margin:0 0 8px;padding-left:20px;line-height:1.7;">
+                <li>New job opportunities worth a look</li>
+                <li>Practical career and workplace advice</li>
+                <li>Industry trends and new learning on the platform</li>
+            </ul>
             <div style="text-align:center;margin:24px 0;">
                 <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Visit ODUSBABA →</a>
             </div>
@@ -1880,13 +1895,17 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to BluSkye Integrated Consult</h1>
         </div>
         <div style="padding:24px;">
-            <h2 style="color:#ffffff;">Hello ${data.name},</h2>
-            <p style="color:#94a3b8;">Thank you for joining ODUSBABA! You're now part of the governed workforce platform.</p>
-            <p style="color:#94a3b8;">Get started by completing your profile and exploring job opportunities.</p>
+            <h2 style="color:#ffffff;">Hello ${escHtml(data.name)},</h2>
+            <p style="color:#94a3b8;">Welcome to ODUSBABA. Your account is ready, and the quickest way to see value is to take these three steps:</p>
+            <ol style="color:#94a3b8;margin:0 0 8px;padding-left:20px;line-height:1.7;">
+                <li><strong style="color:#e2e8f0;">Complete your profile</strong> so job matches and recommendations fit you.</li>
+                <li><strong style="color:#e2e8f0;">Run the CV Optimizer</strong> to strengthen your CV with AI.</li>
+                <li><strong style="color:#e2e8f0;">Set a job alert</strong> so verified openings come to you.</li>
+            </ol>
             <div style="text-align:center;margin:24px 0;">
                 <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/dashboard" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Go to Dashboard</a>
             </div>
@@ -1903,7 +1922,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Reset Your Password</h1>
         </div>
         <div style="padding:24px;">
@@ -1925,11 +1944,12 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
-            <h1 style="color:#10b981;margin:0;">New Jobs Matching "${data.alertName}"</h1>
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+            <h1 style="color:#10b981;margin:0;">New jobs matching "${escHtml(data.alertName)}"</h1>
         </div>
         <div style="padding:24px;">
-            <p style="color:#94a3b8;">We found ${data.jobs?.length || 0} new job${data.jobs?.length !== 1 ? 's' : ''} that match your alert.</p>
+            <p style="color:#94a3b8;">${data.jobs?.length || 0} new job${data.jobs?.length !== 1 ? 's' : ''} matched this alert since the last update.</p>
+            ${(Array.isArray(data.jobs) ? data.jobs.slice(0, 8) : []).map(j => `<div style="background-color:#1e293b;border-radius:8px;padding:12px 14px;margin:8px 0;"><div style="color:#e2e8f0;font-weight:600;">${escHtml(j.title)}</div><div style="color:#94a3b8;font-size:13px;">${escHtml([j.company, j.location].filter(Boolean).join(' · '))}</div></div>`).join('')}
             <div style="text-align:center;margin:24px 0;">
                 <a href="${process.env.SITE_URL || 'https://bluskyeconsult.com'}/jobs" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">View All Jobs</a>
             </div>
@@ -1947,14 +1967,14 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to the Tester Program!</h1>
         </div>
         <div style="padding:24px;">
-            <p style="color:#94a3b8;">Hello ${data.name},</p>
-            <p style="color:#94a3b8;">Your tester account has been created! You have <strong>${data.uses || 10} free uses</strong> for <strong>${data.days || 30} days</strong>.</p>
+            <p style="color:#94a3b8;">Hello ${escHtml(data.name)},</p>
+            <p style="color:#94a3b8;">Your tester account is active. It includes <strong>${escHtml(data.uses || 10)} free uses</strong> over <strong>${escHtml(data.days || 30)} days</strong>, enough to try the main tools on real tasks.</p>
             <div style="background-color:#1e293b;border-radius:8px;padding:16px;margin:20px 0;">
-                <p style="color:#94a3b8;margin:0 0 8px 0;"><strong>Start exploring:</strong></p>
+                <p style="color:#94a3b8;margin:0 0 8px 0;"><strong>What to try first:</strong></p>
                 <ul style="color:#94a3b8;margin:0;padding-left:20px;">
                     <li>🤖 AI Career Chat</li>
                     <li>📄 CV Optimization</li>
@@ -1978,7 +1998,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Your Assessment Report</h1>
         </div>
         <div style="padding:24px;">
@@ -2005,7 +2025,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">${data.subject || 'ODUSBABA Notification'}</h1>
         </div>
         <div style="padding:24px;">
@@ -2024,7 +2044,7 @@ const emailTemplates = {
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
     <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a;padding:20px;text-align:center;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">✅ Email Configuration Successful!</h1>
         </div>
         <div style="padding:24px;">
