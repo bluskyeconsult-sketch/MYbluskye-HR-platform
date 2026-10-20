@@ -20,29 +20,39 @@
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { Brain } from 'lucide-react';
-import bluskyeLogo from '../assets/BluSkye.png';
+
+// UPDATED (2026-10-20): the logo is now the redesigned wide lockup
+// (cloud + BluSkye + "INTEGRATED CONSULT"), served from public/images.
+// White-text version because the site background is dark. It is a wide
+// image (about 2.8:1), so it is sized by HEIGHT with automatic width; the
+// old square sizing would have shrunk it to a tiny strip.
+const LOGO_SRC = '/images/BluSkye-Logo-Integrated-Consult-Web-White.png';
 
 // Size configurations (shared between image and icon)
 const SIZE_CONFIG = {
     sm: {
+        logoH: 'h-8',
         icon: 'w-8 h-8',
         text: 'text-xs',
         subtext: 'text-[8px]',
         gap: 'gap-2'
     },
     md: {
+        logoH: 'h-10',
         icon: 'w-10 h-10',
         text: 'text-sm sm:text-base',
         subtext: 'text-[9px] sm:text-[10px]',
         gap: 'gap-2.5'
     },
     lg: {
+        logoH: 'h-12',
         icon: 'w-12 h-12',
         text: 'text-base sm:text-lg',
         subtext: 'text-[10px] sm:text-xs',
         gap: 'gap-3'
     },
     xl: {
+        logoH: 'h-14',
         icon: 'w-16 h-16',
         text: 'text-xl sm:text-2xl',
         subtext: 'text-xs sm:text-sm',
@@ -51,6 +61,7 @@ const SIZE_CONFIG = {
     // NEW (2026-08-16): 2x the size of xl (64px → 128px), specifically for
     // the navbar per an explicit "still not visible enough" request.
     '2xl': {
+        logoH: 'h-12 sm:h-14',
         icon: 'w-32 h-32',
         text: 'text-2xl sm:text-3xl',
         subtext: 'text-sm sm:text-base',
@@ -65,10 +76,10 @@ export default function Logo({ size = 'md', showText = true, linkTo = '/' }) {
     // Logo content (image or icon fallback)
     const LogoContent = !imageError ? (
         <img 
-            src={bluskyeLogo}
+            src={LOGO_SRC}
             alt="BluSkye Integrated Consult"
             onError={() => setImageError(true)}
-            className={`${config.icon} object-contain group-hover:scale-105 transition-transform duration-300`}
+            className={`${config.logoH} w-auto max-w-none object-contain group-hover:scale-105 transition-transform duration-300`}
         />
     ) : (
         <div className={`${config.icon} bg-gradient-to-br from-primary-500 to-sky-500 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:scale-105 transition-transform duration-300 flex-shrink-0`}>
