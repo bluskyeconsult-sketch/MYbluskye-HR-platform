@@ -97,7 +97,7 @@ export default function InsightEngine() {
                         <Sparkles className="w-6 h-6 text-primary-400" /> Insight Engine
                     </h1>
                     <p className="text-slate-400 text-sm mt-1">
-                        Real user activity, converted into actionable clues for what to build next — now combined with real, current global trending data.
+                        Real user searches from the last 90 days, counted and checked against what you already offer. Ideas need at least 2 supporting searches, and career-related global trends are used only where they genuinely overlap.
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -201,14 +201,18 @@ export default function InsightEngine() {
                                                         Evidence: {item.support} search{item.support === 1 ? '' : 'es'} ({item.confidence} confidence){item.supporting_queries?.length ? ': ' + item.supporting_queries.join('; ') : ''}
                                                     </p>
                                                 )}
-                                                {item.closest_existing && <p className="text-xs text-amber-300 mb-2">Similar to something you already have: {item.closest_existing}</p>}
+                                                {(item.existing_matches?.length > 0 || item.closest_existing) && (
+                                                    <p className="text-xs text-amber-300 mb-2">
+                                                        You may already offer this: {(item.existing_matches?.length ? item.existing_matches : [item.closest_existing]).join('; ')}. If people are searching for it, they may not be finding it, so check how easy it is to discover before building anything new.
+                                                    </p>
+                                                )}
                                                 {item.suggested_category && (
                                                     <span className="inline-block text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-400">
                                                         Suggested category: {item.suggested_category}
                                                     </span>
                                                 )}
                                                 {item.angle && <p className="text-slate-500 text-xs italic">Angle: {item.angle}</p>}
-                                                {item.evidence && <p className="text-slate-500 text-xs italic">Evidence: {item.evidence}</p>}
+                                                {item.evidence && !(item.support > 0) && <p className="text-slate-500 text-xs italic">Evidence: {item.evidence}</p>}
                                                 {item.target_region && (
                                                     <span className="inline-block text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-400 mt-1">
                                                         <Globe className="w-3 h-3 inline mr-1" />{item.target_region}
