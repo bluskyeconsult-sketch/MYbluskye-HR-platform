@@ -32,6 +32,7 @@ import { COACH_CONSENT_VERSION, rankJobs, cleanText, buildGapMessages, buildPack
 // actually visible before now.
 import { fetchExternalJobs, testRSSConnection } from '../src/services/rssJobService.js';
 import { INVITE_TIERS, getTierDefaults, renderInviteEmail } from '../src/services/inviteEmailTemplates.js';
+import { planEngagement, sendEngagementPlan, sendEngagementSample, resolveEngagementMode, ENGAGEMENT_KINDS } from './cron/engage-inactive-members.js';
 import { AFFILIATE_PLAN } from '../src/services/affiliatePlan.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
@@ -11436,6 +11437,88 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         } catch (e) { console.error('invite-unsubscribe error:', e.message); }
         // Same message whether or not the token matched - reveals nothing about who is on a list.
         return res.status(200).send(page('You are unsubscribed', 'You will not receive any more invitations from us. Sorry to see you go.'));
+    },
+
+    // ========== MEMBER ENGAGEMENT ADMIN (NEW, 2026-10-20) ==========
+    // Backs Admin > Member Engagement: see who the daily engagement job would email, switch it Off / Test / Live,
+    // send a sample to yourself, or run it now. Same permission as the newsletter and invitations.
+    'engagement-overview': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const mode = await resolveEngagementMode(supabaseClient);
+            const { due, stat } = await planEngagement(supabaseClient);
+            const byKind = due.reduce((m, x) => { m[x.kind] = (m[x.kind] || 0) + 1; return m; }, {});
+            const perRun = Math.max(1, parseInt(process.env.ENGAGEMENT_MAX_PER_RUN || '100') || 100);
+            return res.status(200).json({
+                success: true, mode, perRun, stat, dueCount: due.length, byKind, kinds: ENGAGEMENT_KINDS,
+                due: due.slice(0, 200).map(x => ({
+                    id: x.p.id, name: x.p.full_name || '', email: x.email, kind: x.kind, gaps: x.gaps,
+                    registered: x.p.created_at || null, lastEmailed: x.p.last_reengagement_email_at || null, sent: x.p.engagement_emails_sent || 0
+                }))
+            });
+        } catch (error) {
+            console.error('engagement-overview error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'engagement-set-mode': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const mode = String(req.body?.mode || '');
+        if (!['off', 'dry', 'live'].includes(mode)) return res.status(400).json({ error: 'Choose Off, Test or Live.' });
+        try {
+            const { data: existing } = await supabaseClient.from('system_config').select('config_key').eq('config_key', 'member_engagement_mode').maybeSingle();
+            const q = existing
+                ? supabaseClient.from('system_config').update({ config_value: mode }).eq('config_key', 'member_engagement_mode')
+                : supabaseClient.from('system_config').insert({ config_key: 'member_engagement_mode', config_value: mode });
+            const { error } = await q;
+            if (error) throw error;
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'member_engagement_mode_changed', details: { mode } });
+            return res.status(200).json({ success: true, mode });
+        } catch (error) {
+            console.error('engagement-set-mode error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'engagement-send-sample': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`engagement-sample:${auth.userId}`, 10)) return res.status(429).json({ error: 'Too many samples - please wait.' });
+        try {
+            const { data: me } = await supabaseClient.from('profiles').select('email, full_name').eq('id', auth.userId).maybeSingle();
+            if (!me?.email) return res.status(400).json({ error: 'Your admin profile has no email address.' });
+            await sendEngagementSample(supabaseClient, String(req.body?.kind || ''), me.email, me.full_name);
+            return res.status(200).json({ success: true, sentTo: me.email });
+        } catch (error) {
+            console.error('engagement-send-sample error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    'engagement-run-now': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_communications');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (req.body?.confirm !== true) return res.status(400).json({ error: 'Please confirm that you want to send now.' });
+        if (!checkRateLimit(`engagement-run:${auth.userId}`, 5)) return res.status(429).json({ error: 'Too many requests - please wait.' });
+        try {
+            if ((await resolveEngagementMode(supabaseClient)) === 'off') return res.status(400).json({ error: 'Engagement emails are switched Off. Choose Test or Live first.' });
+            const perRun = Math.max(1, parseInt(process.env.ENGAGEMENT_MAX_PER_RUN || '100') || 100);
+            const { due } = await planEngagement(supabaseClient);
+            const plan = due.slice(0, perRun);
+            const r = await sendEngagementPlan(supabaseClient, plan);
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'member_engagement_run_now', details: { emailed: r.emailed, failed: r.failed } });
+            return res.status(200).json({ success: true, ...r, remaining: Math.max(0, due.length - plan.length) });
+        } catch (error) {
+            console.error('engagement-run-now error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
     },
 
     // NEW (2026-10-20): newsletter unsubscribe page. Opening the link only shows a confirm button (so email scanners
