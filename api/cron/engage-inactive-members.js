@@ -17,6 +17,10 @@
 //   - At most MAX_PER_RUN emails per run (default 100, ENGAGEMENT_MAX_PER_RUN to change).
 //   - Every email carries a one-click unsubscribe link (handled by the member-unsubscribe action in index.js).
 //
+// Admin screen: Admin > Member Engagement (src/pages/admin/MemberEngagement.jsx) shows who is due, lets an admin
+// switch the job Off / Test / Live without redeploying, send a sample to themselves, or run it now. The switch is
+// stored in system_config (key member_engagement_mode); ENGAGEMENT_MODE in Vercel is only the fallback.
+//
 // Run add-member-engagement-tracking.sql once before the first run.
 
 import { createClient } from '@supabase/supabase-js';
@@ -114,102 +118,152 @@ ${jobs.length ? `<p style="margin:0 0 6px;"><strong>Recently added:</strong></p>
     };
 }
 
+
+export const ENGAGEMENT_KINDS = {
+    complete_profile: 'Finish your profile',
+    start_applying: 'Start applying',
+    come_back: 'Come back'
+};
+
+// Live / test / off. The admin screen's switch wins; the Vercel setting is the fallback; the default is test.
+export async function resolveEngagementMode(supabase) {
+    try {
+        const { data } = await supabase.from('system_config').select('config_value').eq('config_key', 'member_engagement_mode').maybeSingle();
+        const v = String(data?.config_value ?? '').replace(/"/g, '').toLowerCase();
+        if (v === 'live' || v === 'dry' || v === 'off') return v;
+    } catch (e) { /* fall through to the Vercel setting */ }
+    return String(process.env.ENGAGEMENT_MODE || '').toLowerCase() === 'live' ? 'live' : 'dry';
+}
+
+// Works out who is due an email right now. Sends nothing.
+export async function planEngagement(supabase) {
+    const now = Date.now();
+    let users = [], page = 1;
+    while (true) {
+        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) throw error;
+        users = users.concat(data.users);
+        if (data.users.length < 1000) break;
+        page++;
+    }
+    const authById = new Map(users.map(u => [u.id, u]));
+
+    const { data: profiles, error: pErr } = await supabase.from('profiles')
+        .select('id, email, full_name, user_type, job_title, location, bio, years_experience, linkedin_url, email_notifications, created_at, last_reengagement_email_at, engagement_emails_sent');
+    if (pErr) throw pErr;
+
+    const { data: suppressedRows } = await supabase.from('email_suppression').select('email');
+    const suppressed = new Set((suppressedRows || []).map(r => String(r.email || '').toLowerCase()));
+
+    const { data: appRows } = await supabase.from('job_applications').select('applicant_id').limit(50000);
+    const hasApplied = new Set((appRows || []).map(r => r.applicant_id));
+
+    const due = [];
+    for (const p of profiles || []) {
+        const email = String(p.email || '').toLowerCase().trim();
+        const au = authById.get(p.id);
+        if (!email || !au || !au.email_confirmed_at) continue;
+        if (suppressed.has(email) || p.email_notifications === false) continue;
+        if (SKIP_TYPES.has(String(p.user_type || '').toLowerCase())) continue;
+
+        const registered = new Date(p.created_at || au.created_at).getTime();
+        const ageDays = (now - registered) / DAY;
+        const lastEmail = p.last_reengagement_email_at ? new Date(p.last_reengagement_email_at).getTime() : 0;
+        const sent = p.engagement_emails_sent || 0;
+        const lastSignIn = au.last_sign_in_at ? new Date(au.last_sign_in_at).getTime() : null;
+        const gaps = profileGaps(p);
+
+        let kind = null;
+        const activationOk = sent < ACTIVATION_MAX_EMAILS && (now - lastEmail) >= ACTIVATION_GAP_DAYS * DAY;
+        if (ageDays >= MIN_ACCOUNT_AGE_DAYS && activationOk && gaps.length >= 2) kind = 'complete_profile';
+        else if (ageDays >= MIN_ACCOUNT_AGE_DAYS && activationOk && !hasApplied.has(p.id)) kind = 'start_applying';
+        else if (lastSignIn && (now - lastSignIn) >= COME_BACK_AFTER_DAYS * DAY && (now - lastEmail) >= COME_BACK_GAP_DAYS * DAY) kind = 'come_back';
+        if (kind) due.push({ p, kind, email, gaps: gaps.length });
+    }
+
+    // Overview numbers for the admin screen.
+    const ago = (d) => now - d * DAY;
+    const stat = { emailedToday: 0, emailed7: 0, emailed30: 0, atLimit: 0 };
+    for (const p of profiles || []) {
+        const t = p.last_reengagement_email_at ? new Date(p.last_reengagement_email_at).getTime() : 0;
+        if (t >= ago(1)) stat.emailedToday++;
+        if (t >= ago(7)) stat.emailed7++;
+        if (t >= ago(30)) stat.emailed30++;
+        if ((p.engagement_emails_sent || 0) >= ACTIVATION_MAX_EMAILS) stat.atLimit++;
+    }
+    const { count: unsubscribed } = await supabase.from('email_suppression').select('email', { count: 'exact', head: true }).eq('source', 'engagement_link');
+    stat.unsubscribed = unsubscribed || 0;
+    stat.members = (profiles || []).length;
+    return { due, stat };
+}
+
+// Sends the given plan (already limited by the caller). Returns counts.
+export async function sendEngagementPlan(supabase, plan) {
+    if (plan.length === 0) return { emailed: 0, failed: 0 };
+    let newestJobs = [];
+    if (plan.some(x => x.kind === 'start_applying')) {
+        const { data: j } = await supabase.from('jobs').select('id, title, company, location').eq('is_active', true).order('created_at', { ascending: false }).limit(3);
+        newestJobs = j || [];
+    }
+    const transporter = getTransporter();
+    const from = `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`;
+    let emailed = 0, failed = 0;
+    for (const { p, kind, email } of plan) {
+        try {
+            const ctx = { jobs: newestJobs };
+            if (kind === 'come_back') {
+                const { data: enr } = await supabase.from('course_enrollments').select('progress, courses(title)').eq('user_id', p.id).neq('status', 'completed').order('enrolled_at', { ascending: false }).limit(1).maybeSingle();
+                if (enr?.courses?.title) ctx.cameBackLine = `<p style="margin:0 0 14px;">You were <strong>${esc(enr.progress || 0)}%</strong> of the way through <strong>"${esc(enr.courses.title)}"</strong>. You can continue right where you stopped.</p>`;
+            }
+            const unsubUrl = unsubscribeLink(p.id);
+            const m = buildEmail(kind, p, ctx);
+            await transporter.sendMail({
+                from, to: email, subject: m.subject,
+                html: shell({ headline: m.headline, bodyHtml: m.bodyHtml, ctaLabel: m.ctaLabel, ctaUrl: m.ctaUrl, unsubUrl }),
+                headers: { 'List-Unsubscribe': `<${unsubUrl}>` }
+            });
+            const upd = { last_reengagement_email_at: new Date().toISOString() };
+            if (kind !== 'come_back') upd.engagement_emails_sent = (p.engagement_emails_sent || 0) + 1;
+            await supabase.from('profiles').update(upd).eq('id', p.id);
+            emailed++;
+        } catch (e) {
+            failed++;
+            console.error(`engage-inactive-members: could not email ${email}:`, e.message);
+        }
+    }
+    return { emailed, failed };
+}
+
+// A sample of one kind of email, sent to an admin so they can see it before anything goes to members.
+export async function sendEngagementSample(supabase, kind, toEmail, toName) {
+    if (!ENGAGEMENT_KINDS[kind]) throw new Error('Unknown email kind');
+    const { data: j } = await supabase.from('jobs').select('id, title, company, location').eq('is_active', true).order('created_at', { ascending: false }).limit(3);
+    const p = { id: 'sample', full_name: toName || '', email: toEmail, job_title: '', location: '', bio: '', years_experience: null, linkedin_url: '' };
+    const m = buildEmail(kind, p, { jobs: j || [] });
+    const transporter = getTransporter();
+    const from = `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`;
+    await transporter.sendMail({ from, to: toEmail, subject: `[SAMPLE] ${m.subject}`, html: shell({ headline: m.headline, bodyHtml: m.bodyHtml, ctaLabel: m.ctaLabel, ctaUrl: m.ctaUrl, unsubUrl: siteUrl() }) });
+}
+
 export default async function handler(req, res) {
     const authHeader = req.headers.authorization;
     if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    const live = String(process.env.ENGAGEMENT_MODE || '').toLowerCase() === 'live';
     const maxPerRun = Math.max(1, parseInt(process.env.ENGAGEMENT_MAX_PER_RUN || '100') || 100);
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
     try {
-        const now = Date.now();
-        let users = [], page = 1;
-        while (true) {
-            const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
-            if (error) throw error;
-            users = users.concat(data.users);
-            if (data.users.length < 1000) break;
-            page++;
-        }
-        const authById = new Map(users.map(u => [u.id, u]));
-
-        const { data: profiles, error: pErr } = await supabase.from('profiles')
-            .select('id, email, full_name, user_type, job_title, location, bio, years_experience, linkedin_url, email_notifications, created_at, last_reengagement_email_at, engagement_emails_sent');
-        if (pErr) throw pErr;
-
-        const { data: suppressedRows } = await supabase.from('email_suppression').select('email');
-        const suppressed = new Set((suppressedRows || []).map(r => String(r.email || '').toLowerCase()));
-
-        // Members who have applied at least once.
-        const { data: appRows } = await supabase.from('job_applications').select('applicant_id').limit(50000);
-        const hasApplied = new Set((appRows || []).map(r => r.applicant_id));
-
-        const plan = [];
-        for (const p of profiles || []) {
-            const email = String(p.email || '').toLowerCase().trim();
-            const au = authById.get(p.id);
-            if (!email || !au || !au.email_confirmed_at) continue;
-            if (suppressed.has(email) || p.email_notifications === false) continue;
-            if (SKIP_TYPES.has(String(p.user_type || '').toLowerCase())) continue;
-
-            const registered = new Date(p.created_at || au.created_at).getTime();
-            const ageDays = (now - registered) / DAY;
-            const lastEmail = p.last_reengagement_email_at ? new Date(p.last_reengagement_email_at).getTime() : 0;
-            const sent = p.engagement_emails_sent || 0;
-            const lastSignIn = au.last_sign_in_at ? new Date(au.last_sign_in_at).getTime() : null;
-
-            let kind = null;
-            const activationOk = sent < ACTIVATION_MAX_EMAILS && (now - lastEmail) >= ACTIVATION_GAP_DAYS * DAY;
-            if (ageDays >= MIN_ACCOUNT_AGE_DAYS && activationOk && profileGaps(p).length >= 2) kind = 'complete_profile';
-            else if (ageDays >= MIN_ACCOUNT_AGE_DAYS && activationOk && !hasApplied.has(p.id)) kind = 'start_applying';
-            else if (lastSignIn && (now - lastSignIn) >= COME_BACK_AFTER_DAYS * DAY && (now - lastEmail) >= COME_BACK_GAP_DAYS * DAY) kind = 'come_back';
-            if (kind) plan.push({ p, kind, email });
-            if (plan.length >= maxPerRun) break;
-        }
-
+        const mode = await resolveEngagementMode(supabase);
+        if (mode === 'off') return res.status(200).json({ success: true, mode, message: 'Member engagement emails are switched off.' });
+        const { due } = await planEngagement(supabase);
+        const plan = due.slice(0, maxPerRun);
         const summary = plan.reduce((m, x) => { m[x.kind] = (m[x.kind] || 0) + 1; return m; }, {});
-        if (!live) {
-            console.log('[engage-inactive-members] DRY MODE (set ENGAGEMENT_MODE=live in Vercel to send). Would email:', plan.map(x => `${x.email} (${x.kind})`).join(', '));
+        if (mode !== 'live') {
+            console.log('[engage-inactive-members] TEST MODE (nothing sent). Would email:', plan.map(x => `${x.email} (${x.kind})`).join(', '));
             return res.status(200).json({ success: true, mode: 'dry', wouldEmail: plan.length, byKind: summary });
         }
-        if (plan.length === 0) return res.status(200).json({ success: true, mode: 'live', emailed: 0 });
-
-        const needJobs = plan.some(x => x.kind === 'start_applying');
-        let newestJobs = [];
-        if (needJobs) {
-            const { data: j } = await supabase.from('jobs').select('id, title, company, location').eq('is_active', true).order('created_at', { ascending: false }).limit(3);
-            newestJobs = j || [];
-        }
-
-        const transporter = getTransporter();
-        const from = `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`;
-        let emailed = 0, failed = 0;
-        for (const { p, kind, email } of plan) {
-            try {
-                const ctx = { jobs: newestJobs };
-                if (kind === 'come_back') {
-                    const { data: enr } = await supabase.from('course_enrollments').select('progress, courses(title)').eq('user_id', p.id).neq('status', 'completed').order('enrolled_at', { ascending: false }).limit(1).maybeSingle();
-                    if (enr?.courses?.title) ctx.cameBackLine = `<p style="margin:0 0 14px;">You were <strong>${esc(enr.progress || 0)}%</strong> of the way through <strong>"${esc(enr.courses.title)}"</strong>. You can continue right where you stopped.</p>`;
-                }
-                const unsubUrl = unsubscribeLink(p.id);
-                const m = buildEmail(kind, p, ctx);
-                await transporter.sendMail({
-                    from, to: email, subject: m.subject,
-                    html: shell({ headline: m.headline, bodyHtml: m.bodyHtml, ctaLabel: m.ctaLabel, ctaUrl: m.ctaUrl, unsubUrl }),
-                    headers: { 'List-Unsubscribe': `<${unsubUrl}>` }
-                });
-                const upd = { last_reengagement_email_at: new Date().toISOString() };
-                if (kind !== 'come_back') upd.engagement_emails_sent = (p.engagement_emails_sent || 0) + 1;
-                await supabase.from('profiles').update(upd).eq('id', p.id);
-                emailed++;
-            } catch (e) {
-                failed++;
-                console.error(`engage-inactive-members: could not email ${email}:`, e.message);
-            }
-        }
-        return res.status(200).json({ success: true, mode: 'live', emailed, failed, byKind: summary });
+        const r = await sendEngagementPlan(supabase, plan);
+        return res.status(200).json({ success: true, mode: 'live', ...r, byKind: summary });
     } catch (error) {
         console.error('engage-inactive-members error:', error);
         return res.status(500).json({ success: false, error: error.message });
