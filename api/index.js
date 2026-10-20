@@ -13851,6 +13851,16 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             });
 
             if (signInError || !authData?.user) {
+                // NEW (2026-10-20): the auth service only reports "email not confirmed" when the PASSWORD WAS
+                // CORRECT (a wrong password always gets the generic invalid-credentials error), so saying this
+                // plainly reveals nothing to someone guessing passwords, and it saves real members from being
+                // told their details are wrong when they simply never confirmed. Not counted as a failed attempt.
+                if (signInError && (signInError.code === 'email_not_confirmed' || /email not confirmed/i.test(signInError.message || ''))) {
+                    return res.status(403).json({
+                        error: 'email_not_confirmed',
+                        message: 'Please confirm your email first. We sent you a confirmation email when you registered. Check your inbox and also your junk or spam folder. If you cannot find it, use the link below to send it again.'
+                    });
+                }
                 logSecurityEvent('user_login_failed', ip, 'info', { email: normalizedEmail }); // fire-and-forget, see note below
 
                 // Spray-attack check — only meaningfully triggers on
