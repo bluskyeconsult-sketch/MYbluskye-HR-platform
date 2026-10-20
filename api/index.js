@@ -7326,6 +7326,58 @@ ${siteContext}`;
         });
     },
 
+    // NEW (2026-10-20): true platform counts for the System Health page, read with the service role so
+    // row-level security cannot shrink them, and the page's check results are written to system_health_logs
+    // (nothing wrote to that table, so "Recent Health Checks" had been frozen since June).
+    'health-stats': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        try {
+            const dayAgo = new Date(Date.now() - 86400000).toISOString();
+            const head = { count: 'exact', head: true };
+            const n = async (q) => { try { const r = await q; return r.error ? null : (r.count ?? 0); } catch { return null; } };
+            const [users, jobsAll, jobsActive, jobsApproved, subsAll, subsActive, assessActive, assessDone,
+                newUsers, pageViews, sessions, applications] = await Promise.all([
+                n(supabaseClient.from('profiles').select('id', head)),
+                n(supabaseClient.from('jobs').select('id', head)),
+                n(supabaseClient.from('jobs').select('id', head).eq('is_active', true)),
+                n(supabaseClient.from('jobs').select('id', head).eq('is_active', true).eq('compliance_status', 'approved')),
+                n(supabaseClient.from('newsletter_subscribers').select('id', head)),
+                n(supabaseClient.from('newsletter_subscribers').select('id', head).eq('status', 'active')),
+                n(supabaseClient.from('assessments').select('id', head).eq('is_active', true)),
+                n(supabaseClient.from('user_assessments').select('id', head).eq('status', 'completed')),
+                n(supabaseClient.from('profiles').select('id', head).gte('created_at', dayAgo)),
+                n(supabaseClient.from('analytics_page_views').select('id', head).gte('created_at', dayAgo)),
+                n(supabaseClient.from('analytics_sessions').select('id', head).gte('start_time', dayAgo)),
+                n(supabaseClient.from('job_applications').select('id', head).gte('created_at', dayAgo))
+            ]);
+            // Record this check so the history list stays current (best-effort, one row per service).
+            let logged = false;
+            const checks = Array.isArray(req.body?.checks) ? req.body.checks.slice(0, 30) : [];
+            if (checks.length) {
+                const now = new Date().toISOString();
+                const rows = checks.map(c => ({
+                    service_name: String(c.name || '').slice(0, 80),
+                    status: ['healthy', 'degraded', 'critical'].includes(c.status) ? c.status : 'degraded',
+                    response_time_ms: Math.max(0, parseInt(c.responseTime) || 0),
+                    checked_at: now
+                })).filter(r => r.service_name);
+                try { const { error } = await supabaseClient.from('system_health_logs').insert(rows); logged = !error; if (error) console.warn('health log insert:', error.message); } catch (e) { console.warn('health log insert:', e.message); }
+            }
+            return res.status(200).json({
+                success: true, logged,
+                users, jobs: { total: jobsAll, active: jobsActive, approved: jobsApproved },
+                newsletter: { total: subsAll, active: subsActive },
+                assessments: { active: assessActive, completed: assessDone },
+                activity: { newUsers, pageViews, sessions, applications }
+            });
+        } catch (error) {
+            console.error('health-stats error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     ping: async (req, res) => {
         return res.status(200).json({
             status: 'alive',
