@@ -21,7 +21,7 @@ export default function AdminVirtualAssistants() {
   const [totalPages, setTotalPages] = useState(1);
   const [selectedVAs, setSelectedVAs] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-  const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, tasksCompleted: 0 });
+  const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, tasksCompleted: 0, tasksTotal: 0, avgRating: null });
   const [user, setUser] = useState(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,15 +52,25 @@ export default function AdminVirtualAssistants() {
     } catch (err) { window.location.href = '/admin-login'; }
   }
 
+  // FIXED (2026-10-20): this asked the database for virtual_assistants.tasks_completed, a column that does not exist,
+  // so the whole request failed and every figure showed 0; "Avg Rating" was a typed-in 4.8. Task figures now come from
+  // the real task records (va_tasks) and the rating is the average of the ratings clients actually gave.
   async function loadStats() {
     try {
-      const { data } = await supabase.from('virtual_assistants').select('is_active, tasks_completed');
+      const { data, error } = await supabase.from('virtual_assistants').select('is_active');
+      if (error) throw error;
       const total = data?.length || 0;
       const active = data?.filter(va => va.is_active === true).length || 0;
       const inactive = data?.filter(va => va.is_active === false).length || 0;
-      const tasksCompleted = data?.reduce((sum, va) => sum + (va.tasks_completed || 0), 0) || 0;
-      setStats({ total, active, inactive, tasksCompleted });
-    } catch (err) { console.error(err); }
+      const [allTasks, doneTasks, rated] = await Promise.all([
+        supabase.from('va_tasks').select('id', { count: 'exact', head: true }),
+        supabase.from('va_tasks').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
+        supabase.from('va_tasks').select('user_rating').not('user_rating', 'is', null).limit(5000)
+      ]);
+      const ratings = (rated.data || []).map(r => r.user_rating).filter(n => typeof n === 'number' && n > 0);
+      const avgRating = ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null;
+      setStats({ total, active, inactive, tasksCompleted: doneTasks.count || 0, tasksTotal: allTasks.count || 0, avgRating });
+    } catch (err) { console.error(err); toast.error('Could not load the summary figures: ' + (err.message || '')); }
   }
 
   async function loadVAs() {
@@ -90,11 +100,15 @@ export default function AdminVirtualAssistants() {
     setSaving(true);
     try {
       const vaData = { ...formData, price: parseFloat(formData.price), delivery_minutes: parseInt(formData.delivery_minutes), qa_score: parseInt(formData.qa_score) };
+      // FIXED (2026-10-20): the result was never checked, so a refused save still said "created", and new VAs were
+      // sent with tasks_completed/rating columns that do not exist (which made every create fail).
       if (editing) {
-        await supabase.from('virtual_assistants').update(vaData).eq('id', editing);
+        const { error } = await supabase.from('virtual_assistants').update(vaData).eq('id', editing);
+        if (error) throw error;
         toast.success('VA updated');
       } else {
-        await supabase.from('virtual_assistants').insert({ ...vaData, tasks_completed: 0, rating: 0 });
+        const { error } = await supabase.from('virtual_assistants').insert(vaData);
+        if (error) throw error;
         toast.success('VA created');
       }
       setShowForm(false);
@@ -102,26 +116,26 @@ export default function AdminVirtualAssistants() {
       resetForm();
       await loadVAs();
       await loadStats();
-    } catch (err) { toast.error('Failed to save'); }
+    } catch (err) { toast.error('Failed to save: ' + (err.message || 'unknown error')); }
     finally { setSaving(false); }
   }
 
   async function deleteVA(id) { setShowDeleteConfirm({ id, type: 'single' }); }
   async function confirmDelete() {
-    try { await supabase.from('virtual_assistants').delete().eq('id', showDeleteConfirm.id); toast.success('VA deleted'); await loadVAs(); await loadStats(); }
-    catch (err) { toast.error('Failed to delete'); }
+    try { const { error } = await supabase.from('virtual_assistants').delete().eq('id', showDeleteConfirm.id); if (error) throw error; toast.success('VA deleted'); await loadVAs(); await loadStats(); }
+    catch (err) { toast.error('Failed to delete: ' + (err.message || '')); }
     finally { setShowDeleteConfirm(null); }
   }
 
   async function bulkDelete() { setShowDeleteConfirm({ ids: Array.from(selectedVAs), type: 'bulk', count: selectedVAs.size }); }
   async function confirmBulkDelete() {
-    try { await supabase.from('virtual_assistants').delete().in('id', showDeleteConfirm.ids); toast.success(`Deleted ${showDeleteConfirm.ids.length} VAs`); setSelectedVAs(new Set()); await loadVAs(); await loadStats(); }
-    catch (err) { toast.error('Failed to delete'); }
+    try { const { error } = await supabase.from('virtual_assistants').delete().in('id', showDeleteConfirm.ids); if (error) throw error; toast.success(`Deleted ${showDeleteConfirm.ids.length} VAs`); setSelectedVAs(new Set()); await loadVAs(); await loadStats(); }
+    catch (err) { toast.error('Failed to delete: ' + (err.message || '')); }
     finally { setShowDeleteConfirm(null); }
   }
 
   async function toggleStatus(id, currentStatus) {
-    try { await supabase.from('virtual_assistants').update({ is_active: !currentStatus }).eq('id', id); toast.success(`VA ${!currentStatus ? 'activated' : 'deactivated'}`); await loadVAs(); await loadStats(); }
+    try { const { error } = await supabase.from('virtual_assistants').update({ is_active: !currentStatus }).eq('id', id); if (error) throw error; toast.success(`VA ${!currentStatus ? 'activated' : 'deactivated'}`); await loadVAs(); await loadStats(); }
     catch (err) { toast.error('Failed to update status'); }
   }
 
@@ -153,8 +167,8 @@ export default function AdminVirtualAssistants() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Total</p><p className="text-2xl font-bold text-white">{stats.total}</p></div>
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Active</p><p className="text-2xl font-bold text-emerald-400">{stats.active}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Tasks</p><p className="text-2xl font-bold text-blue-400">{stats.tasksCompleted.toLocaleString()}</p></div>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Avg Rating</p><p className="text-2xl font-bold text-amber-400">4.8</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Tasks completed</p><p className="text-2xl font-bold text-blue-400">{stats.tasksCompleted.toLocaleString()}</p><p className="text-xs text-slate-500">of {stats.tasksTotal.toLocaleString()} requested</p></div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4"><p className="text-slate-400 text-sm">Avg client rating</p><p className="text-2xl font-bold text-amber-400">{stats.avgRating ?? "-"}</p></div>
         </div>
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 mb-6">
           <div className="flex flex-wrap gap-4">
