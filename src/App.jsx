@@ -363,12 +363,13 @@ function Navbar() {
                         at any size. Dark outline (paint-order stroke) keeps it
                         readable over the artwork. To go back to the stacked
                         version, restore the previous <a> block. */}
-                    <div className="flex items-center gap-3 shrink-0 mr-6">
+                    <div className="flex flex-col items-center shrink-0 mr-6">
                         <Logo size="2xl" showText={false} />
-                        {/* Platform name beside the logo on wide screens only (xl = 1280px+),
-                            so the navigation links keep their room on smaller screens. */}
-                        <a href="/" className="hidden xl:block text-2xl font-extrabold tracking-[0.18em] text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
-                            ODUSBABA
+                        {/* Platform name under the logo: a tiny "by" then ODUSBABA, in white,
+                            centred so the pair reads as one lockup. */}
+                        <a href="/" className="-mt-0.5 flex items-baseline justify-center gap-1.5 text-white hover:text-primary-400 transition leading-none" aria-label="ODUSBABA home">
+                            <span className="text-[9px] font-normal normal-case tracking-normal opacity-80">by</span>
+                            <span className="text-[11px] sm:text-xs font-extrabold tracking-[0.3em]">ODUSBABA</span>
                         </a>
                     </div>
 
