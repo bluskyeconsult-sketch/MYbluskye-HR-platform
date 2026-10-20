@@ -30,7 +30,7 @@ export default function ReadinessCheck() {
 
     function statusIcon(status) {
         if (status === 'pass') return <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />;
-        if (status === 'fail') return <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />;
+        if (status === 'fail' || status === 'error') return <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />;
         if (status === 'warn') return <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />;
         return <AlertTriangle className="w-5 h-5 text-slate-500 flex-shrink-0" />;
     }
@@ -41,7 +41,7 @@ export default function ReadinessCheck() {
                 <div>
                     <h1 className="text-2xl font-bold text-white">Readiness Check</h1>
                     <p className="text-slate-400 text-sm mt-1">
-                        Real, live verification of the specific items identified as unconfirmed - not a static checklist.
+                        Live check of the settings, database tables, storage, accounts and content the site depends on. Passwords and keys are never shown, only whether they are set.
                     </p>
                 </div>
                 <button
@@ -65,17 +65,29 @@ export default function ReadinessCheck() {
             )}
 
             {checks && (
-                <div className="space-y-2">
-                    {checks.map((check, idx) => (
-                        <div key={idx} className="flex items-start gap-3 p-4 bg-slate-900 border border-slate-800 rounded-lg">
-                            {statusIcon(check.status)}
-                            <div>
-                                <p className="text-white text-sm font-medium">{check.item}</p>
-                                <p className="text-slate-400 text-xs mt-0.5">{check.detail}</p>
+                <>
+                    <div className="flex gap-4 text-sm mb-4">
+                        <span className="text-emerald-400">{checks.filter(c => c.status === 'pass').length} passed</span>
+                        <span className="text-amber-400">{checks.filter(c => c.status === 'warn').length} to review</span>
+                        <span className="text-red-400">{checks.filter(c => c.status === 'fail' || c.status === 'error').length} failed</span>
+                    </div>
+                    {[...new Set(checks.map(c => c.group || 'Other'))].map(group => (
+                        <div key={group} className="mb-6">
+                            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">{group}</h2>
+                            <div className="space-y-2">
+                                {checks.filter(c => (c.group || 'Other') === group).map((check, idx) => (
+                                    <div key={idx} className="flex items-start gap-3 p-4 bg-slate-900 border border-slate-800 rounded-lg">
+                                        {statusIcon(check.status)}
+                                        <div>
+                                            <p className="text-white text-sm font-medium">{check.item}</p>
+                                            <p className="text-slate-400 text-xs mt-0.5">{check.detail}</p>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}
-                </div>
+                </>
             )}
         </div>
     );
