@@ -199,13 +199,20 @@ export default function SystemHealthDashboard() {
             const { count, error } = await supabase
                 .from('va_tasks')
                 .select('*', { count: 'exact', head: true });
+            // FIXED (2026-10-20): the card said "VA Tasks" but only counted va_tasks (jobs clients have actually
+            // requested), which looked like a wrong number next to the Virtual Assistants list in admin (the
+            // assistants themselves, a different table). Both are now shown and labelled.
+            const { count: vaActive } = await supabase
+                .from('virtual_assistants')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_active', true);
             
-            data.vaTasks = { total: count || 0 };
+            data.vaTasks = { total: count || 0, assistants: vaActive || 0 };
             checks.push({
                 name: 'Hire VA',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - start,
-                details: error ? error.message : `${count || 0} total tasks`,
+                details: error ? error.message : `${vaActive || 0} active assistants available; ${count || 0} task${count === 1 ? '' : 's'} requested by clients so far`,
                 icon: Bot,
                 metric: `${count || 0} tasks`
             });
@@ -678,8 +685,8 @@ export default function SystemHealthDashboard() {
                     <div className="flex items-center gap-3">
                         <Bot className="w-6 h-6 text-amber-400" />
                         <div>
-                            <div className="text-2xl font-bold text-white">{dataStats.vaTasks?.total || 0}</div>
-                            <div className="text-sm text-slate-400">VA Tasks</div>
+                            <div className="text-2xl font-bold text-white">{dataStats.vaTasks?.assistants || 0}</div>
+                            <div className="text-sm text-slate-400">Active VAs ({dataStats.vaTasks?.total || 0} tasks requested)</div>
                         </div>
                     </div>
                 </div>
@@ -763,8 +770,7 @@ export default function SystemHealthDashboard() {
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5">
                     <h4 className="text-amber-400 font-semibold flex items-center gap-2 mb-3">
                         <AlertCircle className="w-4 h-4" />
-                        Diagnostic Recommendations
-                    </h4>
+                        Diagnostic Recommendations                    </h4>
                     <ul className="text-sm text-slate-300 space-y-2">
                         {health.checks.find(c => c.name === 'OpenAI API')?.status !== 'healthy' && (
                             <li className="flex items-start gap-2">
