@@ -535,15 +535,24 @@ async function verifyClaimedUserId(req, supabaseClient, claimedUserId) {
 // NEW (2026-10-20): auth.admin.listUsers() returns only the first 50 accounts unless paged, which made the
 // orphan checks report every member beyond the 50th as an orphan. Pages through everyone (1000 per page).
 async function listAllAuthUsers(supabaseClient) {
-    const all = [];
-    for (let page = 1; page <= 50; page++) {
-        const { data, error } = await supabaseClient.auth.admin.listUsers({ page, perPage: 1000 });
-        if (error) throw error;
-        const batch = data?.users || [];
-        all.push(...batch);
-        if (batch.length < 1000) break;
+    // Tries 1000 per page first; if the auth service errors on a large page ("Database error finding users"),
+    // retries with smaller pages before giving up.
+    for (const perPage of [1000, 200, 50]) {
+        try {
+            const all = [];
+            for (let page = 1; page <= 2000; page++) {
+                const { data, error } = await supabaseClient.auth.admin.listUsers({ page, perPage });
+                if (error) throw error;
+                const batch = data?.users || [];
+                all.push(...batch);
+                if (batch.length < perPage) break;
+            }
+            return all;
+        } catch (e) {
+            if (perPage === 50) throw e;
+        }
     }
-    return all;
+    return [];
 }
 
 async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllowed, denyReason = null }) {
@@ -17945,7 +17954,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             const noProfile = users.filter(u => !profIds.has(u.id)).length;
             add('Accounts', 'Profiles without a sign-in account', orphanProfiles ? 'warn' : 'pass', orphanProfiles ? `${orphanProfiles} found - review manually` : 'None');
             add('Accounts', 'Sign-in accounts without a profile', noProfile ? 'fail' : 'pass', noProfile ? `${noProfile} found - these people can sign in but the site cannot load their profile` : 'None');
-        } catch (e) { add('Accounts', 'Account consistency', 'fail', e.message); }
+        } catch (e) { add('Accounts', 'Account consistency', 'warn', `Could not list sign-in accounts (${e.message}). This is usually one damaged row in Supabase Auth, not a site fault. Check Supabase > Logs > Auth, or compare Authentication > Users against Profiles.`); }
 
         // --- Content ---
         try {
