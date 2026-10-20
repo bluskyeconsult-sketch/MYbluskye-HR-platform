@@ -13,8 +13,8 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/cron/reengage-dormant-users",
-      "schedule": "0 9 * * 1"
+      "path": "/api/cron/engage-inactive-members",
+      "schedule": "30 9 * * *"
     },
     {
       "path": "/api/cron/check-holidays-and-notify",
