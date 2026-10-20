@@ -1990,7 +1990,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">${escHtml(data.companyName)} is listed as a Verified Sponsor</h1>
         </div>
@@ -2016,7 +2016,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">New Contact Message</h1>
         </div>
@@ -2038,7 +2038,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">ODUSBABA Newsletter</h1>
         </div>
@@ -2056,7 +2056,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">You are subscribed to the ODUSBABA Newsletter</h1>
         </div>
@@ -2083,7 +2083,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to BluSkye Integrated Consult</h1>
         </div>
@@ -2110,7 +2110,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Reset Your Password</h1>
         </div>
@@ -2132,7 +2132,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">New jobs matching "${escHtml(data.alertName)}"</h1>
         </div>
@@ -2155,7 +2155,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Welcome to the Tester Program!</h1>
         </div>
@@ -2186,7 +2186,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">Your Assessment Report</h1>
         </div>
@@ -2213,7 +2213,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">${data.subject || 'ODUSBABA Notification'}</h1>
         </div>
@@ -2232,7 +2232,7 @@ const emailTemplates = {
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
-    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;border-radius:16px;overflow:hidden;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
             <h1 style="color:#10b981;margin:0;">✅ Email Configuration Successful!</h1>
         </div>
