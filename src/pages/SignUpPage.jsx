@@ -771,7 +771,7 @@ export default function SignUpPage() {
                     <h1 className="text-2xl font-bold text-white">Create Account</h1>
                     <p className="text-slate-400 mt-2">
                         {testingMode 
-                            ? 'Tester registration is open — an invite code is required.'
+                            ? (requireInviteCode ? 'Tester registration is open — an invite code is required.' : 'Registration is open — no invite code needed.')
                             : 'Join ODUSBABA to start your career journey'}
                     </p>
                 </div>
@@ -795,7 +795,7 @@ export default function SignUpPage() {
                             checked again server-side in handleSubmit regardless of
                             what's shown here, since client-side gating alone is
                             never a real security boundary. */}
-                        {testingMode && (
+                        {testingMode && requireInviteCode && (
                             <div>
                                 <label className="block text-sm font-medium text-slate-400 mb-1">
                                     Invite Code <span className="text-red-400">*</span>
