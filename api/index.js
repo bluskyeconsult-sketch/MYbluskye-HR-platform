@@ -532,9 +532,25 @@ async function verifyClaimedUserId(req, supabaseClient, claimedUserId) {
 // odusbabaEngine.js did. This is the real writer, called from the
 // actual enforcement points. Never lets a logging failure block the
 // real action it's describing.
+// NEW (2026-10-20): auth.admin.listUsers() returns only the first 50 accounts unless paged, which made the
+// orphan checks report every member beyond the 50th as an orphan. Pages through everyone (1000 per page).
+async function listAllAuthUsers(supabaseClient) {
+    const all = [];
+    for (let page = 1; page <= 50; page++) {
+        const { data, error } = await supabaseClient.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) throw error;
+        const batch = data?.users || [];
+        all.push(...batch);
+        if (batch.length < 1000) break;
+    }
+    return all;
+}
+
 async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllowed, denyReason = null }) {
     try {
-        await supabaseClient.from('audit_logs').insert({
+        // FIXED (2026-10-20): Supabase returns write failures as { error } rather than throwing, so a failed
+        // audit write was completely silent. It is now reported in the server log (still never blocks the action).
+        const { error } = await supabaseClient.from('audit_logs').insert({
             user_id: userId,
             action_type: actionType,
             tier_at_time: tier || 'unknown',
@@ -542,6 +558,7 @@ async function logAuditEvent(supabaseClient, { userId, actionType, tier, wasAllo
             deny_reason: denyReason,
             risk_score: wasAllowed ? 0 : 25
         });
+        if (error) console.error('Audit log write failed (non-blocking):', error.message);
     } catch (error) {
         console.error('Audit log write failed (non-blocking):', error);
     }
@@ -671,7 +688,7 @@ async function sendInviteEmail(transporter, { to, firstName, token, content, tes
 
 async function logUserActivity(supabaseClient, req, { userId, userEmail = null, actionType, details = {} }) {
     try {
-        await supabaseClient.from('user_activity_log').insert({
+        const { error } = await supabaseClient.from('user_activity_log').insert({
             user_id: userId,
             user_email: userEmail,
             action_type: actionType,
@@ -679,6 +696,7 @@ async function logUserActivity(supabaseClient, req, { userId, userEmail = null, 
             ip_address: getRequestIP(req),
             user_agent: req.headers['user-agent'] || null
         });
+        if (error) console.error('User activity log write failed (non-blocking):', error.message);
     } catch (error) {
         console.error('User activity log write failed (non-blocking):', error);
     }
@@ -7326,6 +7344,120 @@ ${siteContext}`;
         });
     },
 
+    // NEW (2026-10-20): Audit Log data, read on the server. Replaces the browser-side queries that were capped at
+    // 1,000 rows, ran one lookup per row, used a filter list that did not match the logged action names, and
+    // could not see admin activity at all. Two sources: "decisions" (audit_logs) and "activity" (user_activity_log).
+    // Super admin only. With export:true returns a properly escaped CSV (up to 10,000 rows).
+    'admin-audit-logs': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Super Admin privileges required.' });
+        try {
+            const b = req.body || {};
+            const table = b.source === 'activity' ? 'user_activity_log' : 'audit_logs';
+            const days = Math.max(0, Math.min(parseInt(b.days, 10) || 0, 3650));
+            const since = days ? new Date(Date.now() - days * 86400000).toISOString() : null;
+            const action = b.action && b.action !== 'all' ? String(b.action).slice(0, 80) : null;
+            const search = String(b.search || '').replace(/[%,()*\\]/g, ' ').trim().slice(0, 60);
+            const apply = (q) => {
+                if (since) q = q.gte('created_at', since);
+                if (action) q = q.eq('action_type', action);
+                if (search) q = table === 'audit_logs' ? q.ilike('action_type', `%${search}%`) : q.or(`action_type.ilike.%${search}%,user_email.ilike.%${search}%`);
+                return q;
+            };
+            const csvCell = (v) => {
+                let t = v === null || v === undefined ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+                if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+                return '"' + t.replace(/"/g, '""') + '"';
+            };
+
+            if (b.export) {
+                const rows = [];
+                for (let from = 0; from < 10000; from += 1000) {
+                    const { data, error } = await apply(supabaseClient.from(table).select('*').order('created_at', { ascending: false })).range(from, from + 999);
+                    if (error) throw error;
+                    rows.push(...(data || []));
+                    if (!data || data.length < 1000) break;
+                }
+                const head = ['Timestamp', 'Action', 'User ID', 'User email', 'Tier', 'Allowed', 'Risk score', 'Deny reason', 'IP', 'Details'];
+                const lines = [head.map(csvCell).join(',')].concat(rows.map(r => [
+                    r.created_at, r.action_type, r.user_id || 'System', r.user_email || '', r.tier_at_time || '',
+                    r.was_allowed === undefined || r.was_allowed === null ? '' : (r.was_allowed ? 'Yes' : 'No'),
+                    r.risk_score ?? '', r.deny_reason || '', r.ip_address || '', r.details ?? ''
+                ].map(csvCell).join(',')));
+                return res.status(200).json({ success: true, count: rows.length, truncated: rows.length >= 10000, csv: lines.join('\r\n') });
+            }
+
+            const page = Math.max(1, parseInt(b.page, 10) || 1);
+            const per = 30;
+            const { data, error, count } = await apply(supabaseClient.from(table).select('*', { count: 'exact' }).order('created_at', { ascending: false })).range((page - 1) * per, page * per - 1);
+            if (error) throw error;
+            const ids = [...new Set((data || []).map(r => r.user_id).filter(Boolean))];
+            const who = {};
+            if (ids.length) {
+                const { data: profs } = await supabaseClient.from('profiles').select('id, email, full_name').in('id', ids);
+                (profs || []).forEach(pr => { who[pr.id] = pr; });
+            }
+            const logs = (data || []).map(r => ({
+                ...r,
+                user_email: r.user_id ? (who[r.user_id]?.email || r.user_email || 'Unknown') : 'System',
+                user_name: r.user_id ? (who[r.user_id]?.full_name || null) : 'System'
+            }));
+
+            // Distinct action names actually present (so the filter always matches what is logged)
+            const { data: typeRows } = await supabaseClient.from(table).select('action_type').order('created_at', { ascending: false }).limit(3000);
+            const actionTypes = [...new Set((typeRows || []).map(r => r.action_type).filter(Boolean))].sort();
+
+            let stats = null;
+            if (table === 'audit_logs') {
+                const head = { count: 'exact', head: true };
+                const base = () => { let q = supabaseClient.from('audit_logs').select('id', head); if (since) q = q.gte('created_at', since); return q; };
+                const [tot, allowed, denied] = await Promise.all([base(), base().eq('was_allowed', true), base().eq('was_allowed', false)]);
+                let rq = supabaseClient.from('audit_logs').select('risk_score').order('created_at', { ascending: false }).limit(5000);
+                if (since) rq = rq.gte('created_at', since);
+                const { data: risks } = await rq;
+                const avg = (risks || []).length ? (risks.reduce((a, r) => a + (r.risk_score || 0), 0) / risks.length) : 0;
+                stats = { total: tot.count || 0, approved: allowed.count || 0, denied: denied.count || 0, avgRiskScore: Math.round(avg) };
+            }
+            return res.status(200).json({ success: true, source: table === 'audit_logs' ? 'decisions' : 'activity', logs, total: count || 0, page, pages: Math.max(1, Math.ceil((count || 0) / per)), actionTypes, stats });
+        } catch (error) {
+            console.error('admin-audit-logs error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-10-20): saves the money-related switches on the Admin Dashboard on the server, so a refused write
+    // is reported (the browser version showed "on" even when nothing was saved) and every change is audited.
+    'admin-set-config': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Only a Super Admin can change this.' });
+        const key = String(req.body?.key || '');
+        const value = req.body?.value;
+        let config_value;
+        if (key === 'free_access_mode') {
+            if (typeof value !== 'boolean') return res.status(400).json({ success: false, error: 'Invalid value.' });
+            config_value = { enabled: value };
+        } else if (key === 'free_access_end_date') {
+            if (value !== null && value !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return res.status(400).json({ success: false, error: 'Use a date like 2026-12-31.' });
+            config_value = { date: value || null };
+        } else {
+            return res.status(400).json({ success: false, error: 'That setting cannot be changed here.' });
+        }
+        try {
+            const { error } = await supabaseClient.from('system_config').upsert({ config_key: key, config_value }, { onConflict: 'config_key' });
+            if (error) throw error;
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: `config_${key}`, tier: 'super_admin', wasAllowed: true });
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'admin_config_changed', details: { key, value: config_value } });
+            return res.status(200).json({ success: true, key, config_value });
+        } catch (error) {
+            console.error('admin-set-config error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // NEW (2026-10-20): true platform counts for the System Health page, read with the service role so
     // row-level security cannot shrink them, and the page's check results are written to system_health_logs
     // (nothing wrote to that table, so "Recent Health Checks" had been frozen since June).
@@ -7352,6 +7484,26 @@ ${siteContext}`;
                 n(supabaseClient.from('analytics_sessions').select('id', head).gte('start_time', dayAgo)),
                 n(supabaseClient.from('job_applications').select('id', head).gte('created_at', dayAgo))
             ]);
+            // Usage figures for the Usage Meter page (read server-side, paged so they are not capped at 1,000)
+            const d30 = new Date(Date.now() - 30 * 86400000).toISOString();
+            const d7 = new Date(Date.now() - 7 * 86400000).toISOString();
+            const [newUsers30d, visitorSessions7d, applicationsTotal, vaTasks] = await Promise.all([
+                n(supabaseClient.from('profiles').select('id', head).gte('created_at', d30)),
+                n(supabaseClient.from('analytics_sessions').select('id', head).gte('start_time', d7)),
+                n(supabaseClient.from('job_applications').select('id', head)),
+                n(supabaseClient.from('va_tasks').select('id', head))
+            ]);
+            let activeUsers7d = null;
+            try {
+                const seen = new Set();
+                for (let from = 0; from < 50000; from += 1000) {
+                    const { data: rows, error: e } = await supabaseClient.from('analytics_sessions').select('user_id').gte('start_time', d7).not('user_id', 'is', null).range(from, from + 999);
+                    if (e) throw e;
+                    (rows || []).forEach(r => seen.add(r.user_id));
+                    if (!rows || rows.length < 1000) break;
+                }
+                activeUsers7d = seen.size;
+            } catch (e) { console.warn('activeUsers7d failed:', e.message); }
             // Record this check so the history list stays current (best-effort, one row per service).
             let logged = false;
             const checks = Array.isArray(req.body?.checks) ? req.body.checks.slice(0, 30) : [];
@@ -7370,7 +7522,8 @@ ${siteContext}`;
                 users, jobs: { total: jobsAll, active: jobsActive, approved: jobsApproved },
                 newsletter: { total: subsAll, active: subsActive },
                 assessments: { active: assessActive, completed: assessDone },
-                activity: { newUsers, pageViews, sessions, applications }
+                activity: { newUsers, pageViews, sessions, applications },
+                usage: { newUsers30d, visitorSessions7d, applicationsTotal, vaTasks, activeUsers7d }
             });
         } catch (error) {
             console.error('health-stats error:', error);
@@ -14323,11 +14476,12 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
-            const SUPABASE_FREE_LIMITS = {
-                database_bytes: 500 * 1024 * 1024, // 500 MB
-                storage_bytes: 1024 * 1024 * 1024, // 1 GB
-                mau: 50000
-            };
+            // FIXED (2026-10-20): limits follow the Supabase plan. Default is Free; set SUPABASE_PLAN=pro in Vercel
+            // after upgrading so the percentages are measured against the Pro allowance (8 GB / 100 GB / 100,000).
+            const isPro = String(process.env.SUPABASE_PLAN || '').toLowerCase() === 'pro';
+            const SUPABASE_FREE_LIMITS = isPro
+                ? { database_bytes: 8 * 1024 * 1024 * 1024, storage_bytes: 100 * 1024 * 1024 * 1024, mau: 100000 }
+                : { database_bytes: 500 * 1024 * 1024, storage_bytes: 1024 * 1024 * 1024, mau: 50000 };
             const UPGRADE_THRESHOLD_PCT = 70;
 
             const { data: dbSizeData, error: dbSizeError } = await supabaseClient
@@ -14374,6 +14528,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
 
             return res.status(200).json({
                 success: true,
+                plan: isPro ? 'Pro' : 'Free',
                 metrics,
                 shouldRecommendUpgrade,
                 highestMetric: highestMetric.name,
@@ -17524,9 +17679,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             // trying to query the protected auth.users table directly,
             // and only ever reports a count for admin review, never
             // deletes anything automatically.
-            const { data: authUsers, error: authError } = await supabaseClient.auth.admin.listUsers();
-            if (authError) throw authError;
-            const authIds = new Set((authUsers?.users || []).map(u => u.id));
+            const authIds = new Set((await listAllAuthUsers(supabaseClient)).map(u => u.id));
 
             const { data: allProfiles } = await supabaseClient.from('profiles').select('id');
             const orphanedCount = (allProfiles || []).filter(p => !authIds.has(p.id)).length;
@@ -17559,11 +17712,12 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         const result = { healthy, checks, timestamp: new Date().toISOString() };
 
         try {
-            await supabaseClient.from('diagnostic_logs').insert({
+            const { error: logErr } = await supabaseClient.from('diagnostic_logs').insert({
                 check_type: 'system_diagnostics',
                 status: healthy ? 'healthy' : 'degraded',
                 metadata: result
             });
+            if (logErr) console.error('diagnostic_logs write failed (non-blocking):', logErr.message);
         } catch (logError) {
             console.error('diagnostic_logs write failed (non-blocking):', logError);
         }
@@ -17604,72 +17758,94 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         const auth = await requirePermission(req, supabaseClient, 'can_manage_security');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
+        // REWRITTEN (2026-10-20): was a one-off September checklist (one named orphan account, three buckets).
+        // Now checks the things that actually stop the site working: settings, tables the newer features need,
+        // storage, accounts and content. Each item has a group so the page can show them in sections.
         const checks = [];
+        const add = (group, item, status, detail) => checks.push({ group, item, status, detail });
+        const has = (...names) => names.some(n => !!process.env[n]);
 
-        // Storage buckets - confirmed required by real, already-built
-        // features this session (article images, lesson audio, book audio).
+        // --- Settings (presence only; values are never shown) ---
+        const envRules = [
+            ['Settings', 'Server database key', ['SUPABASE_SERVICE_ROLE_KEY'], 'fail', 'Nothing server-side can work without it'],
+            ['Settings', 'Scheduled jobs secret (CRON_SECRET)', ['CRON_SECRET'], 'fail', 'Scheduled jobs (newsletters, engagement, digests) will be refused without it'],
+            ['Settings', 'Unsubscribe link signing (UNSUBSCRIBE_SECRET or CRON_SECRET)', ['UNSUBSCRIBE_SECRET', 'CRON_SECRET'], 'fail', 'Unsubscribe links in emails cannot be signed'],
+            ['Settings', 'Mail server (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)', ['SMTP_HOST'], 'fail', 'No email can be sent'],
+            ['Settings', 'Mail sender address', ['SMTP_SENDER_EMAIL', 'VITE_EMAIL_SENDER', 'EMAIL_SENDER_ADDRESS'], 'warn', 'Emails fall back to a default sender'],
+            ['Settings', 'Stripe secret key', ['STRIPE_SECRET_KEY'], 'warn', 'Paid plans cannot be taken (fine while Free Access Mode is on)'],
+            ['Settings', 'OpenAI key', ['OPENAI_API_KEY'], 'warn', 'AI course, article and assessment builders will fail'],
+            ['Settings', 'Invitation postal address (INVITE_POSTAL_ADDRESS)', ['INVITE_POSTAL_ADDRESS'], 'warn', 'Marketing invitations need a sender address in the footer']
+        ];
+        for (const [g, label, names, bad, why] of envRules) {
+            const ok = names[0] === 'SMTP_HOST' ? (has('VITE_SMTP_HOST', 'SMTP_HOST') && has('VITE_EMAIL_USER', 'SMTP_USER') && has('VITE_EMAIL_PASS', 'SMTP_PASSWORD')) : has(...names);
+            add(g, label, ok ? 'pass' : bad, ok ? 'Set' : `Missing. ${why}`);
+        }
+
+        // --- Tables and columns needed by features ---
+        const tableChecks = [
+            ['newsletters', 'id, scheduled_for, sent_at, is_sent'],
+            ['newsletter_subscribers', 'id, status'],
+            ['email_suppression', 'email'],
+            ['system_config', 'config_key, config_value'],
+            ['system_health_logs', 'service_name, status, response_time_ms, checked_at'],
+            ['audit_logs', 'id, action_type, was_allowed'],
+            ['user_activity_log', 'id, action_type'],
+            ['security_events', 'id, severity'],
+            ['blocked_ips', 'id, ip_address'],
+            ['job_reports', 'id'],
+            ['profiles', 'id, last_reengagement_email_at, engagement_emails_sent']
+        ];
+        for (const [table, cols] of tableChecks) {
+            try {
+                const { error } = await supabaseClient.from(table).select(cols).limit(1);
+                add('Database', `${table} (${cols.split(',').length} column${cols.includes(',') ? 's' : ''} checked)`, error ? 'fail' : 'pass',
+                    error ? `${error.message}${table === 'profiles' ? ' - run add-member-engagement-tracking.sql' : ''}` : 'Present and readable');
+            } catch (e) { add('Database', table, 'fail', e.message); }
+        }
+
+        // --- Storage ---
         try {
             const { data: buckets, error } = await supabaseClient.storage.listBuckets();
             if (error) throw error;
-            const bucketNames = (buckets || []).map(b => b.name);
+            const names = (buckets || []).map(b => b.name);
             for (const required of ['article-images', 'course-audio', 'book-audio']) {
-                checks.push({
-                    item: `Storage bucket: ${required}`,
-                    status: bucketNames.includes(required) ? 'pass' : 'fail',
-                    detail: bucketNames.includes(required) ? 'Exists' : 'Missing - required feature will fail without it'
-                });
+                add('Storage', `Bucket: ${required}`, names.includes(required) ? 'pass' : 'fail', names.includes(required) ? 'Exists' : 'Missing - the feature that uses it will fail');
             }
-        } catch (error) {
-            checks.push({ item: 'Storage buckets', status: 'error', detail: error.message });
-        }
+        } catch (e) { add('Storage', 'Storage buckets', 'fail', e.message); }
 
-        // The specific, confirmed orphaned account from earlier in this
-        // engagement - checks its real, current state rather than
-        // assuming either fix option was actually applied.
+        // --- Accounts ---
         try {
-            const { data: authUser } = await supabaseClient.auth.admin.listUsers();
-            const orphan = authUser?.users?.find(u => u.email === 'jodugboye@gmail.com');
-            if (!orphan) {
-                checks.push({ item: 'Orphaned account (jodugboye@gmail.com)', status: 'pass', detail: 'Account no longer exists - likely deleted per Option A' });
-            } else {
-                const { data: profile } = await supabaseClient.from('profiles').select('id').eq('id', orphan.id).maybeSingle();
-                checks.push({
-                    item: 'Orphaned account (jodugboye@gmail.com)',
-                    status: profile ? 'pass' : 'fail',
-                    detail: profile ? 'Account exists and now has a matching profile' : 'Account still exists with no profile - neither fix option has been applied yet'
-                });
-            }
-        } catch (error) {
-            checks.push({ item: 'Orphaned account check', status: 'error', detail: error.message });
-        }
+            const users = await listAllAuthUsers(supabaseClient);
+            const authIds = new Set(users.map(u => u.id));
+            const { data: profs, error: pe } = await supabaseClient.from('profiles').select('id').limit(100000);
+            if (pe) throw pe;
+            const profIds = new Set((profs || []).map(p => p.id));
+            const orphanProfiles = (profs || []).filter(p => !authIds.has(p.id)).length;
+            const noProfile = users.filter(u => !profIds.has(u.id)).length;
+            add('Accounts', 'Profiles without a sign-in account', orphanProfiles ? 'warn' : 'pass', orphanProfiles ? `${orphanProfiles} found - review manually` : 'None');
+            add('Accounts', 'Sign-in accounts without a profile', noProfile ? 'fail' : 'pass', noProfile ? `${noProfile} found - these people can sign in but the site cannot load their profile` : 'None');
+        } catch (e) { add('Accounts', 'Account consistency', 'fail', e.message); }
 
-        // Confirms the newsletter fixes and job_reports table from this
-        // session are genuinely queryable, not just "should work" in code.
+        // --- Content ---
         try {
-            const { error: newsError } = await supabaseClient.from('newsletters').select('id').limit(1);
-            checks.push({ item: 'newsletters table query', status: newsError ? 'fail' : 'pass', detail: newsError?.message || 'Queryable' });
-        } catch (error) {
-            checks.push({ item: 'newsletters table query', status: 'error', detail: error.message });
-        }
+            const { data: ch } = await supabaseClient.from('book_chapters').select('id, content').limit(5);
+            const withContent = (ch || []).filter(c => c.content && c.content.trim().length > 0).length;
+            add('Content', 'Book chapters have text', withContent > 0 ? 'pass' : 'warn', withContent > 0 ? `${withContent} of ${(ch || []).length} sampled chapters have content` : 'No sampled chapter has text - the audiobook feature has nothing to read');
+        } catch (e) { add('Content', 'Book chapters', 'fail', e.message); }
+        try {
+            const { count } = await supabaseClient.from('jobs').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('compliance_status', 'approved');
+            add('Content', 'Live jobs on the board', (count || 0) > 0 ? 'pass' : 'warn', `${count || 0} live`);
+        } catch (e) { add('Content', 'Live jobs', 'fail', e.message); }
+        try {
+            const { count } = await supabaseClient.from('newsletters').select('id', { count: 'exact', head: true }).eq('is_sent', false).lt('scheduled_for', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+            add('Content', 'Stale scheduled newsletters', (count || 0) > 0 ? 'warn' : 'pass', (count || 0) > 0 ? `${count} unsent newsletter(s) scheduled more than 24 hours ago will never auto-send - edit or delete them` : 'None');
+        } catch (e) { add('Content', 'Scheduled newsletters', 'fail', e.message); }
 
+        // --- Member engagement mode ---
         try {
-            const { error: reportsError } = await supabaseClient.from('job_reports').select('id').limit(1);
-            checks.push({ item: 'job_reports table', status: reportsError ? 'fail' : 'pass', detail: reportsError?.message || 'Exists and queryable' });
-        } catch (error) {
-            checks.push({ item: 'job_reports table', status: 'error', detail: error.message });
-        }
-
-        try {
-            const { data: bookChapters } = await supabaseClient.from('book_chapters').select('id, content').limit(5);
-            const withContent = (bookChapters || []).filter(c => c.content && c.content.trim().length > 0).length;
-            checks.push({
-                item: 'book_chapters content',
-                status: withContent > 0 ? 'pass' : 'warn',
-                detail: withContent > 0 ? `${withContent} of ${bookChapters.length} sampled chapters have real content` : 'No chapters with content found in sample - audiobook feature has nothing to generate from yet'
-            });
-        } catch (error) {
-            checks.push({ item: 'book_chapters content', status: 'error', detail: error.message });
-        }
+            const mode = await resolveEngagementMode(supabaseClient);
+            add('Settings', 'Member engagement emails', mode === 'live' ? 'pass' : 'warn', mode === 'live' ? 'Live' : `Mode is ${mode === 'dry' ? 'Test (nothing is sent)' : 'Off'} - switch in Admin > Member Engagement when ready`);
+        } catch (e) { add('Settings', 'Member engagement emails', 'warn', e.message); }
 
         const allPassed = checks.every(c => c.status === 'pass');
         return res.status(200).json({ success: true, allPassed, checks });
