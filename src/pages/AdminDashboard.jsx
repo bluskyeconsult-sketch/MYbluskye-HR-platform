@@ -28,6 +28,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { authenticatedFetch } from '../lib/authFetch';
 import { useGovernance } from '../contexts/GovernanceContext';
 import PlatformCapacityWidget from '../components/admin/PlatformCapacityWidget';
 import { 
@@ -98,14 +99,16 @@ export default function AdminDashboard() {
         }
     }
 
+    // FIXED (2026-10-20): saved by the server (Super Admin only, audited). The browser version ignored the
+    // database's reply, so a refused write still showed the new value on screen while nothing was saved.
     async function handleFreeAccessEndDate(value) {
+        const previous = freeAccessEndDate;
         setFreeAccessEndDate(value);
         try {
-            await supabase
-                .from('system_config')
-                .upsert({ config_key: 'free_access_end_date', config_value: { date: value || null } }, { onConflict: 'config_key' });
+            await authenticatedFetch('admin-set-config', { key: 'free_access_end_date', value: value || null });
         } catch (err) {
-            alert('Failed to save the end date: ' + err.message);
+            setFreeAccessEndDate(previous);
+            alert('The end date was NOT saved: ' + err.message);
         }
     }
 
@@ -118,12 +121,10 @@ export default function AdminDashboard() {
 
         setChangingFreeAccess(true);
         try {
-            await supabase
-                .from('system_config')
-                .upsert({ config_key: 'free_access_mode', config_value: { enabled: newValue } }, { onConflict: 'config_key' });
+            await authenticatedFetch('admin-set-config', { key: 'free_access_mode', value: newValue });
             setFreeAccessMode(newValue);
         } catch (err) {
-            alert('Failed to change free access mode: ' + err.message);
+            alert('Free Access Mode was NOT changed: ' + err.message);
         } finally {
             setChangingFreeAccess(false);
         }
@@ -415,6 +416,18 @@ export default function AdminDashboard() {
                         <Link to="/admin/refund-requests" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
                             <DollarSign className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
                             <span className="text-white text-sm">Refund Requests</span>
+                        </Link>
+                        <Link to="/admin/member-engagement" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Users className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Member Engagement</span>
+                        </Link>
+                        <Link to="/admin/invitations" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Mail className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">Invite People</span>
+                        </Link>
+                        <Link to="/admin/health" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-center transition group">
+                            <Shield className="w-6 h-6 text-primary-400 mx-auto mb-2 group-hover:scale-110 transition" />
+                            <span className="text-white text-sm">System Health</span>
                         </Link>
                     </div>
                 </div>
