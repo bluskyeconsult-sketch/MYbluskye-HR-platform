@@ -77,6 +77,20 @@ function getReadablePageName(path) {
     return path;
 }
 
+// NEW (2026-10-20): Supabase returns at most 1,000 rows per request, so every statistic built from a plain
+// select() silently stopped growing at 1,000 rows (unique visitors, sessions, average time, bounce rate, top
+// pages, countries, devices, signups). This reads all pages (ordered by id so pages never overlap), up to 100,000.
+async function fetchAll(build) {
+    const rows = [];
+    for (let from = 0; from < 100000; from += 1000) {
+        const { data, error } = await build().order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+    }
+    return rows;
+}
+
 export default function AnalyticsDashboard() {
     const [stats, setStats] = useState({ 
         totalUsers: 0, 
@@ -137,32 +151,28 @@ export default function AnalyticsDashboard() {
         // query was silently returning zero real rows. session_id is a
         // real column and a reasonable proxy for a unique visitor, since
         // each browser session corresponds to roughly one visitor.
-        const { data: uniqueData } = await supabase
+        const uniqueData = await fetchAll(() => supabase
             .from('analytics_page_views')
-            .select('session_id')
+            .select('id, session_id')
             .gte('created_at', cutoff)
             .not('page_path', 'like', '/admin%')
-            .not('page_path', 'like', '/secure-admin%');
+            .not('page_path', 'like', '/secure-admin%'));
         
-        const uniqueVisitors = new Set(uniqueData?.map(v => v.session_id) || []).size;
+        const uniqueVisitors = new Set(uniqueData.map(v => v.session_id)).size;
         
         // Get session stats
-        const { data: sessions } = await supabase
+        const sessions = await fetchAll(() => supabase
             .from('analytics_sessions')
-            .select('duration_seconds')
-            .gte('start_time', cutoff);
+            .select('id, duration_seconds, page_count')
+            .gte('start_time', cutoff));
         
-        const totalSessions = sessions?.length || 0;
+        const totalSessions = sessions.length;
         const avgDuration = sessions?.reduce((acc, s) => acc + (s.duration_seconds || 0), 0) / (totalSessions || 1);
         const avgMinutes = Math.floor(avgDuration / 60);
         
         // Calculate bounce rate (sessions with only 1 page view)
-        const { data: bounceSessions } = await supabase
-            .from('analytics_sessions')
-            .select('page_count')
-            .gte('start_time', cutoff);
-        
-        const bounceCount = bounceSessions?.filter(s => s.page_count === 1).length || 0;
+        // A session with one page view (or none recorded) counts as a bounce
+        const bounceCount = sessions.filter(s => (s.page_count || 0) <= 1).length;
         const bounceRate = totalSessions > 0 ? Math.round((bounceCount / totalSessions) * 100) : 0;
         
         setStats({
@@ -183,12 +193,12 @@ export default function AnalyticsDashboard() {
         // FIXED: confirmed real columns are page_path and time_on_page,
         // not page_url/view_duration_seconds - this was returning zero
         // rows on every call.
-        const { data: pages } = await supabase
+        const pages = await fetchAll(() => supabase
             .from('analytics_page_views')
-            .select('page_path, time_on_page')
+            .select('id, page_path, time_on_page')
             .gte('created_at', cutoff)
             .not('page_path', 'like', '/admin%')
-            .not('page_path', 'like', '/secure-admin%');
+            .not('page_path', 'like', '/secure-admin%'));
         
         const pageStats = {};
         (pages || []).forEach(p => {
@@ -201,12 +211,13 @@ export default function AnalyticsDashboard() {
     async function loadGrowthData() {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
-        const { data: profiles } = await supabase
+        const profiles = await fetchAll(() => supabase
             .from('profiles')
-            .select('created_at')
-            .gte('created_at', cutoff)
-            .order('created_at', { ascending: false });
+            .select('id, created_at')
+            .gte('created_at', cutoff));
         
+        // newest first, so the 14 days shown are the most recent ones
+        profiles.sort((x, y) => new Date(y.created_at) - new Date(x.created_at));
         const daily = {};
         (profiles || []).forEach(p => {
             const date = new Date(p.created_at).toLocaleDateString();
@@ -224,11 +235,11 @@ export default function AnalyticsDashboard() {
         // never having been built against the real, correct table.
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-        const { data: sessions } = await supabase
+        const sessions = await fetchAll(() => supabase
             .from('analytics_sessions')
-            .select('country, city')
+            .select('id, country, city')
             .gte('start_time', cutoff)
-            .not('country', 'is', null);
+            .not('country', 'is', null));
 
         const counts = {};
         (sessions || []).forEach(s => {
@@ -256,10 +267,10 @@ export default function AnalyticsDashboard() {
         // analytics_sessions was never broken this way and is already
         // proven correct by Recent Visitors using it successfully -
         // switched to the same, genuinely reliable source.
-        const { data: sessions } = await supabase
+        const sessions = await fetchAll(() => supabase
             .from('analytics_sessions')
-            .select('device_type')
-            .gte('start_time', cutoff);
+            .select('id, device_type')
+            .gte('start_time', cutoff));
         
         const devices = { desktop: 0, mobile: 0, tablet: 0 };
         (sessions || []).forEach(s => {
