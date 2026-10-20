@@ -2877,10 +2877,29 @@ const handlers = {
                 ids = [...new Set((hits || []).map((h) => h.thread_id))];
                 if (!ids.length) return res.status(200).json({ success: true, threads: [], hasMore: false });
             }
+            // NEW (2026-10-21): website mail folders. Inbox / Unread / Sent / Waiting / Archive(Done) / Spam / Trash / All.
+            // Spam and Trash are website-side labels only: they organise this private copy and never touch the real mailbox.
+            const folder = String(b.folder || '').trim();
+            if (folder === 'sent') {
+                const { data: outs } = await sb.from('mail_messages').select('thread_id').eq('direction', 'out').order('received_at', { ascending: false }).limit(600);
+                const sentIds = [...new Set((outs || []).map((o) => o.thread_id))];
+                if (!sentIds.length) return res.status(200).json({ success: true, threads: [], hasMore: false });
+                ids = ids ? ids.filter((x) => sentIds.includes(x)) : sentIds;
+                if (!ids.length) return res.status(200).json({ success: true, threads: [], hasMore: false });
+            }
             let query = sb.from('mail_threads').select('*').order('last_message_at', { ascending: false }).range(page * PAGE, page * PAGE + PAGE);
             if (b.accountId && b.accountId !== 'all') query = query.eq('account_id', b.accountId);
-            if (b.status && b.status !== 'all') query = query.eq('status', b.status);
-            if (b.unread) query = query.gt('unread_count', 0);
+            if (folder === 'trash') query = query.contains('labels', ['trash']);
+            else if (folder === 'spam') query = query.contains('labels', ['spam']);
+            else if (folder) {
+                query = query.not('labels', 'cs', '{trash}').not('labels', 'cs', '{spam}');
+                if (folder === 'inbox') query = query.neq('status', 'done');
+                else if (folder === 'unread') query = query.gt('unread_count', 0);
+                else if (folder === 'waiting') query = query.eq('status', 'waiting');
+                else if (folder === 'done') query = query.eq('status', 'done');
+            }
+            if (!folder && b.status && b.status !== 'all') query = query.eq('status', b.status);
+            if (!folder && b.unread) query = query.gt('unread_count', 0);
             if (b.label) query = query.contains('labels', [String(b.label).toLowerCase()]);
             if (b.linked) query = query.not('linked_user_id', 'is', null);
             if (ids) query = query.in('id', ids);
