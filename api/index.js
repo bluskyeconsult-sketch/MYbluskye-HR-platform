@@ -11813,12 +11813,27 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
+            // REWRITTEN (2026-10-20): the digest is now a ready-to-send, value-led newsletter (HTML, which is what the
+            // newsletter email expects) instead of a plain markdown list. A quiet week never produces "No new jobs":
+            // a section with nothing new shows the latest items instead, and the subject line counts only what is
+            // genuinely new. The "Tool of the week" rotates by week number, so each issue teaches one useful feature.
             const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const site = (process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '');
+            const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const clip = (t, n) => { const x = String(t || '').replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '…' : x; };
 
-            const [{ data: newJobs }, { data: newCourses }, { data: newArticles }, trendingResponse] = await Promise.all([
-                supabaseClient.from('jobs').select('title, company, location').eq('is_active', true).gte('created_at', since).limit(10),
-                supabaseClient.from('courses').select('title, description').eq('is_published', true).gte('created_at', since).limit(5),
-                supabaseClient.from('articles').select('title, excerpt, slug').eq('is_published', true).gte('created_at', since).limit(5),
+            const latest = async (table, cols, filter, n) => {
+                const fresh = await filter(supabaseClient.from(table).select(cols).gte('created_at', since).order('created_at', { ascending: false }).limit(n));
+                const rows = fresh.data || [];
+                if (rows.length > 0) return { rows, isNew: true };
+                const fallback = await filter(supabaseClient.from(table).select(cols).order('created_at', { ascending: false }).limit(Math.min(n, 3)));
+                return { rows: fallback.data || [], isNew: false };
+            };
+
+            const [jobsR, coursesR, articlesR, trendingResponse] = await Promise.all([
+                latest('jobs', 'id, title, company, location', q => q.eq('is_active', true), 5),
+                latest('courses', 'id, title, description', q => q.eq('is_published', true), 3),
+                latest('articles', 'title, excerpt, slug', q => q.eq('is_published', true), 3),
                 (async () => {
                     const { data } = await supabaseClient.from('activity_signals').select('query_text').gte('created_at', since).limit(500);
                     return data;
@@ -11826,43 +11841,65 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             ]);
 
             const counts = {};
-            for (const s of trendingResponse || []) {
-                const normalized = s.query_text.toLowerCase().trim();
-                counts[normalized] = (counts[normalized] || 0) + 1;
+            for (const sg of trendingResponse || []) {
+                const t = String(sg.query_text || '').toLowerCase().trim();
+                if (t.length >= 3 && t.length <= 40) counts[t] = (counts[t] || 0) + 1;
             }
-            const topTrending = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([topic]) => topic);
+            const topTrending = Object.entries(counts).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([t]) => t);
 
-            const jobsSection = (newJobs || []).length > 0
-                ? (newJobs || []).map(j => `- ${j.title} at ${j.company || 'N/A'} (${j.location || 'various locations'})`).join('\n')
-                : 'No new jobs posted this week.';
+            const H = (t, sub) => `<h2 style="color:#ffffff;font-size:18px;margin:28px 0 4px;">${esc(t)}</h2>${sub ? `<p style="color:#64748b;font-size:13px;margin:0 0 10px;">${esc(sub)}</p>` : '<div style="height:8px;"></div>'}`;
+            const card = (inner) => `<div style="background-color:#1e293b;border-radius:10px;padding:12px 14px;margin:0 0 8px;">${inner}</div>`;
+            const link = (href, text) => `<a href="${esc(href)}" style="color:#10b981;font-weight:600;text-decoration:none;">${esc(text)}</a>`;
+            const btn = (href, text) => `<div style="margin:12px 0 0;"><a href="${esc(href)}" style="display:inline-block;background-color:#0B3C5D;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">${esc(text)}</a></div>`;
 
-            const coursesSection = (newCourses || []).length > 0
-                ? (newCourses || []).map(c => `- ${c.title}`).join('\n')
-                : 'No new courses this week.';
+            const TOOLS = [
+                { name: 'CV Optimizer', text: 'Paste a CV and a job description and get specific, AI-guided improvements so the application matches what the employer asked for.', href: `${site}/products`, cta: 'See the CV Optimizer' },
+                { name: 'Cover Letter Writer', text: 'Turn a job advert and your background into a tailored cover letter in minutes, ready to edit and send.', href: `${site}/products`, cta: 'Try the Cover Letter Writer' },
+                { name: 'Salary Coach', text: 'Prepare for pay conversations with market context and negotiation guidance before the interview, not after the offer.', href: `${site}/products`, cta: 'Open the Salary Coach' },
+                { name: 'Job alerts', text: 'Save a search once and new matching jobs are delivered to your inbox, so strong openings are seen early.', href: `${site}/job-alerts`, cta: 'Set up a job alert' },
+                { name: 'Skills and psychometric assessments', text: 'See your strengths, skill gaps and career matches in a structured report you can act on.', href: `${site}/assessments`, cta: 'Take an assessment' },
+                { name: 'Courses with certificates', text: 'Practical, AI-assisted courses with verifiable certificates you can share on LinkedIn.', href: `${site}/courses`, cta: 'Browse courses' },
+                { name: 'ODUSBABA Chat', text: 'Ask about jobs, CVs, interview preparation or salary negotiation at any hour of the day.', href: `${site}/`, cta: 'Start a conversation' }
+            ];
+            const weekNo = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+            const tool = TOOLS[weekNo % TOOLS.length];
 
-            const articlesSection = (newArticles || []).length > 0
-                ? (newArticles || []).map(a => `- [${a.title}](/articles/${a.slug})`).join('\n')
-                : 'No new articles this week.';
+            const jobs = jobsR.rows, courses = coursesR.rows, articles = articlesR.rows;
+            const sections = [];
 
-            const draftContent = `## This Week on ODUSBABA
+            sections.push(`<p style="color:#cbd5e1;font-size:15px;line-height:1.65;margin:0 0 4px;">Here is a short round-up of what is new on ODUSBABA, with one tool worth trying this week.</p>`);
 
-### New Job Opportunities
-${jobsSection}
+            if (jobs.length) {
+                sections.push(H(jobsR.isNew ? 'Jobs worth a look this week' : 'Latest openings', jobsR.isNew ? 'Added in the last 7 days' : 'The most recent verified listings') +
+                    jobs.map(j => card(`<div style="color:#e2e8f0;font-weight:600;">${esc(j.title)}</div><div style="color:#94a3b8;font-size:13px;margin-top:2px;">${esc([j.company, j.location].filter(Boolean).join(' · ') || 'View details')}</div><div style="margin-top:6px;font-size:13px;">${link(`${site}/jobs/${j.id}`, 'View and apply')}</div>`)).join('') +
+                    btn(`${site}/jobs`, 'See all jobs'));
+            }
+            if (articles.length) {
+                sections.push(H(articlesR.isNew ? 'Worth reading' : 'Popular reading', 'Practical career and workplace guidance') +
+                    articles.map(a => card(`<div style="color:#e2e8f0;font-weight:600;">${esc(a.title)}</div>${a.excerpt ? `<div style="color:#94a3b8;font-size:13px;margin-top:2px;">${esc(clip(a.excerpt, 140))}</div>` : ''}<div style="margin-top:6px;font-size:13px;">${link(`${site}/articles/${a.slug}`, 'Read the article')}</div>`)).join(''));
+            }
+            if (courses.length) {
+                sections.push(H(coursesR.isNew ? 'New to learn' : 'Keep learning', 'Build skills and earn a certificate') +
+                    courses.map(c => card(`<div style="color:#e2e8f0;font-weight:600;">${esc(c.title)}</div>${c.description ? `<div style="color:#94a3b8;font-size:13px;margin-top:2px;">${esc(clip(c.description, 140))}</div>` : ''}<div style="margin-top:6px;font-size:13px;">${link(`${site}/courses/${c.id}`, 'View the course')}</div>`)).join(''));
+            }
+            if (topTrending.length >= 3) {
+                sections.push(H('Trending with job seekers', 'What people searched for this week') +
+                    `<div>${topTrending.map(t => `<span style="display:inline-block;background-color:#1e293b;color:#cbd5e1;font-size:13px;padding:5px 12px;border-radius:14px;margin:0 6px 6px 0;">${esc(t)}</span>`).join('')}</div>`);
+            }
+            sections.push(H('Tool of the week') + card(`<div style="color:#10b981;font-weight:700;">${esc(tool.name)}</div><div style="color:#cbd5e1;font-size:14px;line-height:1.6;margin-top:4px;">${esc(tool.text)}</div>`) + btn(tool.href, tool.cta));
 
-### New Courses
-${coursesSection}
-
-### Latest Articles
-${articlesSection}
-
-${topTrending.length > 0 ? `### What People Are Searching For\n${topTrending.map(t => `- ${t}`).join('\n')}` : ''}`;
+            const bits = [];
+            if (jobsR.isNew) bits.push(`${jobs.length}${jobs.length >= 5 ? '+' : ''} new job${jobs.length === 1 ? '' : 's'}`);
+            if (articlesR.isNew) bits.push(articles.length === 1 ? 'a new article' : 'new articles');
+            if (coursesR.isNew) bits.push(courses.length === 1 ? 'a new course' : 'new courses');
+            const weekOf = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+            const subject = bits.length
+                ? `This week on ODUSBABA: ${bits.slice(0, 2).join(' and ')}`
+                : `This week on ODUSBABA: ${tool.name} and fresh opportunities`;
 
             return res.status(200).json({
                 success: true,
-                draft: {
-                    subject: `Your Weekly ODUSBABA Digest — ${new Date().toLocaleDateString()}`,
-                    content: draftContent
-                }
+                draft: { subject, content: `<div style="font-family:Arial,sans-serif;">${sections.join('')}<p style="color:#64748b;font-size:12px;margin:26px 0 0;">Week of ${esc(weekOf)}</p></div>` }
             });
         } catch (error) {
             console.error('generate-newsletter-digest error:', error);
