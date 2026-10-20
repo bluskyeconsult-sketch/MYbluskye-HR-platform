@@ -17,6 +17,10 @@
       "schedule": "30 9 * * *"
     },
     {
+      "path": "/api/index?action=create-weekly-digest-draft",
+      "schedule": "0 7 * * 1"
+    },
+    {
       "path": "/api/cron/check-holidays-and-notify",
       "schedule": "0 7 * * *"
     },
