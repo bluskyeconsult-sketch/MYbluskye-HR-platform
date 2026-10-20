@@ -363,8 +363,13 @@ function Navbar() {
                         at any size. Dark outline (paint-order stroke) keeps it
                         readable over the artwork. To go back to the stacked
                         version, restore the previous <a> block. */}
-                    <div className="inline-block shrink-0">
+                    <div className="flex items-center gap-3 shrink-0">
                         <Logo size="2xl" showText={false} />
+                        {/* Platform name beside the logo on wide screens only (xl = 1280px+),
+                            so the navigation links keep their room on smaller screens. */}
+                        <a href="/" className="hidden xl:block text-2xl font-extrabold tracking-[0.18em] text-white hover:text-primary-400 transition" aria-label="ODUSBABA home">
+                            ODUSBABA
+                        </a>
                     </div>
 
                     <div className="hidden md:flex items-center gap-5">
