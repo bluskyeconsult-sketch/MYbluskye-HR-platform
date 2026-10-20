@@ -17908,7 +17908,13 @@ Give specific, actionable advice grounded in exactly what the person shares - re
             await Promise.race([transporter.verify(), new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 10 seconds')), 10000))]);
             add('Settings', 'Mail server login (live test)', 'pass', 'The site connected and signed in to the mail server');
         } catch (e) {
-            add('Settings', 'Mail server login (live test)', 'fail', `${e.message}. Site emails (tester codes, welcome, newsletters) cannot be sent until this is fixed. Check the mail host, port, user and password settings in Vercel.`);
+            // Non-secret description of what the server is really using, so a wrong or overriding setting is visible.
+            const uVal = process.env.VITE_EMAIL_USER || process.env.SMTP_USER || '';
+            const pVal = process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD || '';
+            const maskedUser = uVal ? `${uVal.slice(0, 3)}***${uVal.includes('@') ? uVal.slice(uVal.indexOf('@')) : ''}` : 'not set';
+            const viteInUse = ['VITE_SMTP_HOST', 'VITE_SMTP_PORT', 'VITE_EMAIL_USER', 'VITE_EMAIL_PASS'].filter(n => process.env[n]);
+            const used = `Currently using host ${process.env.VITE_SMTP_HOST || process.env.SMTP_HOST || 'not set'}, port ${process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465 (default)'}, user ${maskedUser}, password length ${pVal.length}${pVal !== pVal.trim() ? ' (has a leading/trailing space - remove it)' : ''}.` + (viteInUse.length ? ` Old VITE_ settings still present and taking priority: ${viteInUse.join(', ')} - delete them in Vercel.` : '');
+            add('Settings', 'Mail server login (live test)', 'fail', `${e.message}. ${used} Site emails (tester codes, welcome, newsletters) cannot be sent until this is fixed. Check the mail host, port, user and password settings in Vercel.`);
         }
 
         // --- Tables and columns needed by features ---
