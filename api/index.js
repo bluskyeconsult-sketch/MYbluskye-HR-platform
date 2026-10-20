@@ -807,6 +807,52 @@ async function fetchGlobalTrends(country = 'US', maxItems = 10) {
     }
 }
 
+// NEW (2026-10-20): shared guard rails for the Insight Engine and Opportunity Gaps suggestions.
+// Why: the AI was told to produce 3-5 ideas per list whatever the data said, was never told what the platform
+// already offers, was fed US celebrity/news searches as "trends", and its claims of "high volume" and "strong demand"
+// came from as few as 2 searches. These helpers (a) count identical searches, (b) require every idea to quote the
+// real searches it relies on and check those quotes against the real data, (c) drop ideas that repeat an existing
+// course, and (d) keep only career-related global trends.
+const CAREER_TREND_RE = /\b(jobs?|careers?|hiring|hires?|layoffs?|laid off|redundan\w*|salary|salaries|wages?|pay rise|employ\w*|unemploy\w*|work(?:er|ers|place|ing|force)?|labou?r|trade union|strike|resumes?|cv|interviews?|recruit\w*|visas?|immigration|sponsorship|remote work|pensions?|furlough|internships?|apprentice\w*|graduates?|upskill\w*|reskill\w*|training|human resources|hr|ai replacing|automation)\b/i;
+function isCareerTrend(topic) { return CAREER_TREND_RE.test(String(topic || '')); }
+
+const PLATFORM_ALREADY_OFFERS = 'Job board with filters and saved jobs, job alerts, skills assessments, courses, books, blog and articles, HR Tools (including rota, payroll and reference-check tools), Hire a Virtual Assistant, Workforce marketplace, Visa Pathways page, Career Coach, newsletter, FAQ, support tickets and Contact Support, fraud reporting and safety tips, pricing plans, affiliate programme, a platform tour course.';
+
+function normSignal(t) { return String(t || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+function countSignals(signals) {
+    const m = new Map();
+    for (const s of signals || []) { const k = normSignal(s.query_text); if (k) m.set(k, (m.get(k) || 0) + 1); }
+    return m;
+}
+function topQueryLines(m, limit = 60) {
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([q, n]) => `${n} x ${q}`).join('\n').substring(0, 6000);
+}
+function supportFor(m, queries) {
+    let n = 0; const used = [];
+    for (const q of Array.isArray(queries) ? queries : []) {
+        const k = normSignal(q);
+        if (m.has(k) && !used.includes(k)) { used.push(k); n += m.get(k); }
+    }
+    return { support: n, used };
+}
+function confidenceFor(n) { return n >= 6 ? 'high' : n >= 3 ? 'medium' : 'low'; }
+const TITLE_STOP = new Set(['the', 'and', 'for', 'with', 'your', 'you', 'how', 'guide', 'introduction', 'course', 'getting', 'started', 'complete', 'professionals', 'effective', 'tips', 'techniques', 'strategies', 'basics', 'fundamentals']);
+function titleTokens(t) { return new Set(normSignal(t).replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(w => w.length > 2 && !TITLE_STOP.has(w))); }
+function similarTitle(a, b) {
+    const A = titleTokens(a), B = titleTokens(b);
+    if (!A.size || !B.size) return false;
+    let hit = 0; for (const w of A) if (B.has(w)) hit++;
+    const small = Math.min(A.size, B.size);
+    return hit >= Math.min(3, small) && hit / small >= 0.6;
+}
+const EVIDENCE_RULES = `EVIDENCE RULES (strict):
+- Every idea must include "supporting_queries": the exact search/chat texts from the list above that it relies on, copied word for word. An idea with no real supporting queries will be discarded.
+- The list shows how many times each text was entered ("3 x ..." means three times). Do NOT write "significant", "strong", "high volume", "growing" or "repeated" unless the supporting queries total at least 5. For 2-4, say "a few people asked"; for 1, do not make it an idea at all.
+- Return FEWER ideas rather than padding. An empty list is a valid, good answer when the evidence is thin.
+- Do NOT suggest anything the platform already offers (see the lists above). If an idea is close to something that exists, set "closest_existing" to its name, otherwise set it to null.
+- Stay within HR, careers, work and employment. Ignore news, celebrity, sport and general-interest searches, and ignore anything about the website's own sign-in or technical faults (that is support, not product).
+- Searches may include staff testing. Treat one-off or odd queries as noise.`;
+
 // NEW (2026-10-03): the real, central media-library logging helper -
 // every generation point on the platform calls this once, right
 // after a real file is actually stored, so there's finally one real,
@@ -10986,8 +11032,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
 
         try {
-            const trending = await fetchGlobalTrends('US', 15);
-            return res.status(200).json({ success: true, trending });
+            const trending = (await fetchGlobalTrends('US', 15)).map(t => ({ ...t, relevant: isCareerTrend(t.topic) }));
+            return res.status(200).json({ success: true, trending, note: 'General United States search trends. Only the career-related ones (relevant: true) are used by the Insight Engine.' });
         } catch (error) {
             console.error('whats-trending-globally error:', error);
             return res.status(500).json({ success: false, error: error.message });
@@ -11048,12 +11094,13 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             // now. Fetched only after the early-return above, so this
             // real external call is never wasted on a request that
             // wouldn't proceed anyway.
-            const globalTrends = await fetchGlobalTrends('US', 15);
+            // Global trends are general US search trends (mostly news and celebrity). Only career-related ones go to the AI.
+            const allTrends = await fetchGlobalTrends('US', 15);
+            const globalTrends = allTrends.filter(t => isCareerTrend(t.topic));
             const globalTrendsSummary = globalTrends.length > 0
                 ? globalTrends.map(t => `${t.topic}${t.volume ? ` (${t.volume} searches)` : ''}`).join(', ')
-                : 'Global trends data unavailable for this run.';
+                : 'No career-related global trends right now. Do not use global trends in this run.';
 
-            // Real regional distribution — counts, not guesses.
             const countryCounts = {};
             for (const j of jobsByCountry || []) {
                 if (!j.country_code) continue;
@@ -11064,10 +11111,6 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 if (!a.country_code) continue;
                 alertCountryCounts[a.country_code] = (alertCountryCounts[a.country_code] || 0) + 1;
             }
-
-            // Real VA/HR Tool category demand - joined through
-            // virtual_assistants since va_tasks itself only stores va_id,
-            // not category directly.
             const vaCategoryCounts = {};
             for (const t of vaTasks || []) {
                 const cat = t.virtual_assistants?.category;
@@ -11075,12 +11118,17 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 vaCategoryCounts[cat] = (vaCategoryCounts[cat] || 0) + 1;
             }
 
-            // Real existing course titles/categories, so the model can
-            // identify genuine gaps rather than suggesting something that
-            // already exists.
+            // What the platform already offers (real titles), so ideas are not repeats
+            const [{ data: assessRows }, { data: vaRows }] = await Promise.all([
+                supabaseClient.from('assessments').select('title').eq('is_active', true).limit(100),
+                supabaseClient.from('virtual_assistants').select('name, category').eq('is_active', true).limit(200)
+            ]);
             const existingCourseTitles = (courses || []).map(c => `${c.title} (${c.category || 'uncategorized'})`).join('; ') || 'None published yet.';
+            const existingAssessments = (assessRows || []).map(a => a.title).filter(Boolean).join('; ') || 'None.';
+            const existingVAs = (vaRows || []).map(v => v.name).filter(Boolean).join('; ') || 'None.';
 
-            const signalText = (signals || []).map(s => `[${s.signal_type}] ${s.query_text}`).join('\n').substring(0, 6000);
+            const signalCounts = countSignals(signals);
+            const signalText = topQueryLines(signalCounts);
             const alertKeywords = (alerts || []).flatMap(a => a.keywords || []).join(', ').substring(0, 2000) || 'None set up yet.';
             const regionSummary = Object.entries(countryCounts).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n} recent job postings`).join(', ') || 'No regional job data yet.';
             const alertRegionSummary = Object.entries(alertCountryCounts).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n} active alerts`).join(', ') || 'No regional alert data yet.';
@@ -11089,31 +11137,54 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const data = await callOpenAI([
                 {
                     role: 'system',
-                    content: `You are a product strategist for ODUSBABA, an HR/career platform. Given real, aggregated user activity data below AND real, current global trending search data, produce FOUR distinct sets of actionable "clues" for the team's next creation cycle. Return ONLY valid JSON in this exact shape: {"course_clues": [{"topic": string, "why": string, "suggested_category": string}], "newsletter_clues": [{"headline_idea": string, "why": string, "angle": string}], "product_design_clues": [{"feature_idea": string, "why": string, "evidence": string}], "service_design_clues": [{"service_idea": string, "why": string, "target_region": string}]}. 3-5 items per array. "why" and "evidence" must reference the real data patterns given, not generic assumptions. For service_design_clues, actively use the regional and VA-category data to suggest region-specific service opportunities (e.g. a service more relevant to one country's real demand than another's) — this is the differentiation the data is specifically meant to reveal. Where a global trend genuinely overlaps with internal user interest, call that out explicitly - that intersection is a stronger, more current signal than internal data alone, and is exactly what the global trends data is meant to surface. Don't force a connection where none genuinely exists.`
+                    content: `You are a careful product strategist for ODUSBABA, an HR/career platform. From the real, counted user activity below, suggest what the team might create next. Return ONLY valid JSON in this exact shape: {"course_clues": [{"topic": string, "why": string, "suggested_category": string, "supporting_queries": [string], "closest_existing": string|null}], "newsletter_clues": [{"headline_idea": string, "why": string, "angle": string, "supporting_queries": [string], "closest_existing": string|null}], "product_design_clues": [{"feature_idea": string, "why": string, "evidence": string, "supporting_queries": [string], "closest_existing": string|null}], "service_design_clues": [{"service_idea": string, "why": string, "target_region": string, "supporting_queries": [string], "closest_existing": string|null}]}. 0 to 4 items per array.\n\n${EVIDENCE_RULES}\n\nOnly mention a global trend when it is career-related AND overlaps with the supporting queries; otherwise ignore global trends.`
                 },
                 {
                     role: 'user',
-                    content: `RECENT CHAT/SEARCH TOPICS (last 30 days):\n${signalText}\n\nEXPLICIT JOB ALERT KEYWORDS PEOPLE SET UP THEMSELVES:\n${alertKeywords}\n\nREGIONAL JOB POSTING VOLUME:\n${regionSummary}\n\nREGIONAL JOB ALERT DEMAND:\n${alertRegionSummary}\n\nVIRTUAL ASSISTANT / HR TOOL CATEGORY USAGE:\n${vaCategorySummary}\n\nEXISTING PUBLISHED COURSES (do not suggest topics that duplicate these):\n${existingCourseTitles}\n\nWHAT'S TRENDING GLOBALLY RIGHT NOW (real, current Google Trends data - use this to spot where internal user interest intersects with real, current global attention, which is a stronger signal than either alone):\n${globalTrendsSummary}`
+                    content: `USER SEARCH/CHAT TEXTS, MOST COMMON FIRST (${(signals || []).length} signals, ${signalCounts.size} different texts):\n${signalText}\n\nJOB ALERT KEYWORDS PEOPLE SET UP THEMSELVES:\n${alertKeywords}\n\nREGIONAL JOB POSTING VOLUME:\n${regionSummary}\n\nREGIONAL JOB ALERT DEMAND:\n${alertRegionSummary}\n\nVIRTUAL ASSISTANT / HR TOOL CATEGORY USAGE:\n${vaCategorySummary}\n\nALREADY PUBLISHED COURSES: ${existingCourseTitles}\n\nALREADY AVAILABLE ASSESSMENTS: ${existingAssessments}\n\nALREADY AVAILABLE VIRTUAL ASSISTANTS: ${existingVAs}\n\nOTHER THINGS THE PLATFORM ALREADY OFFERS: ${PLATFORM_ALREADY_OFFERS}\n\nCAREER-RELATED GLOBAL TRENDS (US Google Trends, last 24 hours): ${globalTrendsSummary}`
                 }
-            ], 2000, 0.6);
+            ], 2000, 0.3);
 
             const content = data.choices[0].message.content;
             const jsonMatch = content.match(/\{[\s\S]*\}/);
-            const clues = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+            const raw = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
 
-            if (!clues) {
+            if (!raw) {
                 await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
                 return res.status(500).json({ success: false, error: 'Could not parse insight clues from the AI response — no charge was made for this attempt.' });
             }
 
+            // Check every idea against the real data; drop weak or duplicate ones
+            let droppedWeak = 0, droppedDuplicate = 0;
+            const vet = (list, titleKey) => (Array.isArray(list) ? list : []).map(item => {
+                const { support, used } = supportFor(signalCounts, item.supporting_queries);
+                return { ...item, supporting_queries: used, support, confidence: confidenceFor(support) };
+            }).filter(item => {
+                if (item.support < 2) { droppedWeak++; return false; }
+                if (titleKey && (courses || []).some(c => similarTitle(item[titleKey], c.title))) { droppedDuplicate++; return false; }
+                return true;
+            }).slice(0, 4);
+            const clues = {
+                course_clues: vet(raw.course_clues, 'topic'),
+                newsletter_clues: vet(raw.newsletter_clues, null),
+                product_design_clues: vet(raw.product_design_clues, null),
+                service_design_clues: vet(raw.service_design_clues, null)
+            };
+            const kept = Object.values(clues).reduce((n, a) => n + a.length, 0);
+
             return res.status(200).json({
                 success: true,
                 clues,
-                globalTrends,
+                globalTrends: allTrends.map(t => ({ ...t, relevant: isCareerTrend(t.topic) })),
+                message: kept === 0 ? 'The searches so far are too few or too varied to support any suggestion. That is the honest result; check again after more people have used the site.' : undefined,
                 dataPoints: {
                     signalsAnalyzed: (signals || []).length,
+                    distinctQueries: signalCounts.size,
+                    topQueries: [...signalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([query, count]) => ({ query, count })),
                     alertsAnalyzed: (alerts || []).length,
-                    regionsRepresented: Object.keys(countryCounts).length
+                    regionsRepresented: Object.keys(countryCounts).length,
+                    droppedForWeakEvidence: droppedWeak,
+                    droppedAsDuplicates: droppedDuplicate
                 },
                 remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
             });
@@ -11171,21 +11242,38 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 return res.status(200).json({ success: true, gaps: [], message: 'Not enough recent activity yet for a meaningful analysis — check back after more usage builds up.' });
             }
 
-            const sampleText = signals.map(s => `[${s.signal_type}] ${s.query_text}`).join('\n').substring(0, 8000);
+            const signalCounts = countSignals(signals);
+            const sampleText = topQueryLines(signalCounts, 80);
+            const [{ data: courseRows }, { data: assessRows }, { data: vaRows }] = await Promise.all([
+                supabaseClient.from('courses').select('title').eq('is_published', true).limit(100),
+                supabaseClient.from('assessments').select('title').eq('is_active', true).limit(100),
+                supabaseClient.from('virtual_assistants').select('name').eq('is_active', true).limit(200)
+            ]);
+            const catalog = `ALREADY PUBLISHED COURSES: ${(courseRows || []).map(c => c.title).join('; ') || 'None.'}\n\nALREADY AVAILABLE ASSESSMENTS: ${(assessRows || []).map(a => a.title).join('; ') || 'None.'}\n\nALREADY AVAILABLE VIRTUAL ASSISTANTS: ${(vaRows || []).map(v => v.name).join('; ') || 'None.'}\n\nOTHER THINGS THE PLATFORM ALREADY OFFERS: ${PLATFORM_ALREADY_OFFERS}\n\nThe job board currently holds thousands of live jobs, so do not claim there are too few listings.`;
 
             const data = await callOpenAI([
                 {
                     role: 'system',
-                    content: `You are a product strategist reviewing real user search queries and chat topics from an HR/career platform (job search, HR Tools, courses, assessments, workforce marketplace, virtual assistants). Identify 3-5 genuine gaps or opportunities — things users are clearly asking for that the platform doesn't currently offer well. For each gap, return: "gap" (what users need), "evidence" (a brief note on what patterns suggest this), "suggested_build" (a specific, concrete thing to build — a new HR Tool, article topic, course, or feature), and "starter_prompt" (if it's an AI-tool idea, a real, usable system prompt to power it; otherwise null). Return ONLY a valid JSON array of these objects, no other text.`
+                    content: `You are a careful product strategist reviewing real, counted user search queries and chat topics from an HR/career platform. Identify 0 to 4 genuine gaps: things users clearly ask for that the platform does not already offer. For each gap return: "gap" (what users need), "evidence" (plain, honest note of what the searches show, including how many), "suggested_build" (a specific, concrete build), "starter_prompt" (a usable system prompt if it is an AI tool idea, otherwise null), "supporting_queries" (exact texts from the list), "closest_existing" (name of the nearest thing that already exists, or null). Return ONLY a valid JSON array.\n\n${EVIDENCE_RULES}`
                 },
-                { role: 'user', content: sampleText }
-            ], 1500, 0.5);
+                { role: 'user', content: `USER SEARCH/CHAT TEXTS, MOST COMMON FIRST (${signals.length} signals, ${signalCounts.size} different texts):\n${sampleText}\n\n${catalog}` }
+            ], 1500, 0.3);
 
             const content = data.choices[0].message.content;
             const jsonMatch = content.match(/\[[\s\S]*\]/);
-            const gaps = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+            const rawGaps = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+            let droppedWeak = 0;
+            const gaps = (Array.isArray(rawGaps) ? rawGaps : []).map(g => {
+                const { support, used } = supportFor(signalCounts, g.supporting_queries);
+                return { ...g, supporting_queries: used, support, confidence: confidenceFor(support) };
+            }).filter(g => { if (g.support < 2) { droppedWeak++; return false; } return true; }).slice(0, 4);
 
-            return res.status(200).json({ success: true, gaps, signalsAnalyzed: signals.length, remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining });
+            return res.status(200).json({
+                success: true, gaps,
+                message: gaps.length === 0 ? 'The searches so far are too few or too varied to show a real gap. That is the honest result; check again after more people have used the site.' : undefined,
+                signalsAnalyzed: signals.length, distinctQueries: signalCounts.size, droppedForWeakEvidence: droppedWeak,
+                remaining: creditCheck.unlimited ? 'unlimited' : creditCheck.remaining
+            });
         } catch (error) {
             await refundCreditIfDeducted(supabaseClient, userId, creditCheck);
             console.error('analyze-opportunity-gaps error:', error);
