@@ -736,6 +736,7 @@ const OpenAIUsageMonitor = lazy(() => import('./pages/admin/OpenAIUsageMonitor')
 const VideoCreator = lazy(() => import('./pages/admin/VideoCreator'));
 const RenewalsMonitor = lazy(() => import('./pages/admin/RenewalsMonitor'));
 const InviteCampaigns = lazy(() => import('./pages/admin/InviteCampaigns'));
+const MemberEngagement = lazy(() => import('./pages/admin/MemberEngagement'));
 const MediaLibrary = lazy(() => import('./pages/admin/MediaLibrary'));
 const AmbienceStudio = lazy(() => import('./pages/admin/AmbienceStudio'));
 const PersonalMediaStudio = lazy(() => import('./pages/admin/PersonalMediaStudio'));
@@ -1026,6 +1027,7 @@ function AppContent() {
                             <Route path="/admin/video-creator" element={<ProtectedRoute requireAdmin><AdminLayout><VideoCreator /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/renewals" element={<ProtectedRoute requireAdmin><AdminLayout><RenewalsMonitor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/invitations" element={<ProtectedRoute requireAdmin><AdminLayout><InviteCampaigns /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/member-engagement" element={<ProtectedRoute requireAdmin><AdminLayout><MemberEngagement /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/page-backdrops" element={<ProtectedRoute requireAdmin><AdminLayout><AmbienceStudio /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/media-library" element={<ProtectedRoute requireAdmin><AdminLayout><MediaLibrary /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/personal-media-studio" element={<ProtectedRoute requireAdmin><AdminLayout><PersonalMediaStudio /></AdminLayout></ProtectedRoute>} />
