@@ -121,7 +121,7 @@ export default function AdminOpportunityGaps() {
             )}
 
             {signalsAnalyzed && (
-                <p className="text-xs text-slate-500 mb-4">Based on {signalsAnalyzed} recent search/chat signals.</p>
+                <p className="text-xs text-slate-500 mb-4">Based on {signalsAnalyzed} recent search/chat signals. Ideas with fewer than 2 supporting searches are removed, and so are ideas that repeat something you already offer.</p>
             )}
 
             <div className="space-y-4">
@@ -129,6 +129,12 @@ export default function AdminOpportunityGaps() {
                     <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                         <h3 className="text-white font-semibold mb-1">{gap.gap}</h3>
                         <p className="text-slate-400 text-sm mb-3">{gap.evidence}</p>
+                        {gap.support > 0 && (
+                            <p className={`text-xs mb-3 ${gap.confidence === 'high' ? 'text-emerald-400' : gap.confidence === 'medium' ? 'text-amber-400' : 'text-slate-400'}`}>
+                                Evidence: {gap.support} search{gap.support === 1 ? '' : 'es'} ({gap.confidence} confidence){gap.supporting_queries?.length ? ': ' + gap.supporting_queries.join('; ') : ''}
+                            </p>
+                        )}
+                        {gap.closest_existing && <p className="text-xs text-amber-300 mb-3">Similar to something you already have: {gap.closest_existing}. Consider improving or promoting that first.</p>}
 
                         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-3">
                             <p className="text-xs text-emerald-400 font-semibold mb-1">Suggested Build</p>
