@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
 import { 
     Activity, CheckCircle, XCircle, AlertCircle, Loader2,
     Database, Server, Zap, Users, Briefcase, BookOpen,
@@ -14,6 +15,8 @@ import {
 // ✅ UNIFIED API ENDPOINT - Single source of truth
 const API_BASE = '/api/index';
 const HEALTH_ENDPOINT = `${API_BASE}?action=health`;
+
+let lastHealthLogAt = 0;
 
 export default function SystemHealthDashboard() {
     const [health, setHealth] = useState(null);
@@ -43,6 +46,11 @@ export default function SystemHealthDashboard() {
         const startTime = Date.now();
         const checks = [];
         const data = {};
+
+        // NEW (2026-10-20): true counts from the server (service role, not limited by row-level security).
+        // If this call fails, every card falls back to the browser-side count below and says so.
+        let truth = null;
+        try { truth = await authenticatedFetch('health-stats'); } catch (e) { console.debug('health-stats unavailable:', e.message); }
 
         // ============================================
         // 1. API Gateway - Unified endpoint
@@ -84,9 +92,9 @@ export default function SystemHealthDashboard() {
                 name: 'Supabase Database',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - dbStart,
-                details: error ? error.message : `Connected • ${count?.toLocaleString() || 0} users`,
+                details: error ? error.message : `Connected • ${(truth?.users ?? count ?? 0).toLocaleString()} users${truth ? '' : ' (browser count)'}`,
                 icon: Database,
-                metric: error ? 'degraded' : `${count?.toLocaleString()} users`
+                metric: error ? 'degraded' : `${(truth?.users ?? count ?? 0).toLocaleString()} users`
             });
         } catch (err) {
             checks.push({ 
@@ -110,7 +118,7 @@ export default function SystemHealthDashboard() {
                 .eq('is_active', true)
                 .eq('compliance_status', 'approved');
             
-            data.jobs = { total: count || 0, active: count || 0 };
+            data.jobs = { total: truth?.jobs?.total ?? count ?? 0, active: truth?.jobs?.active ?? count ?? 0, approved: truth?.jobs?.approved ?? count ?? 0 };
             checks.push({
                 name: 'Jobs Board',
                 status: error ? 'degraded' : 'healthy',
@@ -121,9 +129,9 @@ export default function SystemHealthDashboard() {
                 // compliance_status = 'approved', Admin Dashboard
                 // counts all is_active jobs. Clarified rather than
                 // leaving both labeled simply "active jobs".
-                details: error ? error.message : `${count || 0} active + compliance-approved jobs`,
+                details: error ? error.message : `${data.jobs.approved} live on the board (active + compliance-approved) of ${data.jobs.total} in the database, ${data.jobs.active} active`,
                 icon: Briefcase,
-                metric: `${count || 0} jobs`
+                metric: `${data.jobs.approved} jobs`
             });
         } catch (err) {
             data.jobs = { total: 0, active: 0 };
@@ -169,12 +177,12 @@ export default function SystemHealthDashboard() {
                 .select('*', { count: 'exact', head: true })
                 .eq('status', 'completed');
             
-            data.assessments = { total: count || 0, completed: completed || 0 };
+            data.assessments = { total: truth?.assessments?.active ?? count ?? 0, completed: truth?.assessments?.completed ?? completed ?? 0 };
             checks.push({
                 name: 'Assessments',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - start,
-                details: error ? error.message : `${count || 0} active, ${completed || 0} completed`,
+                details: error ? error.message : `${data.assessments.total} active, ${data.assessments.completed} completed`,
                 icon: Brain,
                 metric: `${count || 0} active`
             });
@@ -238,14 +246,14 @@ export default function SystemHealthDashboard() {
                 .from('newsletter_subscribers')
                 .select('*', { count: 'exact', head: true });
             
-            data.newsletter = { subscribers: count || 0 };
+            data.newsletter = { subscribers: truth?.newsletter?.active ?? count ?? 0, total: truth?.newsletter?.total ?? count ?? 0 };
             checks.push({
                 name: 'Newsletter',
                 status: error ? 'degraded' : 'healthy',
                 responseTime: Date.now() - start,
-                details: error ? error.message : `${count || 0} subscribers`,
+                details: error ? error.message : `${data.newsletter.subscribers} active subscribers (${data.newsletter.total} on the list in total)`,
                 icon: Mail,
-                metric: `${count || 0} subscribers`
+                metric: `${data.newsletter.subscribers} subscribers`
             });
         } catch (err) {
             data.newsletter = { subscribers: 0 };
@@ -445,19 +453,20 @@ export default function SystemHealthDashboard() {
                 supabase.from('job_applications').select('id', { count: 'exact', head: true }).gte('created_at', oneDayAgo)
             ]);
 
+            const act = truth?.activity;
             data.realActivity = {
-                newUsers: newUsers.count || 0,
-                pageViews: pageViews.count || 0,
-                sessions: newSessions.count || 0,
-                applications: applications.count || 0
+                newUsers: act?.newUsers ?? newUsers.count ?? 0,
+                pageViews: act?.pageViews ?? pageViews.count ?? 0,
+                sessions: act?.sessions ?? newSessions.count ?? 0,
+                applications: act?.applications ?? applications.count ?? 0
             };
 
-            const totalActivity = (newUsers.count || 0) + (pageViews.count || 0) + (newSessions.count || 0) + (applications.count || 0);
+            const totalActivity = data.realActivity.newUsers + data.realActivity.pageViews + data.realActivity.sessions + data.realActivity.applications;
             checks.push({
                 name: 'Real Activity (24h)',
                 status: totalActivity > 0 ? 'healthy' : 'degraded',
                 responseTime: Date.now() - start,
-                details: `${newUsers.count || 0} new signups, ${newSessions.count || 0} real sessions, ${pageViews.count || 0} page views, ${applications.count || 0} applications - all in the last 24 hours`,
+                details: `${data.realActivity.newUsers} new signups, ${data.realActivity.sessions} sessions, ${data.realActivity.pageViews} page views, ${data.realActivity.applications} applications - all in the last 24 hours`,
                 icon: Users,
                 metric: totalActivity > 0 ? `${totalActivity} events` : 'no activity'
             });
@@ -488,7 +497,12 @@ export default function SystemHealthDashboard() {
         setHealth(healthData);
         setLastManualRefresh(new Date());
 
-        // Load history
+        // Record this run so the history list is current, then load it
+        // At most one logged run per 15 minutes, so the 60-second auto-refresh does not flood the table
+        if (Date.now() - lastHealthLogAt > 15 * 60 * 1000) {
+            lastHealthLogAt = Date.now();
+            try { await authenticatedFetch('health-stats', { checks: checks.map(c => ({ name: c.name, status: c.status, responseTime: c.responseTime })) }); } catch (e) { console.debug('health log failed:', e.message); }
+        }
         await loadHistory();
         
         setRefreshing(false);
@@ -637,8 +651,8 @@ export default function SystemHealthDashboard() {
                     <div className="flex items-center gap-3">
                         <Users className="w-6 h-6 text-primary-400" />
                         <div>
-                            <div className="text-2xl font-bold text-white">{dataStats.jobs?.total || 0}</div>
-                            <div className="text-sm text-slate-400">Total Jobs</div>
+                            <div className="text-2xl font-bold text-white">{dataStats.jobs?.approved ?? dataStats.jobs?.total ?? 0}</div>
+                            <div className="text-sm text-slate-400">Live Jobs</div>
                         </div>
                     </div>
                 </div>
