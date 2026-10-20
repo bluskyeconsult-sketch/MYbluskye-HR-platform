@@ -1,12 +1,16 @@
 // src/pages/admin/AdminInbox.jsx
 //
+// UPDATED (2026-10-21): classic three-pane layout (folders | message list | reading pane), calm compact styling,
+// website folders (Inbox, Unread, Sent, Drafts, Waiting, Archive, Spam, Trash, All mail) and a Compose button.
+// Spam and Trash are website-side labels only; they never change the real mailbox. Drafts are kept in this browser.
+//
 // NEW (2026-10-16): the Admin Inbox. A private working copy of your real mailboxes (support@, privacy@ and
 // any you add) so you can read, search, label, note, turn into a ticket, and reply from the website.
 // Your mail host's own webmail/app stays the master copy and still receives everything.
 // Opening a conversation here marks it read on the website only; it does not change the read mark in your mailbox.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Mail, Search, RefreshCw, Settings, Send, Wand2, AlertTriangle, X, Plus, Trash2, Tag, FileText, LifeBuoy, User, Shield } from 'lucide-react';
+import { Loader2, Mail, Search, RefreshCw, Settings, Send, Wand2, AlertTriangle, X, Plus, Trash2, Tag, FileText, LifeBuoy, User, Shield, Inbox, Archive, ShieldAlert, Clock, Layers, ChevronLeft, MailOpen, Undo2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import { authenticatedFetch } from '../../lib/authFetch';
@@ -28,12 +32,28 @@ const fmtFull = (iso) => iso ? new Date(iso).toLocaleString('en-GB', { day: 'num
 const fmtSize = (n) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`;
 const fileToB64 = (f) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1] || ''); r.onerror = reject; r.readAsDataURL(f); });
 
+const FOLDERS = [
+    { key: 'inbox', label: 'Inbox', icon: Inbox },
+    { key: 'unread', label: 'Unread', icon: MailOpen },
+    { key: 'sent', label: 'Sent', icon: Send },
+    { key: 'drafts', label: 'Drafts', icon: FileText },
+    { key: 'waiting', label: 'Waiting on them', icon: Clock },
+    { key: 'done', label: 'Archive', icon: Archive },
+    { key: 'spam', label: 'Spam', icon: ShieldAlert },
+    { key: 'trash', label: 'Trash', icon: Trash2 },
+    { key: 'all', label: 'All mail', icon: Layers }
+];
+
+// Drafts live in this browser only (they are not saved to the mailbox).
+const DRAFT_KEY = 'odusbaba_mail_drafts_v1';
+const loadDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch (e) { return []; } };
+const saveDrafts = (d) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d.slice(0, 50))); } catch (e) { /* storage unavailable */ } };
+
 export default function AdminInbox() {
     const [accounts, setAccounts] = useState([]);
     const [canManage, setCanManage] = useState(false);
     const [accountId, setAccountId] = useState('all');
-    const [status, setStatus] = useState('all');
-    const [unreadOnly, setUnreadOnly] = useState(false);
+    const [folder, setFolder] = useState('inbox');
     const [label, setLabel] = useState('');
     const [q, setQ] = useState('');
     const [qInput, setQInput] = useState('');
@@ -45,8 +65,10 @@ export default function AdminInbox() {
     const [active, setActive] = useState(null);       // full thread payload
     const [loadingThread, setLoadingThread] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
-    const [composeNew, setComposeNew] = useState(false);
+    const [compose, setCompose] = useState(null);     // null | { draft?: {...} }
     const [syncing, setSyncing] = useState(false);
+    const [unread, setUnread] = useState({ count: 0, byAccount: {} });
+    const [drafts, setDrafts] = useState(loadDrafts);
     const activeIdRef = useRef(null);
 
     const loadAccounts = useCallback(async () => {
@@ -56,28 +78,33 @@ export default function AdminInbox() {
         } catch (e) { setError(e.message); }
     }, []);
 
+    const loadUnread = useCallback(async () => {
+        try { const d = await authenticatedFetch('mail-unread-count', {}); setUnread({ count: d.count || 0, byAccount: d.byAccount || {} }); } catch (e) { /* badge only */ }
+    }, []);
+
     const loadThreads = useCallback(async (p = 0, quiet = false) => {
+        if (folder === 'drafts') { setThreads([]); setHasMore(false); setLoading(false); return; }
         if (!quiet) setLoading(true);
         try {
-            const d = await authenticatedFetch('mail-threads', { accountId, status, unread: unreadOnly, label, q, page: p });
+            const d = await authenticatedFetch('mail-threads', { accountId, folder, label, q, page: p });
             setThreads((prev) => p === 0 ? d.threads : [...prev, ...d.threads]);
             setHasMore(!!d.hasMore); setPage(p); setError('');
         } catch (e) { if (!quiet) setError(e.message); }
         if (!quiet) setLoading(false);
-    }, [accountId, status, unreadOnly, label, q]);
+    }, [accountId, folder, label, q]);
 
-    useEffect(() => { loadAccounts(); }, [loadAccounts]);
+    useEffect(() => { loadAccounts(); loadUnread(); }, [loadAccounts, loadUnread]);
     useEffect(() => { loadThreads(0); }, [loadThreads]);
     useEffect(() => {
-        const t = setInterval(() => { if (document.visibilityState === 'visible') loadThreads(0, true); }, 60000);
+        const t = setInterval(() => { if (document.visibilityState === 'visible') { loadThreads(0, true); loadUnread(); } }, 60000);
         return () => clearInterval(t);
-    }, [loadThreads]);
+    }, [loadThreads, loadUnread]);
 
     async function openThread(id) {
         activeIdRef.current = id; setLoadingThread(true);
         try {
             const d = await authenticatedFetch('mail-thread', { threadId: id });
-            if (activeIdRef.current === id) { setActive(d); setThreads((ts) => ts.map((t) => t.id === id ? { ...t, unread_count: 0 } : t)); }
+            if (activeIdRef.current === id) { setActive(d); setThreads((ts) => ts.map((t) => t.id === id ? { ...t, unread_count: 0 } : t)); loadUnread(); }
         } catch (e) { toast.error(e.message); }
         setLoadingThread(false);
     }
@@ -97,104 +124,178 @@ export default function AdminInbox() {
         }
         setSyncing(false);
         toast.success(got ? `${got} new message${got === 1 ? '' : 's'} copied in.` : 'Checked. Nothing new.');
-        loadAccounts(); loadThreads(0, true);
+        loadAccounts(); loadThreads(0, true); loadUnread();
     }
 
-    async function updateThread(patch) {
+    async function updateThread(patch, { leave = false } = {}) {
         try {
             await authenticatedFetch('mail-thread-update', { threadId: active.thread.id, ...patch });
-            await refreshActive();
+            if (leave) { setActive(null); activeIdRef.current = null; loadThreads(0, true); loadUnread(); }
+            else await refreshActive();
         } catch (e) { toast.error(e.message); }
+    }
+
+    function chooseFolder(k) { setFolder(k); setActive(null); activeIdRef.current = null; setLabel(''); setPage(0); }
+    function removeDraft(id) { const n = drafts.filter((d) => d.id !== id); setDrafts(n); saveDrafts(n); }
+    function storeDraft(d) {
+        const n = [d, ...loadDrafts().filter((x) => x.id !== d.id)];
+        saveDrafts(n); setDrafts(n); toast.success('Draft saved in this browser.');
     }
 
     const acctById = Object.fromEntries(accounts.map((a) => [a.id, a]));
     const anyUnconfigured = accounts.some((a) => a.isActive && !a.configured);
-    const allLabels = [...new Set(threads.flatMap((t) => t.labels || []))].sort();
+    const allLabels = [...new Set(threads.flatMap((t) => t.labels || []))].filter((l) => l !== 'trash' && l !== 'spam').sort();
+    const folderLabel = (FOLDERS.find((f) => f.key === folder) || {}).label || 'Inbox';
+    const showReading = !!(active || loadingThread);
 
     return (
-        <div className="p-4 lg:p-6 text-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2">
-                    <Mail className="w-6 h-6 text-primary-400" />
-                    <h1 className="text-xl font-bold text-white">Inbox</h1>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setComposeNew(true)} className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm"><Plus className="w-4 h-4" /> New message</button>
-                    <button onClick={syncNow} disabled={syncing} className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm disabled:opacity-50">
-                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Check now
-                    </button>
-                    <button onClick={() => setShowSettings(true)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm"><Settings className="w-4 h-4" /> Settings</button>
-                </div>
-            </div>
-
+        <div className="max-w-[1400px] mx-auto px-3 lg:px-5 py-4 text-slate-200 text-[13px]">
             {anyUnconfigured && (
-                <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm rounded-lg px-3 py-2.5 mb-4">
+                <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/25 text-amber-200 text-[13px] rounded-lg px-3 py-2 mb-3">
                     <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     <span>One or more mailboxes are not connected yet. Open <button className="underline" onClick={() => setShowSettings(true)}>Settings</button> to see exactly what is missing.</span>
                 </div>
             )}
-            <p className="text-xs text-slate-500 mb-4">A private copy of your mailboxes, refreshed about every 5 minutes. Your normal email app still receives everything. Opening a conversation here marks it read on the website only.</p>
 
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-sm">
-                    <option value="all">All mailboxes</option>
-                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.address}</option>)}
-                </select>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-sm">
-                    <option value="all">Any status</option>
-                    {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-                <label className="flex items-center gap-1.5 text-sm px-2"><input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} /> Unread only</label>
-                {allLabels.length > 0 && (
-                    <select value={label} onChange={(e) => setLabel(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-sm">
-                        <option value="">Any label</option>
-                        {allLabels.map((l) => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                )}
-                <form onSubmit={(e) => { e.preventDefault(); setQ(qInput.trim()); }} className="flex-1 min-w-[180px] relative">
-                    <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-500" />
-                    <input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search subject, sender or text" className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-8 py-2 text-sm" />
-                    {q && <button type="button" onClick={() => { setQ(''); setQInput(''); }} className="absolute right-2 top-2.5 text-slate-500 hover:text-white"><X className="w-4 h-4" /></button>}
-                </form>
-            </div>
-
-            {error && <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-3">{error}</div>}
-
-            <div className="grid lg:grid-cols-[minmax(300px,380px)_1fr] gap-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden lg:max-h-[75vh] lg:overflow-y-auto">
-                    {loading ? <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
-                        : threads.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">{q ? 'No conversations match that search.' : 'No conversations yet. New mail appears here within about 5 minutes of arriving.'}</div>
-                            : threads.map((t) => (
-                                <button key={t.id} onClick={() => openThread(t.id)} className={`w-full text-left px-3.5 py-3 border-b border-slate-800 hover:bg-slate-800/60 ${active?.thread?.id === t.id ? 'bg-slate-800' : ''}`}>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span className={`text-sm truncate ${t.unread_count > 0 ? 'font-semibold text-white' : 'text-slate-300'}`}>{(t.participants && t.participants[0]) || 'Unknown'}</span>
-                                        <span className="text-xs text-slate-500 flex-shrink-0">{fmtWhen(t.last_message_at)}</span>
-                                    </div>
-                                    <div className={`text-sm truncate ${t.unread_count > 0 ? 'text-white' : 'text-slate-400'}`}>{t.subject}</div>
-                                    <div className="text-xs text-slate-500 truncate">{t.snippet}</div>
-                                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                                        {t.unread_count > 0 && <span className="w-2 h-2 rounded-full bg-primary-400" />}
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${STATUS_STYLE[t.status]}`}>{STATUS[t.status]}</span>
-                                        {accountId === 'all' && acctById[t.account_id] && <span className="text-[10px] text-slate-500">{acctById[t.account_id].key}</span>}
-                                        {t.message_count > 1 && <span className="text-[10px] text-slate-500">{t.message_count} messages</span>}
-                                        {t.has_attachments && <FileText className="w-3 h-3 text-slate-500" />}
-                                        {t.linked_user_id && <User className="w-3 h-3 text-emerald-400" title="Registered user" />}
-                                        {t.linked_ticket_id && <LifeBuoy className="w-3 h-3 text-sky-400" title="Has a ticket" />}
-                                        {(t.labels || []).map((l) => <span key={l} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">{l}</span>)}
-                                    </div>
+            <div className="flex flex-col lg:flex-row gap-3 lg:h-[calc(100vh-170px)] lg:min-h-[560px]">
+                {/* ---------- folders ---------- */}
+                <aside className="lg:w-52 flex-shrink-0 bg-slate-900/60 border border-slate-800/70 rounded-xl p-2.5 flex flex-col lg:overflow-y-auto">
+                    <button onClick={() => setCompose({})} className="flex items-center justify-center gap-2 w-full py-2.5 mb-3 bg-sky-600/90 hover:bg-sky-500 text-white rounded-lg text-sm font-medium shadow-sm">
+                        <Plus className="w-4 h-4" /> Compose
+                    </button>
+                    <nav className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+                        {FOLDERS.map((f) => {
+                            const Icon = f.icon; const on = folder === f.key;
+                            const badge = f.key === 'inbox' || f.key === 'unread' ? unread.count : f.key === 'drafts' ? drafts.length : 0;
+                            return (
+                                <button key={f.key} onClick={() => chooseFolder(f.key)}
+                                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg whitespace-nowrap text-[13px] transition ${on ? 'bg-sky-500/15 text-sky-200' : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'}`}>
+                                    <Icon className="w-4 h-4 flex-shrink-0" />
+                                    <span className="flex-1 text-left">{f.label}</span>
+                                    {badge > 0 && <span className={`text-[11px] px-1.5 rounded-full ${on ? 'bg-sky-500/30 text-sky-100' : 'bg-slate-700 text-slate-300'}`}>{badge}</span>}
                                 </button>
-                            ))}
-                    {hasMore && <button onClick={() => loadThreads(page + 1)} className="w-full py-3 text-sm text-primary-400 hover:bg-slate-800">Load more</button>}
-                </div>
+                            );
+                        })}
+                    </nav>
 
-                <div className="min-w-0">
-                    {loadingThread ? <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
+                    <div className="hidden lg:block mt-4 pt-3 border-t border-slate-800/70">
+                        <p className="px-2.5 text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Mailboxes</p>
+                        <button onClick={() => setAccountId('all')} className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[12.5px] ${accountId === 'all' ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60'}`}>All mailboxes</button>
+                        {accounts.map((a) => (
+                            <button key={a.id} onClick={() => setAccountId(a.id)} title={a.address}
+                                className={`w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg text-[12.5px] ${accountId === a.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.configured ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                                <span className="truncate flex-1">{a.address}</span>
+                                {unread.byAccount[a.id] > 0 && <span className="text-[11px] text-slate-400">{unread.byAccount[a.id]}</span>}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="hidden lg:flex mt-auto pt-3 gap-1.5">
+                        <button onClick={syncNow} disabled={syncing} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-slate-800/80 hover:bg-slate-700 rounded-lg text-xs disabled:opacity-50">
+                            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Check now
+                        </button>
+                        <button onClick={() => setShowSettings(true)} className="px-2.5 py-2 bg-slate-800/80 hover:bg-slate-700 rounded-lg" title="Mail settings"><Settings className="w-3.5 h-3.5" /></button>
+                    </div>
+                </aside>
+
+                {/* ---------- message list ---------- */}
+                <section className={`${showReading ? 'hidden lg:flex' : 'flex'} flex-col lg:w-[380px] flex-shrink-0 bg-slate-900/60 border border-slate-800/70 rounded-xl overflow-hidden min-h-[420px]`}>
+                    <div className="p-2.5 border-b border-slate-800/70 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <h1 className="text-[15px] font-semibold text-white">{folderLabel}</h1>
+                            <div className="flex lg:hidden gap-1.5">
+                                <button onClick={syncNow} disabled={syncing} className="p-2 bg-slate-800/80 rounded-lg disabled:opacity-50"><RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /></button>
+                                <button onClick={() => setShowSettings(true)} className="p-2 bg-slate-800/80 rounded-lg"><Settings className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                        {folder !== 'drafts' && (
+                            <form onSubmit={(e) => { e.preventDefault(); setQ(qInput.trim()); }} className="relative">
+                                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
+                                <input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search mail" className="w-full bg-slate-800/70 border border-slate-700/70 rounded-lg pl-8 pr-8 py-2 text-[13px] focus:outline-none focus:border-sky-500/60" />
+                                {q && <button type="button" onClick={() => { setQ(''); setQInput(''); }} className="absolute right-2 top-2.5 text-slate-500 hover:text-white"><X className="w-3.5 h-3.5" /></button>}
+                            </form>
+                        )}
+                        {folder !== 'drafts' && allLabels.length > 0 && (
+                            <select value={label} onChange={(e) => setLabel(e.target.value)} className="w-full bg-slate-800/70 border border-slate-700/70 rounded-lg px-2 py-1.5 text-xs">
+                                <option value="">All labels</option>
+                                {allLabels.map((l) => <option key={l} value={l}>{l}</option>)}
+                            </select>
+                        )}
+                        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="lg:hidden w-full bg-slate-800/70 border border-slate-700/70 rounded-lg px-2 py-1.5 text-xs">
+                            <option value="all">All mailboxes</option>
+                            {accounts.map((a) => <option key={a.id} value={a.id}>{a.address}</option>)}
+                        </select>
+                    </div>
+
+                    {error && <div className="text-xs text-red-300 bg-red-500/10 border-b border-red-500/20 px-3 py-2">{error}</div>}
+
+                    <div className="flex-1 overflow-y-auto">
+                        {folder === 'drafts' ? (
+                            drafts.length === 0
+                                ? <div className="p-8 text-center text-slate-500">No drafts. Use Save draft in a message to keep it here. Drafts stay in this browser only.</div>
+                                : drafts.map((d) => (
+                                    <div key={d.id} className="flex items-start gap-2 px-3 py-2.5 border-b border-slate-800/60 hover:bg-slate-800/40">
+                                        <button className="flex-1 min-w-0 text-left" onClick={() => setCompose({ draft: d })}>
+                                            <div className="truncate text-slate-200">{d.to || 'No recipient'}</div>
+                                            <div className="truncate text-slate-400">{d.subject || '(no subject)'}</div>
+                                            <div className="truncate text-xs text-slate-500">{(d.text || '').slice(0, 80)}</div>
+                                        </button>
+                                        <span className="text-[11px] text-slate-500 flex-shrink-0">{fmtWhen(d.savedAt)}</span>
+                                        <button onClick={() => removeDraft(d.id)} title="Delete draft" className="text-slate-500 hover:text-red-300"><Trash2 className="w-3.5 h-3.5" /></button>
+                                    </div>
+                                ))
+                        ) : loading ? <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
+                            : threads.length === 0 ? <div className="p-8 text-center text-slate-500">{q ? 'Nothing matches that search.' : folder === 'inbox' ? 'Your inbox is empty. New mail appears here within about 5 minutes of arriving.' : `Nothing in ${folderLabel}.`}</div>
+                                : threads.map((t) => {
+                                    const unreadRow = t.unread_count > 0;
+                                    return (
+                                        <button key={t.id} onClick={() => openThread(t.id)}
+                                            className={`w-full text-left px-3 py-2.5 border-b border-slate-800/60 hover:bg-slate-800/40 ${active?.thread?.id === t.id ? 'bg-sky-500/10' : ''}`}>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${unreadRow ? 'bg-sky-400' : 'bg-transparent'}`} />
+                                                <span className={`flex-1 truncate ${unreadRow ? 'font-semibold text-white' : 'text-slate-300'}`}>{(t.participants && t.participants[0]) || 'Unknown'}</span>
+                                                <span className="text-[11px] text-slate-500 flex-shrink-0">{fmtWhen(t.last_message_at)}</span>
+                                            </div>
+                                            <div className={`pl-3.5 truncate ${unreadRow ? 'text-slate-100' : 'text-slate-400'}`}>{t.subject}</div>
+                                            <div className="pl-3.5 truncate text-xs text-slate-500">{t.snippet}</div>
+                                            <div className="pl-3.5 flex flex-wrap items-center gap-1.5 mt-1">
+                                                {t.status !== 'open' && <span className={`text-[10px] px-1.5 py-0.5 rounded ${STATUS_STYLE[t.status]}`}>{STATUS[t.status]}</span>}
+                                                {accountId === 'all' && acctById[t.account_id] && <span className="text-[10px] text-slate-500">{acctById[t.account_id].key}</span>}
+                                                {t.message_count > 1 && <span className="text-[10px] text-slate-500">{t.message_count}</span>}
+                                                {t.has_attachments && <FileText className="w-3 h-3 text-slate-500" />}
+                                                {t.linked_user_id && <User className="w-3 h-3 text-emerald-400" title="Registered user" />}
+                                                {t.linked_ticket_id && <LifeBuoy className="w-3 h-3 text-sky-400" title="Has a ticket" />}
+                                                {(t.labels || []).filter((l) => l !== 'trash' && l !== 'spam').map((l) => <span key={l} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/80 text-slate-300">{l}</span>)}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                        {hasMore && folder !== 'drafts' && <button onClick={() => loadThreads(page + 1)} className="w-full py-3 text-sm text-sky-400 hover:bg-slate-800/50">Load more</button>}
+                    </div>
+                </section>
+
+                {/* ---------- reading pane ---------- */}
+                <section className={`${showReading ? 'block' : 'hidden lg:block'} flex-1 min-w-0 lg:overflow-y-auto`}>
+                    {showReading && (
+                        <button onClick={() => { setActive(null); activeIdRef.current = null; }} className="lg:hidden flex items-center gap-1 text-sky-400 mb-2 text-sm"><ChevronLeft className="w-4 h-4" /> Back to {folderLabel}</button>
+                    )}
+                    {loadingThread ? <div className="bg-slate-900/60 border border-slate-800/70 rounded-xl p-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
                         : active ? <ThreadView key={active.thread.id} data={active} onChanged={refreshActive} onUpdate={updateThread} />
-                            : <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center text-sm text-slate-500">Choose a conversation to read it.</div>}
-                </div>
+                            : (
+                                <div className="hidden lg:flex h-full bg-slate-900/40 border border-slate-800/60 rounded-xl items-center justify-center text-center text-slate-500 p-10">
+                                    <div><Mail className="w-9 h-9 mx-auto mb-3 text-slate-600" />Select a message to read it.<div className="text-xs mt-1 text-slate-600">Spam and Trash here only organise this website copy. Your real mailbox is not changed.</div></div>
+                                </div>
+                            )}
+                </section>
             </div>
 
-            {composeNew && <ComposeModal accounts={accounts.filter((a) => a.isActive && a.configured)} onClose={() => setComposeNew(false)} onSent={() => { setComposeNew(false); loadThreads(0, true); }} />}
+            {compose && (
+                <ComposeModal accounts={accounts.filter((a) => a.isActive && a.configured)} draft={compose.draft}
+                    onSaveDraft={storeDraft}
+                    onClose={() => setCompose(null)}
+                    onSent={() => { if (compose.draft) removeDraft(compose.draft.id); setCompose(null); loadThreads(0, true); }} />
+            )}
             {showSettings && <SettingsModal accounts={accounts} canManage={canManage} onClose={() => setShowSettings(false)} onChanged={loadAccounts} />}
         </div>
     );
@@ -226,7 +327,7 @@ function ThreadView({ data, onChanged, onUpdate }) {
 
     return (
         <div className="space-y-3">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="bg-slate-900/60 border border-slate-800/70 rounded-xl p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                         <h2 className="text-lg font-semibold text-white break-words">{thread.subject}</h2>
@@ -237,6 +338,17 @@ function ThreadView({ data, onChanged, onUpdate }) {
                             {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                         </select>
                         <button onClick={() => onUpdate({ markUnread: true })} className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Mark unread</button>
+                        {(() => {
+                            const ls = thread.labels || []; const inTrash = ls.includes('trash'); const inSpam = ls.includes('spam');
+                            const without = (x) => ls.filter((l) => l !== x);
+                            const btn = 'flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs';
+                            if (inTrash || inSpam) return <button onClick={() => onUpdate({ labels: without('trash').filter((l) => l !== 'spam') }, { leave: true })} className={btn}><Undo2 className="w-3.5 h-3.5" /> Restore to inbox</button>;
+                            return (<>
+                                {thread.status !== 'done' && <button onClick={() => onUpdate({ status: 'done' }, { leave: true })} className={btn}><Archive className="w-3.5 h-3.5" /> Archive</button>}
+                                <button onClick={() => onUpdate({ labels: [...ls, 'spam'] }, { leave: true })} className={btn}><ShieldAlert className="w-3.5 h-3.5" /> Spam</button>
+                                <button onClick={() => onUpdate({ labels: [...ls, 'trash'] }, { leave: true })} className={btn}><Trash2 className="w-3.5 h-3.5" /> Trash</button>
+                            </>);
+                        })()}
                         {!thread.linked_ticket_id && <button onClick={makeTicket} disabled={busy} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs disabled:opacity-50"><LifeBuoy className="w-3.5 h-3.5" /> Make a ticket</button>}
                     </div>
                 </div>
@@ -258,7 +370,7 @@ function ThreadView({ data, onChanged, onUpdate }) {
 
             {messages.map((m) => <MessageCard key={m.id} m={m} onAttachment={openAttachment} />)}
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="bg-slate-900/60 border border-slate-800/70 rounded-xl p-4">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Private notes (never sent)</p>
                 {notes.map((n) => <div key={n.id} className="text-sm bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 mb-2"><div className="text-xs text-slate-500 mb-0.5">{fmtFull(n.created_at)}</div>{n.body}</div>)}
                 <div className="flex gap-2">
@@ -333,26 +445,27 @@ function ReplyBox({ thread, messages, account, onSent }) {
     );
 }
 
-function ComposeModal({ accounts, onClose, onSent }) {
+function ComposeModal({ accounts, onClose, onSent, draft, onSaveDraft }) {
     return createPortal(
         <div className="fixed inset-0 z-[1000] bg-black/70 flex items-start justify-center overflow-y-auto p-4 pt-10">
             <div className="w-full max-w-2xl my-4">
                 <div className="flex justify-end mb-1"><button onClick={onClose} className="text-slate-300 hover:text-white"><X className="w-5 h-5" /></button></div>
                 {accounts.length === 0
                     ? <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-sm text-slate-300">No mailbox is connected yet. Open Settings to see what is missing.</div>
-                    : <Composer title="New message" accounts={accounts} onSent={onSent} />}
+                    : <Composer title="New message" accounts={accounts} onSent={onSent} draft={draft} onSaveDraft={onSaveDraft} />}
             </div>
         </div>,
         document.body
     );
 }
 
-function Composer({ title, accounts, fixedAccountId, threadId, initialTo, initialSubject, allowAi, onSent }) {
-    const [accountId, setAccountId] = useState(fixedAccountId || (accounts[0] && accounts[0].id) || '');
-    const [to, setTo] = useState(initialTo || '');
-    const [cc, setCc] = useState('');
-    const [subject, setSubject] = useState(initialSubject || '');
-    const [text, setText] = useState('');
+function Composer({ title, accounts, fixedAccountId, threadId, initialTo, initialSubject, allowAi, onSent, draft, onSaveDraft }) {
+    const [accountId, setAccountId] = useState(fixedAccountId || (draft && draft.accountId) || (accounts[0] && accounts[0].id) || '');
+    const [to, setTo] = useState((draft && draft.to) || initialTo || '');
+    const [cc, setCc] = useState((draft && draft.cc) || '');
+    const [subject, setSubject] = useState((draft && draft.subject) || initialSubject || '');
+    const [text, setText] = useState((draft && draft.text) || '');
+    const draftIdRef = useRef((draft && draft.id) || newToken());
     const [files, setFiles] = useState([]);
     const [sending, setSending] = useState(false);
     const [templates, setTemplates] = useState([]);
@@ -408,7 +521,7 @@ function Composer({ title, accounts, fixedAccountId, threadId, initialTo, initia
 
     const acct = accounts.find((a) => a.id === accountId);
     return (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="bg-slate-900/60 border border-slate-800/70 rounded-xl p-4">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">{title}{acct ? ` · from ${acct.address}` : ''}</p>
             {!fixedAccountId && accounts.length > 1 && (
                 <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm mb-2">
@@ -457,7 +570,10 @@ function Composer({ title, accounts, fixedAccountId, threadId, initialTo, initia
                         <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))}><X className="w-3 h-3" /></button></span>
                 ))}
                 <label className="flex items-center gap-1.5 text-xs text-slate-400 ml-auto"><input type="checkbox" checked={saveTpl} onChange={(e) => setSaveTpl(e.target.checked)} /> Also save as a saved reply</label>
-                <button onClick={send} disabled={sending || !accountId} className="flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm disabled:opacity-50">
+                {onSaveDraft && (
+                    <button type="button" onClick={() => onSaveDraft({ id: draftIdRef.current, accountId, to, cc, subject, text, savedAt: new Date().toISOString() })} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">Save draft</button>
+                )}
+                <button onClick={send} disabled={sending || !accountId} className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-sm disabled:opacity-50">
                     {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send
                 </button>
             </div>
