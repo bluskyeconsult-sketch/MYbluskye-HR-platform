@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
 import { Activity, Users, Database, Zap, AlertTriangle, TrendingUp } from 'lucide-react';
 
 // FIXED (2026-08-09):
@@ -24,58 +24,38 @@ export default function UsageMeter() {
   });
   const [loading, setLoading] = useState(true);
   const [recommendations, setRecommendations] = useState([]);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => { loadMetrics(); }, []);
 
+  // REWORKED (2026-10-20): figures now come from the server (service role), so row-level security cannot shrink
+  // them and "active users" is not capped at 1,000 rows. The invented "Storage used 0.5 GB" bar and the hard-coded
+  // free-tier text are removed: real database/storage/MAU usage against the plan limits is on the Admin Dashboard
+  // (Platform Capacity).
   async function loadMetrics() {
-    const { count: totalUsers } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-    
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const { count: newUsers30d } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', thirtyDaysAgo.toISOString());
-    
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    // FIXED (2026-10-09): "Active (7 days)" used to be the number of visitor
-    // SESSIONS (anonymous visitors, crawlers and admins included), which is
-    // why it could show 60 with only 17 registered users. Active users now
-    // means distinct REGISTERED users seen in the last 7 days; the raw
-    // session count is shown separately and honestly labelled as visitors.
-    const { count: visitorSessions7d } = await supabase.from('analytics_sessions').select('*', { count: 'exact', head: true }).gte('start_time', sevenDaysAgo.toISOString());
-    const { data: activeRows } = await supabase
-      .from('analytics_sessions')
-      .select('user_id')
-      .gte('start_time', sevenDaysAgo.toISOString())
-      .not('user_id', 'is', null)
-      .limit(10000);
-    const activeUsers7d = Math.min(new Set((activeRows || []).map(r => r.user_id)).size, totalUsers || 0);
-    
-    const { count: totalJobs } = await supabase.from('jobs').select('*', { count: 'exact', head: true });
-    const { count: totalApplications } = await supabase.from('job_applications').select('*', { count: 'exact', head: true });
-    const { count: totalVATasks } = await supabase.from('va_tasks').select('*', { count: 'exact', head: true });
-    
-    // Calculate estimated growth (simplified)
-    const growthRate = newUsers30d / 30;
-    const estimatedGrowth = Math.round(growthRate * 90); // 3 months projection
-    
-    // Generate recommendations
-    const recs = [];
-    if (totalUsers > 500) recs.push({ level: 'info', message: 'Consider upgrading Supabase to Pro plan for better performance.' });
-    if (totalUsers > 1000) recs.push({ level: 'warning', message: 'High traffic detected. Consider adding load balancing.' });
-    if (estimatedGrowth > 500) recs.push({ level: 'info', message: `Projected to add ${estimatedGrowth} users in 3 months. Plan capacity.` });
-    
-    setMetrics({
-      totalUsers: totalUsers || 0,
-      newUsers30d: newUsers30d || 0,
-      activeUsers7d: activeUsers7d || 0,
-      visitorSessions7d: visitorSessions7d || 0,
-      totalJobs: totalJobs || 0,
-      totalApplications: totalApplications || 0,
-      totalVATasks: totalVATasks || 0,
-      estimatedGrowth
-    });
-    setRecommendations(recs);
-    setLoading(false);
+    try {
+      const t = await authenticatedFetch('health-stats');
+      const newUsers30d = t.usage?.newUsers30d || 0;
+      const totalUsers = t.users || 0;
+      const estimatedGrowth = Math.round((newUsers30d / 30) * 90);
+      const recs = [];
+      if (estimatedGrowth > 500) recs.push({ level: 'info', message: `Projected to add ${estimatedGrowth} users in 3 months. Check Platform Capacity on the Admin Dashboard.` });
+      setMetrics({
+        totalUsers,
+        newUsers30d,
+        activeUsers7d: Math.min(t.usage?.activeUsers7d || 0, totalUsers),
+        visitorSessions7d: t.usage?.visitorSessions7d || 0,
+        totalJobs: t.jobs?.total || 0,
+        totalApplications: t.usage?.applicationsTotal || 0,
+        totalVATasks: t.usage?.vaTasks || 0,
+        estimatedGrowth
+      });
+      setRecommendations(recs);
+    } catch (e) {
+      setLoadError(e.message || 'Could not load usage figures.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading) return <div className="p-8 text-center text-slate-400">Loading metrics...</div>;
@@ -83,6 +63,7 @@ export default function UsageMeter() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-6">Usage & Scalability Dashboard</h1>
+      {loadError && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-300">{loadError}</div>}
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4"><div className="flex items-center gap-3"><Users className="w-5 h-5 text-emerald-400" /><div><div className="text-2xl font-bold text-white">{metrics.totalUsers}</div><div className="text-xs text-slate-400">Total Users</div></div></div></div>
@@ -100,12 +81,11 @@ export default function UsageMeter() {
       )}
       
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Growth Metrics (30 days)</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">Growth Metrics</h2>
         <div className="space-y-3">
           <div><div className="flex justify-between text-sm mb-1"><span className="text-slate-400">Registered users active this week</span><span className="text-white">{metrics.activeUsers7d} of {metrics.totalUsers}</span></div><div className="w-full bg-slate-700 rounded-full h-2"><div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${metrics.totalUsers ? Math.min(100, (metrics.activeUsers7d / metrics.totalUsers) * 100) : 0}%` }}></div></div></div>
-          <div><div className="flex justify-between text-sm mb-1"><span className="text-slate-400">Storage Used (estimated)</span><span className="text-white">0.5 GB</span></div><div className="w-full bg-slate-700 rounded-full h-2"><div className="bg-sky-500 h-2 rounded-full" style={{ width: '5%' }}></div></div></div>
         </div>
-        <div className="mt-6 p-4 bg-slate-800/30 rounded-lg"><p className="text-sm text-slate-400">Supabase Free Tier Limits: 2GB database, 5GB storage, 200 concurrent connections</p><p className="text-xs text-slate-500 mt-2">Consider upgrading at 80% capacity.</p></div>
+        <div className="mt-6 p-4 bg-slate-800/30 rounded-lg"><p className="text-sm text-slate-400">Total users includes admins and testers. Database size, file storage and monthly active users against your plan limits are on the Admin Dashboard (Platform Capacity).</p></div>
       </div>
     </div>
   );
