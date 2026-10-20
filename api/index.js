@@ -845,6 +845,22 @@ function similarTitle(a, b) {
     const small = Math.min(A.size, B.size);
     return hit >= Math.min(3, small) && hit / small >= 0.6;
 }
+// Does an idea overlap something that already exists? Compares the idea's own words with the names of existing courses,
+// assessments and assistants (ignoring generic words). Flags rather than drops: people asking for something you already
+// have usually means it is hard to find, which is useful to know.
+const OVERLAP_GENERIC = new Set(['tool', 'tools', 'review', 'reviews', 'feedback', 'suggestions', 'suggestion', 'improvement', 'improve', 'build', 'develop', 'create', 'automated', 'personalized', 'personalised', 'feature', 'service', 'platform', 'users', 'user', 'help', 'support', 'tips', 'jobs', 'job', 'search', 'application', 'applications', 'career', 'careers', 'assessment', 'course', 'courses', 'writer', 'builder', 'coach', 'advisor', 'assistant', 'generator', 'checker', 'analyzer', 'preparation', 'based', 'provides', 'provide', 'current', 'industry', 'standards', 'trends', 'real', 'time', 'new', 'free', 'custom', 'driven', 'dedicated', 'simple', 'online']);
+function overlapTokens(t) { return new Set(normSignal(t).replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(w => w.length >= 2 && w !== 'hr' && w !== 'uk' && w !== 'ai' && !OVERLAP_GENERIC.has(w) && !TITLE_STOP.has(w))); }
+function findExisting(text, names) {
+    const T = overlapTokens(text);
+    if (!T.size) return [];
+    const out = [];
+    for (const n of names || []) {
+        if (!n) continue;
+        const N = overlapTokens(n);
+        for (const w of T) { if (N.has(w)) { out.push(n); break; } }
+    }
+    return out.slice(0, 3);
+}
 const EVIDENCE_RULES = `EVIDENCE RULES (strict):
 - Every idea must include "supporting_queries": the exact search/chat texts from the list above that it relies on, copied word for word. An idea with no real supporting queries will be discarded.
 - The list shows how many times each text was entered ("3 x ..." means three times). Do NOT write "significant", "strong", "high volume", "growing" or "repeated" unless the supporting queries total at least 5. For 2-4, say "a few people asked"; for 1, do not make it an idea at all.
@@ -11156,9 +11172,12 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
 
             // Check every idea against the real data; drop weak or duplicate ones
             let droppedWeak = 0, droppedDuplicate = 0;
+            const existingNames = [...(courses || []).map(c => c.title), ...(assessRows || []).map(a => a.title), ...(vaRows || []).map(v => v.name)];
             const vet = (list, titleKey) => (Array.isArray(list) ? list : []).map(item => {
                 const { support, used } = supportFor(signalCounts, item.supporting_queries);
-                return { ...item, supporting_queries: used, support, confidence: confidenceFor(support) };
+                const text = `${item.topic || item.headline_idea || item.feature_idea || item.service_idea || ''} ${item.suggested_category || ''}`;
+                const matches = findExisting(text, existingNames);
+                return { ...item, supporting_queries: used, support, confidence: confidenceFor(support), existing_matches: matches, closest_existing: item.closest_existing || matches[0] || null };
             }).filter(item => {
                 if (item.support < 2) { droppedWeak++; return false; }
                 if (titleKey && (courses || []).some(c => similarTitle(item[titleKey], c.title))) { droppedDuplicate++; return false; }
@@ -11263,9 +11282,11 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             const rawGaps = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
             let droppedWeak = 0;
+            const existingNames = [...(courseRows || []).map(c => c.title), ...(assessRows || []).map(a => a.title), ...(vaRows || []).map(v => v.name)];
             const gaps = (Array.isArray(rawGaps) ? rawGaps : []).map(g => {
                 const { support, used } = supportFor(signalCounts, g.supporting_queries);
-                return { ...g, supporting_queries: used, support, confidence: confidenceFor(support) };
+                const matches = findExisting(`${g.gap || ''} ${g.suggested_build || ''}`, existingNames);
+                return { ...g, supporting_queries: used, support, confidence: confidenceFor(support), existing_matches: matches, closest_existing: g.closest_existing || matches[0] || null };
             }).filter(g => { if (g.support < 2) { droppedWeak++; return false; } return true; }).slice(0, 4);
 
             return res.status(200).json({
