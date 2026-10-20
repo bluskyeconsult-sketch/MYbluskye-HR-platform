@@ -101,12 +101,11 @@ export default function AdminDiagnostics() {
         setRefreshing(true);
         setLoadError(null);
         try {
-            const { data, error } = await supabase
-                .from(activeTab)
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(100);
-
+            // Some of these tables may not have a created_at column; fall back to unordered rather than failing
+            let { data, error } = await supabase.from(activeTab).select('*').order('created_at', { ascending: false }).limit(100);
+            if (error && /created_at/.test(error.message || '')) {
+                ({ data, error } = await supabase.from(activeTab).select('*').limit(100));
+            }
             if (error) throw error;
             setEntries(data || []);
         } catch (err) {
