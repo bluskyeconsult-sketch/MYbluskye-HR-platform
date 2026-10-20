@@ -26,7 +26,7 @@ import { Brain } from 'lucide-react';
 // White-text version because the site background is dark. It is a wide
 // image (about 2.8:1), so it is sized by HEIGHT with automatic width; the
 // old square sizing would have shrunk it to a tiny strip.
-const LOGO_SRC = '/images/BluSkye-Logo-Integrated-Consult-Web-White.png';
+const LOGO_SRC = '/images/BluSkye.png?v=20261020';
 
 // Size configurations (shared between image and icon)
 const SIZE_CONFIG = {
