@@ -779,8 +779,9 @@ export default function SignUpPage() {
                 {/* Testing Mode Banner */}
                 {testingMode && (
                     <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/30 rounded-lg">
-                        <p className="text-purple-400 text-sm text-center flex items-center justify-center gap-2">
-                            <Sparkles className="w-4 h-4" />
+                        {/* FIXED (2026-10-20): the icon, bold label and text were separate flex items, so on a phone the bold label was squeezed into a narrow column and broke letter by letter ("Teste / r Mode / Activ / e"). One text block now. */}
+                        <p className="text-purple-400 text-sm text-center">
+                            <Sparkles className="w-4 h-4 inline-block align-text-bottom mr-1.5" />
                             <strong>Tester Mode Active</strong> — pick any plan below to test it fully, no payment needed. Capped at {testingConfig.aiCallCap} AI-assisted requests for {testingConfig.accessDays} days.
                         </p>
                     </div>
