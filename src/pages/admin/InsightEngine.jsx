@@ -60,6 +60,7 @@ export default function InsightEngine() {
             }
 
             setClues(result.clues);
+            setMessage(result.message || '');
             setDataPoints(result.dataPoints);
             if (result.globalTrends) setGlobalTrends(result.globalTrends);
         } catch (err) {
@@ -137,6 +138,13 @@ export default function InsightEngine() {
                     <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> {dataPoints.signalsAnalyzed} recent chat/search signals</span>
                     <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {dataPoints.alertsAnalyzed} active job alerts</span>
                     <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {dataPoints.regionsRepresented} regions represented</span>
+                    {dataPoints.distinctQueries !== undefined && <span>{dataPoints.distinctQueries} different search texts</span>}
+                    {(dataPoints.droppedForWeakEvidence > 0 || dataPoints.droppedAsDuplicates > 0) && (
+                        <span>Removed: {dataPoints.droppedForWeakEvidence} with too little evidence, {dataPoints.droppedAsDuplicates} that repeat an existing course</span>
+                    )}
+                    {dataPoints.topQueries?.length > 0 && (
+                        <span className="w-full">Most common searches: {dataPoints.topQueries.map(q => `${q.query} (${q.count})`).join(', ')}</span>
+                    )}
                 </div>
             )}
 
@@ -145,12 +153,13 @@ export default function InsightEngine() {
                     <p className="text-white font-medium text-sm mb-3 flex items-center gap-2">
                         <Globe className="w-4 h-4 text-primary-400" /> What's Trending Globally Right Now
                     </p>
+                    <p className="text-xs text-slate-500 mb-3">General United States search trends, so most are news and celebrity. Only the highlighted career-related ones are used for the suggestions below.</p>
                     {globalTrends.length === 0 ? (
                         <p className="text-slate-500 text-sm">No trending data available right now - try again shortly.</p>
                     ) : (
                         <div className="flex flex-wrap gap-2">
                             {globalTrends.map((t, idx) => (
-                                <span key={idx} className="px-3 py-1.5 bg-slate-800 rounded-full text-sm text-slate-300 flex items-center gap-1.5">
+                                <span key={idx} className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 ${t.relevant ? 'bg-primary-500/20 text-primary-200 border border-primary-500/40' : 'bg-slate-800 text-slate-500'}`}>
                                     {t.topic}
                                     {t.volume && <span className="text-slate-500 text-xs">({t.volume})</span>}
                                 </span>
@@ -187,6 +196,12 @@ export default function InsightEngine() {
                                                     {item.topic || item.headline_idea || item.feature_idea || item.service_idea}
                                                 </p>
                                                 {item.why && <p className="text-slate-400 text-xs mb-2">{item.why}</p>}
+                                                {item.support > 0 && (
+                                                    <p className={`text-xs mb-2 ${item.confidence === 'high' ? 'text-emerald-400' : item.confidence === 'medium' ? 'text-amber-400' : 'text-slate-400'}`}>
+                                                        Evidence: {item.support} search{item.support === 1 ? '' : 'es'} ({item.confidence} confidence){item.supporting_queries?.length ? ': ' + item.supporting_queries.join('; ') : ''}
+                                                    </p>
+                                                )}
+                                                {item.closest_existing && <p className="text-xs text-amber-300 mb-2">Similar to something you already have: {item.closest_existing}</p>}
                                                 {item.suggested_category && (
                                                     <span className="inline-block text-xs px-2 py-0.5 bg-slate-800 rounded-full text-slate-400">
                                                         Suggested category: {item.suggested_category}
