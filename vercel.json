@@ -21,6 +21,10 @@
       "schedule": "0 7 * * 1"
     },
     {
+      "path": "/api/index?action=send-scheduled-newsletters",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/check-holidays-and-notify",
       "schedule": "0 7 * * *"
     },
