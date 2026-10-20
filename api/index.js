@@ -16708,7 +16708,10 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 // receive anything, so it's visible for manual follow-up
                 // rather than silently lost.
                 console.error(`Tester code ${code} generated for ${normalizedEmail} but email failed to send:`, emailResult.error);
-                return res.status(200).json({ success: false, error: 'Your invite code was generated, but we had trouble emailing it. Please contact support so we can send it to you directly.' });
+                // NEW (2026-10-20): leave a visible record (Admin > Audit Log > Activity) with the real reason, so a failed
+                // send is not only in the Vercel logs. The code stays valid and is listed in Admin > Tester Invite Codes.
+                logUserActivity(supabaseClient, req, { userId: null, userEmail: normalizedEmail, actionType: 'tester_code_email_failed', details: { reason: String(emailResult.error || '').slice(0, 300) } });
+                return res.status(200).json({ success: false, error: 'Your invite code was generated, but we could not email it just now. Your request has been saved and we will send it to you, or you can email support@bluskyeconsult.com and quote this address.' });
             }
 
             return res.status(200).json({ success: true, issued: true, message: 'Check your email for your tester invite code.' });
@@ -17888,6 +17891,15 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         for (const [g, label, names, bad, why] of envRules) {
             const ok = names[0] === 'SMTP_HOST' ? (has('VITE_SMTP_HOST', 'SMTP_HOST') && has('VITE_EMAIL_USER', 'SMTP_USER') && has('VITE_EMAIL_PASS', 'SMTP_PASSWORD')) : has(...names);
             add(g, label, ok ? 'pass' : bad, ok ? 'Set' : `Missing. ${why}`);
+        }
+
+        // --- Can the site actually log in to the mail server right now? (the real cause of "we had trouble emailing it") ---
+        try {
+            const transporter = getTransporter();
+            await Promise.race([transporter.verify(), new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 10 seconds')), 10000))]);
+            add('Settings', 'Mail server login (live test)', 'pass', 'The site connected and signed in to the mail server');
+        } catch (e) {
+            add('Settings', 'Mail server login (live test)', 'fail', `${e.message}. Site emails (tester codes, welcome, newsletters) cannot be sent until this is fixed. Check the mail host, port, user and password settings in Vercel.`);
         }
 
         // --- Tables and columns needed by features ---
