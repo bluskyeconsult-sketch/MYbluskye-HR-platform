@@ -315,6 +315,70 @@ const API_SOURCES = {
         sponsorship_keywords: ['Visa', 'Work Authorization', 'Sponsorship'],
         parseFunction: parseUsaJobsResponse
     },
+    // NEW (2026-10-21): France - the official France Travail "Offres d'emploi v2" API. Free account at
+    // https://francetravail.io, no contract. Add two Vercel variables: FRANCE_TRAVAIL_CLIENT_ID and
+    // FRANCE_TRAVAIL_CLIENT_SECRET (subscribe your application to "Offres d'emploi v2" there).
+    // Needs a short-lived OAuth token first, fetched by asyncHeaders below. Returns at most 150 per request
+    // (1,150 per query overall); sorted newest first, last 7 days.
+    // LICENCE (honour these): show the offer's content as supplied, name France Travail as the source and
+    // link back to the offer. Taxonomy is French (ROME codes); salary is free text.
+    FRANCE_TRAVAIL: {
+        name: 'France Travail',
+        country: 'FR',
+        url: 'https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?sort=1&publieeDepuis=7&range=0-149',
+        type: 'api',
+        asyncHeaders: getFranceTravailAuthHeaders,
+        is_active: true,
+        priority: 2,
+        sponsorship_keywords: ['visa', 'sponsorship', 'work permit', 'titre de sejour', 'titre de séjour', 'talent passport', 'passeport talent'],
+        parseFunction: parseFranceTravailResponse
+    },
+    // NEW (2026-10-21): Arbeitnow - free, no key, hourly refresh, mostly Germany/DACH, aggregated from company
+    // applicant-tracking systems. They ask for a link back (the apply link is the original job page).
+    // HONEST FLAG: Arbeitnow publishes no written usage terms or rate limits. Email contact@arbeitnow.com to
+    // confirm commercial use before relying on it long-term.
+    ARBEITNOW_DE: {
+        name: 'Arbeitnow',
+        country: 'DE',
+        url: 'https://www.arbeitnow.com/api/job-board-api',
+        type: 'api',
+        extraPages: 2,
+        pageParam: 'page',
+        pageSize: 100,
+        is_active: true,
+        priority: 3,
+        sponsorship_keywords: ['visa sponsorship', 'visa', 'relocation', 'blue card', 'work permit'],
+        parseFunction: parseArbeitnowResponse
+    },
+    // Same service, jobs that offer visa sponsorship only (feeds the Visa Pathways audience).
+    ARBEITNOW_VISA: {
+        name: 'Arbeitnow (Visa Sponsorship)',
+        country: 'DE',
+        url: 'https://www.arbeitnow.com/api/job-board-api?visa_sponsorship=true',
+        type: 'api',
+        extraPages: 2,
+        pageParam: 'page',
+        pageSize: 100,
+        is_active: true,
+        priority: 3,
+        sponsorship_keywords: ['visa sponsorship', 'visa', 'relocation', 'blue card', 'work permit'],
+        parseFunction: parseArbeitnowResponse
+    },
+    // Arbeitnow launched a UK edition in 2026. NOT yet confirmed to return the same response shape, so it is
+    // off by default. Turn is_active on after a successful test; if it returns 0 jobs the log shows why.
+    ARBEITNOW_UK: {
+        name: 'Arbeitnow UK',
+        country: 'GB',
+        url: 'https://www.arbeitnow.co.uk/api/job-board-api',
+        type: 'api',
+        extraPages: 2,
+        pageParam: 'page',
+        pageSize: 100,
+        is_active: false,
+        priority: 3,
+        sponsorship_keywords: ['visa sponsorship', 'skilled worker', 'certificate of sponsorship', 'visa'],
+        parseFunction: (data) => parseArbeitnowResponse(data, 'GB')
+    },
     // NEW (2026-09-18): confirmed via fresh research that
     // remoteok.com/api is a genuinely still-live, free, public JSON
     // endpoint (no auth, no key) - the platform's old RSS path was
@@ -888,6 +952,105 @@ function parseJobbermanResponse(data) {
 // result.
 function logApifyEmptyResponse(actorName, data) {
     console.warn(`${actorName} (Apify) returned 0 parseable jobs. Raw response sample:`, JSON.stringify(data).substring(0, 500));
+}
+
+// NEW (2026-10-21): France Travail needs an OAuth2 token before every search. The token lasts about 25
+// minutes, so it is kept in memory and reused while a warm serverless instance lives.
+let franceTravailToken = { value: null, expiresAt: 0 };
+async function getFranceTravailAuthHeaders() {
+    const clean = (v) => String(v || '').trim().replace(/^["']|["']$/g, '').trim();
+    const clientId = clean(process.env.FRANCE_TRAVAIL_CLIENT_ID);
+    const clientSecret = clean(process.env.FRANCE_TRAVAIL_CLIENT_SECRET);
+    if (!clientId || !clientSecret) {
+        throw new Error('Missing FRANCE_TRAVAIL_CLIENT_ID and/or FRANCE_TRAVAIL_CLIENT_SECRET in Vercel (Production) - add them and redeploy');
+    }
+    if (franceTravailToken.value && Date.now() < franceTravailToken.expiresAt - 60000) {
+        return { Authorization: `Bearer ${franceTravailToken.value}`, Accept: 'application/json' };
+    }
+    const response = await fetch('https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: clientId,
+            client_secret: clientSecret,
+            scope: 'api_offresdemploiv2 o2dsoffre'
+        }).toString()
+    });
+    if (!response.ok) {
+        throw new Error(`France Travail sign-in failed (HTTP ${response.status}) - check the client ID and secret, and that the application is subscribed to Offres d'emploi v2`);
+    }
+    const tokenData = await response.json();
+    if (!tokenData.access_token) throw new Error('France Travail sign-in returned no access token');
+    franceTravailToken = { value: tokenData.access_token, expiresAt: Date.now() + (Number(tokenData.expires_in) || 1400) * 1000 };
+    return { Authorization: `Bearer ${franceTravailToken.value}`, Accept: 'application/json' };
+}
+
+function parseFranceTravailResponse(data) {
+    const items = data?.resultats;
+    if (!Array.isArray(items)) {
+        console.warn('France Travail: unexpected response shape, no resultats array found');
+        return [];
+    }
+    return items.map(o => {
+        const link = o.origineOffre?.urlOrigine
+            || o.contact?.urlPostulation
+            || (o.id ? `https://candidat.francetravail.fr/offres/recherche/detail/${o.id}` : null);
+        const contract = String(o.typeContrat || '').toUpperCase();
+        const nature = String(o.natureContrat || '').toLowerCase();
+        let jobType = 'full-time';
+        if (contract === 'MIS' || contract === 'CDD' || contract === 'DIN') jobType = 'contract';
+        if (/temps partiel/i.test(o.dureeTravailLibelle || '')) jobType = 'part-time';
+        if (/apprentissage|alternance|professionnalisation/i.test(nature)) jobType = 'internship';
+        // Display rule of the licence: content as supplied, source named, link back.
+        const attribution = '\n\nSource : France Travail (offre n° ' + (o.id || '') + ')';
+        return {
+            title: o.intitule || '',
+            company: o.entreprise?.nom || 'Employer via France Travail',
+            location: o.lieuTravail?.libelle || 'France',
+            description: `${o.description || o.intitule || ''}${attribution}`,
+            salary_range: o.salaire?.libelle || null,
+            job_type: jobType,
+            external_url: link,
+            applicationLink: link,
+            url: link,
+            posted_date: o.dateCreation || null,
+            source_name: 'France Travail',
+            source_country: 'FR'
+        };
+    }).filter(j => j.title);
+}
+
+function parseArbeitnowResponse(data, countryOverride = null) {
+    const items = data?.data;
+    if (!Array.isArray(items)) {
+        console.warn('Arbeitnow: unexpected response shape, no data array found');
+        return [];
+    }
+    const types = (t) => (Array.isArray(t) ? t.join(' ') : String(t || '')).toLowerCase();
+    return items.map(j => {
+        const t = types(j.job_types);
+        let jobType = 'full-time';
+        if (/part/.test(t)) jobType = 'part-time';
+        else if (/intern|trainee|ausbildung|werkstudent/.test(t)) jobType = 'internship';
+        else if (/contract|freelance|temporary/.test(t)) jobType = 'contract';
+        const created = j.created_at ? new Date(Number(j.created_at) * 1000) : null;
+        const link = j.url || null;
+        return {
+            title: j.title || '',
+            company: j.company_name || 'Employer via Arbeitnow',
+            location: j.remote ? `${j.location || ''} (Remote)`.trim() : (j.location || 'Germany'),
+            description: String(j.description || j.title || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 5000),
+            salary_range: null,
+            job_type: jobType,
+            external_url: link,
+            applicationLink: link,
+            url: link,
+            posted_date: created && !isNaN(created) ? created.toISOString() : null,
+            source_name: 'Arbeitnow',
+            source_country: countryOverride || 'DE'
+        };
+    }).filter(j => j.title && j.external_url);
 }
 
 // NEW (2026-09-21): real parser for the real, official USAJobs API,
@@ -1553,12 +1716,18 @@ async function fetchFromAPI(source, requestContext = {}) {
         // current behavior unchanged.
         // NEW (2026-10-10): sources that need a secret in the URL/body (Jooble)
         // build their request at call time instead of storing the secret here.
+        // NEW (2026-10-21): sources that sign in first (France Travail OAuth) supply their headers asynchronously.
+        let asyncHeaders = null;
+        if (typeof source.asyncHeaders === 'function') {
+            try { asyncHeaders = await source.asyncHeaders(); }
+            catch (authError) { clearTimeout(timeoutId); return { jobs: [], error: authError.message }; }
+        }
         const built = typeof source.buildRequest === 'function' ? source.buildRequest(requestContext) : null;
         const requestUrl = built?.url || source.url;
         const requestBody = built?.body || source.body;
         const response = await fetch(requestUrl, {
             method: built?.method || source.method || 'GET',
-            headers: { ...REALISTIC_BROWSER_HEADERS, ...(built?.headers || source.headers || {}) },
+            headers: { ...REALISTIC_BROWSER_HEADERS, ...(built?.headers || source.headers || {}), ...(asyncHeaders || {}) },
             ...(requestBody ? { body: JSON.stringify(requestBody) } : {}),
             signal: controller.signal
         });
@@ -1571,6 +1740,8 @@ async function fetchFromAPI(source, requestContext = {}) {
             return { jobs: [], error: reason };
         }
         
+        // France Travail answers 204 (no body) when a search has no results - that is not an error.
+        if (response.status === 204) return { jobs: [], error: null };
         const data = await response.json();
         
         if (source.parseFunction && typeof source.parseFunction === 'function') {
@@ -1599,7 +1770,7 @@ async function fetchFromAPI(source, requestContext = {}) {
                             const sep = requestUrl.includes('?') ? '&' : '?';
                             const pageResponse = await fetch(`${requestUrl}${sep}${source.pageParam}=${p}`, {
                                 method: 'GET',
-                                headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}) },
+                                headers: { ...REALISTIC_BROWSER_HEADERS, ...(source.headers || {}), ...(asyncHeaders || {}) },
                                 signal: pageController.signal
                             });
                             clearTimeout(pageTimer);
@@ -1648,7 +1819,7 @@ async function saveJobToDatabase(job, sponsorship) {
         // duplicates. USAJobs postings are matched by their own unique link instead.
         const jobLink = job.external_url || job.applicationLink || job.link || job.url || null;
         let existingQuery = supabase.from('external_jobs').select('id, external_url, approved_job_id');
-        if (job.source_name === 'USAJobs' && jobLink) {
+        if (['USAJobs', 'France Travail', 'Arbeitnow', 'Arbeitnow (Visa Sponsorship)', 'Arbeitnow UK'].includes(job.source_name) && jobLink) {
             existingQuery = existingQuery.eq('external_url', jobLink).limit(1);
         } else {
             existingQuery = existingQuery
