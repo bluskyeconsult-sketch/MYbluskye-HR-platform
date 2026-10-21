@@ -474,6 +474,8 @@ export default function ExternalJobsManager() {
             'GC Jobs Canada': 'bg-red-500/20 text-red-400',
             'APS Jobs Australia': 'bg-yellow-500/20 text-yellow-400',
             'USAJobs': 'bg-indigo-500/20 text-indigo-400',
+            'France Travail': 'bg-sky-500/20 text-sky-400',
+            'Arbeitnow': 'bg-teal-500/20 text-teal-400',
             'Bund.de': 'bg-amber-500/20 text-amber-400',
             'Jobicy': 'bg-purple-500/20 text-purple-400',
             'Remote OK': 'bg-slate-500/20 text-slate-400'
