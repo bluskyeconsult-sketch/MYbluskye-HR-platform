@@ -182,8 +182,8 @@ export default function SignUpPage() {
         confirmPassword: '',
         full_name: '',
         // NEW (2026-10-07): invitation emails link here with ?tier=... so the invited plan
-        // is preselected (otherwise signup defaults to the browse-only Free plan).
-        selectedTier: (() => { try { const t = new URLSearchParams(window.location.search).get('tier'); return ['registered', 'professional', 'employer', 'business'].includes(t) ? t : 'free'; } catch { return 'free'; } })(),
+        // is preselected (otherwise signup defaults to the free Registered plan).
+        selectedTier: (() => { try { const t = new URLSearchParams(window.location.search).get('tier'); return ['registered', 'professional', 'employer', 'business'].includes(t) ? t : 'registered'; } catch { return 'registered'; } })(),
         company_name: ''
     });
     const [showPassword, setShowPassword] = useState(false);
@@ -217,22 +217,14 @@ export default function SignUpPage() {
 
     // Tiers configuration
     const tiers = [
-        { 
-            id: 'free', 
-            name: 'Free', 
-            price: '$0', 
-            description: 'Browse jobs only',
-            features: ['Job browsing', 'Basic profile', 'Company listings'],
-            requiresPayment: false,
-            redirect: '/dashboard',
-            icon: User,
-            color: 'slate'
-        },
+        // CHANGED (2026-10-21): the browse-only "Free" plan is no longer offered at sign-up. It was the default
+        // selection, so new members landed on a weaker account than the other free option. Everyone who creates an
+        // account now gets the free Registered plan (applications, skill submission, alerts, more assessments).
         { 
             id: 'registered', 
-            name: 'Registered', 
-            price: '$0', 
-            description: 'Apply to jobs, submit skills',
+            name: 'Free Member', 
+            price: 'Free', 
+            description: 'Apply to jobs, submit skills, job alerts',
             features: ['Job applications', 'Skill submission', 'Job alerts'],
             requiresPayment: false,
             redirect: '/dashboard',
