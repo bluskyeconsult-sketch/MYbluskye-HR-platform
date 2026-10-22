@@ -364,8 +364,9 @@ const API_SOURCES = {
         sponsorship_keywords: ['visa sponsorship', 'visa', 'relocation', 'blue card', 'work permit'],
         parseFunction: parseArbeitnowResponse
     },
-    // Arbeitnow launched a UK edition in 2026. NOT yet confirmed to return the same response shape, so it is
-    // off by default. Turn is_active on after a successful test; if it returns 0 jobs the log shows why.
+    // Arbeitnow launched a UK edition in 2026. Switched ON (2026-10-22) on the owner's confirmation that the
+    // Arbeitnow feed populates well; the UK endpoint itself was not tested from here. If it ever returns 0 jobs
+    // the sync log shows why.
     ARBEITNOW_UK: {
         name: 'Arbeitnow UK',
         country: 'GB',
@@ -374,7 +375,7 @@ const API_SOURCES = {
         extraPages: 2,
         pageParam: 'page',
         pageSize: 100,
-        is_active: false,
+        is_active: true,
         priority: 3,
         sponsorship_keywords: ['visa sponsorship', 'skilled worker', 'certificate of sponsorship', 'visa'],
         parseFunction: (data) => parseArbeitnowResponse(data, 'GB')
@@ -1022,6 +1023,7 @@ function parseFranceTravailResponse(data) {
 }
 
 function parseArbeitnowResponse(data, countryOverride = null) {
+    const sourceLabel = countryOverride === 'GB' ? 'Arbeitnow UK' : 'Arbeitnow';
     const items = data?.data;
     if (!Array.isArray(items)) {
         console.warn('Arbeitnow: unexpected response shape, no data array found');
@@ -1039,7 +1041,7 @@ function parseArbeitnowResponse(data, countryOverride = null) {
         return {
             title: j.title || '',
             company: j.company_name || 'Employer via Arbeitnow',
-            location: j.remote ? `${j.location || ''} (Remote)`.trim() : (j.location || 'Germany'),
+            location: j.remote ? `${j.location || ''} (Remote)`.trim() : (j.location || (countryOverride === 'GB' ? 'United Kingdom' : 'Germany')),
             description: String(j.description || j.title || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 5000),
             salary_range: null,
             job_type: jobType,
@@ -1047,7 +1049,7 @@ function parseArbeitnowResponse(data, countryOverride = null) {
             applicationLink: link,
             url: link,
             posted_date: created && !isNaN(created) ? created.toISOString() : null,
-            source_name: 'Arbeitnow',
+            source_name: sourceLabel,
             source_country: countryOverride || 'DE'
         };
     }).filter(j => j.title && j.external_url);
