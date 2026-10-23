@@ -67,6 +67,8 @@ export default function AppraisalsPage({ joinMode = false }) {
             {error && <div className="mb-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex gap-2"><AlertTriangle className="w-4 h-4 mt-0.5" />{error}</div>}
             {data && !data.encryption_ready && <div className="mb-4 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">Appraisals are not switched on yet. The site owner must add the encryption key first.</div>}
 
+            {(data?.appraisals || []).some(a => a.roles.includes('employee')) && <Link to="/appraisals/progress" className="inline-flex items-center gap-1 text-sm text-primary-400 hover:underline mb-4">View my progress and charts</Link>}
+
             <h2 className="text-white font-semibold mb-2">Needs your attention</h2>
             <div className="space-y-3 mb-8">{todo.length ? todo.map(a => <Row key={a.id} a={a} />) : <p className="text-sm text-slate-400">Nothing waiting for you.</p>}</div>
             {rest.length > 0 && <><h2 className="text-white font-semibold mb-2">All appraisals</h2><div className="space-y-3 mb-8">{rest.map(a => <Row key={a.id} a={a} />)}</div></>}
