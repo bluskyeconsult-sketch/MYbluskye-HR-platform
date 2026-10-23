@@ -364,9 +364,9 @@ const API_SOURCES = {
         sponsorship_keywords: ['visa sponsorship', 'visa', 'relocation', 'blue card', 'work permit'],
         parseFunction: parseArbeitnowResponse
     },
-    // Arbeitnow launched a UK edition in 2026. Switched ON (2026-10-22) on the owner's confirmation that the
-    // Arbeitnow feed populates well; the UK endpoint itself was not tested from here. If it ever returns 0 jobs
-    // the sync log shows why.
+    // Arbeitnow launched a UK edition in 2026. Switched OFF again (2026-10-23): a live sync got HTTP 403
+    // from this address (it blocks Vercel's servers). UK jobs already arrive through the main Arbeitnow feed
+    // (location-based country tagging). Turn on only if Arbeitnow grants access.
     ARBEITNOW_UK: {
         name: 'Arbeitnow UK',
         country: 'GB',
@@ -375,7 +375,7 @@ const API_SOURCES = {
         extraPages: 2,
         pageParam: 'page',
         pageSize: 100,
-        is_active: true,
+        is_active: false,
         priority: 3,
         sponsorship_keywords: ['visa sponsorship', 'skilled worker', 'certificate of sponsorship', 'visa'],
         parseFunction: (data) => parseArbeitnowResponse(data, 'GB')
@@ -1022,6 +1022,29 @@ function parseFranceTravailResponse(data) {
     }).filter(j => j.title);
 }
 
+// NEW (2026-10-23): the live Arbeitnow feed is Europe-wide (a real sync returned London, Paris, Amsterdam and
+// Berlin jobs together), so every job was being tagged Germany. The country is now read from the location text.
+// Anything not recognised keeps the feed's default (Germany) so nothing is lost.
+const ARBEITNOW_COUNTRY_HINTS = [
+    ['GB', /\b(united kingdom|uk|england|scotland|wales|northern ireland|london|manchester|birmingham|leeds|glasgow|edinburgh|bristol|liverpool|sheffield|cardiff|belfast|newcastle|nottingham|oxford|cambridge|reading|leicester)\b/i],
+    ['IE', /\b(ireland|dublin|cork|galway|limerick)\b/i],
+    ['FR', /\b(france|paris|lyon|marseille|toulouse|nice|nantes|bordeaux|lille|strasbourg|île-de-france|ile-de-france)\b/i],
+    ['NL', /\b(netherlands|nederland|amsterdam|rotterdam|utrecht|eindhoven|den haag|the hague|zuid-holland|noord-holland|noord-brabant|gelderland)\b/i],
+    ['AT', /\b(austria|österreich|oesterreich|wien|vienna|graz|linz|salzburg|innsbruck)\b/i],
+    ['CH', /\b(switzerland|schweiz|suisse|zürich|zurich|geneva|genf|basel|bern|lausanne)\b/i],
+    ['ES', /\b(spain|españa|madrid|barcelona|valencia)\b/i],
+    ['PL', /\b(poland|polska|warsaw|warszawa|krakow|kraków|wroclaw|gdansk)\b/i],
+    ['PT', /\b(portugal|lisbon|lisboa|porto)\b/i],
+    ['DE', /\b(germany|deutschland|berlin|munich|münchen|hamburg|frankfurt|köln|cologne|stuttgart|düsseldorf|leipzig|dresden|hannover|nürnberg|nuremberg|bremen)\b/i]
+];
+function inferArbeitnowCountry(location, fallback) {
+    const text = String(location || '');
+    for (const [code, re] of ARBEITNOW_COUNTRY_HINTS) {
+        if (re.test(text)) return code;
+    }
+    return fallback;
+}
+
 function parseArbeitnowResponse(data, countryOverride = null) {
     const sourceLabel = countryOverride === 'GB' ? 'Arbeitnow UK' : 'Arbeitnow';
     const items = data?.data;
@@ -1050,7 +1073,7 @@ function parseArbeitnowResponse(data, countryOverride = null) {
             url: link,
             posted_date: created && !isNaN(created) ? created.toISOString() : null,
             source_name: sourceLabel,
-            source_country: countryOverride || 'DE'
+            source_country: inferArbeitnowCountry(j.location, countryOverride || 'DE')
         };
     }).filter(j => j.title && j.external_url);
 }
