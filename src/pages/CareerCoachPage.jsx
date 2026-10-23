@@ -9,7 +9,7 @@
 // Nothing is ever submitted to an employer: the user reviews drafts and applies themselves.
 
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { COACH_CONSENT_TEXT } from '../services/careerCoachService';
 import AiDisclaimer from '../components/AiDisclaimer';
@@ -54,6 +54,7 @@ export default function CareerCoachPage() {
     const [error, setError] = useState('');
     const [busy, setBusy] = useState('');
     const [tab, setTab] = useState('goal');
+    const location = useLocation();
     const [goalForm, setGoalForm] = useState({ roles: '', countries: [], needs_sponsorship: false, settlement_goal: false, work_mode: 'any', min_salary: '', experience_summary: '', cv_text: '' });
     const [hasGoal, setHasGoal] = useState(false);
     const [analysis, setAnalysis] = useState(null);
@@ -83,6 +84,16 @@ export default function CareerCoachPage() {
         } finally { setLoading(false); }
     }, []);
     useEffect(() => { load(); }, [load]);
+    // NEW (2026-10-23): the employee can choose to copy their own appraisal goals here. This only fills the box on this page;
+    // nothing is saved until they save it, and their employer is never told.
+    useEffect(() => {
+        const pre = location.state?.prefillExperience;
+        if (!loading && pre && typeof pre === 'string') {
+            setGoalForm(g => ({ ...g, experience_summary: g.experience_summary ? `${g.experience_summary}\n\n${pre}` : pre }));
+            setTab('goal');
+            try { window.history.replaceState({}, document.title); } catch { /* ignore */ }
+        }
+    }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function choose(decision) {
         setBusy('consent'); setError('');
