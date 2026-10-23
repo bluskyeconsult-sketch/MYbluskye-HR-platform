@@ -18367,7 +18367,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         refundAiCredit: (sb, userId, check) => refundCreditIfDeducted(sb, userId, check, 1)
     }));
     // Job posting decided by the server (plan allowance, pay-per-post credits, daily cap) and the job-post credit checkout.
-    Object.assign(handlers, buildJobPostingHandlers({ getSupabase }));
+    Object.assign(handlers, buildJobPostingHandlers({ getSupabase, getUserId: complianceDeps.getUserId, isAdmin: complianceDeps.isAdmin, sendMail: complianceDeps.sendMail }));
     Object.assign(handlers, buildGeoPricingHandlers(complianceDeps));
 }
 
