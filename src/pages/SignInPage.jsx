@@ -32,9 +32,10 @@
 //   the confirmed real route list (App.jsx) — sending a reset link by email
 //   avoids linking to a page that isn't there.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import TurnstileBox from '../components/TurnstileBox';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, CheckCircle, ArrowLeft, LogIn } from 'lucide-react';
 
 const API_BASE = '/api/index';
@@ -65,6 +66,9 @@ export default function SignInPage() {
     const [resetSent, setResetSent] = useState(false);
     const [resetLoading, setResetLoading] = useState(false);
     const [resetError, setResetError] = useState('');
+    // human-check (Cloudflare Turnstile): invisible for most people; does nothing until VITE_TURNSTILE_SITE_KEY is set
+    const loginCaptcha = useRef(null);
+    const resetCaptcha = useRef(null);
 
     // If already logged in, skip straight past this page.
     useEffect(() => {
@@ -89,10 +93,12 @@ export default function SignInPage() {
             // instead, which is what makes real rate limiting/lockout
             // possible at all (a direct client call never passes through
             // the backend gateway and can't be tracked server-side).
+            const captchaToken = await loginCaptcha.current?.getToken();
+            loginCaptcha.current?.reset(); // a token works only once
             const response = await fetch(`${API_BASE}?action=user-login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: formData.email, password: formData.password })
+                body: JSON.stringify({ email: formData.email, password: formData.password, captchaToken: captchaToken || undefined })
             });
 
             const result = await response.json();
@@ -178,8 +184,11 @@ export default function SignInPage() {
         setResetError('');
 
         try {
+            const captchaToken = await resetCaptcha.current?.getToken();
+            resetCaptcha.current?.reset();
             const { error: resetErr } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-                redirectTo: `${window.location.origin}/sign-in`
+                redirectTo: `${window.location.origin}/sign-in`,
+                ...(captchaToken ? { captchaToken } : {})
             });
             if (resetErr) throw resetErr;
             setResetSent(true);
@@ -245,6 +254,8 @@ export default function SignInPage() {
                                             />
                                         </div>
                                     </div>
+
+                                    <TurnstileBox ref={resetCaptcha} action="password-reset" className="flex justify-center" />
 
                                     <button
                                         type="submit"
@@ -384,6 +395,8 @@ export default function SignInPage() {
                                 </button>
                             </div>
                         </div>
+
+                        <TurnstileBox ref={loginCaptcha} action="login" className="flex justify-center" />
 
                         <button
                             type="submit"
