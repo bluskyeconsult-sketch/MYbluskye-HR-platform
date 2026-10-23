@@ -28,6 +28,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import DOMPurify from 'dompurify';
 import LegalReviewButton from '../../components/admin/LegalReviewButton';
 import {
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
@@ -900,7 +901,10 @@ export default function NewsletterAdmin() {
                                 </button>
                             </div>
                             <div className="bg-white rounded-lg p-6 text-gray-800">
-                                <div dangerouslySetInnerHTML={{ __html: selectedNewsletter.content || selectedNewsletter.content_html }} />
+                                {/* SECURITY (2026-10-23): newsletter HTML is cleaned before display so pasted or imported
+                                    content cannot run script in the admin session. Scripts, forms, embeds, event handlers
+                                    and javascript: links are removed; ordinary formatting, images and links stay. */}
+                                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedNewsletter.content || selectedNewsletter.content_html || '', { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed'], FORBID_ATTR: ['style'] }) }} />
                             </div>
                             <div className="mt-4 flex justify-end">
                                 <button
