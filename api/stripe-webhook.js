@@ -133,6 +133,20 @@ export default async function handler(req, res) {
                     break;
                 }
 
+                // NEW (2026-10-23): pay-per-job-post packs. Credited once per payment (keyed on the payment id), only when paid.
+                if (session.metadata?.type === 'job_post_pack') {
+                    const jpUser = session.metadata?.userId; const jpCount = parseInt(session.metadata?.count, 10);
+                    if (jpUser && [1, 3, 5].includes(jpCount) && session.payment_status === 'paid') {
+                        const { error: jpErr } = await supabase.rpc('job_post_credit_adjust', { p_user: jpUser, p_delta: jpCount, p_reason: 'purchase', p_ref: session.id, p_job: null });
+                        if (jpErr) {
+                            console.error('job post credit failed:', jpErr.message);
+                            await supabase.from('processed_stripe_events').delete().eq('event_id', event.id);
+                            return res.status(500).json({ error: 'credit failed' });
+                        }
+                    }
+                    break;
+                }
+
                 if (session.metadata?.type === 'credit_purchase') {
                     const creditsToAdd = parseInt(session.metadata?.credits, 10);
                     if (userId && creditsToAdd) {
