@@ -12,11 +12,12 @@
 // twice in one cooldown window, show immediately on arrival, or block
 // the page underneath it.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { X, Mail, Bell, UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
+import TurnstileBox from './TurnstileBox';
 
 const DISMISS_COOLDOWN_DAYS = 7;
 const ENGAGEMENT_DELAY_MS = 35000; // only after genuine time-on-site
@@ -121,15 +122,19 @@ export default function VisitorEngagementPrompt() {
         handleDismiss();
     }
 
+    const newsletterCaptcha = useRef(null); // human check; does nothing until VITE_TURNSTILE_SITE_KEY is set
+
     async function handleNewsletterSubmit(e) {
         e.preventDefault();
         if (!email.trim()) return;
         setSubmitting(true);
         try {
+            const captchaToken = await newsletterCaptcha.current?.getToken();
+            newsletterCaptcha.current?.reset();
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim() })
+                body: JSON.stringify({ email: email.trim(), captchaToken: captchaToken || undefined })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Subscription failed');
@@ -189,6 +194,7 @@ export default function VisitorEngagementPrompt() {
                                 required
                                 className="flex-1 min-w-0 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                             />
+                            <TurnstileBox ref={newsletterCaptcha} action="newsletter" className="flex justify-center" />
                             <button
                                 type="submit"
                                 disabled={submitting}
