@@ -78,7 +78,10 @@ export default function HomePage() {
         { code: 'AU', name: 'Australia', flag: '🇦🇺' },
         { code: 'DE', name: 'Germany', flag: '🇩🇪' },
         { code: 'FR', name: 'France', flag: '🇫🇷' },
-        { code: 'IE', name: 'Ireland', flag: '🇮🇪' }
+        { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
+        // NEW (2026-10-23): remote/worldwide jobs and countries without their own card were counted nowhere
+        // (about 2,200 live jobs). This card counts every job whose country is not one of the eight above.
+        { code: 'OTHER', name: 'Worldwide & Other', flag: '🌍' }
     ], []);
 
     const features = useMemo(() => [
@@ -223,10 +226,13 @@ export default function HomePage() {
                         // schema query and matching live console 400
                         // errors that country_code is the real column -
                         // source_country doesn't exist on the jobs table.
-                        const { count, error } = await supabase
+                        let countQuery = supabase
                             .from('jobs')
-                            .select('id', { count: 'exact', head: true })
-                            .eq('country_code', country.code)
+                            .select('id', { count: 'exact', head: true });
+                        countQuery = country.code === 'OTHER'
+                            ? countQuery.not('country_code', 'in', `(${countries.filter(c => c.code !== 'OTHER').map(c => c.code).join(',')})`)
+                            : countQuery.eq('country_code', country.code);
+                        const { count, error } = await countQuery
                             .eq('is_active', true)
                             .eq('compliance_status', 'approved');
                         
@@ -484,11 +490,11 @@ export default function HomePage() {
                         Global Presence
                     </h2>
                     <p className="text-slate-400 text-sm sm:text-base">
-                        Connecting professionals and employers across {countries.length} countries
+                        Connecting professionals and employers across {countries.length - 1} countries and worldwide
                     </p>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3 md:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-9 gap-2 sm:gap-3 md:gap-4">
                     {countryStats.map((country) => (
                         <Link 
                             key={country.code} 
@@ -499,6 +505,9 @@ export default function HomePage() {
                                 ("GB" twice on every card). A small flag picture works on every device; if it cannot load, the
                                 country code is shown once. Also showed only the first word of the name ("United" for both UK and US). */}
                             <div className="h-6 sm:h-7 md:h-8 mb-1 flex items-center justify-center">
+                                {country.code === 'OTHER' ? (
+                                    <span className="text-2xl sm:text-3xl" aria-hidden="true">🌍</span>
+                                ) : (<>
                                 <img
                                     src={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png`}
                                     srcSet={`https://flagcdn.com/w80/${country.code.toLowerCase()}.png 2x`}
@@ -508,6 +517,7 @@ export default function HomePage() {
                                     onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'block'; }}
                                 />
                                 <span style={{ display: 'none' }} className="text-sm sm:text-base md:text-lg font-semibold text-white">{country.code}</span>
+                                </>)}
                             </div>
                             <div className="text-[11px] sm:text-xs font-medium text-white group-hover:text-primary-400 transition truncate">{country.name}</div>
                             <div className="text-[10px] sm:text-xs text-primary-400 mt-0.5 sm:mt-1">{country.jobCount} jobs</div>
