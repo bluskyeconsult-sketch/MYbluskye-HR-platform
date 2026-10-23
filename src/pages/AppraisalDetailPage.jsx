@@ -2,10 +2,10 @@
 // NEW (2026-10-23): one appraisal, from self-appraisal to filing. What appears depends on the server's answer:
 // the server decides who may see which part, this page just draws what it was given.
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiCall, STATUS_LABELS, ACTION_LABELS } from '../services/appraisalApi';
 import ComplianceGate from '../components/ComplianceGate';
-import { Loader2, Download, ShieldCheck, History, Lock } from 'lucide-react';
+import { Loader2, Download, ShieldCheck, History, Lock, Compass } from 'lucide-react';
 
 const input = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500';
 const card = 'bg-slate-900 border border-slate-700 rounded-xl p-5 mb-4';
@@ -43,6 +43,7 @@ function RatingForm({ template, initial, onSave, onSubmit, busy, submitLabel, op
 
 export default function AppraisalDetailPage() {
     const { id } = useParams();
+    const nav = useNavigate();
     const [v, setV] = useState(null);
     const [err, setErr] = useState(''); const [ok, setOk] = useState('');
     const [busy, setBusy] = useState(false);
@@ -120,6 +121,12 @@ export default function AppraisalDetailPage() {
                 <textarea rows={3} className={input + ' mb-2'} maxLength={5000} value={stmt} onChange={e => setStmt(e.target.value)} />
                 <button disabled={busy || !stmt.trim()} onClick={() => run(async () => { await apiCall('appr-statement', { appraisalId: id, content: { text: stmt } }, { auth: 'required' }); setStmt(''); }, 'Statement added.')} className="px-4 py-2 rounded-lg bg-slate-700 disabled:opacity-40 text-white text-sm">Add statement</button></div>}
 
+            {isEmployee && ['awaiting_employee_response', 'awaiting_final_approval', 'filed'].includes(ap.status) && (() => {
+                const goals = v.versions.filter(x => ['joint', 'supervisor'].includes(x.stage) && x.content?.goals).slice(-1)[0]?.content?.goals;
+                return goals ? (<div className={card}><h2 className="text-white font-semibold mb-1 inline-flex items-center gap-2"><Compass className="w-4 h-4" />Use my goals in Career Coach</h2>
+                    <p className="text-xs text-slate-400 mb-3">Optional. This copies the goals text from your appraisal into your private Career Coach page so you can plan your next step. Nothing is saved until you save it there. Your employer and supervisor are not told, and it is never used for recruitment.</p>
+                    <button onClick={() => nav('/career-coach', { state: { prefillExperience: goals } })} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm">Copy my goals to Career Coach</button></div>) : null;
+            })()}
             <div className="flex flex-wrap gap-2 mb-6">
                 {v.versions.length > 0 && <button disabled={busy} onClick={pdf} className="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm inline-flex items-center gap-1"><Download className="w-4 h-4" />Download PDF</button>}
                 {v.roles.includes('hr') && !['filed', 'closed_employee_left', 'withdrawn', 'purged'].includes(ap.status) && <button disabled={busy} onClick={() => window.confirm('Withdraw this appraisal?') && run(() => apiCall('appr-withdraw', { appraisalId: id }, { auth: 'required' }), 'Withdrawn.')} className="px-4 py-2 rounded-lg bg-slate-800 text-red-300 text-sm">Withdraw</button>}
