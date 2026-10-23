@@ -8,7 +8,7 @@ import { Loader2, UserPlus, Users, CalendarPlus, Settings, UserMinus, FileText, 
 
 const input = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500';
 const CAT = { micro_default: 'Simple (for very small teams)', standard: 'Standard', role: 'By type of work', custom: 'Your own templates' };
-const blankQ = () => ({ id: `n${Math.random().toString(36).slice(2, 8)}`, title: '', description: '', anchors: { 1: '', 3: '', 5: '' } });
+const blankQ = () => ({ id: `n${Math.random().toString(36).slice(2, 8)}`, title: '', description: '', weight: 1, anchors: { 1: '', 3: '', 5: '' } });
 const nm = (m) => m?.full_name || m?.email?.split('@')[0] || 'Unknown';
 
 export default function AppraisalOrgPage() {
@@ -20,7 +20,7 @@ export default function AppraisalOrgPage() {
     const [cyc, setCyc] = useState({ name: '', template_id: '' });
     const [tab, setTab] = useState('people');
     const [ai, setAi] = useState({ role: '', industry: '', focus: '', count: 5 });
-    const [reviewed, setReviewed] = useState(false);
+    const [sug, setSug] = useState(null);      // AI topic ideas: { list:[{title,covers,on}], note, removed }
     const [ed, setEd] = useState(null);   // template being edited: { id?, name, description, criteria[] }
 
     const load = useCallback(async () => { try { setD(await apiCall('appr-org-get', { orgId }, { auth: 'required' })); } catch (e) { setErr(e.message); } }, [orgId]);
@@ -99,28 +99,28 @@ export default function AppraisalOrgPage() {
                         <div className="flex flex-wrap justify-between items-center gap-2 mb-3"><p className="text-sm text-slate-300 max-w-xl">These are the questions people are rated on. Pick a ready-made set when you start a round, or copy one and change it. Each question can have short descriptions of what 1, 3 and 5 look like, which keeps ratings consistent.</p>
                             <button onClick={() => setEd({ name: '', description: '', criteria: [blankQ(), blankQ(), blankQ()] })} className="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm inline-flex items-center gap-1"><Plus className="w-4 h-4" />Write my own</button></div>
                         <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
-                            <h3 className="text-white font-medium mb-1 inline-flex items-center gap-1"><Sparkles className="w-4 h-4 text-violet-300" />Draft questions with AI</h3>
-                            <p className="text-xs text-slate-400 mb-3">Describe the job and AI suggests questions with 1, 3 and 5 descriptions for you to edit. Describe the job only: do not type any person&apos;s name. AI helps with writing questions only. It never reads, scores or comments on appraisal results. Uses 1 AI credit.</p>
+                            <h3 className="text-white font-medium mb-1 inline-flex items-center gap-1"><Sparkles className="w-4 h-4 text-violet-300" />Need ideas for questions?</h3>
+                            <p className="text-xs text-slate-400 mb-3">Describe the job and AI suggests a short list of topics as starting points. You choose which to use and write the questions yourself. Describe the job only: do not type any person&apos;s name. AI never reads or judges appraisal results. Uses 1 AI credit.</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                 <input className={input} placeholder="The job, e.g. kitchen assistant" value={ai.role} maxLength={80} onChange={e => setAi({ ...ai, role: e.target.value })} />
                                 <input className={input} placeholder="Type of workplace (optional), e.g. care home" value={ai.industry} maxLength={80} onChange={e => setAi({ ...ai, industry: e.target.value })} />
                                 <input className={input + ' md:col-span-2'} placeholder="What matters most in this job (optional)" value={ai.focus} maxLength={300} onChange={e => setAi({ ...ai, focus: e.target.value })} />
-                                <select className={input} value={ai.count} onChange={e => setAi({ ...ai, count: Number(e.target.value) })}>{[3, 4, 5, 6, 8].map(n => <option key={n} value={n}>{n} questions</option>)}</select>
-                                <button disabled={busy || ai.role.trim().length < 2} onClick={() => run(async () => {
-                                    const r = await apiCall('appr-template-ai-draft', { orgId, ...ai }, { auth: 'required' });
-                                    setReviewed(false);
-                                    setEd({ name: ai.role.trim().slice(0, 80) ? `${ai.role.trim().slice(0, 80)} appraisal` : '', description: '', ai_drafted: true, info: { notice: r.notice, removed: r.removed, self_review: r.self_review },
-                                        criteria: r.criteria.map(c => ({ ...blankQ(), title: c.title, description: c.description, anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })) });
-                                })} className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm">{busy ? 'Drafting...' : 'Draft questions'}</button>
+                                <button disabled={busy || ai.role.trim().length < 2} onClick={() => run(async () => { const r = await apiCall('appr-template-ai-draft', { orgId, role: ai.role, industry: ai.industry, focus: ai.focus }, { auth: 'required' }); setSug({ list: r.suggestions.map(x => ({ ...x, on: false })), note: r.note, removed: r.removed }); })} className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm md:col-span-2">{busy ? 'Thinking...' : 'Suggest topics'}</button>
                             </div>
+                            {sug && (<div className="mt-3">
+                                <p className="text-xs text-violet-200 mb-2">{sug.note}</p>
+                                <div className="space-y-1.5">{sug.list.map((x, i) => (
+                                    <label key={i} className="flex items-start gap-2 text-sm text-slate-200"><input type="checkbox" className="mt-1" checked={x.on} onChange={e => setSug({ ...sug, list: sug.list.map((y, j) => j === i ? { ...y, on: e.target.checked } : y) })} /><span><b className="text-white">{x.title}</b>{x.covers ? <span className="text-slate-400"> - {x.covers}</span> : null}</span></label>))}</div>
+                                <button disabled={!sug.list.some(x => x.on)} onClick={() => { setEd({ name: '', description: '', use_potential: false, criteria: sug.list.filter(x => x.on).map(x => ({ ...blankQ(), title: x.title, description: x.covers })) }); setSug(null); }} className="mt-3 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white text-sm">Start my template with the ticked topics</button>
+                            </div>)}
                         </div>
                         {Object.keys(CAT).map(k => { const list = d.templates.filter(t => (t.category || (t.org_id ? 'custom' : 'standard')) === k); if (!list.length) return null; return (
                             <div key={k} className="mb-4"><h3 className="text-white text-sm font-medium mb-2">{CAT[k]}</h3>
                                 <div className="space-y-2">{list.map(t => (
                                     <div key={t.id} className="bg-slate-900 border border-slate-700 rounded-lg p-3">
-                                        <div className="flex flex-wrap justify-between gap-2"><div><div className="text-white text-sm">{t.name}{t.ai_drafted && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-200">AI-drafted</span>}</div>{t.description && <div className="text-xs text-slate-400">{t.description}</div>}</div>
+                                        <div className="flex flex-wrap justify-between gap-2"><div><div className="text-white text-sm">{t.name}</div>{t.description && <div className="text-xs text-slate-400">{t.description}</div>}</div>
                                             <div className="flex gap-3 text-xs items-start">
-                                                <button className="text-primary-400 inline-flex items-center gap-1" onClick={() => setEd({ name: t.org_id ? t.name : `${t.name} (copy)`, description: t.description || '', criteria: t.criteria.map(c => ({ id: c.id, title: c.title, description: c.description || '', anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })), id: t.org_id ? t.id : undefined, ai_drafted: !!t.ai_drafted })}><Copy className="w-3.5 h-3.5" />{t.org_id ? 'Edit' : 'Copy and edit'}</button>
+                                                <button className="text-primary-400 inline-flex items-center gap-1" onClick={() => setEd({ name: t.org_id ? t.name : `${t.name} (copy)`, description: t.description || '', criteria: t.criteria.map(c => ({ id: c.id, title: c.title, description: c.description || '', weight: c.weight || 1, anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })), id: t.org_id ? t.id : undefined, use_potential: !!t.use_potential })}><Copy className="w-3.5 h-3.5" />{t.org_id ? 'Edit' : 'Copy and edit'}</button>
                                                 {t.org_id && <button className="text-red-300 inline-flex items-center gap-1" onClick={() => window.confirm('Delete this template? Appraisals already started keep their own copy.') && run(() => apiCall('appr-template-delete', { orgId, templateId: t.id }, { auth: 'required' }), 'Deleted.')}><Trash2 className="w-3.5 h-3.5" />Delete</button>}</div></div>
                                         <ul className="mt-2 text-xs text-slate-400 list-disc pl-5">{t.criteria.map(c => <li key={c.id}>{c.title}</li>)}</ul></div>))}</div></div>); })}
                     </>)}
@@ -129,23 +129,20 @@ export default function AppraisalOrgPage() {
                             <h3 className="text-white font-medium mb-3">{ed.id ? 'Edit template' : 'New template'}</h3>
                             <input className={input + ' mb-2'} placeholder="Template name" value={ed.name} onChange={e => setEd({ ...ed, name: e.target.value })} maxLength={120} />
                             <input className={input + ' mb-4'} placeholder="Short description (optional)" value={ed.description} onChange={e => setEd({ ...ed, description: e.target.value })} maxLength={300} />
-                            {ed.ai_drafted && (<div className="mb-4 text-sm text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-lg p-3">
-                                <p className="mb-1"><b>AI-drafted questions.</b> {ed.info?.notice || 'Read every question and change what does not fit. AI is not used to read or judge any appraisal result.'}</p>
-                                {ed.info?.removed?.length > 0 && <p className="text-xs">Left out automatically because they touched a personal characteristic: {ed.info.removed.join(', ')}.</p>}
-                                {ed.info?.self_review?.length > 0 && <ul className="list-disc pl-5 text-xs mt-1">{ed.info.self_review.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-                                <label className="flex items-center gap-2 mt-2 text-xs"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />I have read every question and checked that it is fair and suits my business.</label>
-                            </div>)}
+                            <label className="flex items-start gap-2 text-sm text-slate-300 mb-4"><input type="checkbox" className="mt-1" checked={!!ed.use_potential} onChange={e => setEd({ ...ed, use_potential: e.target.checked })} /><span>Also ask the supervisor to rate potential (1 to 3). This is needed for the nine-box grid in reports, which is part of the Business plan. The employee sees the potential rating with the rest of the record.</span></label>
                             {ed.criteria.map((c, i) => (
                                 <div key={i} className="border border-slate-700 rounded-lg p-3 mb-3">
                                     <div className="flex gap-2 mb-2"><input className={input} placeholder={`Question ${i + 1}, e.g. Quality of work`} value={c.title} maxLength={120} onChange={e => { const cr = [...ed.criteria]; cr[i] = { ...c, title: e.target.value }; setEd({ ...ed, criteria: cr }); }} />
                                         <button title="Remove question" disabled={ed.criteria.length <= 1} onClick={() => setEd({ ...ed, criteria: ed.criteria.filter((_, j) => j !== i) })} className="text-red-300 disabled:opacity-30"><Trash2 className="w-4 h-4" /></button></div>
                                     <input className={input + ' mb-2'} placeholder="What this question is about (optional)" value={c.description} maxLength={400} onChange={e => { const cr = [...ed.criteria]; cr[i] = { ...c, description: e.target.value }; setEd({ ...ed, criteria: cr }); }} />
+                                    <div className="flex items-center gap-2 mb-2 text-xs text-slate-400">How much this counts in the overall rating:
+                                        <select className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white" value={c.weight || 1} onChange={e => { const cr = [...ed.criteria]; cr[i] = { ...c, weight: Number(e.target.value) }; setEd({ ...ed, criteria: cr }); }}><option value={1}>Normal</option><option value={2}>Double</option><option value={3}>Triple</option></select></div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">{[1, 3, 5].map(k => <input key={k} className={input} placeholder={`What a ${k} looks like (optional)`} value={c.anchors[k]} maxLength={200} onChange={e => { const cr = [...ed.criteria]; cr[i] = { ...c, anchors: { ...c.anchors, [k]: e.target.value } }; setEd({ ...ed, criteria: cr }); }} />)}</div>
                                 </div>))}
                             <div className="flex flex-wrap gap-2">
                                 <button disabled={ed.criteria.length >= 12} onClick={() => setEd({ ...ed, criteria: [...ed.criteria, blankQ()] })} className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm disabled:opacity-40">Add a question</button>
-                                <button disabled={busy || !ed.name || !ed.criteria.some(c => c.title.trim()) || (ed.ai_drafted && !reviewed)} onClick={() => run(async () => { await apiCall('appr-template-save', { orgId, templateId: ed.id, ai_drafted: !!ed.ai_drafted, reviewed, name: ed.name, description: ed.description, criteria: ed.criteria.map((c) => ({ id: c.id, title: c.title, description: c.description, anchors: c.anchors })) }, { auth: 'required' }); setEd(null); }, 'Template saved.')} className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-40">Save template</button>
-                                <button onClick={() => { setEd(null); setReviewed(false); }} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm">Cancel</button></div>
+                                <button disabled={busy || !ed.name || !ed.criteria.some(c => c.title.trim())} onClick={() => run(async () => { await apiCall('appr-template-save', { orgId, templateId: ed.id, use_potential: !!ed.use_potential, name: ed.name, description: ed.description, criteria: ed.criteria.map((c) => ({ id: c.id, title: c.title, description: c.description, weight: c.weight || 1, anchors: c.anchors })) }, { auth: 'required' }); setEd(null); }, 'Template saved.')} className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-40">Save template</button>
+                                <button onClick={() => setEd(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm">Cancel</button></div>
                             <p className="text-xs text-slate-500 mt-3">Ask only about work behaviour and results. Do not ask about health, family plans, age, religion or other personal characteristics. Up to 12 questions. Ratings use a 1 to 5 scale.</p>
                         </div>)}
                 </>)}
