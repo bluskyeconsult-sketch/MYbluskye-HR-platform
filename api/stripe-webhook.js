@@ -40,6 +40,7 @@
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { AFFILIATE_PLAN } from '../src/services/affiliatePlan.js';
+import { checkBilling, recordFlag } from './_lib/geoPricing.js';
 
 export const config = {
     api: {
@@ -275,6 +276,18 @@ export default async function handler(req, res) {
                 if (error) {
                     console.error('Failed to upgrade user tier after successful payment:', userId, error);
                 }
+
+                // NEW (2026-10-23): regional pricing check. If a discounted band was charged, the billing country on the
+                // payment must belong to a band that justifies it. A mismatch never blocks the customer here; it is
+                // flagged in Admin > Geo-pricing for a person to review.
+                try {
+                    const chargedBand = session.metadata?.priceBand;
+                    if (chargedBand && chargedBand !== 'A') {
+                        const billingCountry = session.customer_details?.address?.country || null;
+                        const chk = await checkBilling(supabase, { chargedBand, billingCountry });
+                        if (!chk.ok) await recordFlag(supabase, { user_id: userId, stripe_session_id: session.id, charged_band: chargedBand, billing_country: billingCountry, billing_band: chk.billingBand || null, reason: chk.reason });
+                    }
+                } catch (geoErr) { console.error('geo pricing check failed (non-fatal):', geoErr.message); }
 
                 // NEW (2026-08-16): Affiliate Plan — 20% commission on a
                 // referred user's first payment. This is the actual
