@@ -46,6 +46,8 @@ const tiers = [
       articles_access: true,
       affiliate_program: false,
       company_profile: false,
+      // NEW (2026-10-23): staff appraisals. Anyone can pay per appraisal (up to 25 people); Employer and Business include them.
+      staff_appraisals: 'Pay per appraisal',
       team_accounts: 0,
       api_access: false
     }
@@ -77,6 +79,8 @@ const tiers = [
       articles_access: true,
       affiliate_program: true,
       company_profile: false,
+      // NEW (2026-10-23): staff appraisals. Anyone can pay per appraisal (up to 25 people); Employer and Business include them.
+      staff_appraisals: 'Pay per appraisal',
       team_accounts: 0,
       api_access: false
     }
@@ -109,6 +113,8 @@ const tiers = [
       articles_access: true,
       affiliate_program: true,
       company_profile: false,
+      // NEW (2026-10-23): staff appraisals. Anyone can pay per appraisal (up to 25 people); Employer and Business include them.
+      staff_appraisals: 'Pay per appraisal',
       team_accounts: 0,
       api_access: false
     }
@@ -145,6 +151,8 @@ const tiers = [
       articles_access: true,
       affiliate_program: true,
       company_profile: true,
+      // NEW (2026-10-23): staff appraisals. Anyone can pay per appraisal (up to 25 people); Employer and Business include them.
+      staff_appraisals: 'Up to 50 people',
       team_accounts: 0,
       api_access: false
     }
@@ -195,6 +203,8 @@ const tiers = [
       articles_access: true,
       affiliate_program: true,
       company_profile: true,
+      // NEW (2026-10-23): staff appraisals. Anyone can pay per appraisal (up to 25 people); Employer and Business include them.
+      staff_appraisals: 'Up to 100 people',
       team_accounts: { value: '5 users', limit: 5 },
       api_access: true
     }
@@ -229,6 +239,7 @@ const benefitCategories = [
   { key: 'articles_access', label: 'Articles & Publications', icon: FileText, tooltip: 'Access to HR articles' },
   { key: 'affiliate_program', label: 'Affiliate Program', icon: Zap, tooltip: 'Earn commissions on referrals' },
   { key: 'company_profile', label: 'Company Profile', icon: Briefcase, tooltip: 'Branded company page' },
+  { key: 'staff_appraisals', label: 'Staff Appraisals', icon: FileText, tooltip: 'Everyone can pay per appraisal for up to 25 people. Employer includes appraisals for up to 50 people and Business up to 100.' },
   { key: 'team_accounts', label: 'Team Accounts', icon: Users, tooltip: 'Additional user seats' },
   { key: 'api_access', label: 'API Access', icon: Zap, tooltip: 'Programmatic access' }
 ];
@@ -555,14 +566,15 @@ export default function PricingPage() {
         <div className="mt-8 max-w-3xl mx-auto bg-slate-900 border border-slate-700 rounded-xl p-6 text-center">
           <h3 className="text-xl font-semibold text-white mb-1">Small team? Pay per appraisal</h3>
           <p className="text-slate-400 text-sm mb-4">
-            Run staff appraisals for up to 5 people with no subscription. Your first appraisal is free. Each one after that is one credit, and credits never expire.
-            Need to manage more people, or see reports across your team? Appraisals are included with the Employer and Business plans.
+            Run staff appraisals for up to 25 people with no subscription. Your first appraisal is free. Each one after that is one credit, and credits never expire.
+            Pay-per-appraisal includes the full workflow, your own questions and a basic results report. Want to hire, or see question-level and department reports? The Employer plan includes appraisals for up to 50 people, job posting and question-level reports, and the Business plan covers up to 100 with full reports.
           </p>
-          <div className="grid grid-cols-3 gap-3 max-w-md mx-auto mb-4">
-            {[['1 appraisal', '$6.99'], ['5 appraisals', '$27.99'], ['10 appraisals', '$49.99']].map(([n, pr]) => (
-              <div key={n} className="bg-slate-800 rounded-lg p-3"><div className="text-sm text-white">{n}</div><div className="text-emerald-400">{pr}</div></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-xl mx-auto mb-4">
+            {[['1 appraisal', '$6.99', ''], ['5 appraisals', '$27.99', '$5.60 each'], ['10 appraisals', '$49.99', '$5.00 each'], ['25 appraisals', '$109.99', '$4.40 each']].map(([n, pr, each]) => (
+              <div key={n} className="bg-slate-800 rounded-lg p-3"><div className="text-sm text-white">{n}</div><div className="text-emerald-400">{pr}</div>{each && <div className="text-xs text-slate-500">{each}</div>}</div>
             ))}
           </div>
+          <p className="text-xs text-slate-500 mb-4">More than 100 people? <a href="/contact" className="text-emerald-400 hover:underline">Contact us</a> and we will set up a plan for your organisation.</p>
           <a href="/appraisals" className="inline-block px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">Set up appraisals</a>
         </div>
 
