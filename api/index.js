@@ -18358,7 +18358,13 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         }
     };
     Object.assign(handlers, buildComplianceHandlers(complianceDeps));
-    Object.assign(handlers, buildAppraisalHandlers({ getSupabase, sendMail: complianceDeps.sendMail }));
+    Object.assign(handlers, buildAppraisalHandlers({
+        getSupabase, sendMail: complianceDeps.sendMail,
+        // AI is used only to draft appraisal QUESTIONS. It never reads or judges an appraisal result.
+        callAI: (messages, maxTokens, temperature, format) => callOpenAI(messages, maxTokens, temperature, format),
+        deductAiCredit: (sb, userId, req) => checkAndDeductCredit(sb, userId, req, 1),
+        refundAiCredit: (sb, userId, check) => refundCreditIfDeducted(sb, userId, check, 1)
+    }));
     Object.assign(handlers, buildGeoPricingHandlers(complianceDeps));
 }
 
