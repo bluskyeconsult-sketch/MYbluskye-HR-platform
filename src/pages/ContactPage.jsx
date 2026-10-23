@@ -22,7 +22,7 @@
 //    removed elsewhere this session) and corrected "7 countries" to the
 //    real confirmed 8 (matching JobsPage.jsx's COUNTRIES list).
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { 
     Mail, MapPin, MessageCircle, Send, CheckCircle, Clock, 
@@ -30,6 +30,7 @@ import {
     Globe, Headphones, Star, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import TurnstileBox from '../components/TurnstileBox';
 
 export default function ContactPage() {
     const [formData, setFormData] = useState({
@@ -104,6 +105,9 @@ export default function ContactPage() {
         }
     };
 
+    const contactCaptcha = useRef(null); // human check; does nothing until VITE_TURNSTILE_SITE_KEY is set
+    const trapRef = useRef(null);         // hidden trap field: people never see it, bots fill it in
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -115,19 +119,31 @@ export default function ContactPage() {
         setError(null);
 
         try {
-            const { error: insertError } = await supabase
-                .from('contact_messages')
-                .insert({
+            // NEW (2026-10-23): sent through the server (human check, limits and spam filter), not straight into the table.
+            const captchaToken = await contactCaptcha.current?.getToken();
+            contactCaptcha.current?.reset();
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('/api/index?action=contact-submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
+                },
+                body: JSON.stringify({
                     name: formData.name,
                     email: formData.email,
                     subject: formData.subject,
                     message: formData.message,
                     priority: formData.priority,
-                    user_id: user?.id || null
-                });
+                    contact_ref_url: trapRef.current?.value || '',
+                    captchaToken: captchaToken || undefined
+                })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || 'Failed to send message. Please try again.');
+            }
 
-            if (insertError) throw insertError;
-            
             setSubmitted(true);
             setFormData({ name: '', email: '', subject: '', message: '', priority: 'normal' });
             
@@ -409,6 +425,12 @@ export default function ContactPage() {
                                 </div>
                             </div>
                             
+                            {/* trap field: hidden from people, ignored by screen readers; automated form-fillers complete it */}
+                            <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }}>
+                                <label>Leave this empty<input ref={trapRef} type="text" name="contact_ref_url" tabIndex={-1} autoComplete="off" defaultValue="" /></label>
+                            </div>
+                            <TurnstileBox ref={contactCaptcha} action="contact" className="flex justify-center mb-4" />
+
                             {error && (
                                 <div className="mb-5 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
                                     <AlertCircle className="w-4 h-4 text-red-400" />
