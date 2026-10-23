@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiCall, STATUS_LABELS } from '../services/appraisalApi';
 import ComplianceGate from '../components/ComplianceGate';
-import { Loader2, UserPlus, Users, CalendarPlus, Settings, UserMinus, FileText, BarChart3, Trash2, Copy, Plus } from 'lucide-react';
+import { Loader2, UserPlus, Users, CalendarPlus, Settings, UserMinus, FileText, BarChart3, Trash2, Copy, Plus, Sparkles, CreditCard } from 'lucide-react';
 
 const input = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500';
 const CAT = { micro_default: 'Simple (for very small teams)', standard: 'Standard', role: 'By type of work', custom: 'Your own templates' };
@@ -19,10 +19,17 @@ export default function AppraisalOrgPage() {
     const [inv, setInv] = useState({ email: '', full_name: '', job_title: '', department: '', role: 'member', supervisor_member_id: '' });
     const [cyc, setCyc] = useState({ name: '', template_id: '' });
     const [tab, setTab] = useState('people');
+    const [ai, setAi] = useState({ role: '', industry: '', focus: '', count: 5 });
+    const [reviewed, setReviewed] = useState(false);
     const [ed, setEd] = useState(null);   // template being edited: { id?, name, description, criteria[] }
 
     const load = useCallback(async () => { try { setD(await apiCall('appr-org-get', { orgId }, { auth: 'required' })); } catch (e) { setErr(e.message); } }, [orgId]);
     useEffect(() => { load(); }, [load]);
+    useEffect(() => {   // back from the payment page: the webhook can take a few seconds to add the credits
+        const q = new URLSearchParams(window.location.search).get('credits');
+        if (q === 'added') { setOk('Payment received. Your appraisal credits will show here in a moment.'); setTimeout(load, 4000); setTimeout(load, 10000); }
+        if (q === 'cancelled') setErr('The payment was cancelled. You have not been charged.');
+    }, []); // eslint-disable-line
     const run = async (fn, done) => { setBusy(true); setErr(''); setOk(''); try { await fn(); if (done) setOk(done); await load(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
 
     if (!d) return <div className="min-h-screen bg-slate-950 flex items-center justify-center">{err ? <p className="text-red-300">{err}</p> : <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />}</div>;
@@ -65,6 +72,14 @@ export default function AppraisalOrgPage() {
                             <td>{m.status}</td><td>{m.status !== 'left' && m.role !== 'owner' && <button title="Mark as left" onClick={() => window.confirm(`Mark ${nm(m)} as left? Their open appraisals will be closed and kept on record.`) && run(() => apiCall('appr-member-leave', { orgId, memberId: m.id }, { auth: 'required' }), 'Updated.')} className="text-red-300 hover:text-red-200"><UserMinus className="w-4 h-4" /></button>}</td></tr>)}</tbody></table></div></>)}
 
                 {tab === 'rounds' && (<>
+                    {d.billing?.billable && (
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
+                            <h3 className="text-white font-medium mb-1 inline-flex items-center gap-1"><CreditCard className="w-4 h-4" />Appraisal credits: {d.billing.balance}</h3>
+                            <p className="text-xs text-slate-400 mb-3">Starting a round uses one credit for each person appraised. A credit comes back if you withdraw an appraisal before the supervisor has started it. Credits never expire. Small teams are limited to {d.billing.max_people} people; the Employer and Business plans include appraisals for larger teams.</p>
+                            {d.me.role === 'owner' ? (<div className="flex flex-wrap gap-2">{d.billing.packs.map(p => (
+                                <button key={p.count} disabled={busy} onClick={() => run(async () => { const r = await apiCall('appr-credits-checkout', { orgId, count: p.count }, { auth: 'required' }); window.location.href = r.url; })} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-sm">Buy {p.count} for ${(p.cents / 100).toFixed(2)}</button>))}</div>)
+                                : <p className="text-xs text-amber-300">Only the owner can buy credits.</p>}
+                        </div>)}
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
                         <h3 className="text-white font-medium mb-3">Start an appraisal round</h3>
                         <p className="text-xs text-slate-400 mb-3">Everyone with a supervisor gets an appraisal. Each person is told by email (link only; appraisal text is never emailed).</p>
@@ -83,13 +98,29 @@ export default function AppraisalOrgPage() {
                     {!ed && (<>
                         <div className="flex flex-wrap justify-between items-center gap-2 mb-3"><p className="text-sm text-slate-300 max-w-xl">These are the questions people are rated on. Pick a ready-made set when you start a round, or copy one and change it. Each question can have short descriptions of what 1, 3 and 5 look like, which keeps ratings consistent.</p>
                             <button onClick={() => setEd({ name: '', description: '', criteria: [blankQ(), blankQ(), blankQ()] })} className="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm inline-flex items-center gap-1"><Plus className="w-4 h-4" />Write my own</button></div>
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
+                            <h3 className="text-white font-medium mb-1 inline-flex items-center gap-1"><Sparkles className="w-4 h-4 text-violet-300" />Draft questions with AI</h3>
+                            <p className="text-xs text-slate-400 mb-3">Describe the job and AI suggests questions with 1, 3 and 5 descriptions for you to edit. Describe the job only: do not type any person&apos;s name. AI helps with writing questions only. It never reads, scores or comments on appraisal results. Uses 1 AI credit.</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <input className={input} placeholder="The job, e.g. kitchen assistant" value={ai.role} maxLength={80} onChange={e => setAi({ ...ai, role: e.target.value })} />
+                                <input className={input} placeholder="Type of workplace (optional), e.g. care home" value={ai.industry} maxLength={80} onChange={e => setAi({ ...ai, industry: e.target.value })} />
+                                <input className={input + ' md:col-span-2'} placeholder="What matters most in this job (optional)" value={ai.focus} maxLength={300} onChange={e => setAi({ ...ai, focus: e.target.value })} />
+                                <select className={input} value={ai.count} onChange={e => setAi({ ...ai, count: Number(e.target.value) })}>{[3, 4, 5, 6, 8].map(n => <option key={n} value={n}>{n} questions</option>)}</select>
+                                <button disabled={busy || ai.role.trim().length < 2} onClick={() => run(async () => {
+                                    const r = await apiCall('appr-template-ai-draft', { orgId, ...ai }, { auth: 'required' });
+                                    setReviewed(false);
+                                    setEd({ name: ai.role.trim().slice(0, 80) ? `${ai.role.trim().slice(0, 80)} appraisal` : '', description: '', ai_drafted: true, info: { notice: r.notice, removed: r.removed, self_review: r.self_review },
+                                        criteria: r.criteria.map(c => ({ ...blankQ(), title: c.title, description: c.description, anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })) });
+                                })} className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm">{busy ? 'Drafting...' : 'Draft questions'}</button>
+                            </div>
+                        </div>
                         {Object.keys(CAT).map(k => { const list = d.templates.filter(t => (t.category || (t.org_id ? 'custom' : 'standard')) === k); if (!list.length) return null; return (
                             <div key={k} className="mb-4"><h3 className="text-white text-sm font-medium mb-2">{CAT[k]}</h3>
                                 <div className="space-y-2">{list.map(t => (
                                     <div key={t.id} className="bg-slate-900 border border-slate-700 rounded-lg p-3">
-                                        <div className="flex flex-wrap justify-between gap-2"><div><div className="text-white text-sm">{t.name}</div>{t.description && <div className="text-xs text-slate-400">{t.description}</div>}</div>
+                                        <div className="flex flex-wrap justify-between gap-2"><div><div className="text-white text-sm">{t.name}{t.ai_drafted && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-200">AI-drafted</span>}</div>{t.description && <div className="text-xs text-slate-400">{t.description}</div>}</div>
                                             <div className="flex gap-3 text-xs items-start">
-                                                <button className="text-primary-400 inline-flex items-center gap-1" onClick={() => setEd({ name: t.org_id ? t.name : `${t.name} (copy)`, description: t.description || '', criteria: t.criteria.map(c => ({ id: c.id, title: c.title, description: c.description || '', anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })), id: t.org_id ? t.id : undefined })}><Copy className="w-3.5 h-3.5" />{t.org_id ? 'Edit' : 'Copy and edit'}</button>
+                                                <button className="text-primary-400 inline-flex items-center gap-1" onClick={() => setEd({ name: t.org_id ? t.name : `${t.name} (copy)`, description: t.description || '', criteria: t.criteria.map(c => ({ id: c.id, title: c.title, description: c.description || '', anchors: { 1: c.anchors?.['1'] || '', 3: c.anchors?.['3'] || '', 5: c.anchors?.['5'] || '' } })), id: t.org_id ? t.id : undefined, ai_drafted: !!t.ai_drafted })}><Copy className="w-3.5 h-3.5" />{t.org_id ? 'Edit' : 'Copy and edit'}</button>
                                                 {t.org_id && <button className="text-red-300 inline-flex items-center gap-1" onClick={() => window.confirm('Delete this template? Appraisals already started keep their own copy.') && run(() => apiCall('appr-template-delete', { orgId, templateId: t.id }, { auth: 'required' }), 'Deleted.')}><Trash2 className="w-3.5 h-3.5" />Delete</button>}</div></div>
                                         <ul className="mt-2 text-xs text-slate-400 list-disc pl-5">{t.criteria.map(c => <li key={c.id}>{c.title}</li>)}</ul></div>))}</div></div>); })}
                     </>)}
@@ -98,6 +129,12 @@ export default function AppraisalOrgPage() {
                             <h3 className="text-white font-medium mb-3">{ed.id ? 'Edit template' : 'New template'}</h3>
                             <input className={input + ' mb-2'} placeholder="Template name" value={ed.name} onChange={e => setEd({ ...ed, name: e.target.value })} maxLength={120} />
                             <input className={input + ' mb-4'} placeholder="Short description (optional)" value={ed.description} onChange={e => setEd({ ...ed, description: e.target.value })} maxLength={300} />
+                            {ed.ai_drafted && (<div className="mb-4 text-sm text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-lg p-3">
+                                <p className="mb-1"><b>AI-drafted questions.</b> {ed.info?.notice || 'Read every question and change what does not fit. AI is not used to read or judge any appraisal result.'}</p>
+                                {ed.info?.removed?.length > 0 && <p className="text-xs">Left out automatically because they touched a personal characteristic: {ed.info.removed.join(', ')}.</p>}
+                                {ed.info?.self_review?.length > 0 && <ul className="list-disc pl-5 text-xs mt-1">{ed.info.self_review.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+                                <label className="flex items-center gap-2 mt-2 text-xs"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />I have read every question and checked that it is fair and suits my business.</label>
+                            </div>)}
                             {ed.criteria.map((c, i) => (
                                 <div key={i} className="border border-slate-700 rounded-lg p-3 mb-3">
                                     <div className="flex gap-2 mb-2"><input className={input} placeholder={`Question ${i + 1}, e.g. Quality of work`} value={c.title} maxLength={120} onChange={e => { const cr = [...ed.criteria]; cr[i] = { ...c, title: e.target.value }; setEd({ ...ed, criteria: cr }); }} />
@@ -107,8 +144,8 @@ export default function AppraisalOrgPage() {
                                 </div>))}
                             <div className="flex flex-wrap gap-2">
                                 <button disabled={ed.criteria.length >= 12} onClick={() => setEd({ ...ed, criteria: [...ed.criteria, blankQ()] })} className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm disabled:opacity-40">Add a question</button>
-                                <button disabled={busy || !ed.name || !ed.criteria.some(c => c.title.trim())} onClick={() => run(async () => { await apiCall('appr-template-save', { orgId, templateId: ed.id, name: ed.name, description: ed.description, criteria: ed.criteria.map((c) => ({ id: c.id, title: c.title, description: c.description, anchors: c.anchors })) }, { auth: 'required' }); setEd(null); }, 'Template saved.')} className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-40">Save template</button>
-                                <button onClick={() => setEd(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm">Cancel</button></div>
+                                <button disabled={busy || !ed.name || !ed.criteria.some(c => c.title.trim()) || (ed.ai_drafted && !reviewed)} onClick={() => run(async () => { await apiCall('appr-template-save', { orgId, templateId: ed.id, ai_drafted: !!ed.ai_drafted, reviewed, name: ed.name, description: ed.description, criteria: ed.criteria.map((c) => ({ id: c.id, title: c.title, description: c.description, anchors: c.anchors })) }, { auth: 'required' }); setEd(null); }, 'Template saved.')} className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-40">Save template</button>
+                                <button onClick={() => { setEd(null); setReviewed(false); }} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm">Cancel</button></div>
                             <p className="text-xs text-slate-500 mt-3">Ask only about work behaviour and results. Do not ask about health, family plans, age, religion or other personal characteristics. Up to 12 questions. Ratings use a 1 to 5 scale.</p>
                         </div>)}
                 </>)}
