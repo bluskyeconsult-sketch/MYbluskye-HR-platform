@@ -5,12 +5,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiCall } from '../services/appraisalApi';
 import ComplianceGate from '../components/ComplianceGate';
-import { ChartCard, Lines, Bars, Distribution, BandBars, Radar, C } from '../components/AppraisalCharts';
+import { ChartCard, Lines, Bars, Distribution, BandBars, Radar, NineBox, C } from '../components/AppraisalCharts';
 import { Loader2, BarChart3, Download, Lock } from 'lucide-react';
 
 const LOCK = {
     criteria_analysis: 'Question-by-question analysis is part of the Employer plan.', trend: 'Trends across rounds are part of the Employer plan.',
     group_analysis: 'Team and department analysis is part of the Business plan.', supervisor_consistency: 'Supervisor consistency is part of the Business plan and is not offered in every country.',
+    nine_box: 'The performance and potential grid is part of the Business plan and is not offered in every country.',
     business_review: 'The business review document is part of the Business plan.'
 };
 const Locked = ({ k }) => <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-4 mb-4 text-sm text-slate-400 inline-flex gap-2 w-full"><Lock className="w-4 h-4 mt-0.5 shrink-0" />{LOCK[k]} <Link to="/pricing" className="text-primary-400 underline">See plans</Link></div>;
@@ -72,6 +73,11 @@ function ReportBody({ orgId }) {
                                 {R.supervisor_consistency.items.length ? <Bars rows={R.supervisor_consistency.items.map(s => ({ label: s.name, value: s.mean, n: s.n }))} /> : <p className="text-sm text-slate-400">No supervisor has five or more people yet.</p>}
                                 <p className="text-xs text-slate-400 mt-2">Organisation average: {R.supervisor_consistency.org_mean ?? '-'}. Differences can reflect real differences in teams as well as differences in how supervisors rate.</p></ChartCard>}
                         </>)}
+
+                        {locked.includes('nine_box') ? <Locked k="nine_box" /> : R.nine_box && (R.nine_box.hidden
+                            ? <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4 text-sm text-slate-300"><b className="text-white">Performance and potential.</b> Only {R.nine_box.rated} filed appraisal{R.nine_box.rated === 1 ? ' has' : 's have'} a potential rating. The grid appears once at least {R.nine_box.min_group} do, so no one can be picked out. To collect potential ratings, tick the potential option on the question set you use.</div>
+                            : <ChartCard title="Performance and potential (nine-box)" subtitle={`${R.nine_box.rated} people rated. Performance is the weighted final rating. Potential is the supervisor's view. A prompt for conversation, never a decision.${R.nine_box.unrated ? ` ${R.nine_box.unrated} without a potential rating are not shown.` : ''}`}
+                                table={{ head: ['Box', 'People', 'Names', 'What to consider'], rows: R.nine_box.cells.map(c => [c.label, c.count, c.people.join(', ') || '-', c.considerations]) }}><NineBox cells={R.nine_box.cells} /></ChartCard>)}
 
                         <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4"><h3 className="text-white font-medium text-sm mb-2">Everyone (alphabetical)</h3>
                             <div className="overflow-x-auto"><table className="w-full text-xs text-slate-200"><thead><tr className="text-left text-slate-400"><th className="p-1.5">Name</th><th>Round</th><th>Final</th><th>Self</th><th>Band</th><th></th></tr></thead>
