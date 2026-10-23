@@ -47,7 +47,7 @@ export default function AppraisalOrgPage() {
             <p className="text-xs text-slate-400 mb-2">Workplace country: {d.org.country_code} | Records kept {d.org.retention_years} years after filing{d.org.mode === 'micro' ? ' | Small team mode' : ''}</p>
             <Link to={`/appraisals/org/${orgId}/reports`} className="inline-flex items-center gap-1 text-sm text-primary-400 hover:underline mb-4"><BarChart3 className="w-4 h-4" />Reports and business review</Link>
             {err && <div className="mb-3 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{err}
-                {limitNext && <div className="mt-2">{limitNext === 'contact' ? <Link to="/contact" className="text-primary-300 underline">Contact us about a larger organisation</Link> : <Link to="/pricing" className="text-primary-300 underline">See the {limitNext === 'business' ? 'Business' : 'Employer'} plan</Link>}</div>}</div>}
+                {limitNext && <div className="mt-2">{limitNext === 'contact' ? <a href="mailto:support@bluskyeconsult.com?subject=Appraisals%20for%20a%20larger%20organisation" className="text-primary-300 underline">Email support@bluskyeconsult.com about a larger organisation</a> : <Link to="/pricing" className="text-primary-300 underline">See the {limitNext === 'business' ? 'Business' : 'Employer'} plan</Link>}</div>}</div>}
             {ok && <div className="mb-3 text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">{ok}</div>}
 
             <ComplianceGate service="appraisal" orgId={orgId} canAct={isHr}>
@@ -56,7 +56,7 @@ export default function AppraisalOrgPage() {
 
                 {tab === 'people' && (<>
                     {d.people && (() => { const n = d.members.filter(m => m.status !== 'left').length; const near = n >= Math.ceil(d.people.max * 0.9); return (
-                        <p className={`text-xs mb-3 ${near ? 'text-amber-300' : 'text-slate-400'}`}>{n} of {d.people.max} people.{near ? ` ${d.people.text}` : ''}{near && d.people.next === 'contact' && <> <Link to="/contact" className="underline">Contact us</Link></>}{near && d.people.next !== 'contact' && <> <Link to="/pricing" className="underline">See plans</Link></>}</p>); })()}
+                        <p className={`text-xs mb-3 ${near ? 'text-amber-300' : 'text-slate-400'}`}>{n} of {d.people.max} people.{near ? ` ${d.people.text}` : ''}{near && d.people.next === 'contact' && <> <a href="mailto:support@bluskyeconsult.com?subject=Appraisals%20for%20a%20larger%20organisation" className="underline">Email support</a></>}{near && d.people.next !== 'contact' && <> <Link to="/pricing" className="underline">See plans</Link></>}</p>); })()}
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
                         <h3 className="text-white font-medium mb-3 inline-flex items-center gap-1"><UserPlus className="w-4 h-4" />Invite a person</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
