@@ -26,6 +26,12 @@ const today = () => new Date().toISOString().slice(0, 10);
 const plusDays = (n) => new Date(Date.now() + n * DAY).toISOString().slice(0, 10);
 const FINALISH = ['awaiting_final_approval', 'escalated_disagreement', 'filed'];
 const CLOSED = ['filed', 'closed_employee_left', 'withdrawn', 'purged'];
+// Pay-per-appraisal for small teams. Prices are in US cents, like the rest of the site. Change them here only.
+const PERSONAL_DATA = /[\w.+-]+@[\w-]+\.[\w.]+|https?:\/\/|www\.|\+?\d[\d\s().-]{7,}\d/i;
+const SENSITIVE = /\b(age|aged|ages|old|older|young|younger|elderly|retire\w*|gender|sex|sexes|sexual\w*|pregnan\w*|maternity|paternity|marital|married|marriage|single parent|famil(y|ies)|child(ren)?|kids|baby|religio\w*|faith|church|mosque|race|racial|ethnic\w*|nationality|national origin|accent|disab\w*|health|illness|medical|medication|mental|union|political\w*|politics|vote|orientation|gay|lesbian|transgender|appearance|attractive\w*|weight|height|looks)\b/i;
+const SMALL_TEAM_MAX = 5;
+const WELCOME_CREDITS = 1;
+export const APPRAISAL_PACKS = { 1: 699, 5: 2799, 10: 4999 };
 
 // ---------------------------------------------------------------------------------------------
 // Encryption
@@ -122,7 +128,7 @@ function canSee(ctx, stage, version) {
 // Handlers
 // ---------------------------------------------------------------------------------------------
 export function buildAppraisalHandlers(deps) {
-    const { getSupabase, sendMail } = deps;
+    const { getSupabase, sendMail, callAI, deductAiCredit, refundAiCredit } = deps;
     const site = () => (process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '');
 
     const fail = (res, code, msg, extra = {}) => res.status(code).json({ success: false, error: msg, ...extra });
@@ -208,16 +214,18 @@ export function buildAppraisalHandlers(deps) {
     const tierName = (p) => String(p?.tier || p?.user_type || '').toLowerCase();
     const isAdminP = (p) => ['admin', 'super_admin'].includes(p?.user_type);
     const openAll = (p) => isAdminP(p) || p?.is_tester === true || process.env.APPRAISAL_OPEN_CREATION === 'true';
+    // "Included" = appraisals come with the owner's plan (Employer, Business, admins, testers, testing switch).
+    // Everyone else can still run a small team of up to 5 people and pays per appraisal.
+    const includedPlan = (p) => openAll(p) || ['employer', 'business'].includes(tierName(p));
+    const billable = (p) => !includedPlan(p);
     function tierLimit(p) {
         if (isAdminP(p)) return 200;
         const t = tierName(p);
         if (t === 'business') return 100;
         if (t === 'employer') return 15;
-        if (t === 'professional') return 5;
-        return 10;
+        return openAll(p) ? 15 : SMALL_TEAM_MAX;
     }
-    const tierAllows = (p) => openAll(p) || ['employer', 'business', 'professional'].includes(tierName(p));
-    const microOnly = (p) => !openAll(p) && tierName(p) === 'professional';
+    const microOnly = (p) => billable(p);
     // Which reports an organisation gets (decided by the owner's plan).
     const reportLevel = (p) => (isAdminP(p) || tierName(p) === 'business' || openAll(p) ? 'full' : tierName(p) === 'employer' ? 'standard' : 'basic');
     const ownerProfile = async (sb, org) => (await sb.from('profiles').select('tier, user_type, is_tester').eq('id', org.created_by).maybeSingle()).data;
@@ -327,7 +335,6 @@ export function buildAppraisalHandlers(deps) {
             const country = String(req.body?.country_code || '').toUpperCase();
             if (name.length < 2 || !/^[A-Z]{2}$/.test(country)) return fail(res, 400, 'Please give the organisation name and the country where your staff work.');
             const { data: profile } = await sb.from('profiles').select('tier, user_type, is_tester').eq('id', user.id).maybeSingle();
-            if (!tierAllows(profile)) return fail(res, 403, 'Appraisals are included with the Professional (small team), Employer and Business plans.', { code: 'upgrade_required' });
             const mode = microOnly(profile) ? 'micro' : (req.body?.mode === 'micro' ? 'micro' : 'standard');
             const { count } = await sb.from('organisations').select('id', { count: 'exact', head: true }).eq('created_by', user.id);
             if ((count || 0) >= 3) return fail(res, 400, 'You can create up to three organisations.');
@@ -337,6 +344,7 @@ export function buildAppraisalHandlers(deps) {
             const { data: org, error } = await sb.from('organisations').insert({ name, country_code: country, created_by: user.id, mode, retention_years: rule?.retention_years_default || 6 }).select('*').single();
             if (error) { console.error('org create', error.message); return fail(res, 500, 'Could not create the organisation.'); }
             const { data: m } = await sb.from('org_members').insert({ org_id: org.id, user_id: user.id, email: user.email, full_name: clip(req.body?.your_name, 120) || null, job_title: clip(req.body?.your_title, 120) || null, role: 'owner', status: 'active', joined_at: new Date().toISOString() }).select('id').single();
+            if (billable(profile)) await sb.rpc('appraisal_credit_adjust', { p_org: org.id, p_delta: WELCOME_CREDITS, p_reason: 'welcome', p_ref: `welcome:${org.id}`, p_appraisal: null });
             await ev(sb, null, m, user.id, 'org_created', null, null, { org_id: org.id, country });
             return res.status(200).json({ success: true, org });
         },
@@ -388,9 +396,15 @@ export function buildAppraisalHandlers(deps) {
                 ({ data: cycles } = await sb.from('appraisal_cycles').select('*').eq('org_id', orgId).order('created_at', { ascending: false }).limit(50));
                 ({ data: metaAppraisals } = await sb.from('appraisals').select('id, cycle_id, employee_member_id, supervisor_member_id, approver_member_id, status, round, disagreement, employee_no_response, needs_reassignment, legal_hold, self_due, supervisor_due, response_due, final_due, filed_at, retention_until').eq('org_id', orgId).neq('status', 'purged').order('updated_at', { ascending: false }).limit(500));
             }
-            const { data: templates } = await sb.from('appraisal_templates').select('id, name, criteria, scale, is_default, org_id, category, description').or(`org_id.is.null,org_id.eq.${orgId}`);
+            const { data: templates } = await sb.from('appraisal_templates').select('id, name, criteria, scale, is_default, org_id, category, description, ai_drafted').or(`org_id.is.null,org_id.eq.${orgId}`);
             const level = reportLevel(await ownerProfile(sb, org));
-            return res.status(200).json({ success: true, org, report_level: level, me: { member_id: me.id, role: me.role }, members: members || [], cycles, appraisals: metaAppraisals, templates: templates || [], gate: { decision: gate.decision, rule: gate.rule ? { title: gate.rule.title, requirement_text: gate.rule.requirement_text, checklist: gate.rule.checklist, reference_links: gate.rule.reference_links, rule_version: gate.rule.rule_version } : null, missing: gate.missing || null } });
+            const op = await ownerProfile(sb, org);
+            let billing = { billable: false };
+            if (hr && billable(op)) {
+                const { data: bal } = await sb.from('appraisal_credit_balances').select('balance').eq('org_id', orgId).maybeSingle();
+                billing = { billable: true, balance: bal?.balance || 0, packs: Object.entries(APPRAISAL_PACKS).map(([n, c]) => ({ count: Number(n), cents: c })), max_people: SMALL_TEAM_MAX };
+            }
+            return res.status(200).json({ success: true, billing, org, report_level: level, me: { member_id: me.id, role: me.role }, members: members || [], cycles, appraisals: metaAppraisals, templates: templates || [], gate: { decision: gate.decision, rule: gate.rule ? { title: gate.rule.title, requirement_text: gate.rule.requirement_text, checklist: gate.rule.checklist, reference_links: gate.rule.reference_links, rule_version: gate.rule.rule_version } : null, missing: gate.missing || null } });
         },
 
         'appr-org-update': async (req, res) => {
@@ -536,18 +550,81 @@ export function buildAppraisalHandlers(deps) {
             }).filter(c => c.title);
             if (criteria.length < 1) return fail(res, 400, 'Add at least one question.');
             if (new Set(criteria.map(c => c.id)).size !== criteria.length) return fail(res, 400, 'Each question needs its own id.');
+            if (b.ai_drafted === true && b.reviewed !== true) return fail(res, 400, 'Please confirm that you have read and checked the AI-drafted questions.');
             const name = clip(b.name, 120).trim() || 'Custom appraisal';
             if (isId(b.templateId)) {
                 const { data: own } = await sb.from('appraisal_templates').select('id').eq('id', b.templateId).eq('org_id', b.orgId).maybeSingle();
                 if (!own) return fail(res, 404, 'Template not found.');
-                await sb.from('appraisal_templates').update({ name, criteria, description: clip(b.description, 300) || null }).eq('id', b.templateId);
+                await sb.from('appraisal_templates').update({ name, criteria, description: clip(b.description, 300) || null, ai_drafted: b.ai_drafted === true }).eq('id', b.templateId);
                 return res.status(200).json({ success: true, id: b.templateId });
             }
             const { count } = await sb.from('appraisal_templates').select('id', { count: 'exact', head: true }).eq('org_id', b.orgId);
             if ((count || 0) >= 20) return fail(res, 400, 'You can keep up to 20 templates.');
-            const { data, error } = await sb.from('appraisal_templates').insert({ org_id: b.orgId, name, criteria, category: 'custom', description: clip(b.description, 300) || null }).select('id').single();
+            const { data, error } = await sb.from('appraisal_templates').insert({ org_id: b.orgId, name, criteria, category: 'custom', description: clip(b.description, 300) || null, ai_drafted: b.ai_drafted === true }).select('id').single();
             if (error) return fail(res, 500, 'Could not save the template.');
             return res.status(200).json({ success: true, id: data.id });
+        },
+
+        // Small teams buy appraisal credits for the organisation (owner only). Credits are added by the Stripe webhook, once per payment.
+        'appr-credits-checkout': async (req, res) => {
+            const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
+            const b = req.body || {}; if (!isId(b.orgId)) return fail(res, 400, 'Missing organisation.');
+            const me = await getMember(sb, user.id, b.orgId); if (!me || me.role !== 'owner') return fail(res, 403, 'Only the owner can buy appraisal credits.');
+            const count = Number(b.count); const cents = APPRAISAL_PACKS[count]; if (!cents) return fail(res, 400, 'Choose one of the packs shown.');
+            const org = await getOrg(sb, b.orgId);
+            if (!billable(await ownerProfile(sb, org))) return fail(res, 400, 'Appraisals are already included with your plan.');
+            if (!(await enforceGate(sb, req, res, { service: 'paid_services', orgId: org.id, orgCountry: org.country_code, userId: user.id }))) return;
+            if (!process.env.STRIPE_SECRET_KEY) return fail(res, 503, 'Payments are not switched on yet. Please contact support.');
+            try {
+                const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+                const session = await stripe.checkout.sessions.create({
+                    mode: 'payment', payment_method_types: ['card'],
+                    line_items: [{ price_data: { currency: 'usd', product_data: { name: `${count} staff appraisal${count === 1 ? '' : 's'}` }, unit_amount: cents }, quantity: 1 }],
+                    success_url: `${site()}/appraisals/org/${org.id}?credits=added`, cancel_url: `${site()}/appraisals/org/${org.id}?credits=cancelled`,
+                    client_reference_id: user.id, customer_email: user.email || undefined,
+                    metadata: { type: 'appraisal_pack', orgId: org.id, count: String(count), userId: user.id }
+                });
+                return res.status(200).json({ success: true, url: session.url });
+            } catch (e) { console.error('appr-credits-checkout', e.message); return fail(res, 500, 'Could not start the payment. Please try again.'); }
+        },
+
+        // AI help with DRAFTING QUESTIONS ONLY. It never sees a person's name or ratings, and it never reads, scores or
+        // comments on any appraisal result. The draft is returned to the screen for the owner to edit; nothing is saved here.
+        'appr-template-ai-draft': async (req, res) => {
+            const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
+            const b = req.body || {}; const me = isId(b.orgId) ? await getMember(sb, user.id, b.orgId) : null; if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can do this.');
+            if (!callAI || !deductAiCredit) return fail(res, 503, 'AI help is not switched on yet.');
+            const role = clip(b.role, 80).trim(), industry = clip(b.industry, 80).trim(), focus = clip(b.focus, 300).trim();
+            const count = Math.max(3, Math.min(8, Math.round(Number(b.count)) || 5));
+            if (role.length < 2) return fail(res, 400, 'Describe the job, for example "kitchen assistant".');
+            if (PERSONAL_DATA.test(`${role} ${industry} ${focus}`)) return fail(res, 400, 'Please describe the job only. Do not type names, email addresses, phone numbers or web links.');
+            const org = await getOrg(sb, b.orgId);
+            if (!(await enforceGate(sb, req, res, { service: 'ai_services', orgId: org.id, orgCountry: org.country_code, userId: user.id }))) return;
+            const credit = await deductAiCredit(sb, user.id, req);
+            if (!credit?.allowed) return fail(res, 402, credit?.rateLimited ? 'Too many requests. Please try again in a few minutes.' : 'You are out of AI credits. Buy more or wait for your monthly allowance.', { code: 'ai_credits_needed' });
+            try {
+                const out = await callAI([
+                    { role: 'system', content: 'You help small employers write fair, plain-English staff appraisal questions. Write ONLY about work results and work behaviour that can be observed. Never write about age, sex, gender, pregnancy, marital or family status, health, disability, race, ethnicity, nationality, religion, politics, union membership, sexual orientation, appearance or private life. No jargon. Reply with JSON only.' },
+                    { role: 'user', content: `Job: ${role}\nWorkplace: ${industry || 'not stated'}\nWhat matters most: ${focus || 'not stated'}\n\nWrite ${count} appraisal questions for this job. Each is rated 1 to 5. Return JSON: {"criteria":[{"title":"short name, max 60 characters","description":"one plain sentence on what is being judged","anchors":{"1":"what a 1 looks like, max 120 characters","3":"what a 3 looks like","5":"what a 5 looks like"}}],"self_review":["short notes on anything in your questions that could be unfair, vague, or touch a personal characteristic. Use an empty list if none."]}` }
+                ], 1400, 0.5, { type: 'json_object' });
+                let parsed; try { parsed = JSON.parse(out.choices[0].message.content); } catch { throw new Error('unreadable AI reply'); }
+                const kept = [], removed = [];
+                for (const c of (Array.isArray(parsed.criteria) ? parsed.criteria : []).slice(0, 8)) {
+                    const item = { title: clip(c.title, 60).trim(), description: clip(c.description, 400).trim(), anchors: {} };
+                    ['1', '3', '5'].forEach(k => { const t = clip(c.anchors?.[k], 120).trim(); if (t) item.anchors[k] = t; });
+                    if (!item.title) continue;
+                    // Automatic screen on top of the instruction above: any question that touches a protected characteristic is dropped.
+                    if (SENSITIVE.test(`${item.title} ${item.description} ${Object.values(item.anchors).join(' ')}`)) { removed.push(item.title); continue; }
+                    kept.push(item);
+                }
+                if (kept.length < 2) throw new Error('too few usable questions');
+                return res.status(200).json({ success: true, criteria: kept, removed, self_review: (Array.isArray(parsed.self_review) ? parsed.self_review : []).slice(0, 5).map(x => clip(x, 200)).filter(Boolean),
+                    notice: 'These questions were drafted by AI. Read every question, change what does not fit your business, and check it is fair. The automatic check is not legal advice. AI is not used to read or judge any appraisal result.' });
+            } catch (e) {
+                console.error('appr-template-ai-draft', e.message);
+                try { await refundAiCredit?.(sb, user.id, credit); } catch { /* ignore */ }
+                return fail(res, 502, 'The AI could not produce usable questions this time. Your credit was returned. Try again, or describe the job a little differently.');
+            }
         },
 
         'appr-template-delete': async (req, res) => {
@@ -586,16 +663,26 @@ export function buildAppraisalHandlers(deps) {
                 : org.mode === 'micro' ? await sb.from('appraisal_templates').select('*').is('org_id', null).eq('category', 'micro_default').limit(1).maybeSingle()
                 : await sb.from('appraisal_templates').select('*').is('org_id', null).eq('is_default', true).limit(1).maybeSingle();
             if (!tpl) return fail(res, 400, 'Template not found.');
-            const snapshot = { name: tpl.name, criteria: tpl.criteria, scale: tpl.scale };
+            const snapshot = { name: tpl.name, criteria: tpl.criteria, scale: tpl.scale, ...(tpl.ai_drafted ? { ai_drafted: true } : {}) };
             const { data: members } = await sb.from('org_members').select('*').eq('org_id', b.orgId).eq('status', 'active');
             const byId = Object.fromEntries((members || []).map(m => [m.id, m]));
             let employees = (members || []).filter(m => m.supervisor_member_id && byId[m.supervisor_member_id]);
             if (Array.isArray(b.memberIds) && b.memberIds.length) employees = employees.filter(m => b.memberIds.includes(m.id));
             employees = employees.slice(0, 200);
             if (!employees.length) return fail(res, 400, 'No one is ready to be appraised. Give each person a supervisor first.');
+            // Small teams pay one credit per person appraised. Charged first (locked, so no double spend); any unused part is returned.
+            const bill = billable(await ownerProfile(sb, org));
+            let charged = 0;
+            if (bill) {
+                const { data: ch } = await sb.rpc('appraisal_credit_adjust', { p_org: org.id, p_delta: -employees.length, p_reason: 'used', p_ref: null, p_appraisal: null });
+                const r = Array.isArray(ch) ? ch[0] : ch;
+                if (!r?.success) return fail(res, 402, `This round needs ${employees.length} appraisal credit${employees.length === 1 ? '' : 's'} and you have ${r?.new_balance ?? 0}. Buy more to continue.`, { code: 'credits_needed', needed: employees.length, balance: r?.new_balance ?? 0 });
+                charged = employees.length;
+            }
+            const giveBack = async (n) => { if (bill && n > 0) await sb.rpc('appraisal_credit_adjust', { p_org: org.id, p_delta: n, p_reason: 'refund', p_ref: null, p_appraisal: null }); };
             const dueOrNull = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? d : null);
             const { data: cycle, error: ce } = await sb.from('appraisal_cycles').insert({ org_id: b.orgId, name: clip(b.name, 120) || 'Appraisal round', period_start: dueOrNull(b.period_start), period_end: dueOrNull(b.period_end), template_id: tpl.id, self_due: dueOrNull(b.self_due) || plusDays(14), supervisor_due: dueOrNull(b.supervisor_due) || plusDays(28), response_due: dueOrNull(b.response_due) || plusDays(42), final_due: dueOrNull(b.final_due) || plusDays(56), created_by: user.id }).select('*').single();
-            if (ce) { console.error('cycle', ce.message); return fail(res, 500, 'Could not start the round.'); }
+            if (ce) { console.error('cycle', ce.message); await giveBack(charged); return fail(res, 500, 'Could not start the round.'); }
             const created = [], skipped = [];
             for (const emp of employees) {
                 const sup = byId[emp.supervisor_member_id];
@@ -608,10 +695,12 @@ export function buildAppraisalHandlers(deps) {
                 const { data: ap, error } = await sb.from('appraisals').insert({ org_id: b.orgId, cycle_id: cycle.id, employee_member_id: emp.id, supervisor_member_id: sup.id, approver_member_id: approver.id, owner_approved: approver.id === sup.id, template_snapshot: snapshot, country_code: org.country_code, self_due: cycle.self_due, supervisor_due: cycle.supervisor_due, response_due: cycle.response_due, final_due: cycle.final_due }).select('id').single();
                 if (error) { skipped.push({ member_id: emp.id, reason: 'Could not create.' }); continue; }
                 created.push(ap.id);
+                if (bill) await sb.from('appraisals').update({ credit_charged: true }).eq('id', ap.id);
                 await ev(sb, { id: ap.id, org_id: b.orgId }, me, user.id, 'appraisal_created', null, 'awaiting_self', { cycle: cycle.id });
                 await notify(sb, [emp.id], 'Your appraisal is ready', `Your ${cycle.name.replace(/[<>&]/g, '')} appraisal is ready. Please complete your self-appraisal by ${cycle.self_due}.`, ap.id, org.name);
             }
-            return res.status(200).json({ success: true, cycle_id: cycle.id, created: created.length, skipped });
+            await giveBack(charged - created.length);
+            return res.status(200).json({ success: true, cycle_id: cycle.id, created: created.length, skipped, credits_used: bill ? created.length : 0 });
         },
 
         'appr-get': async (req, res) => {
@@ -786,7 +875,9 @@ export function buildAppraisalHandlers(deps) {
             const ctx = await loadCtx(sb, user.id, req.body?.appraisalId); if (!ctx || !ctx.roles.includes('hr')) return fail(res, 403, 'Only an owner or HR admin can do this.');
             if (CLOSED.includes(ctx.appraisal.status)) return fail(res, 400, 'This appraisal is already closed.');
             const org = await getOrg(sb, ctx.appraisal.org_id);
+            const refundable = ctx.appraisal.credit_charged && ['awaiting_self', 'awaiting_supervisor'].includes(ctx.appraisal.status);
             try { await transition(sb, ctx.appraisal, 'withdrawn', ctx.member, user.id, 'withdrawn', { retention_until: retentionDate(await retentionFor(sb, org)) }, { reason: clip(req.body?.reason, 300) }); } catch { return fail(res, 409, 'Please reload.'); }
+            if (refundable) await sb.rpc('appraisal_credit_adjust', { p_org: org.id, p_delta: 1, p_reason: 'refund', p_ref: `refund:${ctx.appraisal.id}`, p_appraisal: ctx.appraisal.id });
             return res.status(200).json({ success: true });
         },
 
