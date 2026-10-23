@@ -16,9 +16,10 @@
 // parallel system. On success, the real session tokens are handed back
 // and established in the browser via supabase.auth.setSession().
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, clearAuthAndRetry } from '../lib/supabase';
+import TurnstileBox from '../components/TurnstileBox';
 import { Shield, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
 
 const API_BASE = '/api/index';
@@ -64,6 +65,8 @@ export default function AdminLogin() {
         }
     }
 
+    const adminCaptcha = useRef(null); // human-check; does nothing until VITE_TURNSTILE_SITE_KEY is set
+
     async function handleLogin(e) {
         e.preventDefault();
         setLoading(true);
@@ -95,10 +98,12 @@ export default function AdminLogin() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+            const captchaToken = await adminCaptcha.current?.getToken();
+            adminCaptcha.current?.reset();
             const response = await fetch(`${API_BASE}?action=admin-login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim(), password }),
+                body: JSON.stringify({ email: email.trim(), password, captchaToken: captchaToken || undefined }),
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -222,6 +227,8 @@ export default function AdminLogin() {
                                 <p className="text-emerald-400 text-sm">Login successful! Redirecting to dashboard...</p>
                             </div>
                         )}
+
+                        <TurnstileBox ref={adminCaptcha} action="admin-login" className="flex justify-center" />
 
                         <button
                             type="submit"
