@@ -43,6 +43,8 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import * as mailLib from './_lib/mail.js';
+import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
+import { buildAppraisalHandlers } from './_lib/appraisals.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
 
@@ -18316,6 +18318,25 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         }
     }
 };
+
+// NEW (2026-10-23): country compliance engine + appraisal workflow. Both live in api/_lib so they are
+// not exposed as routes themselves; only the handlers below are reachable, via ?action=.
+{
+    const complianceDeps = {
+        getSupabase,
+        getUserId: async (req, sb) => coachAuth(req, sb),
+        isAdmin: async (sb, userId) => {
+            const { data } = await sb.from('profiles').select('user_type').eq('id', userId).maybeSingle();
+            return data?.user_type === 'admin' || data?.user_type === 'super_admin';
+        },
+        sendMail: async ({ to, subject, html }) => {
+            const t = getTransporter();
+            return t.sendMail({ from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`, to, subject, html });
+        }
+    };
+    Object.assign(handlers, buildComplianceHandlers(complianceDeps));
+    Object.assign(handlers, buildAppraisalHandlers({ getSupabase, sendMail: complianceDeps.sendMail }));
+}
 
 // ============================================
 // MAIN HANDLER
