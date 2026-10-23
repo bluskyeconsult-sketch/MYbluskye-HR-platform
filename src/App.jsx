@@ -655,6 +655,12 @@ const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const VisaPathwaysPage = lazy(() => import('./pages/VisaPathwaysPage'));
 const CareerCoachPage = lazy(() => import('./pages/CareerCoachPage'));
+import { ComplianceBanner } from './components/ComplianceGate';
+const AppraisalsPage = lazy(() => import('./pages/AppraisalsPage'));
+const AppraisalOrgPage = lazy(() => import('./pages/AppraisalOrgPage'));
+const AppraisalDetailPage = lazy(() => import('./pages/AppraisalDetailPage'));
+const CountryRulesPage = lazy(() => import('./pages/CountryRulesPage'));
+const AdminComplianceRules = lazy(() => import('./pages/admin/AdminComplianceRules'));
 const CareerCoachNoticePage = lazy(() => import('./pages/CareerCoachNoticePage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
@@ -897,6 +903,7 @@ function AppContent() {
         <>
             <ScrollToTop />
             <Navbar />
+            <ComplianceBanner />
             {/* NEW (2026-08-16): ScrollingBanner and TermsPopup were both
                 built but never actually mounted anywhere — wired in here. */}
             {/* FIXED (2026-09-20): confirmed the earlier pt-16 fix was
@@ -1049,6 +1056,13 @@ function AppContent() {
                             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
                             <Route path="/applications" element={<ProtectedRoute><UserApplications /></ProtectedRoute>} />
                             <Route path="/career-coach" element={<ProtectedRoute><CareerCoachPage /></ProtectedRoute>} />
+                            {/* NEW (2026-10-23): staff appraisals + country rules. More specific paths come first. */}
+                            <Route path="/appraisals/join" element={<AppraisalsPage joinMode />} />
+                            <Route path="/appraisals/org/:orgId" element={<ProtectedRoute><AppraisalOrgPage /></ProtectedRoute>} />
+                            <Route path="/appraisals/:id" element={<ProtectedRoute><AppraisalDetailPage /></ProtectedRoute>} />
+                            <Route path="/appraisals" element={<AppraisalsPage />} />
+                            <Route path="/country-rules" element={<CountryRulesPage />} />
+                            <Route path="/admin/compliance-rules" element={<ProtectedRoute requireAdmin><AdminLayout><AdminComplianceRules /></AdminLayout></ProtectedRoute>} />
                             <Route path="/career-coach-notice" element={<AnimatedPage><CareerCoachNoticePage /></AnimatedPage>} />
                             <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><UserMessages /></ProtectedRoute>} />
