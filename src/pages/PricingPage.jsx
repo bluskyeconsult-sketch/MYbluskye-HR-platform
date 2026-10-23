@@ -239,6 +239,8 @@ export default function PricingPage() {
   // system_config flag the backend uses to bypass payment, so users
   // actually know upgrades are free right now and payment is coming later.
   const [freeAccessMode, setFreeAccessMode] = useState(false);
+  // NEW (2026-10-23): regional price for the Professional (individual) plan only. Null means the standard price applies.
+  const [regional, setRegional] = useState(null);
 
   useEffect(() => {
     supabase
@@ -248,6 +250,9 @@ export default function PricingPage() {
       .maybeSingle()
       .then(({ data }) => setFreeAccessMode(data?.config_value?.enabled === true))
       .catch(() => {});
+    // Sent with the sign-in token when there is one, so the quote matches what checkout will charge.
+    supabase.auth.getSession().then(({ data: { session } }) => fetch('/api/index?action=pricing-quote', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }, body: '{}' }))
+      .then(r => r.json()).then(q => { if (q?.success && q.regional && q.price < q.standard_price) setRegional(q); }).catch(() => {});
   }, []);
 
   // FIXED (2026-08-09): the Subscribe button for every paid tier previously
@@ -425,10 +430,16 @@ export default function PricingPage() {
               )}
               <h3 className="text-xl font-bold text-white mb-2">{tier.name}</h3>
               <div className="mb-4">
+                {tier.name === 'Professional' && regional && (
+                  <span className="text-lg text-slate-500 line-through mr-2">${tier.price}</span>
+                )}
                 <span className="text-3xl font-bold text-white">
-                  ${tier.price}
+                  ${tier.name === 'Professional' && regional ? regional.price : tier.price}
                 </span>
                 <span className="text-slate-400">/month</span>
+                {tier.name === 'Professional' && regional && (
+                  <p className="text-xs text-emerald-400 mt-1">Regional price for your country. Applies when your billing country matches. Individual plan only.</p>
+                )}
                 {tier.price === 0 && <p className="text-xs text-emerald-400 mt-1">Free forever</p>}
               </div>
               <button
