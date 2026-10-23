@@ -17,9 +17,10 @@
 // working code itself - only /sign-up (via the existing, real
 // invite-code + consume_invite_code() system) actually redeems one.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import TurnstileBox from '../../components/TurnstileBox';
 import { Mail, Loader2, CheckCircle, Clock, AlertCircle, XCircle } from 'lucide-react';
 
 export default function TesterRegisterPage() {
@@ -56,6 +57,8 @@ export default function TesterRegisterPage() {
         checkRegistrationMode();
     }, []);
 
+    const testerCaptcha = useRef(null); // human-check; does nothing until VITE_TURNSTILE_SITE_KEY is set
+
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
@@ -63,10 +66,12 @@ export default function TesterRegisterPage() {
         setResult(null);
 
         try {
+            const captchaToken = await testerCaptcha.current?.getToken();
+            testerCaptcha.current?.reset();
             const response = await fetch('/api/index?action=request-tester-code', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim() })
+                body: JSON.stringify({ email: email.trim(), captchaToken: captchaToken || undefined })
             });
 
             const data = await response.json();
@@ -145,6 +150,8 @@ export default function TesterRegisterPage() {
                                     />
                                 </div>
                             </div>
+
+                            <TurnstileBox ref={testerCaptcha} action="tester-code" className="flex justify-center" />
 
                             <button
                                 type="submit"
