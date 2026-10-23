@@ -41,8 +41,12 @@ const COUNTRIES = [
     { code: 'US', name: 'United States', flag: '🇺🇸' },
     { code: 'DE', name: 'Germany', flag: '🇩🇪' },
     { code: 'AU', name: 'Australia', flag: '🇦🇺' },
-    { code: 'FR', name: 'France', flag: '🇫🇷' }
+    { code: 'FR', name: 'France', flag: '🇫🇷' },
+    // NEW (2026-10-23): remote jobs open worldwide, and jobs in countries without their own card (Netherlands,
+    // Spain, Poland ...), were not reachable by any filter. This option shows all of them.
+    { code: 'OTHER', name: 'Worldwide & Other', flag: '🌍' }
 ];
+const CARD_COUNTRY_CODES = ['GB', 'US', 'NG', 'CA', 'AU', 'DE', 'FR', 'IE'];
 
 // Job type options
 const JOB_TYPES = [
@@ -190,7 +194,9 @@ export default function JobsPage() {
             // and source_country does not exist on this table at all.
             // Reverting to the column actually confirmed to exist.
             if (selectedCountry && selectedCountry !== 'all') {
-                query = query.eq('country_code', selectedCountry);
+                query = selectedCountry === 'OTHER'
+                    ? query.not('country_code', 'in', `(${CARD_COUNTRY_CODES.join(',')})`)
+                    : query.eq('country_code', selectedCountry);
             }
             
             // Apply job type filter
@@ -289,8 +295,9 @@ export default function JobsPage() {
         // Country filter (additional client-side)
         if (selectedCountry !== 'all') {
             filtered = filtered.filter(job => 
-                job.country_code === selectedCountry ||
-                job.location?.includes(selectedCountry)
+                selectedCountry === 'OTHER'
+                    ? !CARD_COUNTRY_CODES.includes(String(job.country_code || '').toUpperCase())
+                    : (job.country_code === selectedCountry || job.location?.includes(selectedCountry))
             );
         }
         
