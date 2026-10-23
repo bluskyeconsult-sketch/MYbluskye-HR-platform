@@ -54,7 +54,7 @@ const products = [
     },
     { 
         name: 'Staff Appraisals', 
-        description: 'Fair, encrypted staff appraisals with self-assessment, supervisor review and a right to respond. Small teams pay per appraisal, with the first one free.', 
+        description: 'Fair, encrypted staff appraisals with self-assessment, supervisor review and a right to respond. Teams of up to 25 pay per appraisal, with the first one free. Included with the Employer and Business plans.', 
         icon: '📋',
         link: '/appraisals', 
         color: 'from-teal-500/20 to-teal-600/20',
