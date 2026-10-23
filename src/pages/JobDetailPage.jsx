@@ -26,6 +26,22 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import DOMPurify from 'dompurify';
+
+// SECURITY: any link inside a job description (employer-typed or imported) must
+// open in a new tab, never pass our page to the destination, and never carry
+// search-ranking value for spammers. Registered once when this file loads.
+// Also drops javascript:/data: links (DOMPurify already does; this is belt and braces).
+if (typeof window !== 'undefined' && !window.__odusJobLinkHook) {
+    window.__odusJobLinkHook = true;
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if (node.tagName === 'A') {
+            const href = (node.getAttribute('href') || '').trim();
+            if (!/^(https?:|mailto:)/i.test(href)) { node.removeAttribute('href'); return; }
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer nofollow ugc');
+        }
+    });
+}
 import ShareMenu from '../components/ShareMenu';
 import RegisterToApplyModal from '../components/RegisterToApplyModal';
 import { applyGate, markAppliedElsewhere, isTrackedElsewhere } from '../lib/applyGate';
