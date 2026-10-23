@@ -45,6 +45,7 @@ import crypto from 'crypto';
 import * as mailLib from './_lib/mail.js';
 import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
 import { buildAppraisalHandlers } from './_lib/appraisals.js';
+import { buildGeoPricingHandlers, resolveBand, stripePriceId } from './_lib/geoPricing.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
 
@@ -2780,6 +2781,15 @@ async function save2faSecrets(sb, userId, patch) {
     if (error) throw error;
 }
 
+// NEW (2026-10-23): every checkout passes the country compliance check first (sanctions, and any rule an admin sets for
+// paid services). Returns true when allowed; otherwise it has already sent the refusal and the caller must return.
+async function gatePaid(req, res, sb, userId) {
+    let profileCountry = null;
+    try { const { data } = await sb.from('profiles').select('country_code').eq('id', userId).maybeSingle(); profileCountry = data?.country_code || null; } catch { /* ignore */ }
+    const g = await enforceGate(sb, req, res, { service: 'paid_services', userId, profileCountry });
+    return !!g;
+}
+
 const handlers = {
     // ============================================================
     // NEW (2026-10-16): Admin Inbox. Mirrors the real mailboxes (support@, privacy@ and any added later)
@@ -3690,6 +3700,7 @@ When the article uses numbers, statistics or comparisons, you may add visuals in
                 return res.status(200).json({ success: true, enrolledCourses: enrolledCourseIds.length, checkoutUrl: null });
             }
 
+            if (!(await gatePaid(req, res, supabaseClient, authCheck.userId))) return;
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
@@ -9103,13 +9114,20 @@ Keep the tone professional and constructive throughout - direct about issues whe
             // blocking the user entirely on a config-read failure.
         }
 
-        const priceIdMap = {
-            professional: process.env.STRIPE_PRICE_PROFESSIONAL,
-            employer: process.env.STRIPE_PRICE_EMPLOYER,
-            business: process.env.STRIPE_PRICE_BUSINESS
-        };
+        if (!(await gatePaid(req, res, supabaseClient, userId))) return;
 
-        const priceId = priceIdMap[tierName];
+        if (!['professional', 'employer', 'business'].includes(tierName)) {
+            return res.status(400).json({ error: `Unknown tier: ${tierName}` });
+        }
+
+        // NEW (2026-10-23): regional pricing for the individual plan (Professional) ONLY. Employer and Business always
+        // use the standard price. The band is the HIGHER of the account's saved country and the connection country, and
+        // a band is used only when its Stripe price exists (otherwise the standard price is charged).
+        let declaredCountry = null;
+        try { const { data: pc } = await supabaseClient.from('profiles').select('country_code').eq('id', userId).maybeSingle(); declaredCountry = pc?.country_code || null; } catch { /* ignore */ }
+        const bandInfo = await resolveBand(supabaseClient, req, { tier: tierName, declaredCountry });
+        const chosen = stripePriceId(tierName, bandInfo.band);
+        const priceId = chosen.id;
         if (!priceId) {
             return res.status(400).json({ error: `No Stripe price configured for tier: ${tierName}. Set STRIPE_PRICE_${tierName.toUpperCase()} in your environment variables.` });
         }
@@ -9127,7 +9145,9 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 cancel_url: `${siteUrl}/pricing`,
                 client_reference_id: userId,
                 customer_email: userEmail,
-                metadata: { userId, tierName }
+                // The billing address is how a regional price is checked after payment.
+                billing_address_collection: 'required',
+                metadata: { userId, tierName, priceBand: chosen.regional ? chosen.band : 'A' }
             });
 
             return res.status(200).json({ success: true, url: session.url, sessionId: session.id });
@@ -10044,6 +10064,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 return res.status(400).json({ error: 'You already own the e-copy of this book' });
             }
 
+            if (!(await gatePaid(req, res, supabaseClient, userId))) return;
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
@@ -10253,6 +10274,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 .from('book_audio_purchases').select('id').eq('user_id', userId).eq('book_id', bookId).maybeSingle();
             if (existing) return res.status(400).json({ error: 'You already own the audio version of this book' });
 
+            if (!(await gatePaid(req, res, supabaseClient, userId))) return;
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
@@ -10304,6 +10326,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
             const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
             if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
+            if (!(await gatePaid(req, res, supabaseClient, userId))) return;
             const Stripe = (await import('stripe')).default;
             const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
             const siteUrl = process.env.SITE_URL || 'https://bluskyeconsult.com';
@@ -18336,6 +18359,7 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     };
     Object.assign(handlers, buildComplianceHandlers(complianceDeps));
     Object.assign(handlers, buildAppraisalHandlers({ getSupabase, sendMail: complianceDeps.sendMail }));
+    Object.assign(handlers, buildGeoPricingHandlers(complianceDeps));
 }
 
 // ============================================
