@@ -551,10 +551,25 @@ export default function PricingPage() {
           <p className="text-xs text-slate-500 text-center mt-4">Credits never expire — unused credits carry over and add to next month's allowance.</p>
         </div>
 
+        {/* NEW (2026-10-23): small teams pay per appraisal instead of taking a subscription. */}
+        <div className="mt-8 max-w-3xl mx-auto bg-slate-900 border border-slate-700 rounded-xl p-6 text-center">
+          <h3 className="text-xl font-semibold text-white mb-1">Small team? Pay per appraisal</h3>
+          <p className="text-slate-400 text-sm mb-4">
+            Run staff appraisals for up to 5 people with no subscription. Your first appraisal is free. Each one after that is one credit, and credits never expire.
+            Need to manage more people, or see reports across your team? Appraisals are included with the Employer and Business plans.
+          </p>
+          <div className="grid grid-cols-3 gap-3 max-w-md mx-auto mb-4">
+            {[['1 appraisal', '$6.99'], ['5 appraisals', '$27.99'], ['10 appraisals', '$49.99']].map(([n, pr]) => (
+              <div key={n} className="bg-slate-800 rounded-lg p-3"><div className="text-sm text-white">{n}</div><div className="text-emerald-400">{pr}</div></div>
+            ))}
+          </div>
+          <a href="/appraisals" className="inline-block px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">Set up appraisals</a>
+        </div>
+
         {/* Free Tier Note */}
         <div className="mt-8 text-center">
           <p className="text-sm text-slate-400">
-            All prices in USD. Geo-pricing available for different regions.{' '}
+            All prices in USD. Regional pricing applies to the Professional plan in some countries.{' '}
             <a href="/contact" className="text-emerald-400 hover:underline">Contact sales</a> for enterprise pricing.
           </p>
         </div>
