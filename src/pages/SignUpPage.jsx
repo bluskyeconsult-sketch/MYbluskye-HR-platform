@@ -69,9 +69,10 @@
 // an admin configured. Now fetched for real from system_config
 // (tester_ai_call_cap / tester_access_days) alongside the testing_mode check.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import TurnstileBox from '../components/TurnstileBox';
 import { 
     UserPlus, Mail, Lock, User, Loader2, AlertCircle, 
     CheckCircle, Briefcase, Building2, Sparkles, Star, 
@@ -352,6 +353,9 @@ export default function SignUpPage() {
     // now fires only after genuine email confirmation succeeds - see
     // that file for the corrected version and the reasoning.
 
+    // human-check (Cloudflare Turnstile): invisible for most people; does nothing until VITE_TURNSTILE_SITE_KEY is set
+    const signUpCaptcha = useRef(null);
+
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
@@ -448,10 +452,13 @@ export default function SignUpPage() {
             setTierDowngraded(downgraded);
 
             // Create auth user
+            const captchaToken = await signUpCaptcha.current?.getToken();
+            signUpCaptcha.current?.reset(); // a token works only once
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
                 email: formData.email,
                 password: formData.password,
                 options: {
+                    ...(captchaToken ? { captchaToken } : {}),
                     data: {
                         full_name: formData.full_name,
                         user_type: userType,
@@ -1039,6 +1046,8 @@ export default function SignUpPage() {
                         )}
 
                         {/* Submit Button */}
+                        <TurnstileBox ref={signUpCaptcha} action="sign-up" className="flex justify-center" />
+
                         <button
                             type="submit"
                             disabled={loading}
