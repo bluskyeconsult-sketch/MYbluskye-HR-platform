@@ -121,7 +121,7 @@ export default async function handler(req, res) {
                 // key, so a repeated webhook cannot add them twice). Nothing is credited unless the payment is actually paid.
                 if (session.metadata?.type === 'appraisal_pack') {
                     const orgId = session.metadata?.orgId; const count = parseInt(session.metadata?.count, 10);
-                    if (orgId && [1, 5, 10].includes(count) && session.payment_status === 'paid') {
+                    if (orgId && [1, 5, 10, 25].includes(count) && session.payment_status === 'paid') {
                         const { error: credErr } = await supabase.rpc('appraisal_credit_adjust', { p_org: orgId, p_delta: count, p_reason: 'purchase', p_ref: session.id, p_appraisal: null });
                         if (credErr) {
                             console.error('appraisal credit failed:', credErr.message);
