@@ -117,6 +117,22 @@ export default async function handler(req, res) {
                 // NEW (2026-08-16): one-time credit purchases (distinct
                 // from tier subscriptions) — adds to va_credits.balance,
                 // the same table/column va-execute already deducts from.
+                // NEW (2026-10-23): pay-per-appraisal packs for small teams. Credited once per payment (the payment id is the
+                // key, so a repeated webhook cannot add them twice). Nothing is credited unless the payment is actually paid.
+                if (session.metadata?.type === 'appraisal_pack') {
+                    const orgId = session.metadata?.orgId; const count = parseInt(session.metadata?.count, 10);
+                    if (orgId && [1, 5, 10].includes(count) && session.payment_status === 'paid') {
+                        const { error: credErr } = await supabase.rpc('appraisal_credit_adjust', { p_org: orgId, p_delta: count, p_reason: 'purchase', p_ref: session.id, p_appraisal: null });
+                        if (credErr) {
+                            console.error('appraisal credit failed:', credErr.message);
+                            // Forget this event so Stripe's retry is processed, not skipped as a duplicate. The credit is keyed on the payment id, so a retry can never double-credit.
+                            await supabase.from('processed_stripe_events').delete().eq('event_id', event.id);
+                            return res.status(500).json({ error: 'credit failed' });
+                        }
+                    }
+                    break;
+                }
+
                 if (session.metadata?.type === 'credit_purchase') {
                     const creditsToAdd = parseInt(session.metadata?.credits, 10);
                     if (userId && creditsToAdd) {
