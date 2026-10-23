@@ -36,6 +36,7 @@ const ADMIN_NAV = [
     { section: 'People', items: [
         { path: '/admin/users', label: 'Users', icon: Users },
         { path: '/admin/employer-verification', label: 'Employer Verification', icon: UserCheck },
+        { path: '/admin/employer-jobs', label: 'Employer Jobs', icon: Briefcase },
         { path: '/admin/fraud-reports', label: 'Fraud Reports', icon: ShieldAlert },
         { path: '/admin/testing-mode', label: 'Testing Mode', icon: FlaskConical },
         { path: '/admin/tester-invites', label: 'Tester Invite Codes', icon: KeyRound },
