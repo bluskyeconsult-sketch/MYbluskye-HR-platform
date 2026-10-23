@@ -28,6 +28,7 @@ function RatingForm({ template, initial, onSave, onSubmit, busy, submitLabel, op
     const scale = template?.scale || { min: 1, max: 5, labels: {} };
     const opts = []; for (let i = scale.min; i <= scale.max; i++) opts.push(i);
     return (<div>
+        {template?.ai_drafted && <p className="text-xs text-slate-400 mb-3">These questions were drafted with AI and reviewed by your employer. AI is not used to judge your answers.</p>}
         {(template?.criteria || []).map(k => (
             <div key={k.id} className="mb-4"><div className="text-white text-sm font-medium">{k.title}</div><div className="text-xs text-slate-400 mb-1">{k.description}</div>
                 {k.anchors && <div className="text-xs text-slate-500 mb-1.5 space-y-0.5">{['1', '3', '5'].filter(a => k.anchors[a]).map(a => <div key={a}><b className="text-slate-400">{a}:</b> {k.anchors[a]}</div>)}</div>}
