@@ -47,6 +47,7 @@ import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
 import { buildAppraisalHandlers } from './_lib/appraisals.js';
 import { buildJobPostingHandlers } from './_lib/jobPosting.js';
 import { buildThreatGuard } from './_lib/threatGuard.js';
+import { verifyTurnstile } from './_lib/turnstile.js';
 import { buildGeoPricingHandlers, resolveBand, stripePriceId } from './_lib/geoPricing.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
@@ -13820,7 +13821,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     },
 
     'user-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -13898,8 +13899,14 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             );
             const { data: authData, error: signInError } = await freshAuthClient.auth.signInWithPassword({
                 email: normalizedEmail,
-                password
+                password,
+                // NEW (2026-10-23): human-check token from the browser; Supabase verifies it once its CAPTCHA switch is on
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // NEW (2026-10-20): the auth service only reports "email not confirmed" when the PASSWORD WAS
@@ -13985,7 +13992,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     // critical path is now fire-and-forget - logging still happens, it
     // just no longer gates how fast a real person gets logged in.
     'admin-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -14019,8 +14026,13 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             // check, same GoTrue call the client used to make directly.
             const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
                 email: email.trim(),
-                password
+                password,
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ success: false, error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // FIXED: this is the exact tracking that was never
@@ -16679,9 +16691,15 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     // the cap, the request goes to a real waitlist instead of either
     // silently failing or issuing beyond the intended limit.
     'request-tester-code': async (req, res) => {
-        const { email } = req.body;
+        const { email, captchaToken } = req.body;
         const supabaseClient = getSupabase();
         const ip = getRequestIP(req);
+
+        // NEW (2026-10-23): this action sends an email, so it needs the human check (skipped until TURNSTILE_SECRET_KEY is set)
+        const human = await verifyTurnstile(captchaToken, ip);
+        if (!human.ok) {
+            return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
+        }
 
         if (!email || !isValidEmail(email)) {
             return res.status(400).json({ success: false, error: 'A valid email address is required.' });
