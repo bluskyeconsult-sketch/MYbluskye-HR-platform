@@ -107,3 +107,30 @@ export function Distribution({ counts, color = C.a }) {
 export function BandBars({ bands }) {
     return <Bars rows={bands.map(b => ({ label: b.label, value: b.count, n: b.count }))} max={Math.max(1, ...bands.map(b => b.count))} />;
 }
+
+// Nine-box: performance (left to right) against potential (top = higher). One colour, shade follows the number of people.
+export function NineBox({ cells }) {
+    const [tip, setTip] = useState(null);
+    const total = Math.max(1, cells.reduce((a, c) => a + c.count, 0));
+    const get = (perf, pot) => cells.find(c => c.perf === perf && c.pot === pot);
+    return (
+        <div>
+            <div className="grid grid-cols-[auto_1fr] gap-2">
+                <div className="flex items-center justify-center"><span className="text-xs text-slate-400 [writing-mode:vertical-rl] rotate-180">Potential (higher at the top)</span></div>
+                <div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                        {[3, 2, 1].flatMap(pot => [1, 2, 3].map(perf => { const c = get(perf, pot); const a = Math.min(0.55, (c.count / total) * 1.6);
+                            return (
+                                <div key={`${perf}-${pot}`} className="rounded-lg p-2 min-h-[84px] border border-slate-700 cursor-default" style={{ background: `rgba(57,135,229,${0.08 + a})` }} onMouseEnter={() => setTip(c)} onMouseLeave={() => setTip(null)} tabIndex={0} onFocus={() => setTip(c)}>
+                                    <div className="text-[11px] font-medium text-white leading-tight">{c.label}</div>
+                                    <div className="text-lg text-white font-semibold">{c.count}</div>
+                                    {c.people.length > 0 && <div className="text-[10px] text-slate-200 leading-tight">{c.people.slice(0, 4).join(', ')}{c.people.length > 4 ? ` +${c.people.length - 4}` : ''}</div>}
+                                </div>); }))}
+                    </div>
+                    <div className="text-xs text-slate-400 text-center mt-1.5">Performance (lower to higher)</div>
+                </div>
+            </div>
+            {tip && <div className="mt-2 text-xs text-slate-300 bg-slate-800 border border-slate-600 rounded p-2"><b className="text-white">{tip.label}</b> ({tip.count}): {tip.considerations}</div>}
+        </div>
+    );
+}
