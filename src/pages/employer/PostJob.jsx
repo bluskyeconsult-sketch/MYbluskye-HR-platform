@@ -22,19 +22,26 @@
 //    removing them risks losing real functionality if they do exist, but
 //    worth confirming directly in Supabase if job posting still fails.
 
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Loader2, Briefcase, MapPin, DollarSign, Clock, Users, Lock } from 'lucide-react';
+import { apiCall } from '../../services/appraisalApi';
+import { Loader2, Briefcase, CreditCard } from 'lucide-react';
 
-const ALLOWED_TIERS = ['employer', 'business'];
-const ALLOWED_USER_TYPES = ['admin', 'super_admin'];
+// REWRITTEN (2026-10-23): the server now decides who may post. The plan check and the 20-a-month limit used to run in this
+// page only, and the database accepted direct inserts, so they could be skipped. Now:
+//   - Business and admins post freely; Employer posts up to 20 a month, then may spend a job-post credit.
+//   - Anyone else buys a job-post credit (one credit = one post). Credits never expire and come back if a post is rejected.
+// Every post still goes in as "pending review" and is not shown on the board until it is approved.
 
 export default function PostJob() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [checkingAccess, setCheckingAccess] = useState(true);
-    const [accessDenied, setAccessDenied] = useState(false);
+    const [info, setInfo] = useState(null);
+    const [err, setErr] = useState('');
+    const [ok, setOk] = useState('');
+    const [confirm, setConfirm] = useState(false);
     const [formData, setFormData] = useState({
         title: '',
         company: '',
@@ -50,144 +57,63 @@ export default function PostJob() {
         is_active: true
     });
 
-    useEffect(() => {
-        checkAccess();
-    }, []);
-
-    async function checkAccess() {
+    const loadInfo = useCallback(async () => {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            navigate('/sign-in?redirect=/post-job');
-            return;
-        }
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('tier, user_type')
-            .eq('id', user.id)
-            .single();
-
-        const allowed = ALLOWED_TIERS.includes(profile?.tier) || ALLOWED_USER_TYPES.includes(profile?.user_type);
-        setAccessDenied(!allowed);
+        if (!user) { navigate('/sign-in?redirect=/post-job'); return; }
+        try { setInfo(await apiCall('job-post-info', {}, { auth: 'required' })); } catch (e) { setErr(e.message); }
         setCheckingAccess(false);
-    }
+    }, [navigate]);
+
+    useEffect(() => {
+        loadInfo();
+        const q = new URLSearchParams(window.location.search).get('credits');
+        if (q === 'added') setOk('Payment received. Your job-post credit will show here within a few seconds.');
+        if (q === 'cancelled') setErr('The payment was cancelled. You have not been charged.');
+    }, [loadInfo]);
+
+    const buy = async (count) => {
+        setErr(''); setOk('');
+        try { const r = await apiCall('job-post-credits-checkout', { count }, { auth: 'required' }); window.location.href = r.url; }
+        catch (e) {
+            // The country check could not tell where you are: ask for it rather than showing a bare refusal.
+            setErr(e.data?.gate?.needs_country ? 'We could not work out which country you are in. Please set your country in your profile settings, then try again.' : e.message);
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setLoading(true);
+        setLoading(true); setErr(''); setOk('');
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
-                alert('Please login to post a job');
-                navigate('/sign-in');
-                return;
-            }
+            if (!user) { navigate('/sign-in'); return; }
 
-            // NEW (2026-09-13): confirmed via a full pricing/tier
-            // reconciliation pass that PricingPage.jsx promises
-            // Employer tier "20 jobs/month" (vs. Business tier's true
-            // Unlimited) but nothing anywhere actually enforced this
-            // distinction - checkAccess() above only verifies a tier
-            // can post at all, never how many. Enforced directly here,
-            // at the point of action.
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('tier')
-                .eq('id', user.id)
-                .single();
+            // The server checks the plan, the monthly limit and credits, then saves the job as pending review.
+            const r = await apiCall('job-post-create', { ...formData, confirm }, { auth: 'required' });
 
-            if (profile?.tier === 'employer') {
-                const startOfMonth = new Date();
-                startOfMonth.setDate(1);
-                startOfMonth.setHours(0, 0, 0, 0);
-                const { count } = await supabase
-                    .from('jobs')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('user_id', user.id)
-                    .gte('created_at', startOfMonth.toISOString());
-
-                if ((count || 0) >= 20) {
-                    alert('Monthly job posting limit reached (20). Upgrade to Business for unlimited job postings.');
-                    // NEW (2026-09-13): continuing the audit-logging
-                    // rollout - same direct-insert pattern as
-                    // JobDetailPage.jsx's apply_job denial.
-                    supabase.from('audit_logs').insert({
-                        user_id: user.id,
-                        action_type: 'post_job',
-                        tier_at_time: profile.tier,
-                        was_allowed: false,
-                        deny_reason: 'Monthly job posting limit reached (20)',
-                        risk_score: 25
-                    }).then(() => {}, () => {});
-                    setLoading(false);
-                    return;
-                }
-            }
-
-            const { data, error } = await supabase
-                .from('jobs')
-                .insert({
-                    ...formData,
-                    user_id: user.id,
-                    application_deadline: formData.application_deadline || null,
-                    salary_min: formData.salary_min ? parseInt(formData.salary_min) : null,
-                    salary_max: formData.salary_max ? parseInt(formData.salary_max) : null,
-                    // FIXED: explicit pending status — every real listing query
-                    // filters on compliance_status = 'approved', so leaving this
-                    // unset meant jobs were either failing to save or saving
-                    // invisibly while the UI claimed success.
-                    // FIXED (2026-09-18): same real schema fix as the
-                    // approval paths - jobs.status was never set here
-                    // either. A job pending admin review genuinely
-                    // isn't live yet, so 'draft' is the honest status
-                    // until it's approved.
-                    status: 'draft',
-                    compliance_status: 'pending',
-                    posted_at: new Date().toISOString(),
-                    created_at: new Date().toISOString()
-                })
-                .select();
-
-            if (error) throw error;
-
-            // NEW (2026-09-13): checks whether this employer's company
-            // name matches an existing, government-verified sponsor
-            // record - if so, links their account and marks them
-            // verified automatically. This is deliberately silent and
-            // best-effort here (no alert either way) - a genuine bonus
-            // for a real match, never a blocker if it doesn't match or
-            // the check itself fails.
+            // Silent, best-effort bonus check: links the account to a verified sponsor record when the company name matches.
             try {
                 const { data: { session } } = await supabase.auth.getSession();
                 await fetch('/api/index?action=check-employer-sponsor-match', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${session?.access_token}`
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
                     body: JSON.stringify({ userId: user.id, companyName: formData.company })
                 });
-            } catch {
-                // silently ignored - this is a bonus check, not a
-                // required part of posting a job
-            }
+            } catch { /* a bonus check, never a blocker */ }
 
-            // NEW (2026-09-25): fire-and-forget - never awaited, so
-            // this can't slow down or block a real job posting.
-            fetch('/api/index?action=log-user-activity', {
+            // Fire-and-forget activity log; never blocks posting.
+            supabase.auth.getSession().then(({ data }) => fetch('/api/index?action=log-user-activity', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
-                body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'job_posted', details: { jobId: data?.[0]?.id, title: formData.title } })
-            }).catch(() => {});
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.session?.access_token}` },
+                body: JSON.stringify({ userId: user.id, userEmail: user.email, actionType: 'job_posted', details: { jobId: r.job_id, title: formData.title } })
+            })).catch(() => {});
 
-            // FIXED: honest messaging — this was "Job posted successfully!"
-            // implying it was immediately live, which wasn't true.
-            alert('Job submitted for review! It will appear on the job board once approved.');
+            // Honest wording: the job is not live yet.
+            alert('Job submitted for review! It will appear on the job board once approved.' + (r.used_credit ? ` You have ${r.credits} job-post credit${r.credits === 1 ? '' : 's'} left.` : ''));
             navigate('/manage-jobs');
         } catch (error) {
-            console.error('Error posting job:', error);
-            alert('Failed to post job. Please try again.');
+            setErr(error.message || 'Failed to post job. Please try again.');
+            await loadInfo();
         } finally {
             setLoading(false);
         }
@@ -201,25 +127,8 @@ export default function PostJob() {
         );
     }
 
-    if (accessDenied) {
-        return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-                <div className="max-w-md w-full text-center bg-slate-900/50 border border-slate-800 rounded-xl p-8">
-                    <Lock className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-                    <h1 className="text-xl font-bold text-white mb-2">Employer Plan Required</h1>
-                    <p className="text-slate-400 mb-6">
-                        Posting jobs requires an Employer or Business plan. Upgrade your account to reach qualified candidates.
-                    </p>
-                    <button
-                        onClick={() => navigate('/pricing')}
-                        className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-                    >
-                        View Plans
-                    </button>
-                </div>
-            </div>
-        );
-    }
+    const canPost = info?.via === 'plan' || info?.via === 'credit';
+    const money = (c) => `$${(c / 100).toFixed(2)}`;
 
     return (
         <div className="min-h-screen bg-slate-950 py-12">
@@ -227,6 +136,26 @@ export default function PostJob() {
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 md:p-8">
                     <h1 className="text-2xl font-bold text-white mb-2">Post a New Job</h1>
                     <p className="text-slate-400 mb-6">Fill in the details below to reach qualified candidates</p>
+
+                    {err && <div className="mb-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{err}</div>}
+                    {ok && <div className="mb-4 text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">{ok}</div>}
+
+                    {info && (
+                        <div className="mb-6 bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+                            <h2 className="text-white font-medium mb-1 inline-flex items-center gap-1"><CreditCard className="w-4 h-4" />How this post is paid for</h2>
+                            {info.via === 'plan' && <p className="text-sm text-slate-300">{info.monthly ? `Included in your Employer plan: ${info.monthly.used} of ${info.monthly.limit} posts used this month.` : 'Included in your plan.'}</p>}
+                            {info.via === 'credit' && <p className="text-sm text-slate-300">{info.monthly ? `You have used your ${info.monthly.limit} posts for this month, so this post will use one job-post credit.` : 'This post will use one job-post credit.'} You have {info.credits} credit{info.credits === 1 ? '' : 's'}.</p>}
+                            {info.via === 'none' && <p className="text-sm text-amber-200">{info.tier === 'employer' ? `You have used your ${info.monthly?.limit || 20} posts for this month. Buy a single post below, or move to the Business plan for unlimited posts.` : 'Posting a job costs one job-post credit. Buy one below. If you hire often, the Employer plan (20 posts a month) works out cheaper if you post more than about eight jobs in a month.'}</p>}
+                            <p className="text-xs text-slate-400 mt-1">A job stays on the board for up to {info.live_days} days (or until your closing date). Every job is checked before it goes live, and if a job is rejected the credit comes back.</p>
+                            {(info.via !== 'plan') && (
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                    {info.packs.map(p => (
+                                        <button key={p.count} type="button" onClick={() => buy(p.count)} className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">
+                                            Buy {p.count} post{p.count === 1 ? '' : 's'} for {money(p.cents)}{p.count > 1 ? ` (${money(p.cents / p.count)} each)` : ''}
+                                        </button>))}
+                                    <Link to="/pricing" className="px-3 py-2 text-sm text-primary-300 underline">See plans</Link>
+                                </div>)}
+                        </div>)}
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Job Title */}
@@ -359,11 +288,16 @@ export default function PostJob() {
                             />
                         </div>
 
+                        <label className="flex items-start gap-2 text-sm text-slate-300">
+                            <input type="checkbox" className="mt-1" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
+                            This is a genuine vacancy, and I am allowed to advertise it for this company.
+                        </label>
+
                         {/* Submit Buttons */}
                         <div className="flex gap-4 pt-4">
                             <button
                                 type="submit"
-                                disabled={loading}
+                                disabled={loading || !canPost || !confirm}
                                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Briefcase className="w-5 h-5" />}
