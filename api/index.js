@@ -12186,7 +12186,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     salary_max: externalJob.salary_max,
                     job_type: jobType,
                     external_apply_url: externalJob.external_url,
-                    country_code: externalJob.source || 'GLOBAL',
+                    // UPDATED (2026-10-23): always capitals so the country cards and filters match it.
+                    country_code: String(externalJob.source || 'GLOBAL').trim().toUpperCase() || 'GLOBAL',
                     source_type: 'authoritative',
                     source_name: externalJob.source_name,
                     status: 'active',
