@@ -47,4 +47,4 @@ export const ACTION_LABELS = {
     reassign: 'Choose a new supervisor'
 };
 
-export const SERVICE_LABELS = { appraisal: 'Staff appraisals', appraisal_ai: 'AI help with appraisals', paid_services: 'Paid services', ai_services: 'AI services', workforce: 'Workforce marketplace' };
+export const SERVICE_LABELS = { appraisal: 'Staff appraisals', appraisal_ai: 'AI help with appraisals', appraisal_analytics: 'Appraisal reports', paid_services: 'Paid services', ai_services: 'AI services', workforce: 'Workforce marketplace' };
