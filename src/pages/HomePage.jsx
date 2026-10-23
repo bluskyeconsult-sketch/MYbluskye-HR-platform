@@ -495,9 +495,21 @@ export default function HomePage() {
                             to={`/jobs?country=${country.code}`} 
                             className="bg-slate-900/50 border border-slate-800 rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-primary-500/30 transition-all duration-300 hover:-translate-y-1 group"
                         >
-                            <div className="text-xl sm:text-2xl md:text-3xl mb-0.5 sm:mb-1">{country.flag}</div>
-                            <div className="text-xs sm:text-sm font-medium text-white group-hover:text-primary-400 transition">{country.code}</div>
-                            <div className="text-[10px] sm:text-xs text-slate-400 truncate">{country.name.split(' ')[0]}</div>
+                            {/* FIXED (2026-10-23): Windows browsers cannot draw flag emoji; they show the two letters instead
+                                ("GB" twice on every card). A small flag picture works on every device; if it cannot load, the
+                                country code is shown once. Also showed only the first word of the name ("United" for both UK and US). */}
+                            <div className="h-6 sm:h-7 md:h-8 mb-1 flex items-center justify-center">
+                                <img
+                                    src={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png`}
+                                    srcSet={`https://flagcdn.com/w80/${country.code.toLowerCase()}.png 2x`}
+                                    alt=""
+                                    loading="lazy"
+                                    className="h-5 sm:h-6 md:h-7 w-auto rounded-sm shadow"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'block'; }}
+                                />
+                                <span style={{ display: 'none' }} className="text-sm sm:text-base md:text-lg font-semibold text-white">{country.code}</span>
+                            </div>
+                            <div className="text-[11px] sm:text-xs font-medium text-white group-hover:text-primary-400 transition truncate">{country.name}</div>
                             <div className="text-[10px] sm:text-xs text-primary-400 mt-0.5 sm:mt-1">{country.jobCount} jobs</div>
                         </Link>
                     ))}
