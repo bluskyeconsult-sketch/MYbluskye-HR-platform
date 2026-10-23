@@ -1045,6 +1045,55 @@ function inferArbeitnowCountry(location, fallback) {
     return fallback;
 }
 
+// NEW (2026-10-23): one job, one country - decided from the job's own location text.
+// The feed's default tag (Arbeitnow = Germany, Himalayas = Global, USAJobs = US) is only a fallback.
+// Audit of the live table found ~500 Arbeitnow jobs in the UK/France/Australia filed as Germany, and ~1,000
+// remote jobs whose location plainly names the US, Canada, UK etc. filed as Global.
+// Rules: one country named -> that country; several named -> the feed's own tag if it is among them, else GLOBAL;
+// none named -> the feed's tag. The same patterns are mirrored in fix-job-countries.sql (infer_job_country).
+const JOB_COUNTRY_HINTS = [
+    ['GB', /\b(united kingdom|uk|england|scotland|wales|northern ireland|london|manchester|birmingham|leeds|glasgow|edinburgh|bristol|liverpool|sheffield|cardiff|belfast|newcastle|nottingham|leicester)\b/i],
+    ['IE', /\b(ireland|dublin|cork|galway|limerick)\b/i],
+    ['FR', /\b(france|paris|lyon|marseille|toulouse|nantes|bordeaux|lille|strasbourg|île-de-france|ile-de-france)\b/i],
+    ['NL', /\b(netherlands|nederland|amsterdam|rotterdam|utrecht|eindhoven|den haag|the hague|zuid-holland|noord-holland|noord-brabant|gelderland)\b/i],
+    ['AT', /\b(austria|österreich|oesterreich|wien|vienna|graz|linz|salzburg|innsbruck)\b/i],
+    ['CH', /\b(switzerland|schweiz|suisse|zürich|zurich|geneva|genf|basel|lausanne)\b/i],
+    ['ES', /\b(spain|españa|madrid|barcelona)\b/i],
+    ['PL', /\b(poland|polska|warsaw|warszawa|krakow|kraków|wroclaw|gdansk)\b/i],
+    ['PT', /\b(portugal|lisbon|lisboa)\b/i],
+    ['DE', /\b(germany|deutschland|berlin|munich|münchen|hamburg|frankfurt|köln|cologne|stuttgart|düsseldorf|leipzig|dresden|hannover|nürnberg|nuremberg|bremen)\b/i],
+    ['US', /\b(united states|usa|u\.s\.a|u\.s|america|new york|san francisco|los angeles|chicago|seattle|boston|austin|denver|atlanta|dallas|houston|miami|san diego|washington,? d\.?c|alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|wisconsin|wyoming)\b/i],
+    ['NG', /\b(nigeria|lagos|abuja|port harcourt|ibadan|kano)\b/i],
+    ['CA', /\b(canada|toronto|vancouver|montreal|montréal|ottawa|calgary|edmonton|winnipeg|quebec|québec|ontario|british columbia|alberta)\b/i],
+    ['AU', /\b(australia|sydney|melbourne|brisbane|perth|adelaide|canberra|queensland|new south wales|tasmania)\b/i]
+];
+// Capital-letter "US" (a case-sensitive check, so the word "us" in ordinary text never counts).
+const JOB_COUNTRY_US_CAPS = /\bUS\b/;
+
+export function normaliseCountryTag(tag) {
+    const t = String(tag || '').trim().toUpperCase();
+    return t || 'GLOBAL';
+}
+
+export function inferJobCountry(location, fallback) {
+    const fb = normaliseCountryTag(fallback);
+    // "New England" is a US region, not England; "South/Latin America" is not the US.
+    const text = String(location || '')
+        .replace(/new england/gi, ' ')
+        .replace(/(south|latin|central|north) america/gi, ' ');
+    if (!text.trim()) return fb;
+    const matches = new Set();
+    for (const [code, re] of JOB_COUNTRY_HINTS) {
+        // Northern Ireland belongs to the UK, not the Republic of Ireland.
+        const t = code === 'IE' ? text.replace(/northern ireland/gi, ' ') : text;
+        if (re.test(t)) matches.add(code);
+    }
+    if (JOB_COUNTRY_US_CAPS.test(text)) matches.add('US');
+    if (matches.size === 0) return fb;
+    if (matches.size === 1) return [...matches][0];
+    return matches.has(fb) ? fb : 'GLOBAL';
+}
+
 function parseArbeitnowResponse(data, countryOverride = null) {
     const sourceLabel = countryOverride === 'GB' ? 'Arbeitnow UK' : 'Arbeitnow';
     const items = data?.data;
@@ -1903,7 +1952,9 @@ async function saveJobToDatabase(job, sponsorship) {
                 // address as `link` / `applicationLink`, never `external_url`, so it was saved empty and
                 // those jobs ended up with no apply link. Reads all three names now.
                 external_url: job.external_url || job.applicationLink || job.link || job.url || null,
-                source: (job.source_country || '').substring(0, 500),
+                // UPDATED (2026-10-23): the country is now decided from this job's own location text; the feed's
+                // default tag is only the fallback (see inferJobCountry above). Always saved in capitals.
+                source: inferJobCountry(job.location, job.source_country).substring(0, 500),
                 source_name: (job.source_name || '').substring(0, 500),
                 status: 'pending_approval',
                 is_active: true,
@@ -2338,7 +2389,7 @@ export async function approveExternalJob(jobId) {
             salary_max: externalJob.salary_max,
             job_type: jobType,
             external_apply_url: externalJob.external_url,
-            country_code: externalJob.source || 'GLOBAL',
+            country_code: inferJobCountry(externalJob.location, externalJob.source),
             source_type: 'authoritative',
             source_name: externalJob.source_name,
             status: 'active',
