@@ -15,6 +15,7 @@ export default function AppraisalOrgPage() {
     const { orgId } = useParams();
     const [d, setD] = useState(null);
     const [err, setErr] = useState(''); const [ok, setOk] = useState('');
+    const [limitNext, setLimitNext] = useState(''); // set when an invite or a round is stopped by the team-size limit: employer, business or contact
     const [busy, setBusy] = useState(false);
     const [inv, setInv] = useState({ email: '', full_name: '', job_title: '', department: '', role: 'member', supervisor_member_id: '' });
     const [cyc, setCyc] = useState({ name: '', template_id: '' });
@@ -30,7 +31,7 @@ export default function AppraisalOrgPage() {
         if (q === 'added') { setOk('Payment received. Your appraisal credits will show here in a moment.'); setTimeout(load, 4000); setTimeout(load, 10000); }
         if (q === 'cancelled') setErr('The payment was cancelled. You have not been charged.');
     }, []); // eslint-disable-line
-    const run = async (fn, done) => { setBusy(true); setErr(''); setOk(''); try { await fn(); if (done) setOk(done); await load(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
+    const run = async (fn, done) => { setBusy(true); setErr(''); setOk(''); setLimitNext(''); try { await fn(); if (done) setOk(done); await load(); } catch (e) { setErr(e.message); if (e.code === 'limit_reached') setLimitNext(e.data?.next || 'contact'); } finally { setBusy(false); } };
 
     if (!d) return <div className="min-h-screen bg-slate-950 flex items-center justify-center">{err ? <p className="text-red-300">{err}</p> : <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />}</div>;
     const isHr = ['owner', 'hr_admin'].includes(d.me.role);
@@ -45,7 +46,8 @@ export default function AppraisalOrgPage() {
             <h1 className="text-2xl font-bold text-white mt-2 mb-1">{d.org.name}</h1>
             <p className="text-xs text-slate-400 mb-2">Workplace country: {d.org.country_code} | Records kept {d.org.retention_years} years after filing{d.org.mode === 'micro' ? ' | Small team mode' : ''}</p>
             <Link to={`/appraisals/org/${orgId}/reports`} className="inline-flex items-center gap-1 text-sm text-primary-400 hover:underline mb-4"><BarChart3 className="w-4 h-4" />Reports and business review</Link>
-            {err && <div className="mb-3 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{err}</div>}
+            {err && <div className="mb-3 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{err}
+                {limitNext && <div className="mt-2">{limitNext === 'contact' ? <Link to="/contact" className="text-primary-300 underline">Contact us about a larger organisation</Link> : <Link to="/pricing" className="text-primary-300 underline">See the {limitNext === 'business' ? 'Business' : 'Employer'} plan</Link>}</div>}</div>}
             {ok && <div className="mb-3 text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">{ok}</div>}
 
             <ComplianceGate service="appraisal" orgId={orgId} canAct={isHr}>
@@ -53,6 +55,8 @@ export default function AppraisalOrgPage() {
                 <div className="flex gap-2 mb-4">{[['people', 'People', Users], ['rounds', 'Appraisal rounds', CalendarPlus], ['templates', 'Questions', FileText], ['settings', 'Settings', Settings]].map(([k, l, I]) => <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-sm inline-flex items-center gap-1 ${tab === k ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300'}`}><I className="w-4 h-4" />{l}</button>)}</div>
 
                 {tab === 'people' && (<>
+                    {d.people && (() => { const n = d.members.filter(m => m.status !== 'left').length; const near = n >= Math.ceil(d.people.max * 0.9); return (
+                        <p className={`text-xs mb-3 ${near ? 'text-amber-300' : 'text-slate-400'}`}>{n} of {d.people.max} people.{near ? ` ${d.people.text}` : ''}{near && d.people.next === 'contact' && <> <Link to="/contact" className="underline">Contact us</Link></>}{near && d.people.next !== 'contact' && <> <Link to="/pricing" className="underline">See plans</Link></>}</p>); })()}
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
                         <h3 className="text-white font-medium mb-3 inline-flex items-center gap-1"><UserPlus className="w-4 h-4" />Invite a person</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -75,9 +79,9 @@ export default function AppraisalOrgPage() {
                     {d.billing?.billable && (
                         <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
                             <h3 className="text-white font-medium mb-1 inline-flex items-center gap-1"><CreditCard className="w-4 h-4" />Appraisal credits: {d.billing.balance}</h3>
-                            <p className="text-xs text-slate-400 mb-3">Starting a round uses one credit for each person appraised. A credit comes back if you withdraw an appraisal before the supervisor has started it. Credits never expire. Small teams are limited to {d.billing.max_people} people; the Employer and Business plans include appraisals for larger teams.</p>
+                            <p className="text-xs text-slate-400 mb-3">Starting a round uses one credit for each person appraised. A credit comes back if you withdraw an appraisal before the supervisor has started it. Credits never expire. Pay-per-appraisal teams can have up to {d.billing.max_people} people. The Employer plan includes appraisals for up to 50 people, with job posting and fuller reports, and the Business plan up to 100.</p>
                             {d.me.role === 'owner' ? (<div className="flex flex-wrap gap-2">{d.billing.packs.map(p => (
-                                <button key={p.count} disabled={busy} onClick={() => run(async () => { const r = await apiCall('appr-credits-checkout', { orgId, count: p.count }, { auth: 'required' }); window.location.href = r.url; })} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-sm">Buy {p.count} for ${(p.cents / 100).toFixed(2)}</button>))}</div>)
+                                <button key={p.count} disabled={busy} onClick={() => run(async () => { const r = await apiCall('appr-credits-checkout', { orgId, count: p.count }, { auth: 'required' }); window.location.href = r.url; })} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-sm">Buy {p.count} for ${(p.cents / 100).toFixed(2)}{p.count > 1 ? ` ($${(p.cents / 100 / p.count).toFixed(2)} each)` : ''}</button>))}</div>)
                                 : <p className="text-xs text-amber-300">Only the owner can buy credits.</p>}
                         </div>)}
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
