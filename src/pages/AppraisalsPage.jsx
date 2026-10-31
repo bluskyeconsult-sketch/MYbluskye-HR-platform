@@ -67,8 +67,6 @@ export default function AppraisalsPage({ joinMode = false }) {
             {error && <div className="mb-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex gap-2"><AlertTriangle className="w-4 h-4 mt-0.5" />{error}</div>}
             {data && !data.encryption_ready && <div className="mb-4 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">Appraisals are not switched on yet. The site owner must add the encryption key first.</div>}
 
-            {(data?.appraisals || []).some(a => a.roles.includes('employee')) && <Link to="/appraisals/progress" className="inline-flex items-center gap-1 text-sm text-primary-400 hover:underline mb-4">View my progress and charts</Link>}
-
             <h2 className="text-white font-semibold mb-2">Needs your attention</h2>
             <div className="space-y-3 mb-8">{todo.length ? todo.map(a => <Row key={a.id} a={a} />) : <p className="text-sm text-slate-400">Nothing waiting for you.</p>}</div>
             {rest.length > 0 && <><h2 className="text-white font-semibold mb-2">All appraisals</h2><div className="space-y-3 mb-8">{rest.map(a => <Row key={a.id} a={a} />)}</div></>}
@@ -81,7 +79,7 @@ export default function AppraisalsPage({ joinMode = false }) {
                 </div>))}</div>
             {!form.show ? <button onClick={() => setForm({ ...form, show: true })} className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm"><Plus className="w-4 h-4" />Set up appraisals for my organisation</button> : (
                 <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-3">
-                    <p className="text-sm text-slate-300">Run appraisals for up to 25 people with no subscription (your first appraisal is free, then you pay per appraisal), or get them included with the Employer plan (up to 50 people, plus job posting and fuller reports) or the Business plan (up to 100). Choose the country where your staff work, because that decides the legal steps.</p>
+                    <p className="text-sm text-slate-300">Included with the Employer and Business plans. Choose the country where your staff work, because that decides the legal steps.</p>
                     <input className={input} placeholder="Organisation name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                     <select className={input} value={form.country_code} onChange={e => setForm({ ...form, country_code: e.target.value })}><option value="">Country where staff work</option>{COUNTRIES.filter(c => c[0] !== 'OTHER').map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}<option value="XX" disabled>Other countries: contact us</option></select>
                     <button disabled={busy || form.name.length < 2 || !form.country_code} onClick={createOrg} className="px-4 py-2 rounded-lg bg-primary-600 disabled:opacity-40 text-white text-sm">{busy ? 'Creating...' : 'Create'}</button>
