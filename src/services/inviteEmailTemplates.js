@@ -214,7 +214,7 @@ function personalise(str, firstName) {
     return String(str ?? '').replace(/\{\{\s*firstName\s*\}\}/gi, firstName || 'there');
 }
 
-export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUrl, testerCode, postalAddress, isReminder = false, siteUrl, tier = '', testingMode = false, senderName = 'Joseph Odugboye', senderTitle = 'Founder, BluSkye Integrated Consult' }) {
+export function renderInviteEmail({ content, firstName, signupUrl, unsubscribeUrl, testerCode, postalAddress, isReminder = false, siteUrl, tier = '', testingMode = false, senderName = 'ODUSBABA Team', senderTitle = 'BluSkye Integrated Consult' }) {
     const name = firstName ? String(firstName).slice(0, 60) : '';
     const subject = personalise(isReminder ? `Reminder: ${content.subject}` : content.subject, name).replace(/[\r\n]+/g, ' ').slice(0, 200); // header-injection safe
     const headline = personalise(content.headline, name);
