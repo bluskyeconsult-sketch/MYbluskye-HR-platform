@@ -36,7 +36,6 @@ const ADMIN_NAV = [
     { section: 'People', items: [
         { path: '/admin/users', label: 'Users', icon: Users },
         { path: '/admin/employer-verification', label: 'Employer Verification', icon: UserCheck },
-        { path: '/admin/employer-jobs', label: 'Employer Jobs', icon: Briefcase },
         { path: '/admin/fraud-reports', label: 'Fraud Reports', icon: ShieldAlert },
         { path: '/admin/testing-mode', label: 'Testing Mode', icon: FlaskConical },
         { path: '/admin/tester-invites', label: 'Tester Invite Codes', icon: KeyRound },
@@ -51,7 +50,6 @@ const ADMIN_NAV = [
         { path: '/admin/dashboard-announcements', label: 'Dashboard Announcements', icon: Bell },
         { path: '/admin/workforce', label: 'Workforce Marketplace', icon: Network },
         { path: '/admin/compliance-rules', label: 'Compliance Rules', icon: ShieldCheck },
-        { path: '/admin/geo-pricing', label: 'Regional Pricing', icon: Globe },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
         { path: '/admin/articles', label: 'Articles', icon: FileText },
