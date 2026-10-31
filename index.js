@@ -45,6 +45,7 @@ import crypto from 'crypto';
 import * as mailLib from './_lib/mail.js';
 import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
 import { buildAppraisalHandlers } from './_lib/appraisals.js';
+import { buildJobPostingHandlers } from './_lib/jobPosting.js';
 import { buildGeoPricingHandlers, resolveBand, stripePriceId } from './_lib/geoPricing.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
@@ -18365,6 +18366,8 @@ Give specific, actionable advice grounded in exactly what the person shares - re
         deductAiCredit: (sb, userId, req) => checkAndDeductCredit(sb, userId, req, 1),
         refundAiCredit: (sb, userId, check) => refundCreditIfDeducted(sb, userId, check, 1)
     }));
+    // Job posting decided by the server (plan allowance, pay-per-post credits, daily cap) and the job-post credit checkout.
+    Object.assign(handlers, buildJobPostingHandlers({ getSupabase }));
     Object.assign(handlers, buildGeoPricingHandlers(complianceDeps));
 }
 

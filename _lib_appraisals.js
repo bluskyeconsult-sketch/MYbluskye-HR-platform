@@ -29,7 +29,7 @@ const CLOSED = ['filed', 'closed_employee_left', 'withdrawn', 'purged'];
 const PERSONAL_DATA = /[\w.+-]+@[\w-]+\.[\w.]+|https?:\/\/|www\.|\+?\d[\d\s().-]{7,}\d/i;
 const SENSITIVE = /\b(age|aged|ages|old|older|young|younger|elderly|retire\w*|gender|sex|sexes|sexual\w*|pregnan\w*|maternity|paternity|marital|married|marriage|single parent|famil(y|ies)|child(ren)?|kids|baby|religio\w*|faith|church|mosque|race|racial|ethnic\w*|nationality|national origin|accent|disab\w*|health|illness|medical|medication|mental|union|political\w*|politics|vote|orientation|gay|lesbian|transgender|appearance|attractive\w*|weight|height|looks)\b/i;
 // Team-size limits, one place. Pay-per-appraisal organisations (owner not on Employer/Business) can have up to SMALL_TEAM_MAX people.
-// Employer and Business include appraisals for more. Above BUSINESS_MAX people we ask the owner to contact us (priced individually).
+// Employer and Business include appraisals for more. Above BUSINESS_MAX people we ask the owner to email support (priced individually; an admin then sets organisations.max_people_override).
 // EMPLOYER_MAX must stay above SMALL_TEAM_MAX, otherwise paying for the Employer plan would give a smaller team than paying per appraisal.
 const SMALL_TEAM_MAX = 25;
 const EMPLOYER_MAX = 50;
@@ -239,11 +239,16 @@ export function buildAppraisalHandlers(deps) {
         return openAll(p) ? EMPLOYER_MAX : SMALL_TEAM_MAX;
     }
     // What to tell an owner who has reached their limit, and where to send them next. Used by invites and by starting a round.
-    function limitAdvice(p) {
-        const limit = tierLimit(p);
-        if (isAdminP(p) || openAll(p)) return { limit, next: 'contact', text: `This organisation is at the limit of ${limit} people. Please contact us.` };
+    // An organisation of more than 100 people can be given its own higher limit (organisations.max_people_override, set by an admin after
+    // terms are agreed). It only counts when the owner is on the Business plan or is an admin, so a lapsed plan falls back to the normal limit.
+    const SUPPORT_EMAIL = 'support@bluskyeconsult.com';
+    function limitAdvice(p, org) {
+        let limit = tierLimit(p);
+        const over = Number(org?.max_people_override) || 0;
+        if (over > limit && (isAdminP(p) || tierName(p) === 'business')) limit = over;
+        if (isAdminP(p) || openAll(p)) return { limit, next: 'contact', text: `This organisation is at the limit of ${limit} people. Please email ${SUPPORT_EMAIL}.` };
         const t = tierName(p);
-        if (t === 'business') return { limit, next: 'contact', text: `Your Business plan includes appraisals for up to ${limit} people. For a larger organisation, please contact us and we will set up a plan for you.` };
+        if (t === 'business') return { limit, next: 'contact', text: `Your plan includes appraisals for up to ${limit} people. For a larger organisation, please email ${SUPPORT_EMAIL} and we will set up a plan for you.` };
         if (t === 'employer') return { limit, next: 'business', text: `Your Employer plan includes appraisals for up to ${limit} people. The Business plan covers up to ${BUSINESS_MAX}.` };
         return { limit, next: 'employer', text: `Pay-per-appraisal teams can have up to ${limit} people. The Employer plan includes appraisals for up to ${EMPLOYER_MAX} people, plus job posting and fuller reports.` };
     }
@@ -426,7 +431,7 @@ export function buildAppraisalHandlers(deps) {
                 const { data: bal } = await sb.from('appraisal_credit_balances').select('balance').eq('org_id', orgId).maybeSingle();
                 billing = { billable: true, balance: bal?.balance || 0, packs: Object.entries(APPRAISAL_PACKS).map(([n, c]) => ({ count: Number(n), cents: c })), max_people: SMALL_TEAM_MAX };
             }
-            const adv = limitAdvice(op);
+            const adv = limitAdvice(op, org);
             const people = { max: adv.limit, next: adv.next, text: adv.text };
             return res.status(200).json({ success: true, billing, people, org, report_level: level, me: { member_id: me.id, role: me.role }, members: members || [], cycles, appraisals: metaAppraisals, templates: templates || [], gate: { decision: gate.decision, rule: gate.rule ? { title: gate.rule.title, requirement_text: gate.rule.requirement_text, checklist: gate.rule.checklist, reference_links: gate.rule.reference_links, rule_version: gate.rule.rule_version } : null, missing: gate.missing || null } });
         },
@@ -467,7 +472,7 @@ export function buildAppraisalHandlers(deps) {
             if (role === 'hr_admin' && me.role !== 'owner') return fail(res, 403, 'Only an owner can add an HR admin.');
             if (b.supervisor_member_id && !isId(b.supervisor_member_id)) return fail(res, 400, 'Invalid supervisor.');
             if (b.supervisor_member_id) { const { data: s } = await sb.from('org_members').select('id').eq('id', b.supervisor_member_id).eq('org_id', b.orgId).neq('status', 'left').maybeSingle(); if (!s) return fail(res, 400, 'Supervisor not found.'); }
-            const advice = limitAdvice(await ownerProfile(sb, org)); const limit = advice.limit;
+            const advice = limitAdvice(await ownerProfile(sb, org), org); const limit = advice.limit;
             const { count } = await sb.from('org_members').select('id', { count: 'exact', head: true }).eq('org_id', b.orgId).neq('status', 'left');
             const { data: existing } = await sb.from('org_members').select('*').eq('org_id', b.orgId).eq('email', email).maybeSingle();
             if (existing && existing.status === 'active') return fail(res, 409, 'That person is already a member.');
@@ -691,7 +696,7 @@ export function buildAppraisalHandlers(deps) {
             if (Array.isArray(b.memberIds) && b.memberIds.length) employees = employees.filter(m => b.memberIds.includes(m.id));
             employees = employees.slice(0, 200);
             // A plan that lapsed or was downgraded after people were added: existing people stay on record, but a new round waits until the team fits.
-            { const adv = limitAdvice(await ownerProfile(sb, org)); if ((members || []).length > adv.limit) return fail(res, 400, `This organisation has ${(members || []).length} active people, more than the ${adv.limit} your plan covers. ${adv.text} You can also mark people who have left.`, { code: 'limit_reached', limit: adv.limit, next: adv.next }); }
+            { const adv = limitAdvice(await ownerProfile(sb, org), org); if ((members || []).length > adv.limit) return fail(res, 400, `This organisation has ${(members || []).length} active people, more than the ${adv.limit} your plan covers. ${adv.text} You can also mark people who have left.`, { code: 'limit_reached', limit: adv.limit, next: adv.next }); }
             if (!employees.length) return fail(res, 400, 'No one is ready to be appraised. Give each person a supervisor first.');
             // Small teams pay one credit per person appraised. Charged first (locked, so no double spend); any unused part is returned.
             const bill = billable(await ownerProfile(sb, org));

@@ -426,7 +426,7 @@ export default function PricingPage() {
         </div>
 
         {/* Price Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-12">
+        <div data-plans className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-12">
           {tiers.map((tier) => (
             <div
               key={tier.name}
@@ -562,6 +562,40 @@ export default function PricingPage() {
           <p className="text-xs text-slate-500 text-center mt-4">Credits never expire — unused credits carry over and add to next month's allowance.</p>
         </div>
 
+        {/* NEW (2026-10-23): "For employers" - three doors, so a small employer sees one clear next step per need. */}
+        <div className="mt-12 max-w-5xl mx-auto">
+          <h2 className="text-2xl font-bold text-white text-center mb-1">For employers</h2>
+          <p className="text-slate-400 text-sm text-center mb-6">Pay for what you use, or take a plan if you use it a lot. Staff who are appraised never need a plan.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col">
+              <div className="text-xs uppercase tracking-wide text-emerald-400 mb-1">Hire someone</div>
+              <h3 className="text-lg font-semibold text-white mb-2">Pay per job post</h3>
+              <div className="text-2xl font-bold text-white mb-1">$29 <span className="text-sm font-normal text-slate-400">per post</span></div>
+              <p className="text-sm text-slate-400 mb-3">One credit, one job. Listed for up to 60 days, checked before it goes live, and the credit comes back if we have to reject it. No subscription.</p>
+              <p className="text-xs text-slate-500 mb-4">3 posts $75 ($25 each), 5 posts $115 ($23 each). Credits never expire.</p>
+              <a href="/post-job" className="mt-auto inline-block text-center px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">Post a job</a>
+            </div>
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col">
+              <div className="text-xs uppercase tracking-wide text-emerald-400 mb-1">Appraise my team</div>
+              <h3 className="text-lg font-semibold text-white mb-2">Pay per appraisal</h3>
+              <div className="text-2xl font-bold text-white mb-1">$6.99 <span className="text-sm font-normal text-slate-400">per appraisal</span></div>
+              <p className="text-sm text-slate-400 mb-3">For teams of up to 25. Your first appraisal is free. Fair, private appraisals with self-assessment, supervisor review and a right to respond.</p>
+              <p className="text-xs text-slate-500 mb-4">Packs from $4.40 each. Credits never expire.</p>
+              <a href="/appraisals" className="mt-auto inline-block text-center px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">Set up appraisals</a>
+            </div>
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col">
+              <div className="text-xs uppercase tracking-wide text-emerald-400 mb-1">Hire often, or a bigger team</div>
+              <h3 className="text-lg font-semibold text-white mb-2">Employer or Business</h3>
+              <div className="text-sm text-slate-300 mb-3 space-y-2">
+                <p><span className="text-white font-medium">Employer, $199.99 a month:</span> 20 job posts a month and appraisals for up to 50 people. Cheaper than paying per post once you hire more than about eight times a month.</p>
+                <p><span className="text-white font-medium">Business, $549.99 a month:</span> unlimited job posts, appraisals for up to 100 people, department reports and the business review.</p>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">More than 100 people? Email <a href="mailto:support@bluskyeconsult.com?subject=Appraisals%20for%20a%20larger%20organisation" className="text-emerald-400 hover:underline">support@bluskyeconsult.com</a>.</p>
+              <a href="#plans" className="mt-auto inline-block text-center px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm" onClick={(e) => { const el = document.querySelector('[data-plans]'); if (el) { e.preventDefault(); el.scrollIntoView({ behavior: 'smooth' }); } }}>Compare plans</a>
+            </div>
+          </div>
+        </div>
+
         {/* NEW (2026-10-23): small teams pay per appraisal instead of taking a subscription. */}
         <div className="mt-8 max-w-3xl mx-auto bg-slate-900 border border-slate-700 rounded-xl p-6 text-center">
           <h3 className="text-xl font-semibold text-white mb-1">Small team? Pay per appraisal</h3>
@@ -574,7 +608,7 @@ export default function PricingPage() {
               <div key={n} className="bg-slate-800 rounded-lg p-3"><div className="text-sm text-white">{n}</div><div className="text-emerald-400">{pr}</div>{each && <div className="text-xs text-slate-500">{each}</div>}</div>
             ))}
           </div>
-          <p className="text-xs text-slate-500 mb-4">More than 100 people? <a href="/contact" className="text-emerald-400 hover:underline">Contact us</a> and we will set up a plan for your organisation.</p>
+          <p className="text-xs text-slate-500 mb-4">More than 100 people? Email <a href="mailto:support@bluskyeconsult.com?subject=Appraisals%20for%20a%20larger%20organisation" className="text-emerald-400 hover:underline">support@bluskyeconsult.com</a> and we will set up a plan for your organisation.</p>
           <a href="/appraisals" className="inline-block px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">Set up appraisals</a>
         </div>
 
