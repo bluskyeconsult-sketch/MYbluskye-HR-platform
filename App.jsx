@@ -658,6 +658,8 @@ const CareerCoachPage = lazy(() => import('./pages/CareerCoachPage'));
 import { ComplianceBanner } from './components/ComplianceGate';
 const AppraisalsPage = lazy(() => import('./pages/AppraisalsPage'));
 const AppraisalOrgPage = lazy(() => import('./pages/AppraisalOrgPage'));
+const AppraisalProgressPage = lazy(() => import('./pages/AppraisalProgressPage'));
+const AppraisalReportsPage = lazy(() => import('./pages/AppraisalReportsPage'));
 const AppraisalDetailPage = lazy(() => import('./pages/AppraisalDetailPage'));
 const CountryRulesPage = lazy(() => import('./pages/CountryRulesPage'));
 const AdminComplianceRules = lazy(() => import('./pages/admin/AdminComplianceRules'));
@@ -1059,6 +1061,8 @@ function AppContent() {
                             <Route path="/career-coach" element={<ProtectedRoute><CareerCoachPage /></ProtectedRoute>} />
                             {/* NEW (2026-10-23): staff appraisals + country rules. More specific paths come first. */}
                             <Route path="/appraisals/join" element={<AppraisalsPage joinMode />} />
+                            <Route path="/appraisals/progress" element={<ProtectedRoute><AppraisalProgressPage /></ProtectedRoute>} />
+                            <Route path="/appraisals/org/:orgId/reports" element={<ProtectedRoute><AppraisalReportsPage /></ProtectedRoute>} />
                             <Route path="/appraisals/org/:orgId" element={<ProtectedRoute><AppraisalOrgPage /></ProtectedRoute>} />
                             <Route path="/appraisals/:id" element={<ProtectedRoute><AppraisalDetailPage /></ProtectedRoute>} />
                             <Route path="/appraisals" element={<AppraisalsPage />} />
