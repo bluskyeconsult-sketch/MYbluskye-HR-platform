@@ -47,6 +47,7 @@ import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
 import { buildAppraisalHandlers } from './_lib/appraisals.js';
 import { buildJobPostingHandlers } from './_lib/jobPosting.js';
 import { buildThreatGuard } from './_lib/threatGuard.js';
+import { verifyTurnstile } from './_lib/turnstile.js';
 import { buildGeoPricingHandlers, resolveBand, stripePriceId } from './_lib/geoPricing.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
@@ -679,8 +680,8 @@ async function isTestingModeOn(supabaseClient) {
 
 function inviteSender() {
     return {
-        senderName: String(process.env.INVITE_SENDER_NAME || 'Joseph Odugboye').replace(/["<>\r\n]/g, '').slice(0, 60),
-        senderTitle: String(process.env.INVITE_SENDER_TITLE || 'Founder, BluSkye Integrated Consult').replace(/[<>\r\n]/g, '').slice(0, 100)
+        senderName: String(process.env.INVITE_SENDER_NAME || 'ODUSBABA Team').replace(/["<>\r\n]/g, '').slice(0, 60),
+        senderTitle: String(process.env.INVITE_SENDER_TITLE || 'BluSkye Integrated Consult').replace(/[<>\r\n]/g, '').slice(0, 100)
     };
 }
 
@@ -694,7 +695,7 @@ async function sendInviteEmail(transporter, { to, firstName, token, content, tes
     });
     const fromAddr = process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com';
     const mail = {
-        from: `"${inviteSender().senderName} | ODUSBABA" <${fromAddr}>`,
+        from: /odusbaba/i.test(inviteSender().senderName) ? `"${inviteSender().senderName}" <${fromAddr}>` : `"${inviteSender().senderName} | ODUSBABA" <${fromAddr}>`,
         to,
         subject: (isTest ? '[TEST] ' : '') + rendered.subject,
         html: rendered.html,
@@ -12185,7 +12186,8 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                     salary_max: externalJob.salary_max,
                     job_type: jobType,
                     external_apply_url: externalJob.external_url,
-                    country_code: externalJob.source || 'GLOBAL',
+                    // UPDATED (2026-10-23): always capitals so the country cards and filters match it.
+                    country_code: String(externalJob.source || 'GLOBAL').trim().toUpperCase() || 'GLOBAL',
                     source_type: 'authoritative',
                     source_name: externalJob.source_name,
                     status: 'active',
@@ -13820,7 +13822,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     },
 
     'user-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -13898,8 +13900,14 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             );
             const { data: authData, error: signInError } = await freshAuthClient.auth.signInWithPassword({
                 email: normalizedEmail,
-                password
+                password,
+                // NEW (2026-10-23): human-check token from the browser; Supabase verifies it once its CAPTCHA switch is on
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // NEW (2026-10-20): the auth service only reports "email not confirmed" when the PASSWORD WAS
@@ -13985,7 +13993,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     // critical path is now fire-and-forget - logging still happens, it
     // just no longer gates how fast a real person gets logged in.
     'admin-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -14019,8 +14027,13 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             // check, same GoTrue call the client used to make directly.
             const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
                 email: email.trim(),
-                password
+                password,
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ success: false, error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // FIXED: this is the exact tracking that was never
@@ -15693,6 +15706,50 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         }
     },
 
+    // ========== CONTACT FORM (NEW 2026-10-23) ==========
+    // The page used to insert straight into contact_messages from the browser. That cannot carry a human check,
+    // limits or a spam filter, and visitor inserts were removed from the table's rules (fix-9-visitor-access.sql).
+    // Now the server does it with its own key.
+    'contact-submit': async (req, res) => {
+        const b = req.body || {};
+        const supabaseClient = getSupabase();
+        const ip = getRequestIP(req);
+        const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+        const name = str(b.name, 100), email = str(b.email, 254).toLowerCase(), subject = str(b.subject, 200), message = str(b.message, 2000);
+        const priority = ['low', 'normal', 'high'].includes(b.priority) ? b.priority : 'normal';
+
+        // trap field: a real person never sees it. Pretend success so the bot learns nothing.
+        if (typeof b.contact_ref_url === 'string' && b.contact_ref_url.trim() !== '') {
+            logSecurityEvent('contact_trap_filled', ip, 'warning', {});
+            return res.status(200).json({ success: true });
+        }
+        if (name.length < 2 || !isValidEmail(email) || subject.length < 3 || message.length < 10) {
+            return res.status(400).json({ success: false, error: 'Please fill in your name, a valid email, a subject and a message of at least 10 characters.' });
+        }
+        // spam filter: link-heavy messages are almost always spam
+        const links = (message.match(/https?:\/\/|www\./gi) || []).length;
+        if (links > 3) {
+            return res.status(400).json({ success: false, error: 'Please remove some of the links from your message and try again.' });
+        }
+        const human = await verifyTurnstile(b.captchaToken, ip);
+        if (!human.ok) {
+            return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
+        }
+        const rate = await checkIpRateLimit(supabaseClient, `contact:${ip}`, 5);
+        if (!rate.allowed) {
+            return res.status(429).json({ success: false, error: 'Too many messages from your connection. Please try again later.' });
+        }
+        try {
+            const userId = await coachAuth(req, supabaseClient); // signed-in senders are linked to their account (from the verified token only)
+            const { error } = await supabaseClient.from('contact_messages').insert({ name, email, subject, message, priority, user_id: userId || null });
+            if (error) throw error;
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('contact-submit error:', error);
+            return res.status(500).json({ success: false, error: 'We could not send your message. Please try again or email support@bluskyeconsult.com.' });
+        }
+    },
+
     // ========== NEWSLETTER SUBSCRIBE ==========
     'newsletter-subscribe': async (req, res) => {
         let { email, name } = req.body || {};
@@ -15700,6 +15757,11 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         
         if (typeof email !== 'string' || email.length > 254 || !isValidEmail(email)) {
             return res.status(400).json({ error: 'Invalid email address' });
+        }
+        // NEW (2026-10-23): human check (skipped until TURNSTILE_SECRET_KEY is set)
+        const human = await verifyTurnstile((req.body || {}).captchaToken, getRequestIP(req));
+        if (!human.ok) {
+            return res.status(400).json({ error: 'Please complete the human check and try again.' });
         }
         email = email.trim().toLowerCase();
         name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 100) : null;
@@ -16679,9 +16741,15 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     // the cap, the request goes to a real waitlist instead of either
     // silently failing or issuing beyond the intended limit.
     'request-tester-code': async (req, res) => {
-        const { email } = req.body;
+        const { email, captchaToken } = req.body;
         const supabaseClient = getSupabase();
         const ip = getRequestIP(req);
+
+        // NEW (2026-10-23): this action sends an email, so it needs the human check (skipped until TURNSTILE_SECRET_KEY is set)
+        const human = await verifyTurnstile(captchaToken, ip);
+        if (!human.ok) {
+            return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
+        }
 
         if (!email || !isValidEmail(email)) {
             return res.status(400).json({ success: false, error: 'A valid email address is required.' });
