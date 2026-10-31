@@ -995,7 +995,53 @@ export function buildAppraisalHandlers(deps) {
             const report = computeReport(data.rows, { level, allowSupervisorView: level === 'full' && !['DE', 'FR'].includes(org.country_code), allowNineBox: level === 'full' && !['DE', 'FR'].includes(org.country_code) });
             const findings = buildFindings(report, data.statusCounts);
             await ev(sb, { id: null, org_id: orgId }, me, user.id, 'report_generated', null, null, { org_id: orgId, n: data.rows.length, cycle: cycleId, level });
-            return res.status(200).json({ success: true, level, report, findings, status_counts: data.statusCounts, cycles: data.cycles });
+            // Names stay out of this response. They are released only through 'appr-report-people', so every time named people are shown it is logged.
+            const nb = report.nine_box && !report.nine_box.hidden ? { ...report.nine_box, cells: report.nine_box.cells.map(({ people, ids, ...c }) => c) } : report.nine_box;
+            const safe = { ...report, individuals: [], nine_box: nb };
+            return res.status(200).json({ success: true, level, report: safe, findings, status_counts: data.statusCounts, cycles: data.cycles });
+        },
+
+        // ---- "Who is behind this?" ----
+        // Opens the named people behind one figure (a band, a question rating, a department, a team or a nine-box cell).
+        // Owner or HR admin only, filed appraisals only, same country gate as the report. Every view is written to the
+        // append-only audit trail with WHICH kind of figure was opened and how many people it showed, never names or ratings.
+        'appr-report-people': async (req, res) => {
+            const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
+            if (!guardEnc(res)) return;
+            const orgId = req.body?.orgId; if (!isId(orgId)) return fail(res, 400, 'Missing organisation.');
+            const me = await getMember(sb, user.id, orgId); if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can see who is behind a figure.');
+            const org = await getOrg(sb, orgId);
+            if (!(await gateOrg(req, res, sb, user, org))) return;
+            if (!(await enforceGate(sb, req, res, { service: 'appraisal_analytics', orgId, orgCountry: org.country_code, userId: user.id }))) return;
+            const level = reportLevel(await ownerProfile(sb, org));
+            const cycleId = isId(req.body?.cycleId) ? req.body.cycleId : null;
+            const lens = req.body?.lens || {}; const kind = clip(lens.kind, 20);
+            const deOrFr = ['DE', 'FR'].includes(org.country_code);
+            const data = await loadFiledRows(sb, org, cycleId);
+            const report = computeReport(data.rows, { level, allowSupervisorView: level === 'full' && !deOrFr, allowNineBox: level === 'full' && !deOrFr });
+            let people = report.individuals; let label = 'Everyone';
+            if (kind === 'band') { label = clip(lens.band, 40); people = people.filter(p => p.band === label); }
+            else if (kind === 'rating') {
+                const cid = clip(lens.criterionId, 80); const val = Number(lens.value);
+                const crit = (report.criteria || []).find(c => c.id === cid);
+                if (!crit || !Number.isInteger(val) || val < 1 || val > 5) return fail(res, 400, 'That question or rating is not recognised.');
+                if (level === 'basic') return fail(res, 403, 'Question-level views are part of the Employer plan.');
+                label = `${crit.title}: rated ${val}`; people = people.filter(p => Number(p.ratings[cid]) === val);
+            }
+            else if (kind === 'department' || kind === 'team') {
+                if (level !== 'full') return fail(res, 403, 'Group views are part of the Business plan.');
+                if (kind === 'team' && deOrFr) return fail(res, 403, 'Team views are not offered in this country.');
+                const nm = clip(lens.name, 120); label = nm; people = people.filter(p => (kind === 'department' ? p.department : p.supervisor) === nm);
+            }
+            else if (kind === 'ninebox') {
+                if (!report.nine_box || report.nine_box.hidden) return fail(res, 403, 'The grid is not available for this report.');
+                const cell = report.nine_box.cells.find(c => c.perf === Number(lens.perf) && c.pot === Number(lens.pot));
+                if (!cell) return fail(res, 400, 'That box is not recognised.');
+                label = cell.label; const ids = new Set(cell.ids); people = people.filter(p => ids.has(p.id));
+            }
+            else if (kind !== 'all') return fail(res, 400, 'That view is not recognised.');
+            await ev(sb, { id: null, org_id: orgId }, me, user.id, 'report_people_viewed', null, null, { org_id: orgId, lens: kind, n: people.length, cycle: cycleId });
+            return res.status(200).json({ success: true, label, kind, criteria: report.criteria || [], people, logged: true });
         },
 
         'appr-business-review-pdf': async (req, res) => {

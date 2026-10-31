@@ -123,8 +123,8 @@ export function computeReport(rows, { level = 'standard', allowSupervisorView = 
         if (rated.length < minGroup) out.nine_box = { hidden: true, rated: rated.length, unrated, min_group: minGroup };
         else {
             const cells = {};
-            for (const pot of [3, 2, 1]) for (const perf of [1, 2, 3]) cells[`${perf}-${pot}`] = { perf, pot, label: NINE_BOX[`${perf}-${pot}`][0], considerations: NINE_BOX[`${perf}-${pot}`][1], count: 0, people: [] };
-            rated.forEach(r => { const c = cells[`${perfLevel(overallOf(r.final, r.criteria))}-${Number(r.final.potential)}`]; c.count++; c.people.push(r.name); });
+            for (const pot of [3, 2, 1]) for (const perf of [1, 2, 3]) cells[`${perf}-${pot}`] = { perf, pot, label: NINE_BOX[`${perf}-${pot}`][0], considerations: NINE_BOX[`${perf}-${pot}`][1], count: 0, people: [], ids: [] };
+            rated.forEach(r => { const c = cells[`${perfLevel(overallOf(r.final, r.criteria))}-${Number(r.final.potential)}`]; c.count++; c.people.push(r.name); c.ids.push(r.id); });
             Object.values(cells).forEach(c => c.people.sort((a, b) => String(a).localeCompare(String(b))));
             out.nine_box = { hidden: false, rated: rated.length, unrated, cells: Object.values(cells) };
         }
