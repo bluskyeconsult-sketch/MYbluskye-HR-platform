@@ -46,6 +46,8 @@ import * as mailLib from './_lib/mail.js';
 import { buildComplianceHandlers, enforceGate } from './_lib/compliance.js';
 import { buildAppraisalHandlers } from './_lib/appraisals.js';
 import { buildJobPostingHandlers } from './_lib/jobPosting.js';
+import { buildThreatGuard } from './_lib/threatGuard.js';
+import { verifyTurnstile } from './_lib/turnstile.js';
 import { buildGeoPricingHandlers, resolveBand, stripePriceId } from './_lib/geoPricing.js';
 import { getShareItem, renderPreviewHtml } from './_lib/shareData.js';
 import QRCode from 'qrcode';
@@ -158,7 +160,9 @@ function checkRateLimit(key, limit = RATE_LIMIT_REQUESTS) {
 // ============================================
 
 function getRequestIP(req) {
-    return (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
+    // SECURITY (2026-10-23): prefer the header Vercel sets itself (a visitor cannot forge it); fall back to the old order.
+    const vercelIp = req.headers['x-vercel-forwarded-for']?.split(',')[0]?.trim();
+    return (vercelIp || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
 }
 
 async function isIPBlocked(ip) {
@@ -169,8 +173,10 @@ async function isIPBlocked(ip) {
             .select('id')
             .eq('ip_address', ip)
             .gt('expires_at', new Date().toISOString())
-            .maybeSingle();
-        return !!data;
+            .limit(1);
+        // SECURITY FIX (2026-10-23): this used .maybeSingle(), which errors when an IP has two live block rows
+        // (manual + automatic, say) and then returned "not blocked". limit(1) cannot fail that way.
+        return Array.isArray(data) && data.length > 0;
     } catch (err) {
         console.warn('IP block check failed, failing open:', err.message);
         return false;
@@ -261,6 +267,7 @@ function isValidEmail(email) {
 // NEW (2026-08-16): extracts the real client IP in a Vercel serverless
 // context — used only for guest rate limiting below.
 function getClientIp(req) {
+    if (req.headers['x-vercel-forwarded-for']) return req.headers['x-vercel-forwarded-for'].split(',')[0].trim();
     const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) return forwarded.split(',')[0].trim();
     return req.socket?.remoteAddress || 'unknown';
@@ -13814,7 +13821,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     },
 
     'user-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -13892,8 +13899,14 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             );
             const { data: authData, error: signInError } = await freshAuthClient.auth.signInWithPassword({
                 email: normalizedEmail,
-                password
+                password,
+                // NEW (2026-10-23): human-check token from the browser; Supabase verifies it once its CAPTCHA switch is on
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // NEW (2026-10-20): the auth service only reports "email not confirmed" when the PASSWORD WAS
@@ -13979,7 +13992,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     // critical path is now fire-and-forget - logging still happens, it
     // just no longer gates how fast a real person gets logged in.
     'admin-login': async (req, res) => {
-        const { email, password } = req.body;
+        const { email, password, captchaToken } = req.body;
         const ip = getRequestIP(req);
 
         if (!email || !password) {
@@ -14013,8 +14026,13 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             // check, same GoTrue call the client used to make directly.
             const { data: authData, error: signInError } = await supabaseClient.auth.signInWithPassword({
                 email: email.trim(),
-                password
+                password,
+                ...(typeof captchaToken === 'string' && captchaToken ? { options: { captchaToken } } : {})
             });
+
+            if (signInError && (signInError.code === 'captcha_failed' || /captcha/i.test(signInError.message || ''))) {
+                return res.status(400).json({ success: false, error: 'captcha_failed', message: 'Please complete the human check and try again. If you use an ad blocker, allow challenges.cloudflare.com.' });
+            }
 
             if (signInError || !authData?.user) {
                 // FIXED: this is the exact tracking that was never
@@ -16673,9 +16691,15 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     // the cap, the request goes to a real waitlist instead of either
     // silently failing or issuing beyond the intended limit.
     'request-tester-code': async (req, res) => {
-        const { email } = req.body;
+        const { email, captchaToken } = req.body;
         const supabaseClient = getSupabase();
         const ip = getRequestIP(req);
+
+        // NEW (2026-10-23): this action sends an email, so it needs the human check (skipped until TURNSTILE_SECRET_KEY is set)
+        const human = await verifyTurnstile(captchaToken, ip);
+        if (!human.ok) {
+            return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
+        }
 
         if (!email || !isValidEmail(email)) {
             return res.status(400).json({ success: false, error: 'A valid email address is required.' });
@@ -18371,6 +18395,20 @@ Give specific, actionable advice grounded in exactly what the person shares - re
     Object.assign(handlers, buildGeoPricingHandlers(complianceDeps));
 }
 
+// NEW (2026-10-23): behaviour-based automatic IP blocking (see api/_lib/threatGuard.js and the Threat Playbook).
+const threatGuard = buildThreatGuard({
+    getSupabase,
+    notify: async (subject, text) => {
+        const t = getTransporter();
+        await t.sendMail({ from: `"ODUSBABA Security" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`, to: 'support@bluskyeconsult.com', subject, text });
+    }
+});
+// Decoy pages: vercel.json rewrites /.env, /wp-login.php and similar to this action. No real visitor ever asks for them.
+handlers['honeypot'] = async (req, res) => {
+    await threatGuard.honeypot(req, getRequestIP(req));
+    return res.status(404).json({ error: 'Not found' });
+};
+
 // ============================================
 // MAIN HANDLER
 // ============================================
@@ -18401,6 +18439,11 @@ export default async function handler(req, res) {
     if (!isCrawlerPreview) {
         logSecurityEvent('api_request', requestIP, 'info', { action: req.query.action || null }); // fire-and-forget, never awaited
 
+        // NEW (2026-10-23): attack-tool, exploit-string and injection checks on the request itself.
+        if (req.query.action !== 'honeypot' && (await threatGuard.inspect(req, requestIP, req.query.action)).blocked) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
         if (await checkAndBlockRateAbuse(requestIP, req.query.action)) {
             return res.status(403).json({ error: 'Access denied' });
         }
@@ -18408,6 +18451,9 @@ export default async function handler(req, res) {
 
     const { action } = req.query;
     
+    if (action && !handlers[action] && !isCrawlerPreview) {
+        await threatGuard.unknownAction(req, requestIP, action); // scanners ask for actions that do not exist
+    }
     if (!action || !handlers[action]) {
         return res.status(200).json({
             name: 'ODUSBABA API',
@@ -18421,6 +18467,7 @@ export default async function handler(req, res) {
     
     try {
         await handlers[action](req, res);
+        if (!isCrawlerPreview && action !== 'honeypot') await threatGuard.after(req, res, requestIP); // counts repeated 403/429 answers
     } catch (error) {
         console.error(`Error in ${action}:`, error);
         // SECURITY (2026-10-13): do not show internal error text to the visitor.

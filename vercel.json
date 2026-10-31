@@ -62,6 +62,54 @@
   },
   "rewrites": [
     {
+      "source": "/.env",
+      "destination": "/api/index?action=honeypot&p=env"
+    },
+    {
+      "source": "/.env.:ext",
+      "destination": "/api/index?action=honeypot&p=env"
+    },
+    {
+      "source": "/.git/:path*",
+      "destination": "/api/index?action=honeypot&p=git"
+    },
+    {
+      "source": "/wp-login.php",
+      "destination": "/api/index?action=honeypot&p=wp-login"
+    },
+    {
+      "source": "/wp-admin/:path*",
+      "destination": "/api/index?action=honeypot&p=wp-admin"
+    },
+    {
+      "source": "/wp-content/:path*",
+      "destination": "/api/index?action=honeypot&p=wp-content"
+    },
+    {
+      "source": "/xmlrpc.php",
+      "destination": "/api/index?action=honeypot&p=xmlrpc"
+    },
+    {
+      "source": "/phpmyadmin/:path*",
+      "destination": "/api/index?action=honeypot&p=phpmyadmin"
+    },
+    {
+      "source": "/backup.sql",
+      "destination": "/api/index?action=honeypot&p=backup"
+    },
+    {
+      "source": "/.aws/credentials",
+      "destination": "/api/index?action=honeypot&p=aws"
+    },
+    {
+      "source": "/config.php",
+      "destination": "/api/index?action=honeypot&p=config"
+    },
+    {
+      "source": "/admin.php",
+      "destination": "/api/index?action=honeypot&p=admin-php"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/index?action=sitemap"
     },
@@ -208,6 +256,10 @@
         {
           "key": "Strict-Transport-Security",
           "value": "max-age=31536000; includeSubDomains; preload"
+        },
+        {
+          "key": "X-Permitted-Cross-Domain-Policies",
+          "value": "none"
         }
       ]
     }
