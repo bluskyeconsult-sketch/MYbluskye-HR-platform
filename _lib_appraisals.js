@@ -16,6 +16,7 @@
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { enforceGate, evaluateGate, loadRule } from './compliance.js';
+import { NOTICE_VERSION, staffNotice, noticeHtml } from './appraisalNotice.js';
 import { computeReport, buildFindings, renderReviewPdf, buildHistory, MIN_GROUP } from './appraisalReports.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -433,7 +434,14 @@ export function buildAppraisalHandlers(deps) {
             }
             const adv = limitAdvice(op, org);
             const people = { max: adv.limit, next: adv.next, text: adv.text };
-            return res.status(200).json({ success: true, billing, people, org, report_level: level, me: { member_id: me.id, role: me.role }, members: members || [], cycles, appraisals: metaAppraisals, templates: templates || [], gate: { decision: gate.decision, rule: gate.rule ? { title: gate.rule.title, requirement_text: gate.rule.requirement_text, checklist: gate.rule.checklist, reference_links: gate.rule.reference_links, rule_version: gate.rule.rule_version } : null, missing: gate.missing || null } });
+            let notice = null;
+            if (hr) {
+                const live = (members || []).filter(m => ['invited', 'active'].includes(m.status));
+                const { data: nm } = await sb.from('org_members').select('id, notice_version').eq('org_id', orgId).in('status', ['invited', 'active']);
+                const pending = (nm || []).filter(m => m.notice_version !== NOTICE_VERSION).length;
+                notice = { version: NOTICE_VERSION, ready: org.staff_notice_version === NOTICE_VERSION && (org.staff_notice_mode === 'own' || (org.staff_notice_mode === 'platform' && pending === 0)), mode: org.staff_notice_version === NOTICE_VERSION ? org.staff_notice_mode : null, at: org.staff_notice_at || null, pending, people: live.length, content: staffNotice(org.name, org.retention_years) };
+            }
+            return res.status(200).json({ success: true, notice, billing, people, org, report_level: level, me: { member_id: me.id, role: me.role }, members: members || [], cycles, appraisals: metaAppraisals, templates: templates || [], gate: { decision: gate.decision, rule: gate.rule ? { title: gate.rule.title, requirement_text: gate.rule.requirement_text, checklist: gate.rule.checklist, reference_links: gate.rule.reference_links, rule_version: gate.rule.rule_version } : null, missing: gate.missing || null } });
         },
 
         'appr-org-update': async (req, res) => {
@@ -478,11 +486,47 @@ export function buildAppraisalHandlers(deps) {
             if (existing && existing.status === 'active') return fail(res, 409, 'That person is already a member.');
             if (!existing && (count || 0) >= limit) return fail(res, 400, advice.text, { code: 'limit_reached', limit, next: advice.next });
             const token = crypto.randomBytes(32).toString('base64url');
-            const row = { org_id: b.orgId, email, full_name: clip(b.full_name, 120) || null, job_title: clip(b.job_title, 120) || null, department: clip(b.department, 80).trim() || null, role, supervisor_member_id: b.supervisor_member_id || null, status: 'invited', invite_token_hash: sha(token), invited_at: new Date().toISOString(), left_at: null };
+            const row = { org_id: b.orgId, email, full_name: clip(b.full_name, 120) || null, job_title: clip(b.job_title, 120) || null, department: clip(b.department, 80).trim() || null, role, supervisor_member_id: b.supervisor_member_id || null, status: 'invited', invite_token_hash: sha(token), invited_at: new Date().toISOString(), notice_version: NOTICE_VERSION, notice_sent_at: new Date().toISOString(), left_at: null };
             const { error } = existing ? await sb.from('org_members').update(row).eq('id', existing.id) : await sb.from('org_members').insert(row);
             if (error) { console.error('invite', error.message); return fail(res, 500, 'Could not send the invitation.'); }
-            await sendMail?.({ to: email, subject: `${org.name} has invited you to ODUSBABA Appraisals`, html: `<div style="font-family:Arial,sans-serif;max-width:560px"><p>${org.name.replace(/[<>&]/g, '')} has invited you to take part in staff appraisals on ODUSBABA.</p><p>Sign in (or create a free account) with <b>this email address</b>, then accept the invitation. The link is valid for 14 days.</p><p><a href="${site()}/appraisals/join?token=${token}" style="display:inline-block;background:#0B3C5D;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Accept invitation</a></p><p style="color:#64748b;font-size:12px">If you were not expecting this, you can ignore the email.</p></div>` }).catch(e => console.error('invite mail', e.message));
+            await sendMail?.({ to: email, subject: `${org.name} has invited you to ODUSBABA Appraisals`, html: `<div style="font-family:Arial,sans-serif;max-width:560px"><p>${org.name.replace(/[<>&]/g, '')} has invited you to take part in staff appraisals on ODUSBABA.</p><p>Sign in (or create a free account) with <b>this email address</b>, then accept the invitation. The link is valid for 14 days.</p><p><a href="${site()}/appraisals/join?token=${token}" style="display:inline-block;background:#0B3C5D;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Accept invitation</a></p><p style="color:#64748b;font-size:12px">If you were not expecting this, you can ignore the email.</p>${noticeHtml(org.name, org.retention_years)}</div>` }).catch(e => console.error('invite mail', e.message));
             await ev(sb, { id: null, org_id: b.orgId }, me, user.id, 'member_invited', null, null, { org_id: b.orgId, role });
+            return res.status(200).json({ success: true });
+        },
+
+        // ---- Staff notice: sent from the platform, or confirmed by the employer as given by them ----
+        'appr-notice-send': async (req, res) => {
+            const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
+            const orgId = req.body?.orgId; if (!isId(orgId)) return fail(res, 400, 'Missing organisation.');
+            const me = await getMember(sb, user.id, orgId); if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can send the staff notice.');
+            const org = await getOrg(sb, orgId); if (!org || org.status !== 'active') return fail(res, 403, 'This organisation is not active.');
+            if (!(await gateOrg(req, res, sb, user, org))) return;
+            const resend = req.body?.resend === true;
+            const { data: ms } = await sb.from('org_members').select('id, email, notice_version, status').eq('org_id', orgId).in('status', ['invited', 'active']);
+            const targets = (ms || []).filter(m => resend || m.notice_version !== NOTICE_VERSION).slice(0, 300);
+            const html = `<div style="font-family:Arial,sans-serif;max-width:600px"><p>${String(org.name).replace(/[<>&]/g, '')} uses ODUSBABA Appraisals for staff appraisals. Before any appraisal starts, we are required to tell you how your information is used. Please read the notice below.</p>${noticeHtml(org.name, org.retention_years)}<p style="color:#64748b;font-size:12px;margin-top:16px">You do not need to reply. If you have questions, please ask the HR team at ${String(org.name).replace(/[<>&]/g, '')}.</p></div>`;
+            let sent = 0; const stamp = new Date().toISOString();
+            for (const m of targets) {
+                try { await sendMail?.({ to: m.email, subject: `How ${String(org.name).replace(/[<>&]/g, '')} will use your appraisal information`, html }); await sb.from('org_members').update({ notice_version: NOTICE_VERSION, notice_sent_at: stamp }).eq('id', m.id); sent++; }
+                catch (e) { console.error('notice mail', e.message); }
+            }
+            const { data: after } = await sb.from('org_members').select('id, notice_version').eq('org_id', orgId).in('status', ['invited', 'active']);
+            const pending = (after || []).filter(m => m.notice_version !== NOTICE_VERSION).length;
+            if (pending === 0) await sb.from('organisations').update({ staff_notice_version: NOTICE_VERSION, staff_notice_mode: 'platform', staff_notice_at: stamp, staff_notice_by: user.id, staff_notice_count: (after || []).length, updated_at: stamp }).eq('id', orgId);
+            await ev(sb, { id: null, org_id: orgId }, me, user.id, 'staff_notice_sent', null, null, { org_id: orgId, version: NOTICE_VERSION, sent, pending });
+            return res.status(200).json({ success: true, sent, pending, complete: pending === 0 });
+        },
+
+        'appr-notice-attest': async (req, res) => {
+            const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
+            const orgId = req.body?.orgId; if (!isId(orgId)) return fail(res, 400, 'Missing organisation.');
+            const me = await getMember(sb, user.id, orgId); if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can confirm this.');
+            const org = await getOrg(sb, orgId); if (!org || org.status !== 'active') return fail(res, 403, 'This organisation is not active.');
+            if (!(await gateOrg(req, res, sb, user, org))) return;
+            if (req.body?.confirm !== true) return fail(res, 400, 'Please tick the confirmation to continue.');
+            const stamp = new Date().toISOString();
+            await sb.from('organisations').update({ staff_notice_version: NOTICE_VERSION, staff_notice_mode: 'own', staff_notice_at: stamp, staff_notice_by: user.id, updated_at: stamp }).eq('id', orgId);
+            await ev(sb, { id: null, org_id: orgId }, me, user.id, 'staff_notice_attested', null, null, { org_id: orgId, version: NOTICE_VERSION });
             return res.status(200).json({ success: true });
         },
 
@@ -701,6 +745,9 @@ export function buildAppraisalHandlers(deps) {
             // A plan that lapsed or was downgraded after people were added: existing people stay on record, but a new round waits until the team fits.
             { const adv = limitAdvice(await ownerProfile(sb, org), org); if ((members || []).length > adv.limit) return fail(res, 400, `This organisation has ${(members || []).length} active people, more than the ${adv.limit} your plan covers. ${adv.text} You can also mark people who have left.`, { code: 'limit_reached', limit: adv.limit, next: adv.next }); }
             if (!employees.length) return fail(res, 400, 'No one is ready to be appraised. Give each person a supervisor first.');
+            // The staff notice must be given before any appraisal starts: either sent through the platform to everyone being appraised, or confirmed by the employer as given by them.
+            if (org.staff_notice_version !== NOTICE_VERSION || !org.staff_notice_mode) return fail(res, 409, 'Before the first round, please give your staff the appraisal notice. Open the Settings tab and either send it from here or confirm you have given your own.', { code: 'notice_required' });
+            if (org.staff_notice_mode === 'platform') { const lacking = employees.filter(e => e.notice_version !== NOTICE_VERSION); if (lacking.length) return fail(res, 409, `${lacking.length} ${lacking.length === 1 ? 'person has' : 'people have'} not been sent the staff notice yet. Open the Settings tab and send it first.`, { code: 'notice_required', lacking: lacking.length }); }
             // Small teams pay one credit per person appraised. Charged first (locked, so no double spend); any unused part is returned.
             const bill = billable(await ownerProfile(sb, org));
             let charged = 0;

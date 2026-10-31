@@ -1,10 +1,11 @@
 // src/pages/AppraisalOrgPage.jsx
 // NEW (2026-10-23): organisation admin for owners and HR admins. Metadata only: this page never shows appraisal text.
+// UPDATED (2026-10-24): 'Staff notice' tab. A round cannot start until the notice is sent to staff or the employer confirms they gave their own.
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiCall, STATUS_LABELS } from '../services/appraisalApi';
 import ComplianceGate from '../components/ComplianceGate';
-import { Loader2, UserPlus, Users, CalendarPlus, Settings, UserMinus, FileText, BarChart3, Trash2, Copy, Plus, Sparkles, CreditCard } from 'lucide-react';
+import { Loader2, UserPlus, Users, CalendarPlus, Settings, UserMinus, FileText, BarChart3, Trash2, Copy, Plus, Sparkles, CreditCard, ShieldCheck, Mail } from 'lucide-react';
 
 const input = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500';
 const CAT = { micro_default: 'Simple (for very small teams)', standard: 'Standard', role: 'By type of work', custom: 'Your own templates' };
@@ -19,7 +20,7 @@ export default function AppraisalOrgPage() {
     const [busy, setBusy] = useState(false);
     const [inv, setInv] = useState({ email: '', full_name: '', job_title: '', department: '', role: 'member', supervisor_member_id: '' });
     const [cyc, setCyc] = useState({ name: '', template_id: '' });
-    const [tab, setTab] = useState('people');
+    const [tab, setTab] = useState('people'); const [attest, setAttest] = useState(false);
     const [ai, setAi] = useState({ role: '', industry: '', focus: '', count: 5 });
     const [sug, setSug] = useState(null);      // AI topic ideas: { list:[{title,covers,on}], note, removed }
     const [ed, setEd] = useState(null);   // template being edited: { id?, name, description, criteria[] }
@@ -52,7 +53,7 @@ export default function AppraisalOrgPage() {
 
             <ComplianceGate service="appraisal" orgId={orgId} canAct={isHr}>
                 {needReassign.length > 0 && <div className="mb-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">{needReassign.length} appraisal(s) need a new supervisor because the supervisor left. Open each and choose one.</div>}
-                <div className="flex gap-2 mb-4">{[['people', 'People', Users], ['rounds', 'Appraisal rounds', CalendarPlus], ['templates', 'Questions', FileText], ['settings', 'Settings', Settings]].map(([k, l, I]) => <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-sm inline-flex items-center gap-1 ${tab === k ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300'}`}><I className="w-4 h-4" />{l}</button>)}</div>
+                <div className="flex gap-2 mb-4">{[['people', 'People', Users], ['rounds', 'Appraisal rounds', CalendarPlus], ['templates', 'Questions', FileText], ['notice', d.notice?.ready ? 'Staff notice' : 'Staff notice (needed)', ShieldCheck], ['settings', 'Settings', Settings]].map(([k, l, I]) => <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-sm inline-flex items-center gap-1 ${tab === k ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300'}`}><I className="w-4 h-4" />{l}</button>)}</div>
 
                 {tab === 'people' && (<>
                     {d.people && (() => { const n = d.members.filter(m => m.status !== 'left').length; const near = n >= Math.ceil(d.people.max * 0.9); return (
@@ -86,11 +87,12 @@ export default function AppraisalOrgPage() {
                         </div>)}
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4">
                         <h3 className="text-white font-medium mb-3">Start an appraisal round</h3>
+                        {d.notice && !d.notice.ready && <div className="mb-3 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">Before the first round, your staff must be given the appraisal notice. <button type="button" className="underline" onClick={() => setTab('notice')}>Open the Staff notice tab</button> to send it or confirm you have given your own.</div>}
                         <p className="text-xs text-slate-400 mb-3">Everyone with a supervisor gets an appraisal. Each person is told by email (link only; appraisal text is never emailed).</p>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                             <input className={input} placeholder="Name, e.g. Annual review 2026" value={cyc.name} onChange={e => setCyc({ ...cyc, name: e.target.value })} />
                             <select className={input} value={cyc.template_id} onChange={e => setCyc({ ...cyc, template_id: e.target.value })}><option value="">Standard template</option>{d.templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-                            <button disabled={busy || !cyc.name} onClick={() => run(async () => { const r = await apiCall('appr-cycle-create', { orgId, ...cyc, template_id: cyc.template_id || undefined }, { auth: 'required' }); setOk(`Created ${r.created} appraisal(s).${r.skipped?.length ? ` ${r.skipped.length} skipped: ${r.skipped[0].reason}` : ''}`); })} className="px-4 py-2 rounded-lg bg-primary-600 disabled:opacity-40 text-white text-sm">Start round</button>
+                            <button disabled={busy || !cyc.name || (d.notice && !d.notice.ready)} onClick={() => run(async () => { const r = await apiCall('appr-cycle-create', { orgId, ...cyc, template_id: cyc.template_id || undefined }, { auth: 'required' }); setOk(`Created ${r.created} appraisal(s).${r.skipped?.length ? ` ${r.skipped.length} skipped: ${r.skipped[0].reason}` : ''}`); })} className="px-4 py-2 rounded-lg bg-primary-600 disabled:opacity-40 text-white text-sm">Start round</button>
                         </div></div>
                     <div className="space-y-2">{(d.appraisals || []).map(a => (
                         <Link key={a.id} to={`/appraisals/${a.id}`} className="flex flex-wrap justify-between gap-2 bg-slate-900 border border-slate-700 hover:border-primary-500 rounded-lg p-3 text-sm text-slate-200">
@@ -150,6 +152,34 @@ export default function AppraisalOrgPage() {
                             <p className="text-xs text-slate-500 mt-3">Ask only about work behaviour and results. Do not ask about health, family plans, age, religion or other personal characteristics. Up to 12 questions. Ratings use a 1 to 5 scale.</p>
                         </div>)}
                 </>)}
+
+                {tab === 'notice' && d.notice && (
+                    <div className="max-w-3xl space-y-4">
+                        <div className={`rounded-xl p-4 border text-sm ${d.notice.ready ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
+                            {d.notice.ready
+                                ? (d.notice.mode === 'platform' ? `Done. The notice was sent to your staff through ODUSBABA${d.notice.at ? ' on ' + new Date(d.notice.at).toLocaleDateString() : ''}. Anyone you invite from now on receives it with their invitation.` : `Done. You confirmed that you gave your staff your own equivalent notice${d.notice.at ? ' on ' + new Date(d.notice.at).toLocaleDateString() : ''}. Anyone you invite from now on still receives this notice with their invitation.`)
+                                : 'Not done yet. No appraisal round can start until your staff have been given this notice. Either send it from here, or confirm that you have given your own.'}
+                            {d.notice.mode === 'platform' && d.notice.pending > 0 && <div className="mt-1">{d.notice.pending} {d.notice.pending === 1 ? 'person has' : 'people have'} not been sent it yet.</div>}
+                        </div>
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+                            <h3 className="text-white font-medium mb-1">What your staff will be told</h3>
+                            <p className="text-xs text-slate-400 mb-3">This is what each person receives. It states plainly that owners and HR admins can open named ratings, and that each opening is logged. Please read it. You, as the organisation, are responsible for it being accurate for your workplace.</p>
+                            <h4 className="text-white text-sm font-semibold mb-2">{d.notice.content.title}</h4>
+                            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">{d.notice.content.sections.map(sec => <div key={sec.h}><div className="text-sm text-white font-medium">{sec.h}</div>{sec.p.map((t, i) => <p key={i} className="text-sm text-slate-300 mt-1">{t}</p>)}</div>)}</div>
+                        </div>
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+                            <h3 className="text-white font-medium mb-1 inline-flex items-center gap-2"><Mail className="w-4 h-4 text-primary-400" />Option 1: send it from here</h3>
+                            <p className="text-xs text-slate-400 mb-3">We email the notice to everyone you have added ({d.notice.people} {d.notice.people === 1 ? 'person' : 'people'}). People you invite later receive it inside their invitation email automatically.</p>
+                            <button disabled={busy || d.notice.people === 0 || (d.notice.ready && d.notice.mode === 'platform' && d.notice.pending === 0)} onClick={() => run(async () => { const r = await apiCall('appr-notice-send', { orgId }, { auth: 'required' }); setOk(`Sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}.${r.pending ? ` ${r.pending} could not be reached; try again.` : ' You can now start a round.'}`); })} className="px-4 py-2 rounded-lg bg-primary-600 disabled:opacity-40 text-white text-sm">{d.notice.mode === 'platform' && d.notice.pending > 0 ? 'Send to the remaining people' : 'Send the notice to my staff'}</button>
+                            {d.notice.people === 0 && <p className="text-xs text-slate-500 mt-2">Add your people first on the People tab. Their invitation emails will carry the notice, then come back here.</p>}
+                        </div>
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+                            <h3 className="text-white font-medium mb-1">Option 2: you have already given your own notice</h3>
+                            <p className="text-xs text-slate-400 mb-3">If your organisation has already given its staff its own privacy notice for appraisals, you can confirm that instead. In that case you carry the responsibility for it being accurate and complete.</p>
+                            <label className="flex gap-2 text-sm text-slate-200 items-start"><input type="checkbox" className="mt-1" checked={attest} onChange={e => setAttest(e.target.checked)} /><span>I confirm that {d.org.name} has given every person who will be appraised a notice that covers the same matters as the one shown above, including that owners and HR admins can open named ratings, before their first appraisal on this platform. We will do the same for anyone added later.</span></label>
+                            <button disabled={busy || !attest} onClick={() => run(async () => { await apiCall('appr-notice-attest', { orgId, confirm: true }, { auth: 'required' }); setAttest(false); }, 'Recorded. You can now start a round.')} className="mt-3 px-4 py-2 rounded-lg bg-slate-700 disabled:opacity-40 text-white text-sm">Record my confirmation</button>
+                        </div>
+                    </div>)}
 
                 {tab === 'settings' && (
                     <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4 max-w-xl">
