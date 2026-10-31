@@ -81,7 +81,7 @@ export default function AppraisalsPage({ joinMode = false }) {
                 </div>))}</div>
             {!form.show ? <button onClick={() => setForm({ ...form, show: true })} className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm"><Plus className="w-4 h-4" />Set up appraisals for my organisation</button> : (
                 <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-3">
-                    <p className="text-sm text-slate-300">Included with the Employer and Business plans. Choose the country where your staff work, because that decides the legal steps.</p>
+                    <p className="text-sm text-slate-300">Run appraisals for up to 5 people with no subscription (your first appraisal is free, then you pay per appraisal), or get them included with the Employer and Business plans. Choose the country where your staff work, because that decides the legal steps.</p>
                     <input className={input} placeholder="Organisation name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                     <select className={input} value={form.country_code} onChange={e => setForm({ ...form, country_code: e.target.value })}><option value="">Country where staff work</option>{COUNTRIES.filter(c => c[0] !== 'OTHER').map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}<option value="XX" disabled>Other countries: contact us</option></select>
                     <button disabled={busy || form.name.length < 2 || !form.country_code} onClick={createOrg} className="px-4 py-2 rounded-lg bg-primary-600 disabled:opacity-40 text-white text-sm">{busy ? 'Creating...' : 'Create'}</button>
