@@ -23,11 +23,33 @@ export const BANDS = [
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const r2 = (n) => (n === null || n === undefined || Number.isNaN(n) ? null : Math.round(n * 100) / 100);
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
-export const overallOf = (content) => mean(Object.values(content?.ratings || {}).map(Number).filter(Number.isFinite));
+// Weighted average: each question counts by its weight (default 1). Questions with no rating are left out of both sides.
+export const weightOf = (c) => { const w = Number(c?.weight); return Number.isFinite(w) && w > 0 ? w : 1; };
+export function overallOf(content, criteria) {
+    const entries = Object.entries(content?.ratings || {}).map(([id, v]) => [id, Number(v)]).filter(([, v]) => Number.isFinite(v));
+    if (!entries.length) return null;
+    const w = Object.fromEntries((criteria || []).map(c => [c.id, weightOf(c)]));
+    let sum = 0, tot = 0; for (const [id, v] of entries) { const k = w[id] ?? 1; sum += k * v; tot += k; }
+    return tot ? sum / tot : null;
+}
 export const bandOf = (score) => (score === null ? null : BANDS.find(b => score >= b.min));
 
 // rows: [{ id, name, supervisor, department, cycle_id, cycle_name, date, created_at, disagreement, employee_no_response, self, final, criteria }]
-export function computeReport(rows, { level = 'standard', allowSupervisorView = true, minGroup = MIN_GROUP } = {}) {
+// Nine-box: performance (from the weighted final rating) against potential (1 to 3, rated by the supervisor).
+export const NINE_BOX = {
+    '3-3': ['Stars', 'High on both. Talk about stretch roles, retention and what would keep this person engaged.'],
+    '3-2': ['High performers', 'Strong results with some room to grow. Explore development and wider responsibility.'],
+    '3-1': ['Trusted experts', 'Strong results in the current role. Recognise the value and keep the role interesting.'],
+    '2-3': ['Rising talent', 'Solid results and high potential. Offer stretch work, coaching or a mentor.'],
+    '2-2': ['Core contributors', 'The dependable backbone. Confirm what is going well and agree one or two goals.'],
+    '2-1': ['Steady contributors', 'Reliable in the current role. Check the role still suits them.'],
+    '1-3': ['Untapped potential', 'Potential not yet showing in results. Look for barriers: fit, support, clarity, training.'],
+    '1-2': ['Developing', 'Agree clear goals, support and a review date.'],
+    '1-1': ['Needs support', 'Check fit, workload, training and support first. Use your own fair-process procedures. A box on a grid is never a basis for a decision on its own.']
+};
+const perfLevel = (v) => (v < 2.5 ? 1 : v < 3.5 ? 2 : 3);
+
+export function computeReport(rows, { level = 'standard', allowSupervisorView = true, allowNineBox = false, minGroup = MIN_GROUP } = {}) {
     const n = rows.length;
     const locked = [];
     const out = { n, min_group: minGroup, level, locked };
@@ -37,13 +59,13 @@ export function computeReport(rows, { level = 'standard', allowSupervisorView = 
     rows.forEach(r => (r.criteria || []).forEach(c => { if (!critMap.has(c.id)) critMap.set(c.id, c.title); }));
     out.criteria = [...critMap].map(([id, title]) => ({ id, title }));
 
-    const finals = rows.map(r => overallOf(r.final)).filter(v => v !== null);
-    const selfs = rows.map(r => overallOf(r.self)).filter(v => v !== null);
-    const gaps = rows.filter(r => overallOf(r.final) !== null && overallOf(r.self) !== null).map(r => overallOf(r.self) - overallOf(r.final));
+    const finals = rows.map(r => overallOf(r.final, r.criteria)).filter(v => v !== null);
+    const selfs = rows.map(r => overallOf(r.self, r.criteria)).filter(v => v !== null);
+    const gaps = rows.filter(r => overallOf(r.final, r.criteria) !== null && overallOf(r.self, r.criteria) !== null).map(r => overallOf(r.self, r.criteria) - overallOf(r.final, r.criteria));
     out.overall = { mean: r2(mean(finals)), self_mean: r2(mean(selfs)), gap: r2(mean(gaps)) };
 
     const bands = Object.fromEntries(BANDS.map(b => [b.key, 0]));
-    rows.forEach(r => { const b = bandOf(overallOf(r.final)); if (b) bands[b.key]++; });
+    rows.forEach(r => { const b = bandOf(overallOf(r.final, r.criteria)); if (b) bands[b.key]++; });
     out.bands = BANDS.map(b => ({ key: b.key, label: b.label, count: bands[b.key], considerations: b.considerations }));
 
     out.rates = {
@@ -56,11 +78,11 @@ export function computeReport(rows, { level = 'standard', allowSupervisorView = 
     // everyone, alphabetical, no rank
     out.individuals = [...rows].sort((a, b) => String(a.name).localeCompare(String(b.name))).map(r => ({
         id: r.id, name: r.name, supervisor: r.supervisor || null, department: r.department || null, cycle: r.cycle_name || null,
-        overall: r2(overallOf(r.final)), self_overall: r2(overallOf(r.self)), band: bandOf(overallOf(r.final))?.label || null,
+        overall: r2(overallOf(r.final, r.criteria)), self_overall: r2(overallOf(r.self, r.criteria)), band: bandOf(overallOf(r.final, r.criteria))?.label || null,
         ratings: r.final?.ratings || {}, disagreement: !!r.disagreement
     }));
 
-    if (level === 'basic') { locked.push('criteria_analysis', 'trend', 'group_analysis', 'supervisor_consistency', 'business_review'); return out; }
+    if (level === 'basic') { locked.push('criteria_analysis', 'trend', 'group_analysis', 'supervisor_consistency', 'nine_box', 'business_review'); return out; }
 
     // per criterion
     out.by_criterion = out.criteria.map(c => {
@@ -73,16 +95,16 @@ export function computeReport(rows, { level = 'standard', allowSupervisorView = 
     // trend across rounds
     const cyc = new Map();
     rows.forEach(r => { const k = r.cycle_id || 'none'; if (!cyc.has(k)) cyc.set(k, { name: r.cycle_name || 'Appraisal', date: r.date, rows: [] }); const g = cyc.get(k); g.rows.push(r); if (r.date && (!g.date || r.date < g.date)) g.date = r.date; });
-    out.trend = [...cyc.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))).map(g => ({ name: g.name, date: g.date ? String(g.date).slice(0, 10) : null, n: g.rows.length, mean: r2(mean(g.rows.map(r => overallOf(r.final)).filter(v => v !== null))), self_mean: r2(mean(g.rows.map(r => overallOf(r.self)).filter(v => v !== null))) }));
+    out.trend = [...cyc.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))).map(g => ({ name: g.name, date: g.date ? String(g.date).slice(0, 10) : null, n: g.rows.length, mean: r2(mean(g.rows.map(r => overallOf(r.final, r.criteria)).filter(v => v !== null))), self_mean: r2(mean(g.rows.map(r => overallOf(r.self, r.criteria)).filter(v => v !== null))) }));
 
-    if (level === 'standard') { locked.push('group_analysis', 'supervisor_consistency', 'business_review'); return out; }
+    if (level === 'standard') { locked.push('group_analysis', 'supervisor_consistency', 'nine_box', 'business_review'); return out; }
 
     // full: groups (hidden when small)
     const groupBy = (keyFn) => {
         const m = new Map();
         rows.forEach(r => { const k = keyFn(r); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
         let hidden = 0; const shown = [];
-        for (const [name, rs] of m) { if (rs.length < minGroup) { hidden++; continue; } shown.push({ name, n: rs.length, mean: r2(mean(rs.map(r => overallOf(r.final)).filter(v => v !== null))), self_mean: r2(mean(rs.map(r => overallOf(r.self)).filter(v => v !== null))) }); }
+        for (const [name, rs] of m) { if (rs.length < minGroup) { hidden++; continue; } shown.push({ name, n: rs.length, mean: r2(mean(rs.map(r => overallOf(r.final, r.criteria)).filter(v => v !== null))), self_mean: r2(mean(rs.map(r => overallOf(r.self, r.criteria)).filter(v => v !== null))) }); }
         return { groups: shown.sort((a, b) => a.name.localeCompare(b.name)), hidden };
     };
     out.by_department = groupBy(r => r.department);
@@ -92,8 +114,21 @@ export function computeReport(rows, { level = 'standard', allowSupervisorView = 
         // A prompt for calibration conversations only: never a verdict on a supervisor.
         const g = groupBy(r => r.supervisor);
         const bySup = new Map(); rows.forEach(r => { if (!r.supervisor) return; if (!bySup.has(r.supervisor)) bySup.set(r.supervisor, []); bySup.get(r.supervisor).push(r); });
-        out.supervisor_consistency = { hidden: g.hidden, items: [...bySup].filter(([, rs]) => rs.length >= minGroup).map(([name, rs]) => { const f = rs.map(r => overallOf(r.final)).filter(v => v !== null); return { name, n: rs.length, mean: r2(mean(f)), pct_high: r2(f.filter(v => v >= 4).length / f.length) }; }).sort((a, b) => a.name.localeCompare(b.name)), org_mean: out.overall.mean };
+        out.supervisor_consistency = { hidden: g.hidden, items: [...bySup].filter(([, rs]) => rs.length >= minGroup).map(([name, rs]) => { const f = rs.map(r => overallOf(r.final, r.criteria)).filter(v => v !== null); return { name, n: rs.length, mean: r2(mean(f)), pct_high: r2(f.filter(v => v >= 4).length / f.length) }; }).sort((a, b) => a.name.localeCompare(b.name)), org_mean: out.overall.mean };
     } else locked.push('supervisor_consistency');
+
+    if (allowNineBox) {
+        const rated = rows.filter(r => [1, 2, 3].includes(Number(r.final?.potential)) && overallOf(r.final, r.criteria) !== null);
+        const unrated = n - rated.length;
+        if (rated.length < minGroup) out.nine_box = { hidden: true, rated: rated.length, unrated, min_group: minGroup };
+        else {
+            const cells = {};
+            for (const pot of [3, 2, 1]) for (const perf of [1, 2, 3]) cells[`${perf}-${pot}`] = { perf, pot, label: NINE_BOX[`${perf}-${pot}`][0], considerations: NINE_BOX[`${perf}-${pot}`][1], count: 0, people: [] };
+            rated.forEach(r => { const c = cells[`${perfLevel(overallOf(r.final, r.criteria))}-${Number(r.final.potential)}`]; c.count++; c.people.push(r.name); });
+            Object.values(cells).forEach(c => c.people.sort((a, b) => String(a).localeCompare(String(b))));
+            out.nine_box = { hidden: false, rated: rated.length, unrated, cells: Object.values(cells) };
+        }
+    } else locked.push('nine_box');
     return out;
 }
 
@@ -162,6 +197,21 @@ export async function renderReviewPdf({ report, findings, orgName, label, genera
     if (report.trend?.length > 1) { h2('Average rating by round'); report.trend.forEach(t => bar(t.name, t.mean || 0, 5, t.mean === null ? 'n/a' : `${t.mean}  (n=${t.n})`)); }
     if (report.by_department?.groups?.length) { h2('By department'); report.by_department.groups.forEach(g => bar(g.name, g.mean || 0, 5, `${g.mean}  (n=${g.n})`)); if (report.by_department.hidden) line(`${report.by_department.hidden} department(s) with fewer than ${report.min_group} people are not shown, to protect individuals.`, { size: 9, color: grey }); }
 
+    if (report.nine_box && !report.nine_box.hidden) {
+        h2('Performance and potential (nine-box)');
+        line('Performance is the weighted final rating. Potential is the supervisor\'s view of readiness for a bigger role. Counts only; this is a prompt for conversation, never a decision.', { size: 9, color: grey });
+        need(130); const cw = 150, ch = 36, x0 = M + 40; const top = y - 4;
+        for (let ri = 0; ri < 3; ri++) for (let ci = 0; ci < 3; ci++) {
+            const pot = 3 - ri, perf = ci + 1; const cell = report.nine_box.cells.find(c => c.perf === perf && c.pot === pot);
+            const shade = Math.min(0.8, cell.count / Math.max(1, report.nine_box.rated) * 2.5);
+            const bx = x0 + ci * cw, by = top - (ri + 1) * ch;
+            page.drawRectangle({ x: bx, y: by, width: cw - 3, height: ch - 3, color: rgb(0.93 - 0.6 * shade, 0.95 - 0.4 * shade, 0.99 - 0.1 * shade), borderColor: rgb(0.7, 0.75, 0.8), borderWidth: 0.5 });
+            page.drawText(clean(cell.label).slice(0, 30), { x: bx + 5, y: by + ch - 15, size: 8.5, font: bold, color: ink }); page.drawText(`${cell.count} ${cell.count === 1 ? 'person' : 'people'}`, { x: bx + 5, y: by + 8, size: 8.5, font, color: ink });
+        }
+        y = top - 3 * ch - 16; page.drawText('Performance: lower to higher (left to right).  Potential: higher at the top.', { x: x0, y, size: 8, font, color: grey }); y -= 16;
+        if (report.nine_box.unrated) line(`${report.nine_box.unrated} appraisal(s) had no potential rating and are not shown.`, { size: 9, color: grey });
+    }
+
     h2('Decision framework: considerations by rating band');
     line('Use this as a prompt for a conversation, not as a rule. Every decision about a person must be made by a person who has read the full record and given the employee a fair chance to respond.', { size: 9, color: grey });
     report.bands.forEach(b => { need(40); line(`${b.label} (${b.count})`, { f: bold, size: 10 }); line(b.considerations, { indent: 10, size: 9 }); });
@@ -181,7 +231,7 @@ export function buildHistory(items) {
         return {
             appraisal_id: it.appraisal_id, name: it.cycle_name || 'Appraisal', date: it.date ? String(it.date).slice(0, 10) : null, status: it.status,
             criteria: it.criteria || [], self: it.self?.ratings || {}, final: final?.ratings || {}, final_stage: it.joint ? 'joint' : it.supervisor ? 'supervisor' : null,
-            overall_self: r2(overallOf(it.self)), overall_final: r2(overallOf(final)),
+            overall_self: r2(overallOf(it.self, it.criteria)), overall_final: r2(overallOf(final, it.criteria)),
             goals: (final?.goals || it.self?.goals || '') || null, org_average: it.org_average || null
         };
     }).sort((a, b) => String(a.date).localeCompare(String(b.date)));

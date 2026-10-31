@@ -104,7 +104,14 @@ function cleanContent(stage, raw, snapshot) {
     const goals = clip(c.goals, 4000).trim();
     if (stage !== 'contributor' && summary.length < 10) return { error: 'Please add a short overall summary.' };
     if (stage === 'contributor' && !Object.keys(ratings).length && !summary) return { error: 'Please add at least one rating or a comment.' };
-    return { value: { ratings, comments, summary, goals } };
+    const value = { ratings, comments, summary, goals };
+    // Potential (1 to 3) is asked of the supervisor only, and only when the template asks for it.
+    if (snapshot?.potential && (stage === 'supervisor' || stage === 'joint')) {
+        const p = Number(c.potential);
+        if (![1, 2, 3].includes(p)) return { error: 'Please choose a potential rating (1 to 3).' };
+        value.potential = p;
+    }
+    return { value };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -307,7 +314,7 @@ export function buildAppraisalHandlers(deps) {
         const rows = filed.filter(a => byAp[a.id]?.supervisor || byAp[a.id]?.joint).map(a => ({
             id: a.id, name: people[a.employee_member_id]?.name || 'Unknown', supervisor: people[a.supervisor_member_id]?.name || null, department: people[a.employee_member_id]?.department || null,
             cycle_id: a.cycle_id, cycle_name: cname[a.cycle_id] || 'Appraisal', date: a.filed_at, created_at: a.created_at, disagreement: a.disagreement, employee_no_response: a.employee_no_response,
-            self: byAp[a.id].self || null, final: byAp[a.id].joint || byAp[a.id].supervisor, criteria: (a.template_snapshot?.criteria || []).map(c => ({ id: c.id, title: c.title }))
+            self: byAp[a.id].self || null, final: byAp[a.id].joint || byAp[a.id].supervisor, criteria: (a.template_snapshot?.criteria || []).map(c => ({ id: c.id, title: c.title, weight: c.weight }))
         }));
         return { rows, statusCounts, cycles: (cyc || []).map(c => ({ id: c.id, name: c.name })) };
     }
@@ -396,7 +403,7 @@ export function buildAppraisalHandlers(deps) {
                 ({ data: cycles } = await sb.from('appraisal_cycles').select('*').eq('org_id', orgId).order('created_at', { ascending: false }).limit(50));
                 ({ data: metaAppraisals } = await sb.from('appraisals').select('id, cycle_id, employee_member_id, supervisor_member_id, approver_member_id, status, round, disagreement, employee_no_response, needs_reassignment, legal_hold, self_due, supervisor_due, response_due, final_due, filed_at, retention_until').eq('org_id', orgId).neq('status', 'purged').order('updated_at', { ascending: false }).limit(500));
             }
-            const { data: templates } = await sb.from('appraisal_templates').select('id, name, criteria, scale, is_default, org_id, category, description, ai_drafted').or(`org_id.is.null,org_id.eq.${orgId}`);
+            const { data: templates } = await sb.from('appraisal_templates').select('id, name, criteria, scale, is_default, org_id, category, description, use_potential').or(`org_id.is.null,org_id.eq.${orgId}`);
             const level = reportLevel(await ownerProfile(sb, org));
             const op = await ownerProfile(sb, org);
             let billing = { billable: false };
@@ -546,21 +553,20 @@ export function buildAppraisalHandlers(deps) {
             const b = req.body || {}; const me = isId(b.orgId) ? await getMember(sb, user.id, b.orgId) : null; if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can do this.');
             const criteria = (Array.isArray(b.criteria) ? b.criteria : []).slice(0, 12).map((c, i) => {
                 const anchors = {}; ['1', '3', '5'].forEach(k => { const t = clip(c.anchors?.[k], 200).trim(); if (t) anchors[k] = t; });
-                return { id: clip(c.id || `c${i + 1}`, 30).replace(/[^a-z0-9_]/gi, '_'), title: clip(c.title, 120).trim(), description: clip(c.description, 400).trim(), ...(Object.keys(anchors).length ? { anchors } : {}) };
+                return { id: clip(c.id || `c${i + 1}`, 30).replace(/[^a-z0-9_]/gi, '_'), title: clip(c.title, 120).trim(), description: clip(c.description, 400).trim(), weight: [1, 2, 3].includes(Number(c.weight)) ? Number(c.weight) : 1, ...(Object.keys(anchors).length ? { anchors } : {}) };
             }).filter(c => c.title);
             if (criteria.length < 1) return fail(res, 400, 'Add at least one question.');
             if (new Set(criteria.map(c => c.id)).size !== criteria.length) return fail(res, 400, 'Each question needs its own id.');
-            if (b.ai_drafted === true && b.reviewed !== true) return fail(res, 400, 'Please confirm that you have read and checked the AI-drafted questions.');
             const name = clip(b.name, 120).trim() || 'Custom appraisal';
             if (isId(b.templateId)) {
                 const { data: own } = await sb.from('appraisal_templates').select('id').eq('id', b.templateId).eq('org_id', b.orgId).maybeSingle();
                 if (!own) return fail(res, 404, 'Template not found.');
-                await sb.from('appraisal_templates').update({ name, criteria, description: clip(b.description, 300) || null, ai_drafted: b.ai_drafted === true }).eq('id', b.templateId);
+                await sb.from('appraisal_templates').update({ name, criteria, description: clip(b.description, 300) || null, use_potential: b.use_potential === true }).eq('id', b.templateId);
                 return res.status(200).json({ success: true, id: b.templateId });
             }
             const { count } = await sb.from('appraisal_templates').select('id', { count: 'exact', head: true }).eq('org_id', b.orgId);
             if ((count || 0) >= 20) return fail(res, 400, 'You can keep up to 20 templates.');
-            const { data, error } = await sb.from('appraisal_templates').insert({ org_id: b.orgId, name, criteria, category: 'custom', description: clip(b.description, 300) || null, ai_drafted: b.ai_drafted === true }).select('id').single();
+            const { data, error } = await sb.from('appraisal_templates').insert({ org_id: b.orgId, name, criteria, category: 'custom', description: clip(b.description, 300) || null, use_potential: b.use_potential === true }).select('id').single();
             if (error) return fail(res, 500, 'Could not save the template.');
             return res.status(200).json({ success: true, id: data.id });
         },
@@ -588,14 +594,14 @@ export function buildAppraisalHandlers(deps) {
             } catch (e) { console.error('appr-credits-checkout', e.message); return fail(res, 500, 'Could not start the payment. Please try again.'); }
         },
 
-        // AI help with DRAFTING QUESTIONS ONLY. It never sees a person's name or ratings, and it never reads, scores or
-        // comments on any appraisal result. The draft is returned to the screen for the owner to edit; nothing is saved here.
+        // AI help with IDEAS FOR QUESTIONS ONLY. It gives a short list of starting points; the appraiser chooses, rewrites and
+        // owns every question they adopt. It never sees a person's name or ratings and never reads or judges any result.
+        // Nothing is saved here.
         'appr-template-ai-draft': async (req, res) => {
             const sb = getSupabase(); const user = await authUser(req, res, sb); if (!user) return;
             const b = req.body || {}; const me = isId(b.orgId) ? await getMember(sb, user.id, b.orgId) : null; if (!isHr(me)) return fail(res, 403, 'Only an owner or HR admin can do this.');
             if (!callAI || !deductAiCredit) return fail(res, 503, 'AI help is not switched on yet.');
             const role = clip(b.role, 80).trim(), industry = clip(b.industry, 80).trim(), focus = clip(b.focus, 300).trim();
-            const count = Math.max(3, Math.min(8, Math.round(Number(b.count)) || 5));
             if (role.length < 2) return fail(res, 400, 'Describe the job, for example "kitchen assistant".');
             if (PERSONAL_DATA.test(`${role} ${industry} ${focus}`)) return fail(res, 400, 'Please describe the job only. Do not type names, email addresses, phone numbers or web links.');
             const org = await getOrg(sb, b.orgId);
@@ -604,26 +610,24 @@ export function buildAppraisalHandlers(deps) {
             if (!credit?.allowed) return fail(res, 402, credit?.rateLimited ? 'Too many requests. Please try again in a few minutes.' : 'You are out of AI credits. Buy more or wait for your monthly allowance.', { code: 'ai_credits_needed' });
             try {
                 const out = await callAI([
-                    { role: 'system', content: 'You help small employers write fair, plain-English staff appraisal questions. Write ONLY about work results and work behaviour that can be observed. Never write about age, sex, gender, pregnancy, marital or family status, health, disability, race, ethnicity, nationality, religion, politics, union membership, sexual orientation, appearance or private life. No jargon. Reply with JSON only.' },
-                    { role: 'user', content: `Job: ${role}\nWorkplace: ${industry || 'not stated'}\nWhat matters most: ${focus || 'not stated'}\n\nWrite ${count} appraisal questions for this job. Each is rated 1 to 5. Return JSON: {"criteria":[{"title":"short name, max 60 characters","description":"one plain sentence on what is being judged","anchors":{"1":"what a 1 looks like, max 120 characters","3":"what a 3 looks like","5":"what a 5 looks like"}}],"self_review":["short notes on anything in your questions that could be unfair, vague, or touch a personal characteristic. Use an empty list if none."]}` }
-                ], 1400, 0.5, { type: 'json_object' });
+                    { role: 'system', content: 'You give small employers a short list of starting ideas for staff appraisal questions. Each idea is only a topic about work results or observable work behaviour, with one plain sentence on what it could cover. Never suggest anything about age, sex, gender, pregnancy, marital or family status, health, disability, race, ethnicity, nationality, religion, politics, union membership, sexual orientation, appearance or private life. Reply with JSON only.' },
+                    { role: 'user', content: `Job: ${role}\nWorkplace: ${industry || 'not stated'}\nWhat matters most: ${focus || 'not stated'}\n\nSuggest 8 topics that could be appraisal questions for this job. Return JSON: {"suggestions":[{"title":"short topic, max 60 characters","covers":"one plain sentence on what it could cover"}]}` }
+                ], 700, 0.6, { type: 'json_object' });
                 let parsed; try { parsed = JSON.parse(out.choices[0].message.content); } catch { throw new Error('unreadable AI reply'); }
                 const kept = [], removed = [];
-                for (const c of (Array.isArray(parsed.criteria) ? parsed.criteria : []).slice(0, 8)) {
-                    const item = { title: clip(c.title, 60).trim(), description: clip(c.description, 400).trim(), anchors: {} };
-                    ['1', '3', '5'].forEach(k => { const t = clip(c.anchors?.[k], 120).trim(); if (t) item.anchors[k] = t; });
+                for (const c of (Array.isArray(parsed.suggestions) ? parsed.suggestions : []).slice(0, 10)) {
+                    const item = { title: clip(c.title, 60).trim(), covers: clip(c.covers, 200).trim() };
                     if (!item.title) continue;
-                    // Automatic screen on top of the instruction above: any question that touches a protected characteristic is dropped.
-                    if (SENSITIVE.test(`${item.title} ${item.description} ${Object.values(item.anchors).join(' ')}`)) { removed.push(item.title); continue; }
+                    // Automatic screen: anything touching a protected characteristic is dropped before it reaches the screen.
+                    if (SENSITIVE.test(`${item.title} ${item.covers}`)) { removed.push(item.title); continue; }
                     kept.push(item);
                 }
-                if (kept.length < 2) throw new Error('too few usable questions');
-                return res.status(200).json({ success: true, criteria: kept, removed, self_review: (Array.isArray(parsed.self_review) ? parsed.self_review : []).slice(0, 5).map(x => clip(x, 200)).filter(Boolean),
-                    notice: 'These questions were drafted by AI. Read every question, change what does not fit your business, and check it is fair. The automatic check is not legal advice. AI is not used to read or judge any appraisal result.' });
+                if (kept.length < 2) throw new Error('too few usable ideas');
+                return res.status(200).json({ success: true, suggestions: kept, removed, note: 'Ideas only. Choose what suits the job, put it in your own words, and add your own. You decide which questions to use and you are responsible for them.' });
             } catch (e) {
                 console.error('appr-template-ai-draft', e.message);
                 try { await refundAiCredit?.(sb, user.id, credit); } catch { /* ignore */ }
-                return fail(res, 502, 'The AI could not produce usable questions this time. Your credit was returned. Try again, or describe the job a little differently.');
+                return fail(res, 502, 'The AI could not give usable ideas this time. Your credit was returned. Try again, or describe the job a little differently.');
             }
         },
 
@@ -663,7 +667,7 @@ export function buildAppraisalHandlers(deps) {
                 : org.mode === 'micro' ? await sb.from('appraisal_templates').select('*').is('org_id', null).eq('category', 'micro_default').limit(1).maybeSingle()
                 : await sb.from('appraisal_templates').select('*').is('org_id', null).eq('is_default', true).limit(1).maybeSingle();
             if (!tpl) return fail(res, 400, 'Template not found.');
-            const snapshot = { name: tpl.name, criteria: tpl.criteria, scale: tpl.scale, ...(tpl.ai_drafted ? { ai_drafted: true } : {}) };
+            const snapshot = { name: tpl.name, criteria: tpl.criteria, scale: tpl.scale, ...(tpl.use_potential ? { potential: true } : {}) };
             const { data: members } = await sb.from('org_members').select('*').eq('org_id', b.orgId).eq('status', 'active');
             const byId = Object.fromEntries((members || []).map(m => [m.id, m]));
             let employees = (members || []).filter(m => m.supervisor_member_id && byId[m.supervisor_member_id]);
@@ -716,7 +720,7 @@ export function buildAppraisalHandlers(deps) {
             const ctx = await loadCtx(sb, user.id, req.body?.appraisalId); if (!ctx) return fail(res, 404, 'Appraisal not found.');
             const stage = draftStage(ctx); if (!stage) return fail(res, 400, 'There is nothing for you to draft right now.');
             const raw = req.body?.content; if (JSON.stringify(raw || {}).length > 60000) return fail(res, 400, 'That is too long.');
-            const safe = { ratings: raw?.ratings || {}, comments: raw?.comments || {}, summary: clip(raw?.summary, 8000), goals: clip(raw?.goals, 4000) };
+            const safe = { ratings: raw?.ratings || {}, comments: raw?.comments || {}, summary: clip(raw?.summary, 8000), goals: clip(raw?.goals, 4000), ...([1, 2, 3].includes(Number(raw?.potential)) ? { potential: Number(raw.potential) } : {}) };
             const { error } = await sb.from('appraisal_drafts').upsert({ appraisal_id: ctx.appraisal.id, member_id: ctx.member.id, stage, content_enc: encrypt(safe), updated_at: new Date().toISOString() }, { onConflict: 'appraisal_id,member_id,stage' });
             if (error) return fail(res, 500, 'Could not save your draft.');
             return res.status(200).json({ success: true });
@@ -944,7 +948,7 @@ export function buildAppraisalHandlers(deps) {
                         org_average = avgCache[a.cycle_id];
                     }
                 }
-                items.push({ appraisal_id: a.id, cycle_name: cname[a.cycle_id] || 'Appraisal', date: a.filed_at || a.updated_at, status: a.status, criteria: (a.template_snapshot?.criteria || []).map(c => ({ id: c.id, title: c.title })), self: pick.self, supervisor: pick.supervisor, joint: pick.joint, org_average });
+                items.push({ appraisal_id: a.id, cycle_name: cname[a.cycle_id] || 'Appraisal', date: a.filed_at || a.updated_at, status: a.status, criteria: (a.template_snapshot?.criteria || []).map(c => ({ id: c.id, title: c.title, weight: c.weight })), self: pick.self, supervisor: pick.supervisor, joint: pick.joint, org_average });
             }
             return res.status(200).json({ success: true, ...buildHistory(items), min_group: MIN_GROUP });
         },
@@ -961,7 +965,7 @@ export function buildAppraisalHandlers(deps) {
             const level = reportLevel(await ownerProfile(sb, org));
             const cycleId = isId(req.body?.cycleId) ? req.body.cycleId : null;
             const data = await loadFiledRows(sb, org, cycleId);
-            const report = computeReport(data.rows, { level, allowSupervisorView: level === 'full' && !['DE', 'FR'].includes(org.country_code) });
+            const report = computeReport(data.rows, { level, allowSupervisorView: level === 'full' && !['DE', 'FR'].includes(org.country_code), allowNineBox: level === 'full' && !['DE', 'FR'].includes(org.country_code) });
             const findings = buildFindings(report, data.statusCounts);
             await ev(sb, { id: null, org_id: orgId }, me, user.id, 'report_generated', null, null, { org_id: orgId, n: data.rows.length, cycle: cycleId, level });
             return res.status(200).json({ success: true, level, report, findings, status_counts: data.statusCounts, cycles: data.cycles });
@@ -978,7 +982,7 @@ export function buildAppraisalHandlers(deps) {
             if (reportLevel(await ownerProfile(sb, org)) !== 'full') return fail(res, 403, 'The business review is included with the Business plan.', { code: 'upgrade_required' });
             const cycleId = isId(req.body?.cycleId) ? req.body.cycleId : null;
             const data = await loadFiledRows(sb, org, cycleId);
-            const report = computeReport(data.rows, { level: 'full', allowSupervisorView: false });
+            const report = computeReport(data.rows, { level: 'full', allowSupervisorView: false, allowNineBox: !['DE', 'FR'].includes(org.country_code) });
             const findings = buildFindings(report, data.statusCounts);
             const label = cycleId ? (data.cycles.find(c => c.id === cycleId)?.name || 'Selected round') : 'All filed appraisals';
             const bytes = await renderReviewPdf({ report, findings, orgName: org.name, label, generated: today() });
@@ -1076,6 +1080,7 @@ async function renderPdf(view, org) {
         if (c.ratings) for (const k of crit) { if (c.ratings[k.id] !== undefined) { line(`${k.title}: ${c.ratings[k.id]} / ${view.template?.scale?.max ?? 5}`, { f: bold }); if (c.comments?.[k.id]) line(c.comments[k.id], { indent: 12 }); } }
         if (c.summary) { line('Summary', { f: bold }); line(c.summary, { indent: 12 }); }
         if (c.goals) { line('Goals', { f: bold }); line(c.goals, { indent: 12 }); }
+        if (c.potential) { line('Potential', { f: bold }); line(['', 'Limited for now', 'Some room for a bigger role', 'Could take a significantly bigger role'][c.potential] || '', { indent: 12 }); }
         if (c.decision) line(`Decision: ${c.decision}${c.comment ? '. ' + c.comment : ''}`);
         if (c.text) line(c.text);
         line(`Integrity hash: ${v.hash.slice(0, 32)}...`, { size: 7, color: rgb(0.5, 0.5, 0.55) });

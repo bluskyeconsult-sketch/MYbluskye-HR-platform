@@ -16,6 +16,7 @@ function Ratings({ v, template }) {
     return (<div className="space-y-3 text-sm text-slate-200">
         {(template?.criteria || []).filter(k => c.ratings?.[k.id] !== undefined).map(k => (
             <div key={k.id}><div className="flex justify-between"><b className="text-white">{k.title}</b><span>{c.ratings[k.id]} / {template.scale?.max ?? 5} <span className="text-slate-400">{template.scale?.labels?.[c.ratings[k.id]] || ''}</span></span></div>{c.comments?.[k.id] && <p className="text-slate-300 mt-1 whitespace-pre-line">{c.comments[k.id]}</p>}</div>))}
+        {c.potential && <p><b className="text-white">Potential:</b> {POTENTIAL[c.potential]?.[0]}</p>}
         {c.summary && <div><b className="text-white">Summary</b><p className="whitespace-pre-line mt-1">{c.summary}</p></div>}
         {c.goals && <div><b className="text-white">Goals</b><p className="whitespace-pre-line mt-1">{c.goals}</p></div>}
         {c.decision && <p><b className="text-white">Decision:</b> {c.decision === 'accept' ? 'Accepted' : 'Not accepted'}{c.comment ? ` - ${c.comment}` : ''}</p>}
@@ -23,17 +24,21 @@ function Ratings({ v, template }) {
     </div>);
 }
 
-function RatingForm({ template, initial, onSave, onSubmit, busy, submitLabel, optional }) {
+const POTENTIAL = { 1: ['Limited for now', 'Likely to stay at the current level for the time being'], 2: ['Some room to grow', 'Could take on a little more responsibility'], 3: ['High', 'Could take on a significantly bigger role'] };
+const IMPORTANCE = { 2: 'Counts double', 3: 'Counts triple' };
+
+function RatingForm({ template, initial, onSave, onSubmit, busy, submitLabel, optional, askPotential }) {
     const [f, setF] = useState(initial || { ratings: {}, comments: {}, summary: '', goals: '' });
     const scale = template?.scale || { min: 1, max: 5, labels: {} };
     const opts = []; for (let i = scale.min; i <= scale.max; i++) opts.push(i);
     return (<div>
-        {template?.ai_drafted && <p className="text-xs text-slate-400 mb-3">These questions were drafted with AI and reviewed by your employer. AI is not used to judge your answers.</p>}
         {(template?.criteria || []).map(k => (
-            <div key={k.id} className="mb-4"><div className="text-white text-sm font-medium">{k.title}</div><div className="text-xs text-slate-400 mb-1">{k.description}</div>
+            <div key={k.id} className="mb-4"><div className="text-white text-sm font-medium">{k.title}{IMPORTANCE[k.weight] && <span className="ml-2 text-xs text-slate-400">({IMPORTANCE[k.weight]} in the overall rating)</span>}</div><div className="text-xs text-slate-400 mb-1">{k.description}</div>
                 {k.anchors && <div className="text-xs text-slate-500 mb-1.5 space-y-0.5">{['1', '3', '5'].filter(a => k.anchors[a]).map(a => <div key={a}><b className="text-slate-400">{a}:</b> {k.anchors[a]}</div>)}</div>}
                 <div className="flex flex-wrap gap-2 mb-2">{opts.map(n => <button type="button" key={n} onClick={() => setF({ ...f, ratings: { ...f.ratings, [k.id]: n } })} className={`px-3 py-1.5 rounded-lg text-sm border ${f.ratings[k.id] === n ? 'bg-primary-600 border-primary-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-300'}`} title={scale.labels?.[n]}>{n}</button>)}</div>
                 <textarea rows={2} className={input} placeholder="Examples or comments (optional)" maxLength={4000} value={f.comments[k.id] || ''} onChange={e => setF({ ...f, comments: { ...f.comments, [k.id]: e.target.value } })} /></div>))}
+        {askPotential && template?.potential && (<div className="mb-4"><div className="text-white text-sm font-medium">Potential</div><div className="text-xs text-slate-400 mb-1">How ready is this person for a bigger role in the next two to three years? This is your view only, it is shown to the employee with the rest of the record, and it is not a promise.</div>
+            <div className="flex flex-wrap gap-2">{[1, 2, 3].map(n => <button type="button" key={n} onClick={() => setF({ ...f, potential: n })} title={POTENTIAL[n][1]} className={`px-3 py-1.5 rounded-lg text-sm border ${f.potential === n ? 'bg-primary-600 border-primary-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-300'}`}>{POTENTIAL[n][0]}</button>)}</div></div>)}
         <label className="text-sm text-white">Overall summary{optional ? ' (optional)' : ''}</label>
         <textarea rows={4} className={input + ' mb-3'} maxLength={8000} value={f.summary} onChange={e => setF({ ...f, summary: e.target.value })} />
         {!optional && <><label className="text-sm text-white">Goals for the next period (optional)</label><textarea rows={3} className={input + ' mb-3'} maxLength={4000} value={f.goals} onChange={e => setF({ ...f, goals: e.target.value })} /></>}
@@ -71,9 +76,9 @@ export default function AppraisalDetailPage() {
 
     const actionPanel = () => {
         if (act === 'complete_self') return <RatingForm template={tpl} initial={v.draft?.content} onSave={save} onSubmit={submit} busy={busy} submitLabel="Send to my supervisor" />;
-        if (act === 'complete_supervisor') return <RatingForm template={tpl} initial={v.draft?.content} onSave={save} onSubmit={submit} busy={busy} submitLabel="Send to the employee" />;
+        if (act === 'complete_supervisor') return <RatingForm template={tpl} initial={v.draft?.content} onSave={save} onSubmit={submit} busy={busy} submitLabel="Send to the employee" askPotential />;
         if (act === 'give_input') return <RatingForm template={tpl} initial={v.draft?.content} optional onSave={save} onSubmit={submit} busy={busy} submitLabel="Send my input" />;
-        if (act === 'record_joint') return <><p className="text-sm text-slate-300 mb-3">Record the ratings you both agreed in the discussion. If you did not agree, record your own view; the employee can reject again and the approver will see both views.</p><RatingForm template={tpl} initial={v.draft?.content} onSave={save} onSubmit={submit} busy={busy} submitLabel="Send for the employee's response" /></>;
+        if (act === 'record_joint') return <><p className="text-sm text-slate-300 mb-3">Record the ratings you both agreed in the discussion. If you did not agree, record your own view; the employee can reject again and the approver will see both views.</p><RatingForm template={tpl} initial={v.draft?.content} onSave={save} onSubmit={submit} busy={busy} submitLabel="Send for the employee's response" askPotential /></>;
         if (act === 'respond') return (<div>
             <div className="flex gap-2 mb-3">{[['accept', 'I accept this appraisal'], ['reject', 'I do not accept it']].map(([k, l]) => <button key={k} onClick={() => setResp({ ...resp, decision: k })} className={`px-4 py-2 rounded-lg text-sm border ${resp.decision === k ? 'bg-primary-600 border-primary-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-300'}`}>{l}</button>)}</div>
             <textarea rows={4} className={input + ' mb-3'} placeholder={resp.decision === 'reject' ? 'What do you disagree with? (required)' : 'Optional comment'} value={resp.comment} onChange={e => setResp({ ...resp, comment: e.target.value })} maxLength={4000} />
