@@ -1,0 +1,956 @@
+// src/pages/admin/ExternalJobsManager.jsx
+// PROFESSIONAL ADMIN UI - Manage jobs from government RSS feeds, Jobicy API, and commercial sources
+//
+// FIXED (2026-08-07):
+// 1. handleFetchRSSJobs() called ?action=jobs — a real, confirmed handler,
+//    but one that only fetches and returns job listings; it never inserts
+//    anything into external_jobs. Since that handler genuinely returns
+//    {success: true}, the button showed "✅ Added 0 new jobs" — a
+//    true-looking success message for an action that changed nothing.
+//    handleExternalFetch()/handleSyncJobs() called external-jobs-fetch/
+//    jobs-sync, neither of which exist at all (these at least correctly
+//    showed an error). All three now call the proven-working
+//    fetchExternalJobs() service function directly — the same one already
+//    used correctly by Force Refresh — instead of three different broken
+//    API paths. Removed the now-redundant handleDirectFetch and unused
+//    API_ACTIONS/API_BASE constants.
+// 2. The job preview used dangerouslySetInnerHTML on job.description, which
+//    comes from external RSS feeds and third-party APIs you don't control
+//    — a real XSS risk on an admin page. Now renders as plain text.
+//
+// FIXED (2026-08-08), CORRECTED (2026-08-09): an earlier fix here added a
+// copyApprovedJobToJobsTable() helper, based on an incorrect assumption
+// that approveExternalJob() (in rssJobService.js) didn't already copy
+// approved jobs into the real jobs table. It does — completely and
+// correctly, including setting external_jobs.approved_job_id to link back,
+// which the added helper never did. Calling both meant every approval was
+// creating two duplicate rows in jobs. Removed entirely.
+//
+// Also corrected handleBatchApprove(): batchApproveExternalJobs() in
+// rssJobService.js takes a numeric limit (approves the oldest N pending
+// jobs globally), not an array of specific ids — it was being called with
+// Array.from(selectedJobs), which doesn't match its real signature at all.
+// There's no approve-by-specific-ids function, so this now loops
+// approveExternalJob() over each selected id individually instead, which
+// actually approves what the admin checked.
+
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
+import { 
+    getPendingExternalJobs, 
+    approveExternalJob, 
+    rejectExternalJob, 
+    getExternalJobsStats,
+    syncSupabaseSession,
+    RSS_FEEDS,
+    API_SOURCES
+} from '../../services/rssJobService';
+import { 
+    CheckCircle, 
+    XCircle, 
+    Eye, 
+    RefreshCw, 
+    Loader2, 
+    Globe, 
+    Briefcase, 
+    MapPin, 
+    Calendar,
+    TrendingUp,
+    AlertCircle,
+    CheckSquare,
+    Square,
+    Wifi,
+    Sparkles,
+    Settings,
+    Rss,
+    Search,
+    Download,
+    X
+} from 'lucide-react';
+
+// ============================================
+// RSS FEED SOURCES CONFIGURATION
+//
+// FIXED (2026-08-27): this used to be a separate, local, hardcoded array
+// that had drifted from reality — every entry (including Stack Overflow
+// and Zapier) was marked active: true here, even though the real
+// rssJobService.js correctly has both disabled (is_active: false). This
+// is what made the "Active RSS Feeds" stat show 13 regardless of what
+// was actually configured to run. Now imports the real, authoritative
+// source list directly from rssJobService.js instead of maintaining a
+// second, driftable copy.
+// ============================================
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
+// FIXED (2026-08-27): RSS_FEEDS and API_SOURCES (imported above, real)
+// are keyed objects with an is_active flag, not the array-of-{active}
+// shape the old local stand-in used. This combines both real source
+// configs into one flat, displayable list.
+const ALL_SOURCES = [
+    ...Object.entries(RSS_FEEDS).map(([key, cfg]) => ({ key, name: cfg.name, country: cfg.country, active: cfg.is_active })),
+    ...Object.entries(API_SOURCES).map(([key, cfg]) => ({ key, name: cfg.name, country: cfg.country, active: cfg.is_active }))
+];
+
+export default function ExternalJobsManager() {
+    // State Management
+    const [jobs, setJobs] = useState([]);
+    const [filteredJobs, setFilteredJobs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
+    const [processingId, setProcessingId] = useState(null);
+    const [selectedJob, setSelectedJob] = useState(null);
+    const [syncResult, setSyncResult] = useState(null);
+    const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
+    const [selectedJobs, setSelectedJobs] = useState(new Set());
+    const [activeTab, setActiveTab] = useState('pending');
+    const [connectionStatus, setConnectionStatus] = useState(null);
+    const [testingConnection, setTestingConnection] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sourceFilter, setSourceFilter] = useState('all');
+    // NEW (2026-10-11): sources ticked in the "Sources" dropdown next to Select All. When any are
+    // ticked, Select All picks only jobs from those sources (empty = every job in the current view).
+    const [pickSources, setPickSources] = useState(new Set());
+
+    // FIXED (2026-09-17): confirmed real, definitive root cause of
+    // pending jobs never showing despite genuinely existing -
+    // rssJobService.js's own, separate Supabase client (used directly
+    // here) never once attached the real, logged-in admin's session.
+    // RLS on external_jobs only grants full access, including
+    // pending_approval rows, to the authenticated role - without this,
+    // every read from that client was genuinely being treated as
+    // anonymous, only ever able to see approved rows. Syncs the real
+    // session BEFORE the first load, not in parallel, so every
+    // subsequent read genuinely carries it.
+    useEffect(() => {
+        async function initAndLoad() {
+            const { data: { session } } = await supabase.auth.getSession();
+            await syncSupabaseSession(session);
+            loadJobs();
+            loadStats();
+        }
+        initAndLoad();
+    }, [activeTab]);
+
+    useEffect(() => {
+        filterJobs();
+    }, [jobs, searchTerm, sourceFilter]);
+
+    // NEW (2026-10-11): a selection made under one filter must never be approved under another
+    // (e.g. select all of one source, switch filter, approve the hidden rows by accident).
+    useEffect(() => {
+        setSelectedJobs(new Set());
+    }, [sourceFilter, searchTerm, activeTab]);
+
+    async function loadJobs() {
+        setLoading(true);
+        try {
+            let data;
+            if (activeTab === 'pending') {
+                // Server-side read (service role) - avoids browser RLS and
+                // the 1000-row cap that made Pending under-report.
+                const pendingRes = await authenticatedFetch('pending-jobs-v2', {});
+                data = pendingRes.jobs || [];
+            } else if (activeTab === 'approved') {
+                const { data: approved } = await supabase
+                    .from('external_jobs')
+                    .select('*')
+                    .eq('status', 'approved')
+                    .order('approved_at', { ascending: false });
+                data = approved;
+            } else if (activeTab === 'rejected') {
+                const { data: rejected } = await supabase
+                    .from('external_jobs')
+                    .select('*')
+                    .eq('status', 'rejected')
+                    .order('reviewed_at', { ascending: false });
+                data = rejected;
+            } else {
+                const { data: all } = await supabase
+                    .from('external_jobs')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(200);
+                data = all;
+            }
+            setJobs(data || []);
+        } catch (error) {
+            console.error('Error loading jobs:', error);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function loadStats() {
+        try {
+            const res = await authenticatedFetch('external-jobs-stats', {});
+            setStats(res.stats);
+        } catch (err) {
+            console.warn('Server stats failed, falling back to client stats:', err.message);
+            setStats(await getExternalJobsStats());
+        }
+    }
+
+    // NEW (2026-10-11): Jooble listings are held until Jooble confirms in writing that they may be shown.
+    function isJoobleJob(job) {
+        return /^jooble/i.test(job?.source_name || '');
+    }
+
+    function filterJobs() {
+        let filtered = [...jobs];
+        
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(job => 
+                job.title?.toLowerCase().includes(term) ||
+                job.company?.toLowerCase().includes(term) ||
+                job.source_name?.toLowerCase().includes(term) ||
+                job.location?.toLowerCase().includes(term)
+            );
+        }
+        
+        if (sourceFilter === '__not_jooble') {
+            // NEW (2026-10-11): approve every other source while Jooble's terms are being confirmed
+            filtered = filtered.filter(job => !isJoobleJob(job));
+        } else if (sourceFilter !== 'all') {
+            filtered = filtered.filter(job => job.source_name === sourceFilter);
+        }
+        
+        setFilteredJobs(filtered);
+    }
+
+    // FIXED (2026-08-29): confirmed severe, real bug - these called
+    // fetchExternalJobs() directly, running the RSS-fetch logic in the
+    // admin's own browser. Every external request was being blocked by
+    // CORS, which is exactly why every government/job-board source
+    // appeared "unreachable" regardless of whether it actually is. Now
+    // correctly calls the new server-side admin-force-refresh-external-
+    // jobs action, where CORS never applies at all.
+    async function handleFetchRSSJobs() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `${result.inserted} new job(s) added, ${result.duplicates || 0} skipped as duplicates. Pending now: ${result.pendingNow ?? 'unknown'}.` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('Fetch RSS error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleSyncJobs() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Synced ${result.inserted} jobs` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('Sync error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleExternalFetch() {
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: false });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, message: `Added ${result.inserted} external jobs` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('External fetch error:', error);
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    async function handleForceRefresh() {
+        if (!confirm('⚠️ WARNING: This will re-run every job source now (it does NOT delete pending jobs; jobs already seen in the last 7 days are skipped). Continue?')) return;
+        
+        setSyncing(true);
+        setSyncResult(null);
+        
+        try {
+            const result = await authenticatedFetch('admin-force-refresh-external-jobs', { forceRefresh: true });
+            setSyncResult({ success: true, inserted: result.inserted, results: result.results, forceRefresh: true, message: `Force refresh complete. ${result.inserted} new job(s) added, ${result.duplicates || 0} skipped as duplicates already seen in the last 7 days. Pending now: ${result.pendingNow ?? 'unknown'}.` });
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            setSyncResult({ success: false, error: error.message });
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    // FIXED (2026-08-08), CORRECTION: the earlier copyApprovedJobToJobsTable()
+    // addition here was based on an incorrect assumption that
+    // approveExternalJob() (in rssJobService.js) didn't copy the job into
+    // the real jobs table. It actually already does — properly, including
+    // setting external_jobs.approved_job_id to link back, which this
+    // duplicate logic never did. Calling both meant every single approval
+    // was creating two duplicate rows in jobs. Removed the redundant
+    // function entirely; approveExternalJob() alone is complete and correct.
+    async function handleApprove(jobId) {
+        const target = jobs.find(j => j.id === jobId);
+        if (isJoobleJob(target) && !confirm('Jooble has not yet confirmed in writing that its listings may be shown on your job board. Approve this Jooble job anyway?')) return;
+        setProcessingId(jobId);
+        try {
+            await approveExternalJob(jobId);
+            await loadJobs();
+            await loadStats();
+            setSelectedJobs(new Set(Array.from(selectedJobs).filter(id => id !== jobId)));
+        } catch (error) {
+            console.error('Approve error:', error);
+            alert('Failed to approve job: ' + error.message);
+        } finally {
+            setProcessingId(null);
+        }
+    }
+
+    async function handleReject(jobId) {
+        const reason = prompt('Optional: Enter rejection reason');
+        setProcessingId(jobId);
+        try {
+            await rejectExternalJob(jobId, reason || undefined);
+            await loadJobs();
+            await loadStats();
+            setSelectedJobs(new Set(Array.from(selectedJobs).filter(id => id !== jobId)));
+        } catch (error) {
+            console.error('Reject error:', error);
+            alert('Failed to reject job: ' + error.message);
+        } finally {
+            setProcessingId(null);
+        }
+    }
+
+    // FIXED (2026-08-08), CORRECTION: batchApproveExternalJobs() in
+    // rssJobService.js takes a numeric limit, not an array of ids — it
+    // approves the oldest N pending jobs globally, regardless of which
+    // checkboxes the admin actually selected. That doesn't match what this
+    // UI implies (approve exactly what's checked), and there's no
+    // approve-by-specific-ids function to call instead. Now loops
+    // approveExternalJob() over each selected id individually — slower for
+    // large selections, but actually approves what the admin selected.
+    async function handleBatchApprove() {
+        if (selectedJobs.size === 0) {
+            alert('No jobs selected');
+            return;
+        }
+        
+        if (!confirm(`Approve ${selectedJobs.size} job(s)?`)) return;
+
+        const joobleCount = jobs.filter(j => selectedJobs.has(j.id) && isJoobleJob(j)).length;
+        if (joobleCount > 0 && !confirm(`${joobleCount} of the selected jobs come from Jooble, which has not yet confirmed in writing that its listings may be shown on your job board. Approve them anyway?`)) return;
+        
+        setProcessingId('batch');
+        try {
+            // NEW (2026-10-29): stop early if the admin session has expired. An expired session made the database hide
+            // every row, so a batch of 830 "failed" one by one with "Cannot coerce the result to a single JSON object".
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                alert('Your admin session has expired, so nothing was approved. Please sign in again, then select the jobs again.');
+                return;
+            }
+            const idsToApprove = Array.from(selectedJobs);
+            let approved = 0;
+            let failed = 0;
+            let consecutiveSameFailure = 0;
+            let stoppedEarly = false;
+            const errors = [];
+            
+            for (const id of idsToApprove) {
+                try {
+                    await approveExternalJob(id);
+                    approved++;
+                    consecutiveSameFailure = 0;
+                } catch (err) {
+                    failed++;
+                    errors.push({ id, error: err.message });
+                    console.error('Failed to approve', id, err);
+                    consecutiveSameFailure = (errors.length > 1 && errors[errors.length - 2].error === err.message && approved === 0) ? consecutiveSameFailure + 1 : 1;
+                    // Ten identical failures in a row and nothing approved: something systemic is wrong (session, permissions).
+                    if (approved === 0 && consecutiveSameFailure >= 10) { stoppedEarly = true; break; }
+                }
+            }
+            if (stoppedEarly) {
+                alert(`Stopped after ${failed} identical failures with nothing approved, so the rest were left alone.\n\nReason: ${errors[0].error}\n\nIf this says "Cannot coerce the result to a single JSON object", your sign-in has probably expired. Sign in again and retry.`);
+                setProcessingId(null);
+                return;
+            }
+            
+            // FIXED (2026-08-28): errors[] already had the real, specific
+            // reason for each failure, but the alert only ever said
+            // "Check console for details" - genuinely useful information
+            // was being thrown away. Now shown directly.
+            const errorSummary = errors.length > 0
+                ? '\n\nReasons:\n' + errors.map(e => `- ${e.id}: ${e.error}`).join('\n')
+                : '';
+            alert(`✅ Batch approve complete!\nApproved: ${approved}\nFailed: ${failed}${errorSummary}`);
+            setSelectedJobs(new Set());
+            await loadJobs();
+            await loadStats();
+        } catch (error) {
+            console.error('Batch approve error:', error);
+            alert('Failed to approve some jobs: ' + error.message);
+        } finally {
+            setProcessingId(null);
+        }
+    }
+
+    async function handleTestConnections() {
+        setTestingConnection(true);
+        try {
+            const data = await authenticatedFetch('admin-test-feed-connections', {}, { method: 'POST' });
+            const results = data.results;
+            setConnectionStatus(results);
+            const workingCount = results.filter(r => r.ok === true).length;
+            alert(`✅ Connection test complete!\n${workingCount}/${results.length} feeds working`);
+        } catch (error) {
+            console.error('Test error:', error);
+            alert('Failed to test connections: ' + error.message);
+        } finally {
+            setTestingConnection(false);
+        }
+    }
+
+    function selectableJobs() {
+        return pickSources.size === 0 ? filteredJobs : filteredJobs.filter(job => pickSources.has(job.source_name));
+    }
+
+    function toggleSelectAll() {
+        const pool = selectableJobs();
+        const allSelected = pool.length > 0 && pool.every(job => selectedJobs.has(job.id));
+        if (allSelected) {
+            setSelectedJobs(new Set());
+        } else {
+            setSelectedJobs(new Set(pool.map(job => job.id)));
+        }
+    }
+
+    function togglePickSource(name) {
+        const next = new Set(pickSources);
+        if (next.has(name)) next.delete(name); else next.add(name);
+        setPickSources(next);
+        setSelectedJobs(new Set());
+    }
+
+    function toggleSelectJob(jobId) {
+        const newSet = new Set(selectedJobs);
+        if (newSet.has(jobId)) {
+            newSet.delete(jobId);
+        } else {
+            newSet.add(jobId);
+        }
+        setSelectedJobs(newSet);
+    }
+
+    function exportJobs() {
+        const exportData = filteredJobs.map(job => ({
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            salary: job.salary_range,
+            source: job.source_name,
+            status: job.status,
+            job_type: job.job_type,
+            sponsorship_eligible: job.sponsorship_eligible,
+            created_at: job.created_at
+        }));
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `external_jobs_${activeTab}_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function getSourceBadge(sourceName) {
+        const colors = {
+            'UK Civil Service Jobs': 'bg-blue-500/20 text-blue-400',
+            'NHS Jobs': 'bg-emerald-500/20 text-emerald-400',
+            'Find a Job - UK Government': 'bg-cyan-500/20 text-cyan-400',
+            'Public Jobs Ireland': 'bg-green-500/20 text-green-400',
+            'GC Jobs Canada': 'bg-red-500/20 text-red-400',
+            'APS Jobs Australia': 'bg-yellow-500/20 text-yellow-400',
+            'USAJobs': 'bg-indigo-500/20 text-indigo-400',
+            'France Travail': 'bg-sky-500/20 text-sky-400',
+            'Arbeitnow': 'bg-teal-500/20 text-teal-400',
+            'Bund.de': 'bg-amber-500/20 text-amber-400',
+            'Jobicy': 'bg-purple-500/20 text-purple-400',
+            'Remote OK': 'bg-slate-500/20 text-slate-400'
+        };
+        const matchedKey = Object.keys(colors).find(key => sourceName?.includes(key));
+        const color = matchedKey ? colors[matchedKey] : 'bg-slate-500/20 text-slate-400';
+        return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{sourceName}</span>;
+    }
+
+    function getJobTypeBadge(jobType) {
+        const types = {
+            remote: 'bg-purple-500/20 text-purple-400',
+            full_time: 'bg-blue-500/20 text-blue-400',
+            part_time: 'bg-yellow-500/20 text-yellow-400',
+            contract: 'bg-orange-500/20 text-orange-400',
+            freelance: 'bg-pink-500/20 text-pink-400',
+            hybrid: 'bg-cyan-500/20 text-cyan-400'
+        };
+        const color = types[jobType] || 'bg-slate-500/20 text-slate-400';
+        const label = jobType?.replace('_', ' ') || 'Full Time';
+        return <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>{label}</span>;
+    }
+
+    const uniqueSources = ['all', ...new Set(jobs.map(job => job.source_name).filter(Boolean))];
+
+    if (loading && jobs.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+                <span className="ml-2 text-slate-400">Loading jobs...</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-6 space-y-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                        <Globe className="w-6 h-6 text-primary-400" />
+                        External Jobs Manager
+                    </h1>
+                    <p className="text-slate-400 text-sm mt-1">
+                        Manage jobs from government RSS feeds, Jobicy API, and commercial sources
+                    </p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                    <button
+                        onClick={() => setShowSettings(!showSettings)}
+                        className="px-3 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 flex items-center gap-2 text-sm transition"
+                    >
+                        <Settings className="w-4 h-4" />
+                        RSS Feeds
+                    </button>
+                    <button
+                        onClick={handleTestConnections}
+                        disabled={testingConnection}
+                        className="px-3 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 flex items-center gap-2 text-sm transition"
+                    >
+                        {testingConnection ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                        Test Feeds
+                    </button>
+                    <button
+                        onClick={handleForceRefresh}
+                        disabled={syncing}
+                        className="px-3 py-2 bg-yellow-600/30 text-yellow-400 rounded-lg hover:bg-yellow-600/50 flex items-center gap-2 text-sm transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        Force Refresh
+                    </button>
+                    <button
+                        onClick={handleFetchRSSJobs}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2 transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rss className="w-4 h-4" />}
+                        {syncing ? 'Fetching...' : 'Fetch RSS'}
+                    </button>
+                    <button
+                        onClick={handleExternalFetch}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        {syncing ? 'Fetching...' : 'Fetch API'}
+                    </button>
+                    <button
+                        onClick={handleSyncJobs}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 transition"
+                    >
+                        {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        {syncing ? 'Syncing...' : 'Sync Jobs'}
+                    </button>
+                </div>
+            </div>
+
+            {/* RSS Feeds Settings Panel */}
+            {showSettings && (
+                <div className="p-4 bg-slate-900/80 border border-slate-700 rounded-xl">
+                    <h3 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
+                        <Rss className="w-4 h-4" />
+                        Active RSS Feed Sources ({ALL_SOURCES.filter(f => f.active).length} of {ALL_SOURCES.length})
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
+                        {ALL_SOURCES.map(feed => (
+                            <div key={feed.key} className="flex items-center gap-2 text-slate-400">
+                                <span className={feed.active ? 'text-emerald-400' : 'text-red-400'}>
+                                    {feed.active ? '✅' : '❌'}
+                                </span>
+                                <span>{feed.name}</span>
+                                <span className="text-xs text-slate-500">({feed.country})</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Sync Result Banner */}
+            {/* FIXED (2026-08-27): only showed an aggregate count ("Added
+                0 new jobs") - the real fetchExternalJobs() already
+                returns a full per-source breakdown (found/added/status/
+                error for each source), which was being fetched but
+                silently discarded. Now shown directly, so "why did
+                fetch find nothing" is answered immediately without a
+                separate diagnostic step. */}
+            {syncResult && (
+                <div className={`p-3 rounded-lg ${syncResult.success ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+                    <p className={syncResult.success ? 'text-emerald-400' : 'text-red-400'}>
+                        {syncResult.success 
+                            ? `✅ ${syncResult.message || `Sync complete: ${syncResult.inserted} new jobs added`}${syncResult.forceRefresh ? ' (force refresh)' : ''}`
+                            : `❌ Sync failed: ${syncResult.error}`}
+                    </p>
+                    {syncResult.results && syncResult.results.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-800/50 space-y-1">
+                            {syncResult.results.map((r, idx) => (
+                                <div key={idx}>
+                                    <p className="text-xs text-slate-400 flex items-center justify-between">
+                                        <span>{r.source}</span>
+                                        <span className={r.status === 'failed' ? 'text-red-400' : 'text-slate-500'}>
+                                            {r.status === 'failed' ? `Failed: ${r.error}` : `${r.found ?? 0} found, ${r.added ?? 0} new`}
+                                        </span>
+                                    </p>
+                                    {/* NEW (2026-09-13): confirmed real bug -
+                                        jobs that genuinely failed to save
+                                        (a real database/insertion error, not
+                                        just "already exists") were
+                                        completely invisible before - this
+                                        surfaces exactly why "found: X,
+                                        added: 0" can happen. */}
+                                    {r.errorCount > 0 && (
+                                        <p className="text-xs text-amber-400 pl-2">
+                                            ⚠️ {r.errorCount} job{r.errorCount === 1 ? '' : 's'} failed to save: {r.lastError}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* FIXED (2026-08-27): connectionStatus was already being set
+                by handleTestConnections() with real, detailed per-source
+                results (URL, HTTP status, specific error) - but nothing
+                anywhere actually rendered it. Only a generic alert() with
+                an aggregate count ("1/12 feeds working") ever reached the
+                admin, with no way to see WHICH sources failed or why
+                without this. */}
+            {connectionStatus && (
+                <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+                    <p className="text-slate-300 text-sm font-medium mb-2">
+                        Feed connection test: {connectionStatus.filter(r => r.ok).length}/{connectionStatus.length} reachable
+                    </p>
+                    <div className="space-y-1">
+                        {connectionStatus.map((r, idx) => (
+                            <p key={idx} className="text-xs flex items-center justify-between">
+                                <span className="text-slate-400">{r.source} <span className="text-slate-600">({r.country})</span></span>
+                                <span className={r.ok ? 'text-emerald-400' : 'text-red-400'}>
+                                    {r.ok ? `✅ ${r.status}` : `❌ ${r.message || r.error}`}
+                                </span>
+                            </p>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Stats Dashboard */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
+                    onClick={() => setActiveTab('pending')}
+                >
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-400 text-sm">Pending Approval</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.pending}</p>
+                        </div>
+                        <AlertCircle className="w-8 h-8 text-yellow-400 opacity-70 group-hover:opacity-100 transition" />
+                    </div>
+                </div>
+                <div 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
+                    onClick={() => setActiveTab('approved')}
+                >
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-400 text-sm">Approved</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.approved}</p>
+                        </div>
+                        <CheckCircle className="w-8 h-8 text-emerald-400 opacity-70 group-hover:opacity-100 transition" />
+                    </div>
+                </div>
+                <div 
+                    className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-primary-500/50 transition group" 
+                    onClick={() => setActiveTab('rejected')}
+                >
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-400 text-sm">Rejected</p>
+                            <p className="text-2xl font-bold text-white group-hover:text-primary-400 transition">{stats.rejected}</p>
+                        </div>
+                        <XCircle className="w-8 h-8 text-red-400 opacity-70 group-hover:opacity-100 transition" />
+                    </div>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-400 text-sm">Active RSS Feeds</p>
+                            <p className="text-2xl font-bold text-white">{ALL_SOURCES.filter(f => f.active).length}</p>
+                        </div>
+                        <TrendingUp className="w-8 h-8 text-primary-400 opacity-70" />
+                    </div>
+                </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex gap-2 border-b border-slate-800 flex-wrap">
+                {['pending', 'approved', 'rejected', 'all'].map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-4 py-2 text-sm font-medium transition capitalize ${
+                            activeTab === tab 
+                                ? 'text-primary-400 border-b-2 border-primary-400' 
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        {tab} {tab === 'pending' && `(${stats.pending})`}
+                        {tab === 'approved' && `(${stats.approved})`}
+                        {tab === 'rejected' && `(${stats.rejected})`}
+                        {tab === 'all' && `(${stats.total})`}
+                    </button>
+                ))}
+            </div>
+
+            {/* Search and Filter Bar */}
+            {(activeTab === 'pending' || activeTab === 'all') && jobs.length > 0 && (
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input
+                            type="text"
+                            placeholder="Search by title, company, location, or source..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                    </div>
+                    <select
+                        value={sourceFilter}
+                        onChange={(e) => setSourceFilter(e.target.value)}
+                        className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                        <option value="all">All Sources</option>
+                        <option value="__not_jooble">All except Jooble</option>
+                        {uniqueSources.filter(source => source !== 'all').map(source => (
+                            <option key={source} value={source}>{source}</option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={exportJobs}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2 transition"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export
+                    </button>
+                </div>
+            )}
+
+            {/* Batch Actions (Pending only) */}
+            {activeTab === 'pending' && filteredJobs.length > 0 && (
+                <div className="flex gap-2">
+                    <details className="relative">
+                        <summary className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm cursor-pointer list-none select-none">
+                            Sources {pickSources.size > 0 ? `(${pickSources.size} chosen)` : '(all)'} &#9662;
+                        </summary>
+                        <div className="absolute z-20 mt-1 w-72 max-h-72 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg p-2 shadow-xl">
+                            {Array.from(new Set(filteredJobs.map(j => j.source_name).filter(Boolean))).sort().map(name => {
+                                const count = filteredJobs.filter(j => j.source_name === name).length;
+                                return (
+                                    <label key={name} className="flex items-center gap-2 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800 rounded cursor-pointer">
+                                        <input type="checkbox" checked={pickSources.has(name)} onChange={() => togglePickSource(name)} />
+                                        <span className="flex-1 truncate">{name}</span>
+                                        <span className="text-slate-500">{count}{/^jooble/i.test(name) ? ' · held' : ''}</span>
+                                    </label>
+                                );
+                            })}
+                            {pickSources.size > 0 && (
+                                <button onClick={() => { setPickSources(new Set()); setSelectedJobs(new Set()); }} className="mt-1 w-full text-xs text-sky-400 hover:underline">Clear source choice</button>
+                            )}
+                        </div>
+                    </details>
+                    <button
+                        onClick={toggleSelectAll}
+                        className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition"
+                    >
+                        {selectableJobs().length > 0 && selectableJobs().every(job => selectedJobs.has(job.id)) ? <Square className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
+                        {selectableJobs().length > 0 && selectableJobs().every(job => selectedJobs.has(job.id)) ? 'Deselect All' : `Select All (${selectableJobs().length})`}
+                    </button>
+                    <button
+                        onClick={handleBatchApprove}
+                        disabled={selectedJobs.size === 0 || processingId === 'batch'}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition text-sm flex items-center gap-1 disabled:opacity-50"
+                    >
+                        {processingId === 'batch' ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                        Approve Selected ({selectedJobs.size})
+                    </button>
+                </div>
+            )}
+
+            {/* Jobs List */}
+            {filteredJobs.length === 0 ? (
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center">
+                    {activeTab === 'pending' ? (
+                        <>
+                            <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
+                            <h3 className="text-xl font-semibold text-white mb-2">No Pending Jobs</h3>
+                            <p className="text-slate-400">Click "Fetch RSS" or "Fetch API" to import external job listings.</p>
+                        </>
+                    ) : (
+                        <>
+                            <Globe className="w-16 h-16 text-slate-500 mx-auto mb-4" />
+                            <h3 className="text-xl font-semibold text-white mb-2">No {activeTab} Jobs</h3>
+                            <p className="text-slate-400">Jobs you {activeTab} will appear here.</p>
+                        </>
+                    )}
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    {filteredJobs.map((job) => (
+                        <div 
+                            key={job.id} 
+                            className={`bg-slate-900/50 border rounded-xl p-5 transition ${
+                                selectedJobs.has(job.id) 
+                                    ? 'border-primary-500 bg-primary-500/5 ring-1 ring-primary-500' 
+                                    : 'border-slate-800 hover:border-primary-500/30'
+                            }`}
+                        >
+                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                                {/* Job Info */}
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        {activeTab === 'pending' && (
+                                            <button
+                                                onClick={() => toggleSelectJob(job.id)}
+                                                className="p-1 hover:bg-slate-800 rounded transition"
+                                                aria-label={selectedJobs.has(job.id) ? 'Deselect' : 'Select'}
+                                            >
+                                                {selectedJobs.has(job.id) 
+                                                    ? <CheckSquare className="w-4 h-4 text-primary-400" /> 
+                                                    : <Square className="w-4 h-4 text-slate-500" />}
+                                            </button>
+                                        )}
+                                        <h3 className="text-lg font-semibold text-white">{job.title}</h3>
+                                        {getSourceBadge(job.source_name)}
+                                        {getJobTypeBadge(job.job_type)}
+                                        {job.sponsorship_eligible && (
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 flex items-center gap-1">
+                                                <Sparkles className="w-3 h-3" /> Sponsorship Available
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-primary-400 text-sm mb-2">{job.company}</p>
+                                    <div className="flex flex-wrap gap-4 text-sm text-slate-400 mb-3">
+                                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.location || job.source_country || 'Remote'}</span>
+                                        <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" /> {job.job_type?.replace('_', ' ') || 'Full Time'}</span>
+                                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(job.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                    <p className="text-slate-400 text-sm line-clamp-2">{job.description?.substring(0, 200)}...</p>
+                                    {job.salary_range && job.salary_range !== 'Competitive' && (
+                                        <p className="text-emerald-400 text-sm mt-2">💰 {job.salary_range}</p>
+                                    )}
+                                </div>
+                                
+                                {/* Actions */}
+                                <div className="flex flex-row md:flex-col gap-2">
+                                    <button
+                                        onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
+                                        className="px-3 py-1.5 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-sm flex items-center gap-1 transition hover:bg-slate-800"
+                                    >
+                                        <Eye className="w-3 h-3" /> Preview
+                                    </button>
+                                    {activeTab === 'pending' && (
+                                        <>
+                                            <button
+                                                onClick={() => handleApprove(job.id)}
+                                                disabled={processingId === job.id}
+                                                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition text-sm flex items-center gap-1 disabled:opacity-50"
+                                            >
+                                                {processingId === job.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                                                Approve
+                                            </button>
+                                            <button
+                                                onClick={() => handleReject(job.id)}
+                                                disabled={processingId === job.id}
+                                                className="px-3 py-1.5 bg-red-600/70 text-white rounded-lg hover:bg-red-600 transition text-sm flex items-center gap-1 disabled:opacity-50"
+                                            >
+                                                <XCircle className="w-3 h-3" /> Reject
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            {/* Expanded Preview */}
+                            {selectedJob?.id === job.id && (
+                                <div className="mt-4 pt-4 border-t border-slate-800">
+                                    <h4 className="text-white font-semibold mb-2">Full Description</h4>
+                                    {/* FIXED: was dangerouslySetInnerHTML on
+                                        externally-sourced content — a real XSS
+                                        risk. Renders as plain text now. */}
+                                    <div className="text-slate-400 text-sm whitespace-pre-wrap">
+                                        {job.description || 'No description provided.'}
+                                    </div>
+                                    {job.rejection_reason && (
+                                        <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                            <p className="text-red-400 text-sm"><strong>Rejection Reason:</strong> {job.rejection_reason}</p>
+                                        </div>
+                                    )}
+                                    {job.external_apply_url && (
+                                        <a 
+                                            href={job.external_apply_url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer" 
+                                            className="inline-flex items-center gap-1 mt-3 text-primary-400 text-sm hover:underline"
+                                        >
+            View original posting →
+                                        </a>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
