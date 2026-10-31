@@ -41,7 +41,6 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { AFFILIATE_PLAN } from '../src/services/affiliatePlan.js';
 import { checkBilling, recordFlag } from './_lib/geoPricing.js';
-import { reverseCreditPurchase, restoreAfterDisputeWon } from './_lib/creditReversal.js';
 
 export const config = {
     api: {
@@ -55,17 +54,6 @@ const supabase = createClient(
     process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-// Small mail sender for alerts to support (the webhook has no other mail). Fails quietly: an alert must never break payment handling.
-async function sendAlertMail({ to, subject, html }) {
-    try {
-        const host = process.env.VITE_SMTP_HOST || process.env.SMTP_HOST; if (!host) return;
-        const nodemailer = (await import('nodemailer')).default;
-        const port = parseInt(process.env.VITE_SMTP_PORT || process.env.SMTP_PORT || '465');
-        const t = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user: process.env.VITE_EMAIL_USER || process.env.SMTP_USER, pass: process.env.VITE_EMAIL_PASS || process.env.SMTP_PASSWORD } });
-        await t.sendMail({ from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`, to, subject, html });
-    } catch (e) { console.error('alert mail failed:', e.message); }
-}
 
 async function buffer(readable) {
     const chunks = [];
@@ -129,36 +117,6 @@ export default async function handler(req, res) {
                 // NEW (2026-08-16): one-time credit purchases (distinct
                 // from tier subscriptions) — adds to va_credits.balance,
                 // the same table/column va-execute already deducts from.
-                // NEW (2026-10-23): pay-per-appraisal packs for small teams. Credited once per payment (the payment id is the
-                // key, so a repeated webhook cannot add them twice). Nothing is credited unless the payment is actually paid.
-                if (session.metadata?.type === 'appraisal_pack') {
-                    const orgId = session.metadata?.orgId; const count = parseInt(session.metadata?.count, 10);
-                    if (orgId && [1, 5, 10, 25].includes(count) && session.payment_status === 'paid') {
-                        const { error: credErr } = await supabase.rpc('appraisal_credit_adjust', { p_org: orgId, p_delta: count, p_reason: 'purchase', p_ref: session.id, p_appraisal: null });
-                        if (credErr) {
-                            console.error('appraisal credit failed:', credErr.message);
-                            // Forget this event so Stripe's retry is processed, not skipped as a duplicate. The credit is keyed on the payment id, so a retry can never double-credit.
-                            await supabase.from('processed_stripe_events').delete().eq('event_id', event.id);
-                            return res.status(500).json({ error: 'credit failed' });
-                        }
-                    }
-                    break;
-                }
-
-                // NEW (2026-10-23): pay-per-job-post packs. Credited once per payment (keyed on the payment id), only when paid.
-                if (session.metadata?.type === 'job_post_pack') {
-                    const jpUser = session.metadata?.userId; const jpCount = parseInt(session.metadata?.count, 10);
-                    if (jpUser && [1, 3, 5].includes(jpCount) && session.payment_status === 'paid') {
-                        const { error: jpErr } = await supabase.rpc('job_post_credit_adjust', { p_user: jpUser, p_delta: jpCount, p_reason: 'purchase', p_ref: session.id, p_job: null });
-                        if (jpErr) {
-                            console.error('job post credit failed:', jpErr.message);
-                            await supabase.from('processed_stripe_events').delete().eq('event_id', event.id);
-                            return res.status(500).json({ error: 'credit failed' });
-                        }
-                    }
-                    break;
-                }
-
                 if (session.metadata?.type === 'credit_purchase') {
                     const creditsToAdd = parseInt(session.metadata?.credits, 10);
                     if (userId && creditsToAdd) {
@@ -386,29 +344,6 @@ export default async function handler(req, res) {
             }
 
             // Fired on renewal, plan change, payment failure, etc.
-            // NEW (2026-10-23): a card payment for appraisal or job-post credits was refunded in full or disputed: take back the credits
-            // that are still unspent (once per charge or dispute). Enable these three events on the Stripe webhook endpoint.
-            case 'charge.refunded':
-            case 'charge.dispute.created':
-            case 'charge.dispute.closed': {
-                const obj = event.data.object;
-                try {
-                    if (event.type === 'charge.refunded') {
-                        if (!obj.refunded) { console.log(`Partial refund on ${obj.id}: not changing credits automatically.`); break; }
-                        await reverseCreditPurchase({ supabase, stripe, sendMail: sendAlertMail, paymentIntentId: obj.payment_intent, ref: `refund:${obj.id}`, label: 'refunded' });
-                    } else if (event.type === 'charge.dispute.created') {
-                        await reverseCreditPurchase({ supabase, stripe, sendMail: sendAlertMail, paymentIntentId: obj.payment_intent, ref: `dispute:${obj.id}`, label: 'disputed' });
-                    } else if (obj.status === 'won') {
-                        await restoreAfterDisputeWon({ supabase, ref: `dispute:${obj.id}` });
-                    }
-                } catch (e) {
-                    console.error('credit reversal failed:', e.message);
-                    await supabase.from('processed_stripe_events').delete().eq('event_id', event.id);
-                    return res.status(500).json({ error: 'reversal failed' });
-                }
-                break;
-            }
-
             case 'customer.subscription.updated': {
                 const subscription = event.data.object;
                 await supabase
