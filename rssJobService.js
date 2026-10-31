@@ -1065,6 +1065,7 @@ const JOB_COUNTRY_HINTS = [
     ['US', /\b(united states|usa|u\.s\.a|u\.s|america|new york|san francisco|los angeles|chicago|seattle|boston|austin|denver|atlanta|dallas|houston|miami|san diego|washington,? d\.?c|alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|wisconsin|wyoming)\b/i],
     ['NG', /\b(nigeria|lagos|abuja|port harcourt|ibadan|kano)\b/i],
     ['CA', /\b(canada|toronto|vancouver|montreal|montréal|ottawa|calgary|edmonton|winnipeg|quebec|québec|ontario|british columbia|alberta)\b/i],
+    ['NZ', /\b(new zealand|aotearoa|auckland|christchurch|tauranga|dunedin|queenstown|palmerston north|napier)\b/i],
     ['AU', /\b(australia|sydney|melbourne|brisbane|perth|adelaide|canberra|queensland|new south wales|tasmania)\b/i]
 ];
 // Capital-letter "US" (a case-sensitive check, so the word "us" in ordinary text never counts).

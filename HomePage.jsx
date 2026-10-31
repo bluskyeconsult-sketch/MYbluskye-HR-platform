@@ -79,6 +79,7 @@ export default function HomePage() {
         { code: 'DE', name: 'Germany', flag: '🇩🇪' },
         { code: 'FR', name: 'France', flag: '🇫🇷' },
         { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
+        { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
         // NEW (2026-10-23): remote/worldwide jobs and countries without their own card were counted nowhere
         // (about 2,200 live jobs). This card counts every job whose country is not one of the eight above.
         { code: 'OTHER', name: 'Worldwide & Other', flag: '🌍' }
@@ -494,7 +495,7 @@ export default function HomePage() {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-9 gap-2 sm:gap-3 md:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-10 gap-2 sm:gap-3 md:gap-4">
                     {countryStats.map((country) => (
                         <Link 
                             key={country.code} 
