@@ -605,9 +605,12 @@ export function buildAppraisalHandlers(deps) {
             if (!process.env.STRIPE_SECRET_KEY) return fail(res, 503, 'Payments are not switched on yet. Please contact support.');
             try {
                 const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+                // Tax is added only when STRIPE_AUTOMATIC_TAX=true (after Stripe Tax is set up in your Stripe account).
+                const taxOn = process.env.STRIPE_AUTOMATIC_TAX === 'true';
                 const session = await stripe.checkout.sessions.create({
                     mode: 'payment', payment_method_types: ['card'],
-                    line_items: [{ price_data: { currency: 'usd', product_data: { name: `${count} staff appraisal${count === 1 ? '' : 's'}` }, unit_amount: cents }, quantity: 1 }],
+                    line_items: [{ price_data: { currency: 'usd', product_data: { name: `${count} staff appraisal${count === 1 ? '' : 's'}` }, unit_amount: cents, ...(taxOn ? { tax_behavior: 'exclusive' } : {}) }, quantity: 1 }],
+                    ...(taxOn ? { automatic_tax: { enabled: true }, billing_address_collection: 'required' } : {}),
                     success_url: `${site()}/appraisals/org/${org.id}?credits=added`, cancel_url: `${site()}/appraisals/org/${org.id}?credits=cancelled`,
                     client_reference_id: user.id, customer_email: user.email || undefined,
                     metadata: { type: 'appraisal_pack', orgId: org.id, count: String(count), userId: user.id }
