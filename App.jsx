@@ -31,6 +31,7 @@
 
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import PageAmbience from './components/PageAmbience';
+import TurnstileBox from './components/TurnstileBox';
 import { lazy, Suspense, useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 
@@ -103,6 +104,8 @@ function NewsletterSignup() {
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(false);
 
+    const newsletterCaptcha = useRef(null); // human check; does nothing until VITE_TURNSTILE_SITE_KEY is set
+
     const handleSubscribe = async (e) => {
         e.preventDefault();
         if (!email) {
@@ -114,10 +117,12 @@ function NewsletterSignup() {
         setStatus(null);
         
         try {
+            const captchaToken = await newsletterCaptcha.current?.getToken();
+            newsletterCaptcha.current?.reset();
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, name })
+                body: JSON.stringify({ email, name, captchaToken: captchaToken || undefined })
             });
             const data = await response.json();
             
@@ -157,6 +162,7 @@ function NewsletterSignup() {
                             required
                             className="flex-1 min-w-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
                         />
+                            <TurnstileBox ref={newsletterCaptcha} action="newsletter" className="flex justify-center" />
                         <button
                             type="submit"
                             disabled={loading}
