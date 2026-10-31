@@ -52,6 +52,7 @@ const ADMIN_NAV = [
         { path: '/admin/workforce', label: 'Workforce Marketplace', icon: Network },
         { path: '/admin/compliance-rules', label: 'Compliance Rules', icon: ShieldCheck },
         { path: '/admin/geo-pricing', label: 'Regional Pricing', icon: Globe },
+        { path: '/admin/employer-registers', label: 'Employer Lists', icon: Globe },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
         { path: '/admin/articles', label: 'Articles', icon: FileText },

@@ -672,6 +672,7 @@ const AppraisalDetailPage = lazy(() => import('./pages/AppraisalDetailPage'));
 const CountryRulesPage = lazy(() => import('./pages/CountryRulesPage'));
 const AdminComplianceRules = lazy(() => import('./pages/admin/AdminComplianceRules'));
 const AdminGeoPricing = lazy(() => import('./pages/admin/AdminGeoPricing'));
+const AdminEmployerRegisters = lazy(() => import('./pages/admin/AdminEmployerRegisters'));
 const CareerCoachNoticePage = lazy(() => import('./pages/CareerCoachNoticePage'));
 const BlogPage = lazy(() => import('./pages/BlogPage'));
 const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage'));
@@ -1079,6 +1080,7 @@ function AppContent() {
                             <Route path="/appraisals" element={<AppraisalsPage />} />
                             <Route path="/country-rules" element={<CountryRulesPage />} />
  <Route path="/admin/geo-pricing" element={<ProtectedRoute requireAdmin><AdminLayout><AdminGeoPricing /></AdminLayout></ProtectedRoute>} />
+ <Route path="/admin/employer-registers" element={<ProtectedRoute requireAdmin><AdminLayout><AdminEmployerRegisters /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/compliance-rules" element={<ProtectedRoute requireAdmin><AdminLayout><AdminComplianceRules /></AdminLayout></ProtectedRoute>} />
                             <Route path="/career-coach-notice" element={<AnimatedPage><CareerCoachNoticePage /></AnimatedPage>} />
                             <Route path="/skills" element={<ProtectedRoute><UserSkills /></ProtectedRoute>} />

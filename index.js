@@ -680,8 +680,8 @@ async function isTestingModeOn(supabaseClient) {
 
 function inviteSender() {
     return {
-        senderName: String(process.env.INVITE_SENDER_NAME || 'Joseph Odugboye').replace(/["<>\r\n]/g, '').slice(0, 60),
-        senderTitle: String(process.env.INVITE_SENDER_TITLE || 'Founder, BluSkye Integrated Consult').replace(/[<>\r\n]/g, '').slice(0, 100)
+        senderName: String(process.env.INVITE_SENDER_NAME || 'ODUSBABA Team').replace(/["<>\r\n]/g, '').slice(0, 60),
+        senderTitle: String(process.env.INVITE_SENDER_TITLE || 'BluSkye Integrated Consult').replace(/[<>\r\n]/g, '').slice(0, 100)
     };
 }
 
@@ -695,7 +695,7 @@ async function sendInviteEmail(transporter, { to, firstName, token, content, tes
     });
     const fromAddr = process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com';
     const mail = {
-        from: `"${inviteSender().senderName} | ODUSBABA" <${fromAddr}>`,
+        from: /odusbaba/i.test(inviteSender().senderName) ? `"${inviteSender().senderName}" <${fromAddr}>` : `"${inviteSender().senderName} | ODUSBABA" <${fromAddr}>`,
         to,
         subject: (isTest ? '[TEST] ' : '') + rendered.subject,
         html: rendered.html,
@@ -2386,37 +2386,28 @@ async function findRelevantJobs(supabaseClient, userMessage) {
     if (!intent) return null;
 
     try {
-        let query = supabaseClient
-            .from('jobs')
-            // FIXED (2026-09-18): confirmed via the real, complete
-            // jobs schema that this select had two genuine column-name
-            // mismatches - sponsorship_eligible should be
-            // visa_sponsorship, and source_country should be
-            // country_code. This meant every single call to this
-            // function has likely been silently, completely failing.
-            .select('id, title, company, location, job_type, salary_range, external_apply_url, country_code, visa_sponsorship, verified_employer_source_id')
-            .eq('is_active', true)
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        // Each real signal detected becomes its own genuine filter,
-        // combined with AND - not folded into one substring search.
-        if (intent.wantsSponsorship) {
-            query = query.eq('visa_sponsorship', true);
-        }
-        if (intent.country) {
-            query = query.eq('country_code', intent.country);
-        }
-        if (intent.city) {
-            query = query.ilike('location', `%${intent.city}%`);
-        }
-        const jobTerms = (intent.terms && intent.terms.length ? intent.terms : (intent.keyword ? [intent.keyword] : []))
-            .map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
-        if (jobTerms.length) {
-            query = query.or(jobTerms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
-        }
-
-        const { data: jobs } = await query;
+        // UPDATED (2026-10-25): care-sector searches use the board's care_role tag instead of loose word matching
+        // (which matched "care" or "assistant" anywhere in any description). register_match and care_role come from
+        // create-care-relocation.sql / create-employer-registers.sql; if those have not been run yet, the query is
+        // repeated with the older columns so chat never loses its job results.
+        const baseSelect = 'id, title, company, location, job_type, salary_range, external_apply_url, country_code, visa_sponsorship, verified_employer_source_id';
+        const build = (select, useCare) => {
+            let query = supabaseClient.from('jobs').select(select).eq('is_active', true).order('created_at', { ascending: false }).limit(5);
+            // Each real signal detected becomes its own genuine filter, combined with AND - not folded into one substring search.
+            if (intent.wantsSponsorship) query = query.eq('visa_sponsorship', true);
+            if (intent.country) query = query.eq('country_code', intent.country);
+            if (intent.city) query = query.ilike('location', `%${intent.city}%`);
+            if (useCare && intent.careRole) {
+                query = query.eq('care_role', true);
+            } else {
+                const jobTerms = (intent.terms && intent.terms.length ? intent.terms : (intent.keyword ? [intent.keyword] : []))
+                    .map(t => t.replace(/[%,()]/g, ' ').trim()).filter(Boolean);
+                if (jobTerms.length) query = query.or(jobTerms.flatMap(t => [`title.ilike.%${t}%`, `description.ilike.%${t}%`]).join(','));
+            }
+            return query;
+        };
+        let { data: jobs, error: jobsError } = await build(baseSelect + ', register_match', true);
+        if (jobsError) ({ data: jobs } = await build(baseSelect, false));
         return jobs && jobs.length > 0 ? jobs : null;
     } catch (error) {
         console.warn('Job search within chat failed, continuing without job context:', error);
@@ -8156,7 +8147,7 @@ ${siteContext}`;
                     const sourceLabel = j.verified_employer_source_id
                         ? " [via a government-verified sponsor employer's own careers page]"
                         : (j.source_country && j.source_country !== 'internal' ? ` [via official ${j.source_country} government portal]` : '');
-                    return `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${sourceLabel}${j.visa_sponsorship ? ' [sponsorship available]' : ''}`;
+                    return `- "${j.title}" at ${j.company || 'N/A'}, ${j.location || 'location not specified'}${j.salary_range ? ` (${j.salary_range})` : ''}${sourceLabel}${j.visa_sponsorship ? ((j.verified_employer_source_id || j.register_match) ? ' [advert mentions sponsorship, and the employer name was found on an official list. That does not prove this advert is genuine]' : ' [advert mentions sponsorship, employer NOT checked against any official list]') : ''}`;
                 }).join('\n') : '';
 
                 // FIXED (2026-08-27): live results are explicitly, honestly
@@ -8173,6 +8164,17 @@ ${siteContext}`;
                 messages = [{
                     role: 'system',
                     content: `The user's message may be about job searching.${boardContext ? ` Here are real, current listings from our job board that match what they asked for (already filtered by any sponsorship or country requirement they mentioned):\n\n${boardContext}` : ''}${liveContext ? `\n\nHere are additional LIVE results fetched just now from external job sources, which have NOT been reviewed by our team - present these honestly as live, unreviewed results, not with the same confidence as job board listings:\n\n${liveContext}` : ''}${(!boardContext && !liveContext) ? `\n\nA search was run for this request and found NO matching listings.` : ''}${liveNotes.length ? `\n\nNotes about the live search (pass these on honestly): ${liveNotes.join(' ')}` : ''}${(jobIntent && (jobIntent.country === 'AU' || jobIntent.country === 'NZ')) ? `\n\nFor Australia and New Zealand you may also suggest the user searches SEEK${jobIntent.country === 'NZ' ? ' and Trade Me Jobs' : ''} directly, and remind them to check visa or work-right requirements.` : ''}\n\nIf genuinely relevant, recommend specific ones by name. The platform shows every result as a card under your reply with an Apply button, so tell the user to use the buttons and never write out URLs. Keep your own text short and do not repeat the full details of live results. Never invent or describe job listings that aren't in one of these lists — if none are a good match, say so honestly and suggest they browse the full job board instead. After discussing jobs, naturally mention ONE relevant HR Tool from this platform that could help them right now (available tools: ${toolSuggestions}) — pick whichever genuinely fits their situation, don't list all of them.`
+                }, ...messages];
+            }
+
+            // NEW (2026-10-25): care-sector safety note. When someone is looking for care work, the assistant is told
+            // to be honest about sponsorship, point to the Care Relocation page and the care jobs filter, and never
+            // give personal immigration advice.
+            if (jobIntent && jobIntent.careRole) {
+                const cc = jobIntent.country ? `&country=${jobIntent.country}` : '';
+                messages = [{
+                    role: 'system',
+                    content: `The user is looking for care-sector work. Rules for this reply: (1) You are not an immigration adviser. Give general information only, and say that a regulated adviser or lawyer must advise on their own case. (2) Never say a job "offers sponsorship" as a fact unless the listing context says the employer name was found on an official list. Adverts that merely mention sponsorship are unchecked, and even a listed employer does not prove an advert is genuine. (3) Remind them once, briefly: never pay anyone for a job, sponsorship or a visa; check the employer on the official list for that country; use official government websites only. (4) Point them to the Care Relocation page at /care-relocation and the care jobs filter at /jobs?care=1${cc}. (5) Do not state visa thresholds, pay minimums, age limits or occupation lists as facts; say they change and link the official pages on the Care Relocation page.`
                 }, ...messages];
             }
 

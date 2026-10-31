@@ -7,6 +7,7 @@
 // To update: edit LAST_CHECKED, COUNTRIES and SCAM_RULES only. No other code changes.
 
 import { useState } from 'react';
+import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { ExternalLink, AlertTriangle, CheckCircle, HelpCircle, ShieldAlert, Briefcase, Download, Printer } from 'lucide-react';
 
@@ -143,6 +144,43 @@ function buildSheet(f) {
     return L.join('\n');
 }
 
+// NEW (2026-10-25): look an employer up on the official lists loaded by the site admin (Canada and New Zealand).
+function EmployerCheck({ country }) {
+    const [name, setName] = useState('');
+    const [res, setRes] = useState(null);
+    const [info, setInfo] = useState([]);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const supported = country === 'CA' || country === 'NZ';
+    const run = async (e) => {
+        e.preventDefault(); setBusy(true); setErr(''); setRes(null);
+        try {
+            const a = await supabase.rpc('check_employer_register', { p_name: name, p_country: country });
+            const b = await supabase.rpc('register_status', { p_country: country });
+            if (a.error || b.error) throw new Error('The check is not available right now.');
+            setRes(a.data || []); setInfo(b.data || []);
+        } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    };
+    if (!supported) return <p className="text-xs text-slate-500 mt-3">No public employer list is loaded for this country. Use the official links above to check an employer.</p>;
+    const loaded = info.find(i => i.loaded_on);
+    return (
+        <div className="mt-4 border-t border-slate-800 pt-4">
+            <h3 className="text-white font-medium text-sm">Check an employer</h3>
+            <form onSubmit={run} className="mt-2 flex gap-2">
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Employer name" aria-label="Employer name" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+                <button disabled={busy || name.trim().length < 3} className="px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 text-white rounded-lg text-sm">Check</button>
+            </form>
+            {err && <p className="text-xs text-red-300 mt-2">{err}</p>}
+            {res && (res.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-sm text-slate-200">{res.map((r, i) => <li key={i}>{r.match_kind === 'exact' ? 'Name found' : 'Similar name'}: <b>{r.employer_name}</b>{r.place ? ` (${r.place})` : ''}</li>)}</ul>
+            ) : (
+                <p className="mt-2 text-sm text-amber-200">{loaded ? 'No match on the list we hold.' : 'The official list has not been loaded yet, so we cannot check this.'} That does not mean the employer is fake or genuine. Use the official source.</p>
+            ))}
+            {res && info[0] && <p className="text-xs text-slate-500 mt-2">{info[0].title}{loaded ? `, loaded ${loaded.loaded_on}` : ''}. {info[0].caveat} A name match does not prove an advert or offer is genuine. <a className="text-primary-400" href={info[0].source_url} target="_blank" rel="noopener noreferrer">Official source</a></p>}
+        </div>
+    );
+}
+
 export default function CareRelocationPage() {
     const [tab, setTab] = useState('CA');
     const [f, setF] = useState(blank);
@@ -180,6 +218,7 @@ export default function CareRelocationPage() {
                     <p className="text-white font-medium">{c.headline}</p>
                     <Link to={`/jobs?country=${c.id}&care=1`} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm"><Briefcase className="w-4 h-4" />See care jobs in {c.name}</Link>
                     <p className="text-xs text-slate-500 mt-1">On the job board, "Verified sponsor employer" means we matched the employer to an official register. "Says it sponsors (unchecked)" means only the advert says so.</p>
+                    <EmployerCheck key={c.id} country={c.id} />
 
                     <h3 className="text-slate-300 text-sm font-semibold mt-5 mb-2">What to know</h3>
                     <ul className="space-y-2">{c.facts.map((x, i) => { const st = STATUS[x.s]; return (

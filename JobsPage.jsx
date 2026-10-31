@@ -728,11 +728,16 @@ export default function JobsPage() {
                                             )}
                                             {/* UPDATED (2026-10-25): honest sponsorship labels. A sponsor on our register is
                                                 "checked". An advert that merely says it sponsors is "unchecked". */}
+                                            {job.register_match && (
+                                                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1" title={`Employer name found on: ${job.register_match} (list loaded ${job.register_checked_on}). This does not prove this advert is genuine. Check before you apply.`}>
+                                                    <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Employer on official list
+                                                </span>
+                                            )}
                                             {job.visa_sponsorship && (job.verified_employer_source_id ? (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
                                                     <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Sponsor on register
                                                 </span>
-                                            ) : (
+                                            ) : job.register_match ? null : (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 flex items-center gap-1" title="The advert mentions sponsorship. We have not matched this employer to an official register. Check before you apply.">
                                                     <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Says it sponsors (unchecked)
                                                 </span>
