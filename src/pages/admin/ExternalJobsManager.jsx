@@ -361,20 +361,38 @@ export default function ExternalJobsManager() {
         
         setProcessingId('batch');
         try {
+            // NEW (2026-10-29): stop early if the admin session has expired. An expired session made the database hide
+            // every row, so a batch of 830 "failed" one by one with "Cannot coerce the result to a single JSON object".
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                alert('Your admin session has expired, so nothing was approved. Please sign in again, then select the jobs again.');
+                return;
+            }
             const idsToApprove = Array.from(selectedJobs);
             let approved = 0;
             let failed = 0;
+            let consecutiveSameFailure = 0;
+            let stoppedEarly = false;
             const errors = [];
             
             for (const id of idsToApprove) {
                 try {
                     await approveExternalJob(id);
                     approved++;
+                    consecutiveSameFailure = 0;
                 } catch (err) {
                     failed++;
                     errors.push({ id, error: err.message });
                     console.error('Failed to approve', id, err);
+                    consecutiveSameFailure = (errors.length > 1 && errors[errors.length - 2].error === err.message && approved === 0) ? consecutiveSameFailure + 1 : 1;
+                    // Ten identical failures in a row and nothing approved: something systemic is wrong (session, permissions).
+                    if (approved === 0 && consecutiveSameFailure >= 10) { stoppedEarly = true; break; }
                 }
+            }
+            if (stoppedEarly) {
+                alert(`Stopped after ${failed} identical failures with nothing approved, so the rest were left alone.\n\nReason: ${errors[0].error}\n\nIf this says "Cannot coerce the result to a single JSON object", your sign-in has probably expired. Sign in again and retry.`);
+                setProcessingId(null);
+                return;
             }
             
             // FIXED (2026-08-28): errors[] already had the real, specific

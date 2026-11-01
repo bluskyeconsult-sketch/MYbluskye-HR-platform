@@ -17,7 +17,7 @@ const COURSE_WORDS = /\b(course|courses|learn|learning|training|certificat|upski
 const WORK_WISH = /\b(work(ing)?|move|moving|relocat\w*|emigrat\w*|migrat\w*|settle)\b[^.?!]{0,40}\b(in|to|at|near|around)\b/i;
 
 const OCCUPATIONS = [
-    'nurse', 'nurses', 'nursing assistant', 'carer', 'carers', 'care assistant', 'care worker', 'support worker', 'healthcare assistant', 'hca',
+    'nurse', 'nurses', 'nursing assistant', 'personal support worker', 'psw', 'caregiver', 'aged care', 'aged carer', 'nurse aide', 'personal care assistant', 'carer', 'carers', 'care assistant', 'care worker', 'support worker', 'healthcare assistant', 'hca',
     'midwife', 'doctor', 'physician', 'surgeon', 'pharmacist', 'physiotherapist', 'dentist', 'radiographer', 'paramedic', 'social worker',
     'teacher', 'lecturer', 'tutor', 'engineer', 'developer', 'programmer', 'software', 'devops', 'data scientist', 'data analyst', 'analyst',
     'accountant', 'auditor', 'bookkeeper', 'finance', 'banker', 'actuary', 'lawyer', 'solicitor', 'paralegal',
@@ -27,6 +27,7 @@ const OCCUPATIONS = [
     'manager', 'supervisor', 'administrator', 'admin', 'secretary', 'coordinator', 'officer', 'assistant', 'consultant', 'recruiter', 'hr',
     'designer', 'marketer', 'marketing', 'writer', 'editor', 'architect', 'surveyor', 'scientist', 'researcher', 'security guard', 'farm worker', 'fruit picker', 'agriculture'
 ];
+const CARE_RE = /\b(care\s+assistants?|carers?|care\s+workers?|support\s+workers?|health\s*care\s+assistants?|hca|personal\s+support\s+workers?|psw|care\s*givers?|aged\s+care|aged\s+carers?|nurse\s+aides?|nursing\s+assistants?|personal\s+care\s+assistants?|care\s+home|domiciliary)\b/i;
 const OCC_RE = new RegExp('\\b(' + OCCUPATIONS.map(o => o.replace(/\s+/g, '\\s+')).join('|') + ')\\b', 'i');
 
 // code -> names a user might type (countries, nationalities, major cities).
@@ -132,5 +133,7 @@ export function parseJobSearchIntent(userMessage) {
     // "Can I move to Canada?" alone is an immigration question, not a search.
     if (!hasJobWord && !occInPlace && !keyword) return null;
 
-    return { wantsSponsorship, country: place.country, city: place.city, keyword, terms };
+    // NEW (2026-10-25): care-sector searches use the board's care_role tag and the care safety note in chat.
+    const careRole = CARE_RE.test(msg);
+    return { wantsSponsorship, country: place.country, city: place.city, keyword, terms, careRole };
 }

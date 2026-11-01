@@ -559,6 +559,11 @@ export default function JobDetailPage() {
                     outside job board, which suggested we had checked the employer. It now shows only
                     for employers matched to the verified sponsor register; other collected listings
                     say where they came from. */}
+                {job.register_match && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1" title="The employer's name is on this official list. It does not prove this advert is genuine.">
+                    <ShieldCheck className="w-3 h-3" /> Employer on official list
+                  </span>
+                )}
                 {job.verified_employer_source_id ? (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3" /> Verified sponsor employer
@@ -569,6 +574,9 @@ export default function JobDetailPage() {
                   </span>
                 ) : null}
               </div>
+              {job.register_match && (
+                <p className="text-xs text-slate-400 mb-2">Name found on: {job.register_match} (list loaded {job.register_checked_on}). Scammers copy real company names, so confirm the advert with the employer through its official website before you share documents or pay anything.</p>
+              )}
               <div className="flex items-center gap-2 text-slate-400">
                 <Building className="w-4 h-4" />
                 <span>{job.company}</span>

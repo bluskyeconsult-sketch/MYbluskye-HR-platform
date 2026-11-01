@@ -14,7 +14,7 @@
 // A mismatch between declared and network country is logged (country codes only) but never blocks.
 // No IP address is stored by this module.
 
-export const SERVICE_KEYS = ['appraisal', 'appraisal_ai', 'paid_services', 'ai_services', 'workforce'];
+export const SERVICE_KEYS = ['appraisal', 'appraisal_ai', 'appraisal_analytics', 'paid_services', 'ai_services', 'workforce'];
 
 // Regions that are blocked even though the country (Ukraine) is not: ISO 3166-2 subdivision codes
 // (UA-43 Crimea, UA-14 Donetsk, UA-09 Luhansk). Vercel sends the part after the dash in x-vercel-ip-country-region.

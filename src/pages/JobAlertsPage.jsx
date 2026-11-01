@@ -55,6 +55,7 @@ export default function JobAlertsPage() {
         { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
         { code: 'NG', name: 'Nigeria', flag: '🇳🇬' },
         { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
+        { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
         { code: 'CA', name: 'Canada', flag: '🇨🇦' },
         { code: 'US', name: 'United States', flag: '🇺🇸' },
         { code: 'DE', name: 'Germany', flag: '🇩🇪' },
@@ -208,6 +209,14 @@ export default function JobAlertsPage() {
         }
     }
 
+    // NEW (2026-10-25): one-click starting points for care workers looking abroad. Opens the usual form, filled in.
+    const CARE_KEYWORDS = 'care assistant, carer, care worker, support worker, healthcare assistant, personal support worker, aged care, caregiver, nurse aide';
+    function startCarePreset(code, name) {
+        setEditingAlert(null);
+        setFormData({ name: `Care roles: ${name}`, keywords: CARE_KEYWORDS, location: '', country_code: code, job_type: '', salary_min: '', salary_max: '', frequency: 'daily' });
+        setShowModal(true);
+    }
+
     function resetModal() {
         setShowModal(false);
         setEditingAlert(null);
@@ -297,6 +306,16 @@ export default function JobAlertsPage() {
                     >
                         <Plus className="w-4 h-4" /> Create Alert
                     </button>
+                </div>
+
+                <div className="mb-8 bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <h2 className="text-white text-sm font-semibold">Care roles abroad: quick start</h2>
+                    <p className="text-xs text-slate-400 mt-1">Creates an alert for care jobs in one country. Look for the sponsor label on each job, and read the scam rules on the <a href="/care-relocation" className="text-primary-400 underline">Care Relocation page</a> before you reply to anyone.</p>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                        {[['CA', 'Canada', '🇨🇦'], ['AU', 'Australia', '🇦🇺'], ['NZ', 'New Zealand', '🇳🇿'], ['IE', 'Ireland', '🇮🇪']].map(([c, n, f]) => (
+                            <button key={c} type="button" onClick={() => startCarePreset(c, n)} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm">{f} Care roles: {n}</button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Error Message */}

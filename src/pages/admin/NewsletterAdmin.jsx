@@ -178,7 +178,7 @@ export default function NewsletterAdmin() {
             .from('newsletters')
             .select('*')
             .order('created_at', { ascending: false });
-        setNewsletters(newData || []);
+        setNewsletters(newsData || []);
         setLoading(false);
     }
 

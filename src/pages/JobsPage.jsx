@@ -42,11 +42,13 @@ const COUNTRIES = [
     { code: 'DE', name: 'Germany', flag: '🇩🇪' },
     { code: 'AU', name: 'Australia', flag: '🇦🇺' },
     { code: 'FR', name: 'France', flag: '🇫🇷' },
+    // NEW (2026-10-25): New Zealand was not covered at all; its jobs were hidden inside 'Worldwide & Other'.
+    { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
     // NEW (2026-10-23): remote jobs open worldwide, and jobs in countries without their own card (Netherlands,
     // Spain, Poland ...), were not reachable by any filter. This option shows all of them.
     { code: 'OTHER', name: 'Worldwide & Other', flag: '🌍' }
 ];
-const CARD_COUNTRY_CODES = ['GB', 'US', 'NG', 'CA', 'AU', 'DE', 'FR', 'IE'];
+const CARD_COUNTRY_CODES = ['GB', 'US', 'NG', 'CA', 'AU', 'DE', 'FR', 'IE', 'NZ'];
 
 // Job type options
 const JOB_TYPES = [
@@ -107,6 +109,8 @@ export default function JobsPage() {
     const [showFilters, setShowFilters] = useState(false);
     const [salaryRange, setSalaryRange] = useState({ min: '', max: '' });
     const [showVisaOnly, setShowVisaOnly] = useState(false);
+    // NEW (2026-10-25): care roles filter. Opened from the Care Relocation page with ?care=1.
+    const [careOnly, setCareOnly] = useState(() => searchParams.get('care') === '1');
     const [lastFetchTime, setLastFetchTime] = useState(null);
 
     // ============================================
@@ -199,6 +203,11 @@ export default function JobsPage() {
                     : query.eq('country_code', selectedCountry);
             }
             
+            // Care roles only (needs the care_role column from create-care-relocation.sql)
+            if (careOnly) {
+                query = query.eq('care_role', true);
+            }
+
             // Apply job type filter
             if (selectedJobType && selectedJobType !== 'all') {
                 query = query.eq('job_type', selectedJobType);
@@ -245,7 +254,7 @@ export default function JobsPage() {
         } finally {
             setLoading(false);
         }
-    }, [searchQuery, selectedCountry, selectedJobType]);
+    }, [searchQuery, selectedCountry, selectedJobType, careOnly]);
 
     // NEW (2026-08-16): logs meaningful searches as activity signals,
     // feeding the "Latest Trend Corner", opportunity-gap analysis, and
@@ -314,6 +323,11 @@ export default function JobsPage() {
             filtered = filtered.filter(job => (job.salary_max || 999999) <= parseInt(salaryRange.max));
         }
         
+        // Care roles filter
+        if (careOnly) {
+            filtered = filtered.filter(job => job.care_role === true);
+        }
+
         // Visa sponsorship filter
         if (showVisaOnly) {
             filtered = filtered.filter(job => job.visa_sponsorship === true);
@@ -347,6 +361,7 @@ export default function JobsPage() {
         setSortBy('newest');
         setSalaryRange({ min: '', max: '' });
         setShowVisaOnly(false);
+        setCareOnly(false);
     }
 
     // ============================================
@@ -425,7 +440,7 @@ export default function JobsPage() {
         }
     }
 
-    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max || showVisaOnly;
+    const hasActiveFilters = selectedCountry !== 'all' || selectedJobType !== 'all' || searchQuery !== '' || salaryRange.min || salaryRange.max || showVisaOnly || careOnly;
     const totalJobs = filteredJobs.length;
 
     // Load data on mount and when filters change
@@ -444,11 +459,11 @@ export default function JobsPage() {
 
     useEffect(() => {
         filterAndSortJobs();
-    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
+    }, [jobs, searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly, careOnly]);
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly]);
+    }, [searchQuery, selectedCountry, selectedJobType, sortBy, salaryRange, showVisaOnly, careOnly]);
 
     // ============================================
     // LOADING STATE
@@ -476,7 +491,7 @@ export default function JobsPage() {
                         the job list is visible sooner. The banners now sit
                         BELOW the search bar. */}
                     <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-1 text-center">
-                        Verified Job Marketplace
+                        Job Marketplace with Sponsor Checks
                     </h1>
                     <p className="text-xs sm:text-sm text-slate-300 text-center max-w-2xl mx-auto">
                         Real listings from official government portals, verified employer pages and trusted job boards
@@ -516,10 +531,10 @@ export default function JobsPage() {
                     {/* PageEdgeBanner is position:fixed (floats at the side, takes no
                         space in the layout), so it is rendered as-is. */}
                     <PageEdgeBanner>
-                        Jobs tagged "Visa Sponsorship" or "Verified" come from official government portals or
-                        career pages of employers cross-referenced against real sponsor license registers — not
-                        generic scraped listings. Ask the AI chat things like "sponsorship jobs in UK for HR" for
-                        live results pulled directly from these sources.
+                        "Verified sponsor employer" means we matched the employer to an official sponsor register.
+                        "Says it sponsors (unchecked)" means only the advert mentions sponsorship, so check the employer
+                        yourself before you apply. A genuine employer never asks you to pay for a job or a visa.
+                        Ask the AI chat things like "sponsorship jobs in UK for HR" for live results.
                     </PageEdgeBanner>
                 </div>
             </div>
@@ -608,6 +623,13 @@ export default function JobsPage() {
                                 <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                 Visa Sponsorship Only
                             </button>
+                            <button
+                                onClick={() => setCareOnly(!careOnly)}
+                                className={`ml-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition text-xs sm:text-sm ${careOnly ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                            >
+                                Care roles only
+                            </button>
+                            <Link to="/care-relocation" className="ml-3 text-xs sm:text-sm text-primary-400 hover:underline">Moving abroad as a care worker? Read the guide</Link>
                         </div>
                         
                         {hasActiveFilters && (
@@ -679,7 +701,7 @@ export default function JobsPage() {
                         <Briefcase className="w-12 h-12 sm:w-16 sm:h-16 text-slate-600 mx-auto mb-4" />
                         <h3 className="text-lg sm:text-xl font-semibold text-white mb-2">No jobs found</h3>
                         <p className="text-slate-400 text-sm">
-                            {searchQuery || selectedCountry !== 'all' || selectedJobType !== 'all' || salaryRange.min || salaryRange.max || showVisaOnly
+                            {searchQuery || selectedCountry !== 'all' || selectedJobType !== 'all' || salaryRange.min || salaryRange.max || showVisaOnly || careOnly
                                 ? 'Try adjusting your search filters'
                                 : 'Check back soon for new opportunities'}
                         </p>
@@ -699,16 +721,36 @@ export default function JobsPage() {
                                             <span className="text-xl sm:text-2xl">{getCountryFlag(job.country_code)}</span>
                                             <h3 className="text-base sm:text-lg font-semibold text-white">{job.title}</h3>
                                             {getJobTypeBadge(job.job_type)}
-                                            {job.visa_sponsorship && (
+                                            {job.care_role && (
+                                                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 flex items-center gap-1">
+                                                    Care role
+                                                </span>
+                                            )}
+                                            {/* UPDATED (2026-10-25): honest sponsorship labels. A sponsor on our register is
+                                                "checked". An advert that merely says it sponsors is "unchecked". */}
+                                            {job.register_match && (
+                                                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1" title={`Employer name found on: ${job.register_match} (list loaded ${job.register_checked_on}). This does not prove this advert is genuine. Check before you apply.`}>
+                                                    <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Employer on official list
+                                                </span>
+                                            )}
+                                            {job.visa_sponsorship && (job.verified_employer_source_id ? (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
-                                                    <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Visa Sponsorship
+                                                    <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Sponsor on register
                                                 </span>
-                                            )}
-                                            {job.source_type === 'authoritative' && (
+                                            ) : job.register_match ? null : (
+                                                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 flex items-center gap-1" title="The advert mentions sponsorship. We have not matched this employer to an official register. Check before you apply.">
+                                                    <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Says it sponsors (unchecked)
+                                                </span>
+                                            ))}
+                                            {job.verified_employer_source_id ? (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 flex items-center gap-1">
-                                                    <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Verified
+                                                    <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Verified sponsor employer
                                                 </span>
-                                            )}
+                                            ) : (job.source_type === 'authoritative' && job.source_name) ? (
+                                                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 flex items-center gap-1">
+                                                    Listed from {job.source_name}
+                                                </span>
+                                            ) : null}
                                             {job.source_type === 'external' && (
                                                 <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
                                                     <Zap className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Live

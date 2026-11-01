@@ -1,24 +1,24 @@
 // src/pages/NewsletterPage.jsx
 // ODUSBABA NEWSLETTER PAGE v3.0 - PRODUCTION READY
-// âś… Professional newsletter subscription with preferences
-// âś… Stats display, benefits showcase, testimonial
-// âś… Enhanced UI with preference toggles
-// âś… Complete error handling and success states
+// ✅ Professional newsletter subscription with preferences
+// ✅ Stats display, benefits showcase, testimonial
+// ✅ Enhanced UI with preference toggles
+// ✅ Complete error handling and success states
 //
 // FIXED (2026-08-23):
 // 1. Initial stats state hardcoded specific fake numbers (5284
-//    subscribers, 68% open rate, 156 weekly issues) â€” shown briefly on
+//    subscribers, 68% open rate, 156 weekly issues) — shown briefly on
 //    every load before the real fetch resolves. The real, already-fixed
 //    backend (newsletter-stats) correctly returns a genuine subscriber
 //    count but honestly returns null for openRate/weeklyIssues, since
-//    no real tracking for either exists â€” but this page was never
+//    no real tracking for either exists — but this page was never
 //    updated to handle that, so after the real (honest) data arrived,
 //    it would literally render "null+ Weekly Issues Sent" and "null%
 //    Average Open Rate" on screen. Now starts at null/loading and hides
 //    the two untracked stat cards entirely rather than fabricate or
 //    show broken values.
 // 2. Removed a specific named testimonial ("Sarah Johnson, HR Manager...
-//    Subscriber since 2024") â€” unverifiable, specific-sounding
+//    Subscriber since 2024") — unverifiable, specific-sounding
 //    attributed content, the same category of fabricated social proof
 //    already found and removed elsewhere this session (AboutPage.jsx's
 //    own header documents the same standard being applied there).
@@ -119,7 +119,7 @@ export default function NewsletterPage() {
         setError('');
         
         try {
-            // âś… Using unified API endpoint
+            // ✅ Using unified API endpoint
             const captchaToken = await newsletterCaptcha.current?.getToken();
             newsletterCaptcha.current?.reset();
             const response = await fetch(`${API_BASE}?action=newsletter-subscribe`, {
@@ -206,7 +206,7 @@ export default function NewsletterPage() {
                 {/* Stats Cards */}
                 {/* FIXED (2026-08-23): weeklyIssues/openRate are honestly
                     null from the real backend (nothing tracks either yet)
-                    â€” only render a stat card when there's a real number
+                    — only render a stat card when there's a real number
                     to show, rather than display "null". */}
                 <div className={`grid grid-cols-1 ${stats.subscribers !== null ? 'sm:grid-cols-1 max-w-xs mx-auto' : ''} gap-4 mb-12`}>
                     {stats.subscribers !== null && (
@@ -355,7 +355,7 @@ export default function NewsletterPage() {
 
                 {/* FIXED (2026-08-23): removed a specific named testimonial
                     ("Sarah Johnson, HR Manager... Subscriber since 2024")
-                    â€” unverifiable, specific-sounding attributed content,
+                    — unverifiable, specific-sounding attributed content,
                     the same category already found and removed elsewhere
                     this session. Replaced with an honest value statement
                     instead of an invented quote. */}
@@ -363,7 +363,7 @@ export default function NewsletterPage() {
                     <div className="flex flex-col items-center text-center">
                         <Mail className="w-8 h-8 text-primary-400 mb-3" />
                         <p className="text-slate-300 max-w-lg">
-                            Real career insights, real job opportunities, delivered weekly â€” no spam, unsubscribe anytime.
+                            Real career insights, real job opportunities, delivered weekly — no spam, unsubscribe anytime.
                         </p>
                     </div>
                 </div>
