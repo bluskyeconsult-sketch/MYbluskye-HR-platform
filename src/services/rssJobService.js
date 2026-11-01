@@ -2413,7 +2413,9 @@ export async function approveExternalJob(jobId) {
     // can no longer wipe out the visa_sponsorship flag, and the cause shows in the server logs.
     try {
         const sponsorFlag = detectSponsorshipEligibility(externalJob.title, externalJob.description);
-        const { error: flagErr } = await supabase.from('jobs').update({ visa_sponsorship: sponsorFlag }).eq('id', newJob.id);
+        // detectSponsorshipEligibility returns an object ({ eligible, keyword, type }); the jobs.visa_sponsorship column is a true/false
+        // value, so sending the whole object made the database reject the update (a 400 on every approved job). Send only the boolean.
+        const { error: flagErr } = await supabase.from('jobs').update({ visa_sponsorship: sponsorFlag.eligible === true }).eq('id', newJob.id);
         if (flagErr) console.warn('jobs.visa_sponsorship update failed (non-blocking):', flagErr.message);
         if (externalJob.verified_employer_source_id != null && externalJob.verified_employer_source_id !== '') {
             const { error: linkErr } = await supabase.from('jobs').update({ verified_employer_source_id: externalJob.verified_employer_source_id }).eq('id', newJob.id);
