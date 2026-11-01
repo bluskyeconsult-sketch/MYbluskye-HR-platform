@@ -1944,7 +1944,9 @@ async function saveJobToDatabase(job, sponsorship) {
             .from('external_jobs')
             .insert({
                 title: (job.title || '').substring(0, 500),
-                company: (job.company || job.source_name || '').substring(0, 500),
+                // The job board's own name is no longer saved as if it were the employer (it made 'Himalayas' or 'Jobicy' look like a company,
+                // and it cannot match an official employer list).
+                company: (job.company || 'Employer not stated').substring(0, 500),
                 location: (job.location || job.source_country || '').substring(0, 500),
                 description: job.description,
                 salary_range: (job.salary_range || '').substring(0, 500),
@@ -2382,7 +2384,7 @@ export async function approveExternalJob(jobId) {
         .from('jobs')
         .insert({
             title: externalJob.title || 'Untitled Position',
-            company: externalJob.company || externalJob.source_name || 'Unknown Company',
+            company: externalJob.company || 'Employer not stated',
             location: externalJob.location || externalJob.source || 'Not specified',
             description: externalJob.description || 'No description was provided for this listing. View the original posting for full details.',
             salary_range: externalJob.salary_range,
