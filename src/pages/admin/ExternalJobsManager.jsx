@@ -375,7 +375,14 @@ export default function ExternalJobsManager() {
             let stoppedEarly = false;
             const errors = [];
             
+            let processed = 0;
             for (const id of idsToApprove) {
+                // Refresh the admin sign-in every 100 jobs so a long batch cannot outlast the session.
+                if (processed > 0 && processed % 100 === 0) {
+                    const { error: refreshError } = await supabase.auth.refreshSession();
+                    if (refreshError) { stoppedEarly = true; errors.unshift({ id: 'session', error: 'Your sign-in expired part-way through (' + refreshError.message + ')' }); break; }
+                }
+                processed++;
                 try {
                     await approveExternalJob(id);
                     approved++;
@@ -384,13 +391,13 @@ export default function ExternalJobsManager() {
                     failed++;
                     errors.push({ id, error: err.message });
                     console.error('Failed to approve', id, err);
-                    consecutiveSameFailure = (errors.length > 1 && errors[errors.length - 2].error === err.message && approved === 0) ? consecutiveSameFailure + 1 : 1;
-                    // Ten identical failures in a row and nothing approved: something systemic is wrong (session, permissions).
-                    if (approved === 0 && consecutiveSameFailure >= 10) { stoppedEarly = true; break; }
+                    consecutiveSameFailure = (errors.length > 1 && errors[errors.length - 2].error === err.message) ? consecutiveSameFailure + 1 : 1;
+                    // Ten identical failures in a row: something systemic is wrong (session expired part-way, permissions). Stop at once.
+                    if (consecutiveSameFailure >= 10) { stoppedEarly = true; break; }
                 }
             }
             if (stoppedEarly) {
-                alert(`Stopped after ${failed} identical failures with nothing approved, so the rest were left alone.\n\nReason: ${errors[0].error}\n\nIf this says "Cannot coerce the result to a single JSON object", your sign-in has probably expired. Sign in again and retry.`);
+                alert(`Stopped early: ${approved} approved, ${failed} failed, and the rest were left alone.\n\nReason: ${errors[errors.length - 1].error}\n\nIf this says "Cannot coerce the result to a single JSON object" or "permission denied", your sign-in has probably expired. Sign in again, then select the remaining jobs and retry.`);
                 setProcessingId(null);
                 return;
             }
