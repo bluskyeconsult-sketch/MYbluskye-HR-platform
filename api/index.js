@@ -14566,21 +14566,38 @@ Use this light markup where it genuinely helps: one or two callouts written as a
                 .select('id, company_name, contact_email')
                 .eq('invitation_status', 'not_invited')
                 .not('contact_email', 'is', null)
-                .limit(batchSize);
+                .limit(Math.min(Math.max(parseInt(batchSize, 10) || 50, 1), 100));
             if (fetchError) throw fetchError;
 
-            let sent = 0;
+            // UPDATED (2026-11-01): never email an address that has unsubscribed or is on the do-not-contact list, and put a
+            // working one-click unsubscribe link in every message (it adds the address to email_suppression). Before, these
+            // emails had no unsubscribe link and ignored both lists. A failed send is no longer recorded as "invited".
+            const addresses = (candidates || []).map(c => String(c.contact_email || '').trim().toLowerCase()).filter(Boolean);
+            const blocked = new Set();
+            for (const table of ['email_suppression', 'contact_suppression']) {
+                try { for (const e of await inviteLookupEmails(supabaseClient, table, addresses)) blocked.add(e); }
+                catch (e) { if (table === 'email_suppression') throw e; /* contact_suppression is optional until its SQL is run */ }
+            }
+
+            let sent = 0, skippedBlocked = 0, failedSends = 0;
             for (const employer of candidates || []) {
                 try {
-                    await fetch(`https://www.bluskyeconsult.com/api/index?action=email`, {
+                    const to = String(employer.contact_email || '').trim().toLowerCase();
+                    if (!to || blocked.has(to)) {
+                        skippedBlocked++;
+                        await supabaseClient.from('verified_employer_sources').update({ invitation_status: 'do_not_contact' }).eq('id', employer.id);
+                        continue;
+                    }
+                    const mailRes = await fetch(`https://www.bluskyeconsult.com/api/index?action=email`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                         body: JSON.stringify({
-                            to: employer.contact_email,
+                            to,
                             type: 'employer_invitation',
-                            templateData: { companyName: employer.company_name }
+                            templateData: { companyName: employer.company_name, unsubscribeUrl: newsletterUnsubUrl(to) }
                         })
-                    }).catch(() => {}); // one failed email shouldn't stop the batch
+                    }).catch(() => null);
+                    if (!mailRes || !mailRes.ok) { failedSends++; continue; } // leave as not_invited so it can be retried
 
                     await supabaseClient
                         .from('verified_employer_sources')
@@ -14598,7 +14615,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
                 .eq('invitation_status', 'not_invited')
                 .not('contact_email', 'is', null);
 
-            return res.status(200).json({ success: true, sent, remaining: remaining || 0 });
+            return res.status(200).json({ success: true, sent, skippedBlocked, failedSends, remaining: remaining || 0 });
         } catch (error) {
             console.error('admin-invite-verified-employers error:', error);
             return res.status(200).json({ success: false, error: error.message });

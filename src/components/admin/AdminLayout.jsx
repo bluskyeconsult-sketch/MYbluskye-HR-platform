@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
+import { FreshnessReminder } from '../../pages/admin/AdminDataFreshness';
 
 // Single source of truth for the admin nav — every real /admin/* route
 // confirmed in the project brief, in one place. Adding a new admin page
@@ -53,6 +54,8 @@ const ADMIN_NAV = [
         { path: '/admin/compliance-rules', label: 'Compliance Rules', icon: ShieldCheck },
         { path: '/admin/geo-pricing', label: 'Regional Pricing', icon: Globe },
         { path: '/admin/employer-registers', label: 'Employer Lists', icon: Globe },
+        { path: '/admin/data-freshness', label: 'Keep Up To Date', icon: Bell },
+        { path: '/admin/lmia-explorer', label: 'LMIA Explorer', icon: Database },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
         { path: '/admin/articles', label: 'Articles', icon: FileText },
@@ -182,6 +185,7 @@ export default function AdminLayout({ children }) {
                     <p className="text-slate-500 text-sm">Admin / <span className="text-slate-300">{currentLabel}</span></p>
                 </div>
                 {children}
+                <FreshnessReminder />
             </main>
         </div>
     );

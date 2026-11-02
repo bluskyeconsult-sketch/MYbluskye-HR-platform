@@ -559,7 +559,7 @@ export default function JobDetailPage() {
                     outside job board, which suggested we had checked the employer. It now shows only
                     for employers matched to the verified sponsor register; other collected listings
                     say where they came from. */}
-                {job.register_match && (
+                {job.register_match && !job.verified_employer_source_id && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1" title="The employer's name is on this official list. It does not prove this advert is genuine.">
                     <ShieldCheck className="w-3 h-3" /> Employer on official list
                   </span>

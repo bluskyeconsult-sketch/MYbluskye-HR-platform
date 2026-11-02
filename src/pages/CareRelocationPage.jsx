@@ -151,7 +151,7 @@ function EmployerCheck({ country }) {
     const [info, setInfo] = useState([]);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
-    const supported = country === 'CA' || country === 'NZ';
+    const supported = country === 'CA' || country === 'NZ' || country === 'GB';
     const run = async (e) => {
         e.preventDefault(); setBusy(true); setErr(''); setRes(null);
         try {
@@ -234,6 +234,7 @@ export default function CareRelocationPage() {
 
                 <section className="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <h2 className="text-white font-semibold">{UK_NOW.title}</h2>
+                    <EmployerCheck country="GB" />
                     <ul className="space-y-2 mt-3">{UK_NOW.facts.map((x, i) => { const st = STATUS[x.s]; return (
                         <li key={i} className="flex gap-3 items-start text-sm text-slate-300"><span className={`shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${st.cls}`}><st.Icon className="w-3 h-3" /> {st.label}</span><span>{x.t}</span></li>); })}</ul>
                     <ul className="space-y-1 mt-3">{UK_NOW.links.map(([label, url]) => <li key={url}>{url.startsWith('/') ? L(url) : <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300 text-sm inline-flex items-center gap-1.5">{label} <ExternalLink className="w-3.5 h-3.5" /></a>}</li>)}</ul>
