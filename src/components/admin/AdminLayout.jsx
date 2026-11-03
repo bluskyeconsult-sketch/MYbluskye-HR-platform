@@ -56,6 +56,7 @@ const ADMIN_NAV = [
         { path: '/admin/employer-registers', label: 'Employer Lists', icon: Globe },
         { path: '/admin/data-freshness', label: 'Keep Up To Date', icon: Bell },
         { path: '/admin/lmia-explorer', label: 'LMIA Explorer', icon: Database },
+        { path: '/admin/find-websites', label: 'Find Employer Websites', icon: Globe },
         { path: '/admin/courses', label: 'Courses', icon: BookOpen },
         { path: '/admin/ai-course-builder', label: 'AI Course Builder', icon: Sparkles },
         { path: '/admin/articles', label: 'Articles', icon: FileText },

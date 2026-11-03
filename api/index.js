@@ -21,6 +21,7 @@ import { searchLiveExternalJobs, checkLiveSearchRateLimit, logLiveSearch, checkJ
 import { parseJobSearchIntent } from '../src/services/jobIntent.js';
 import { scrapeAllVerifiedEmployers, isSafeExternalUrl } from '../src/services/employerWebsiteScraperService.js';
 import { findContactEmails } from '../src/services/contactEmailFinder.js';
+import { suggestWebsite } from './_lib/websiteFinder.js';
 import { COACH_CONSENT_VERSION, rankJobs, cleanText, buildGapMessages, buildPackMessages, parseJsonSafe, auditPack, findEligibilityClaims, stripEligibilityClaims } from '../src/services/careerCoachService.js';
 // NEW (2026-08-29): confirmed severe, real bug - ExternalJobsManager.jsx
 // was importing fetchExternalJobs()/testRSSConnection() directly and
@@ -15221,6 +15222,89 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             console.error('career-coach-application-update error:', error);
             return res.status(500).json({ success: false, error: 'Could not update.' });
         }
+    },
+
+    // ========== WEBSITE FINDER (2026-11-02) ==========
+    // Suggests a website for sponsor-register employers that have none. Uses Brave Search (free plan, 2,000 a month);
+    // a monthly counter stops at 1,800. Suggestions only: an admin approves each one.
+    'admin-suggest-websites': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        if (!checkRateLimit(`admin-suggest-websites:${auth.userId}`, 6)) return res.status(429).json({ error: 'Too many runs - wait a minute.' });
+        const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+        if (!apiKey) return res.status(400).json({ success: false, error: 'BRAVE_SEARCH_API_KEY is not set in Vercel yet.' });
+        const { sector, town } = req.body || {};
+        const limit = Math.min(Math.max(parseInt((req.body || {}).limit, 10) || 15, 1), 20);
+        const month = new Date().toISOString().slice(0, 7);
+        const CAP = 1800;
+        const { data: u } = await supabaseClient.from('search_usage').select('used').eq('month', month).maybeSingle();
+        let used = u?.used || 0;
+        if (used >= CAP) return res.status(200).json({ success: true, processed: 0, usedThisMonth: used, message: 'Monthly search allowance used up. It resets next month.' });
+        let q = supabaseClient.from('verified_employer_sources').select('id, company_name, town').is('website_url', null).is('website_status', null).order('id').limit(Math.min(limit, CAP - used));
+        if (sector) q = q.eq('sector', sector);
+        if (town) q = q.eq('town', town);
+        const { data: rows, error } = await q;
+        if (error) return res.status(500).json({ success: false, error: error.message });
+        let found = 0, none = 0, stopped = null;
+        for (const r of rows || []) {
+            try {
+                const best = await suggestWebsite(r.company_name, r.town, apiKey);
+                used++;
+                const safe = best && isSafeExternalUrl(best.url).safe ? best : null;
+                if (safe && safe.confidence !== 'weak') {
+                    await supabaseClient.from('verified_employer_sources').update({ website_candidate: safe.url, website_confidence: safe.confidence, website_status: 'suggested', website_checked_at: new Date().toISOString() }).eq('id', r.id);
+                    found++;
+                } else {
+                    await supabaseClient.from('verified_employer_sources').update({ website_status: 'none', website_checked_at: new Date().toISOString() }).eq('id', r.id);
+                    none++;
+                }
+            } catch (e) { stopped = e.message; break; }
+            await new Promise(ok => setTimeout(ok, 1100));
+        }
+        await supabaseClient.from('search_usage').upsert({ month, used }, { onConflict: 'month' });
+        let rem = supabaseClient.from('verified_employer_sources').select('id', { count: 'exact', head: true }).is('website_url', null).is('website_status', null);
+        if (sector) rem = rem.eq('sector', sector);
+        if (town) rem = rem.eq('town', town);
+        const { count: remaining } = await rem;
+        return res.status(200).json({ success: true, processed: found + none, found, none, remaining: remaining || 0, usedThisMonth: used, stopped });
+    },
+
+    'admin-list-website-suggestions': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { sector, town } = req.body || {};
+        let q = supabaseClient.from('verified_employer_sources').select('id, company_name, town, sector, website_candidate, website_confidence').eq('website_status', 'suggested').order('website_confidence').order('company_name').limit(200);
+        if (sector) q = q.eq('sector', sector);
+        if (town) q = q.eq('town', town);
+        const { data, error } = await q;
+        if (error) return res.status(500).json({ success: false, error: error.message });
+        const { data: all } = await supabaseClient.from('verified_employer_sources').select('sector, town').not('sector', 'is', null).limit(20000);
+        const sectors = [...new Set((all || []).map(x => x.sector))].sort(), towns = [...new Set((all || []).map(x => x.town).filter(Boolean))].sort();
+        const month = new Date().toISOString().slice(0, 7);
+        const { data: u } = await supabaseClient.from('search_usage').select('used').eq('month', month).maybeSingle();
+        return res.status(200).json({ success: true, rows: data || [], sectors, towns, usedThisMonth: u?.used || 0 });
+    },
+
+    'admin-review-website': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requirePermission(req, supabaseClient, 'can_manage_jobs');
+        if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
+        const { sourceId, decision, url } = req.body || {};
+        if (!sourceId || !['approve', 'reject'].includes(decision)) return res.status(400).json({ success: false, error: 'sourceId and a decision are required.' });
+        if (decision === 'reject') {
+            const { error } = await supabaseClient.from('verified_employer_sources').update({ website_status: 'rejected', website_candidate: null }).eq('id', sourceId);
+            return error ? res.status(500).json({ success: false, error: error.message }) : res.status(200).json({ success: true });
+        }
+        let site = String(url || '').trim();
+        if (!site) { const { data: s } = await supabaseClient.from('verified_employer_sources').select('website_candidate').eq('id', sourceId).maybeSingle(); site = s?.website_candidate || ''; }
+        if (!/^https?:\/\//i.test(site)) site = 'https://' + site;
+        const check = isSafeExternalUrl(site);
+        if (!site || !check.safe) return res.status(400).json({ success: false, error: 'That address is not usable: ' + (check.reason || 'empty') });
+        const { error } = await supabaseClient.from('verified_employer_sources').update({ website_url: site, website_status: 'approved' }).eq('id', sourceId);
+        if (error) return res.status(error.code === '23505' ? 409 : 500).json({ success: false, error: error.code === '23505' ? 'Another employer already uses this website.' : error.message });
+        return res.status(200).json({ success: true });
     },
 
     'admin-find-contact-emails': async (req, res) => {
