@@ -186,7 +186,9 @@ export default function EmployerSourcesManager() {
                 websiteUrl: cols[1] || '',
                 careersPageUrl: cols[2] || undefined,
                 sponsorLicenseType: cols[3] || undefined,
-                countryCode: cols[4] || 'GB'
+                countryCode: cols[4] || 'GB',
+                sector: cols[5] || undefined,
+                town: cols[6] || undefined
             };
         // FIXED (2026-09-13): confirmed real, exact cause of "0 valid
         // rows detected" - this required BOTH companyName AND

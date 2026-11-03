@@ -14246,6 +14246,8 @@ Use this light markup where it genuinely helps: one or two callouts written as a
                         is_verified_sponsor: true, // bulk import is specifically for the sponsor register use case
                         sponsor_license_type: c.sponsorLicenseType || null,
                         country_code: c.countryCode || 'GB',
+                        ...(c.sector ? { sector: String(c.sector).slice(0, 60) } : {}),
+                        ...(c.town ? { town: String(c.town).slice(0, 80) } : {}),
                         added_by: auth.userId
                     });
                 if (error) {
