@@ -15237,7 +15237,8 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         const { sector, town } = req.body || {};
         const limit = Math.min(Math.max(parseInt((req.body || {}).limit, 10) || 15, 1), 20);
         const month = new Date().toISOString().slice(0, 7);
-        const CAP = 1800;
+        // Kept well under Brave's monthly credit (about 1,000 searches) so nothing is ever billed. Lower it with SEARCH_MONTHLY_CAP; it can never go above 900.
+        const CAP = Math.min(parseInt(process.env.SEARCH_MONTHLY_CAP, 10) || 700, 900);
         const { data: u } = await supabaseClient.from('search_usage').select('used').eq('month', month).maybeSingle();
         let used = u?.used || 0;
         if (used >= CAP) return res.status(200).json({ success: true, processed: 0, usedThisMonth: used, message: 'Monthly search allowance used up. It resets next month.' });
@@ -15249,8 +15250,9 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         let found = 0, none = 0, stopped = null;
         for (const r of rows || []) {
             try {
-                const best = await suggestWebsite(r.company_name, r.town, apiKey);
                 used++;
+                await supabaseClient.from('search_usage').upsert({ month, used }, { onConflict: 'month' });
+                const best = await suggestWebsite(r.company_name, r.town, apiKey);
                 const safe = best && isSafeExternalUrl(best.url).safe ? best : null;
                 if (safe && safe.confidence !== 'weak') {
                     await supabaseClient.from('verified_employer_sources').update({ website_candidate: safe.url, website_confidence: safe.confidence, website_status: 'suggested', website_checked_at: new Date().toISOString() }).eq('id', r.id);
@@ -15284,7 +15286,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         const sectors = [...new Set((all || []).map(x => x.sector))].sort(), towns = [...new Set((all || []).map(x => x.town).filter(Boolean))].sort();
         const month = new Date().toISOString().slice(0, 7);
         const { data: u } = await supabaseClient.from('search_usage').select('used').eq('month', month).maybeSingle();
-        return res.status(200).json({ success: true, rows: data || [], sectors, towns, usedThisMonth: u?.used || 0 });
+        return res.status(200).json({ success: true, rows: data || [], sectors, towns, usedThisMonth: u?.used || 0, monthlyCap: Math.min(parseInt(process.env.SEARCH_MONTHLY_CAP, 10) || 700, 900) });
     },
 
     'admin-review-website': async (req, res) => {

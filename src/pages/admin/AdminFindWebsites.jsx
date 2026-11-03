@@ -12,6 +12,7 @@ export default function AdminFindWebsites() {
     const [towns, setTowns] = useState([]);
     const [rows, setRows] = useState([]);
     const [used, setUsed] = useState(0);
+    const [cap, setCap] = useState(700);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
     const [edit, setEdit] = useState({});
@@ -19,7 +20,7 @@ export default function AdminFindWebsites() {
     const load = useCallback(async () => {
         try {
             const r = await authenticatedFetch('admin-list-website-suggestions', { sector: sector || undefined, town: town || undefined });
-            setRows(r.rows || []); setSectors(r.sectors || []); setTowns(r.towns || []); setUsed(r.usedThisMonth || 0);
+            setRows(r.rows || []); setSectors(r.sectors || []); setTowns(r.towns || []); setUsed(r.usedThisMonth || 0); setCap(r.monthlyCap || 700);
         } catch (e) { setMsg(e.message); }
     }, [sector, town]);
     useEffect(() => { load(); }, [load]);
@@ -46,8 +47,8 @@ export default function AdminFindWebsites() {
             <div className="flex flex-wrap gap-2 items-center mb-3">
                 <select value={sector} onChange={e => setSector(e.target.value)} className={sel}><option value="">All sectors</option>{sectors.map(s => <option key={s}>{s}</option>)}</select>
                 <select value={town} onChange={e => setTown(e.target.value)} className={sel}><option value="">All towns</option>{towns.map(s => <option key={s}>{s}</option>)}</select>
-                <button onClick={run} disabled={busy} className="px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 text-white rounded-lg text-sm inline-flex items-center gap-2">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}Find 15 websites</button>
-                <span className="text-xs text-slate-500">Searches used this month: {used} of 1,800 (free allowance)</span>
+                <button onClick={run} disabled={busy || used >= cap} className="px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 text-white rounded-lg text-sm inline-flex items-center gap-2">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}Find 15 websites</button>
+                <span className="text-xs text-slate-500">Searches used this month: {used} of {cap} (safe limit, below the free credit)</span>
             </div>
             {msg && <p className="text-sm text-amber-200 mb-3 flex gap-2"><AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />{msg}</p>}
             {rows.length === 0 ? <p className="text-sm text-slate-500">No suggestions waiting. Click "Find 15 websites".</p> : (
