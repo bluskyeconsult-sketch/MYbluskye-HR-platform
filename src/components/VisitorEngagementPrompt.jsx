@@ -126,6 +126,7 @@ export default function VisitorEngagementPrompt() {
 
     async function handleNewsletterSubmit(e) {
         e.preventDefault();
+        const trapValue = (e.target && e.target.elements && e.target.elements.company_website && e.target.elements.company_website.value) || '';
         if (!email.trim()) return;
         setSubmitting(true);
         try {
@@ -134,7 +135,7 @@ export default function VisitorEngagementPrompt() {
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim(), captchaToken: captchaToken || undefined })
+                body: JSON.stringify({ email: email.trim(), captchaToken: captchaToken || undefined, company_website: trapValue })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Subscription failed');
@@ -186,6 +187,7 @@ export default function VisitorEngagementPrompt() {
 
                     {prompt.action === 'newsletter' ? (
                         <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
+                        <input type="text" name="company_website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
                             <input
                                 type="email"
                                 value={email}

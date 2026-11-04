@@ -255,6 +255,23 @@ function isValidEmail(email) {
     return emailRegex.test(email);
 }
 
+// NEW (2026-11-04): signs of an automated or scraped newsletter sign-up. Only strong signals are used, so a real
+// person is very unlikely to be turned away: a Gmail address with 3 or more dots, a phone-number text-message address,
+// a random-looking name, a name with a run of 5 or more consonants, or a hidden trap field that only a script fills in.
+// A caught sign-up is dropped silently (the sender sees the normal "check your email" reply) and nothing is emailed.
+function looksLikeBotSignup(email, name, trap) {
+    if (trap) return 'trap';
+    const [local = '', domain = ''] = String(email).toLowerCase().split('@');
+    if ((domain === 'gmail.com' || domain === 'googlemail.com') && (local.match(/\./g) || []).length >= 3) return 'gmail-dots';
+    if (/^\+?\d{7,}$/.test(local)) return 'phone-address';
+    const n = String(name || '').trim();
+    if (/^[A-Za-z0-9]{8,16}$/.test(n) && (n.slice(1).match(/[A-Z]/g) || []).length >= 2) return 'random-name';
+    for (const tok of n.split(/\s+/)) {
+        if (/^[A-Za-z]{5,}$/.test(tok) && /[^aeiouy]{5,}/i.test(tok)) return 'odd-name';
+    }
+    return null;
+}
+
 // ============================================
 // UNIFIED CREDIT SYSTEM (NEW — 2026-08-16)
 // Total overhaul: one credit currency across chat, VA tasks, HR Tools, and
@@ -15971,6 +15988,13 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             return res.status(400).json({ error: 'Please use a permanent email address.' });
         }
         name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 100) : null;
+
+        // NEW (2026-11-04): drop automated sign-ups quietly (see looksLikeBotSignup). The sender gets the normal reply.
+        const botSign = looksLikeBotSignup(email, name, (req.body || {}).company_website);
+        if (botSign) {
+            console.warn('newsletter-subscribe: dropped automated sign-up (' + botSign + ')');
+            return res.status(200).json({ success: true, message: 'Please check your email and confirm your subscription.' });
+        }
 
         // NEW (2026-10-13): this public action emails whatever address it is given, so it is limited per
         // visitor (5 an hour), and it never re-subscribes an address that has already unsubscribed.

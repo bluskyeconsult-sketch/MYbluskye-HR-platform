@@ -875,11 +875,16 @@ export default function NewsletterAdmin() {
                                     <XCircle className="w-5 h-5" />
                                 </button>
                             </div>
-                            <div className="bg-white rounded-lg p-6 text-gray-800">
-                                {/* SECURITY (2026-10-23): newsletter HTML is cleaned before display so pasted or imported
-                                    content cannot run script in the admin session. Scripts, forms, embeds, event handlers
-                                    and javascript: links are removed; ordinary formatting, images and links stay. */}
-                                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedNewsletter.content || selectedNewsletter.content_html || '', { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed'], FORBID_ATTR: ['style'] }) }} />
+                            <div className="bg-slate-950 rounded-lg overflow-hidden">
+                                {/* SECURITY: the HTML is cleaned (no scripts, forms or embeds) and shown in a sandboxed frame with scripts
+                                    off, so the admin session is safe. Inline styling is kept so this looks like the email subscribers get. */}
+                                <iframe
+                                    title="Newsletter preview"
+                                    sandbox=""
+                                    className="w-full border-0 bg-slate-950"
+                                    style={{ height: '70vh' }}
+                                    srcDoc={'<base target="_blank"><body style="margin:0;padding:16px;font-family:Arial,sans-serif;background:#020617"><div style="max-width:600px;margin:0 auto;background:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden"><div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center"><h1 style="color:#10b981;margin:0">ODUSBABA Newsletter</h1></div><div style="padding:24px;color:#94a3b8">' + DOMPurify.sanitize(selectedNewsletter.content || selectedNewsletter.content_html || '', { USE_PROFILES: { html: true }, FORBID_TAGS: ['script', 'form', 'input', 'button', 'iframe', 'object', 'embed'] }) + '</div></div></body>'}
+                                />
                             </div>
                             <div className="mt-4 flex justify-end">
                                 <button

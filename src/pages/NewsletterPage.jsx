@@ -103,6 +103,7 @@ export default function NewsletterPage() {
 
     const handleSubscribe = async (e) => {
         e.preventDefault();
+        const trapValue = (e.target && e.target.elements && e.target.elements.company_website && e.target.elements.company_website.value) || '';
         
         if (!email) {
             setError('Please enter your email address');
@@ -128,6 +129,7 @@ export default function NewsletterPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     captchaToken: captchaToken || undefined,
+                    company_website: trapValue,
                     email, 
                     name: name || null, 
                     preferences,
@@ -240,6 +242,7 @@ export default function NewsletterPage() {
                     </div>
                     
                     <form onSubmit={handleSubscribe} className="max-w-md mx-auto">
+                        <input type="text" name="company_website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-slate-400 mb-1">Your Name (Optional)</label>
                             <input

@@ -108,6 +108,7 @@ function NewsletterSignup() {
 
     const handleSubscribe = async (e) => {
         e.preventDefault();
+        const trapValue = (e.target && e.target.elements && e.target.elements.company_website && e.target.elements.company_website.value) || '';
         if (!email) {
             setStatus({ type: 'error', message: 'Email is required' });
             return;
@@ -122,7 +123,7 @@ function NewsletterSignup() {
             const response = await fetch('/api/index?action=newsletter-subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, name, captchaToken: captchaToken || undefined })
+                body: JSON.stringify({ email, name, captchaToken: captchaToken || undefined, company_website: trapValue })
             });
             const data = await response.json();
             
@@ -147,6 +148,7 @@ function NewsletterSignup() {
                     <h3 className="text-white font-semibold mb-2">Subscribe to Newsletter</h3>
                     <p className="text-slate-400 text-sm mb-4">Get latest jobs, courses, and career tips</p>
                     <form onSubmit={handleSubscribe} className="max-w-2xl mx-auto flex flex-col sm:flex-row gap-3">
+                        <input type="text" name="company_website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
                         <input
                             type="text"
                             value={name}
