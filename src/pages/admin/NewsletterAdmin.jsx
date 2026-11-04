@@ -191,8 +191,11 @@ export default function NewsletterAdmin() {
             
             if (response.ok) {
                 const data = await response.json();
-                if (data.success && data.subscribers) {
-                    setSubscribers(data.subscribers);
+                // UPDATED (2026-11-04): an empty list from the server no longer ends the search (it showed 0 while a send
+                // reached 99). Only a non-empty answer is trusted; otherwise the direct read below runs. The server list
+                // holds every status, so the card counts active ones only.
+                if (data.success && Array.isArray(data.subscribers) && data.subscribers.length > 0) {
+                    setSubscribers(data.subscribers.filter(x => x.status === 'active'));
                     return;
                 }
             }
