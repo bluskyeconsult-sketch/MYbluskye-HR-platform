@@ -47,6 +47,7 @@ export default function NewsletterPage() {
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
     const [subscribed, setSubscribed] = useState(false);
+    const [subscribedEmail, setSubscribedEmail] = useState('');
     const [error, setError] = useState('');
     const [stats, setStats] = useState({
         subscribers: null,
@@ -137,6 +138,7 @@ export default function NewsletterPage() {
             const data = await response.json();
             
             if (data.success) {
+                setSubscribedEmail(email);
                 setSubscribed(true);
                 setEmail('');
                 setName('');
@@ -164,10 +166,14 @@ export default function NewsletterPage() {
                     </div>
                     <h1 className="text-2xl font-bold text-white mb-2">Welcome to ODUSBABA!</h1>
                     <p className="text-slate-400 mb-4">
-                        Thank you for subscribing to our newsletter. A confirmation email has been sent to <span className="text-primary-400">{email}</span>
+                        Thank you for subscribing to our newsletter. A confirmation email has been sent to <span className="text-primary-400">{subscribedEmail}</span>
                     </p>
-                    <p className="text-slate-500 text-sm mb-6">
+                    <p className="text-slate-500 text-sm mb-4">
                         Check your inbox and click the confirmation link to start receiving weekly insights.
+                    </p>
+                    <p className="text-slate-300 text-sm mb-6">
+                        You will keep receiving the newsletter. We also strongly recommend creating a free account: saved jobs, job alerts, job applications and a free skills assessment each month.{' '}
+                        <Link to={`/sign-up?email=${encodeURIComponent(subscribedEmail)}&from=newsletter`} className="text-primary-400 underline">Create your free account</Link>
                     </p>
                     <div className="flex flex-wrap gap-3 justify-center">
                         <Link to="/" className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">

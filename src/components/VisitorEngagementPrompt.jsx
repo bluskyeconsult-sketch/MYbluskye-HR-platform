@@ -140,7 +140,7 @@ export default function VisitorEngagementPrompt() {
             if (!response.ok) throw new Error(data.error || 'Subscription failed');
 
             setSubmitted(true);
-            toast.success("Almost done: check your email and click the confirmation link.");
+            toast.success("Almost done: check your email and click the confirmation link. A free account is strongly recommended too.");
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify({ subscribed: true }));
             } catch {

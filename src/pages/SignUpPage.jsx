@@ -178,7 +178,8 @@ export default function SignUpPage() {
     }, [referralCode]);
     
     const [formData, setFormData] = useState({
-        email: '',
+        // NEW (2026-11-04): the newsletter links here with ?email= so a subscriber can register in one step.
+        email: (() => { try { const e = new URLSearchParams(window.location.search).get('email') || ''; return e.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) ? e : ''; } catch { return ''; } })(),
         password: '',
         confirmPassword: '',
         full_name: '',
@@ -188,6 +189,7 @@ export default function SignUpPage() {
         company_name: ''
     });
     const [showPassword, setShowPassword] = useState(false);
+    const [newsletterOptIn, setNewsletterOptIn] = useState(false); // unticked on purpose: consent must be the person's own choice
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
@@ -680,6 +682,11 @@ export default function SignUpPage() {
             // ConfirmPage.jsx, when going to the dashboard is actually,
             // truthfully possible.
 
+            // NEW (2026-11-04): only if the person ticked the box. The server still emails a confirmation link.
+            if (newsletterOptIn) {
+                fetch('/api/index?action=newsletter-signup-optin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email }) }).catch(() => {});
+            }
+
             setSuccess(true);
             
             // Auto redirect after 3 seconds
@@ -1066,6 +1073,12 @@ export default function SignUpPage() {
                             )}
                         </button>
                     </form>
+
+                    {/* NEW (2026-11-04): optional newsletter choice (left unticked) */}
+                    <label className="mt-4 flex items-start gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" checked={newsletterOptIn} onChange={e => setNewsletterOptIn(e.target.checked)} className="mt-1" />
+                        <span>Send me the ODUSBABA newsletter (new jobs, career advice and platform news). You will get an email to confirm, and you can unsubscribe at any time.</span>
+                    </label>
 
                     {/* Footer Links */}
                     <div className="mt-6 text-center">

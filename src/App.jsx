@@ -734,6 +734,7 @@ const PendingJobsV2 = lazy(() => import('./pages/admin/PendingJobsV2'));
 const KnowledgeSourceManager = lazy(() => import('./pages/admin/KnowledgeSourceManager'));
 const ManageBooks = lazy(() => import('./pages/admin/ManageBooks'));
 const NewsletterAdmin = lazy(() => import('./pages/admin/NewsletterAdmin'));
+const AdminNewsletterSubscribers = lazy(() => import('./pages/admin/AdminNewsletterSubscribers'));
 const AssessmentManager = lazy(() => import('./pages/admin/AssessmentManager'));
 const AssessmentEditor = lazy(() => import('./pages/admin/AssessmentEditor'));
 const VirtualAssistantManager = lazy(() => import('./pages/admin/VirtualAssistantManager'));
@@ -1028,6 +1029,7 @@ function AppContent() {
                             <Route path="/admin/knowledge-sources" element={<ProtectedRoute requireAdmin><AdminLayout><KnowledgeSourceManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/books" element={<ProtectedRoute requireAdmin><AdminLayout><ManageBooks /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/newsletter" element={<ProtectedRoute requireAdmin><AdminLayout><NewsletterAdmin /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/newsletter-subscribers" element={<ProtectedRoute requireAdmin><AdminLayout><AdminNewsletterSubscribers /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/assessments" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/assessments/:id/edit" element={<ProtectedRoute requireAdmin><AdminLayout><AssessmentEditor /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/virtual-assistants" element={<ProtectedRoute requireAdmin><AdminLayout><VirtualAssistantManager /></AdminLayout></ProtectedRoute>} />

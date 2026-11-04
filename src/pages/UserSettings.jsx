@@ -12,6 +12,7 @@
 
 import { Link } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, Receipt, User } from 'lucide-react';
+import NewsletterOptIn from '../components/NewsletterOptIn';
 
 export default function UserSettings() {
   return (
@@ -21,6 +22,7 @@ export default function UserSettings() {
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4">
           <p className="text-slate-400">Account settings and preferences coming soon.</p>
         </div>
+        <NewsletterOptIn />
         <Link
           to="/settings/profile"
           className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-primary-500/30 transition mb-4"

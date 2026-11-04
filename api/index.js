@@ -1139,6 +1139,19 @@ function newsletterUnsubUrl(email) {
     return `${(process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=newsletter-unsubscribe&e=${encodeURIComponent(e)}&s=${sig}`;
 }
 
+// NEW (2026-11-04): true only when new members really need an invite code to register. A code is needed only while
+// testing mode is on AND "require invite code" is on AND registration is not set to Public.
+async function registrationNeedsInviteCode(supabaseClient) {
+    try {
+        const { data: tm } = await supabaseClient.from('system_config').select('config_value').eq('config_key', 'testing_mode').maybeSingle();
+        if (tm?.config_value !== 'enabled') return false;
+        const { data: vis } = await supabaseClient.from('system_config').select('config_value').eq('config_key', 'tester_visibility').maybeSingle();
+        let v = vis?.config_value; if (typeof v === 'string') { try { v = JSON.parse(v); } catch { v = null; } }
+        if (v?.registration_mode === 'public' || v?.allow_public_registration === true) return false;
+        return v?.require_invite_code !== false;
+    } catch { return false; }
+}
+
 // NEW (2026-11-04): signed link that confirms a newsletter sign-up (double opt-in).
 function newsletterConfirmUrl(email) {
     const e = String(email || '').trim().toLowerCase();
@@ -2065,8 +2078,41 @@ const emailTemplates = {
         <div style="padding:24px;color:#94a3b8;">
             ${data.content || ''}
         </div>
+        ${data.registerUrl ? `<div style="margin:0 24px 24px;padding:16px;border:1px solid #1e293b;border-radius:12px;background:#0b1220;text-align:center;">
+            <p style="color:#e2e8f0;margin:0 0 6px;font-weight:bold;">Get more from ODUSBABA with a free account</p>
+            <p style="color:#94a3b8;font-size:13px;margin:0 0 12px;">Save jobs, get job alerts and take a free skills assessment each month. It takes about a minute and costs nothing.</p>
+            <a href="${data.registerUrl}" style="display:inline-block;background-color:#0B3C5D;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;">Create my free account</a>
+        </div>` : ''}
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;">You received this because you subscribed to the ODUSBABA newsletter. <a href="${data.unsubscribeUrl || (process.env.SITE_URL || 'https://bluskyeconsult.com')}" style="color:#10b981;">Unsubscribe</a></p>
+        </div>
+    </div>
+</body>
+</html>`,
+
+    newsletter_register_nudge: (data) => `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+            <h1 style="color:#10b981;margin:0;font-size:22px;">Get more from ODUSBABA with a free account</h1>
+        </div>
+        <div style="padding:24px;">
+            <p style="color:#94a3b8;">Hello ${escHtml(data.name || 'there')},</p>
+            <p style="color:#94a3b8;">Thank you for subscribing to the ODUSBABA newsletter. You will keep receiving it exactly as you do now. We would also strongly recommend creating a free account, because members get much more out of the site:</p>
+            <ul style="color:#94a3b8;margin:0 0 8px;padding-left:20px;line-height:1.7;">
+                <li>Saved jobs and job alerts that match what you are looking for</li>
+                <li>A free skills assessment each month</li>
+                <li>Job applications and skills submission in one place</li>
+            </ul>
+            <div style="text-align:center;margin:24px 0;">
+                <a href="${data.registerUrl || '#'}" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Create my free account</a>
+            </div>
+            <p style="color:#64748b;font-size:13px;">It takes about a minute and costs nothing. If you would rather not, nothing changes: you will still get the newsletter. You can unsubscribe at any time using the link below.</p>
+        </div>
+        <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
+            <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership${data.unsubscribeUrl ? ` · <a href="${data.unsubscribeUrl}" style="color:#10b981;">Unsubscribe</a>` : ''}</p>
         </div>
     </div>
 </body>
@@ -11988,6 +12034,9 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                 const { data: sup } = await supabaseClient.from('email_suppression').select('email').limit(50000);
                 const blocked = new Set((sup || []).map(r => String(r.email || '').toLowerCase()));
                 const list = [...new Set((subs || []).map(r => String(r.email || '').trim().toLowerCase()).filter(e => e && !blocked.has(e)))];
+                const { data: unreg } = await supabaseClient.from('newsletter_subscribers').select('email').eq('status', 'active').is('user_id', null).limit(20000);
+                const unregSet = new Set((unreg || []).map(r => String(r.email || '').trim().toLowerCase()));
+                const siteBase = (process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '');
 
                 let ok = 0, failed = 0, cut = false;
                 for (let i = 0; i < list.length; i += 5) {
@@ -11998,7 +12047,7 @@ ${staticRoutes.map(path => `  <url>\n    <loc>${baseUrl}${path}</loc>\n  </url>`
                             const unsub = newsletterUnsubUrl(to);
                             await transporter.sendMail({
                                 from, to, subject: nl.subject,
-                                html: emailTemplates.newsletter({ content: nl.content_html || nl.content, unsubscribeUrl: unsub }),
+                                html: emailTemplates.newsletter({ content: nl.content_html || nl.content, unsubscribeUrl: unsub, registerUrl: unregSet.has(to) ? `${siteBase}/sign-up?email=${encodeURIComponent(to)}&from=newsletter` : undefined }),
                                 headers: { 'List-Unsubscribe': `<${unsub}>` }
                             });
                             ok++;
@@ -15799,7 +15848,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         }
 
         // NEW (2026-11-04): newsletters never go to an address on the do-not-email list, whichever page sends them.
-        if (type === 'newsletter' || type === 'newsletter_welcome') {
+        if (type === 'newsletter' || type === 'newsletter_welcome' || type === 'newsletter_register_nudge') {
             try {
                 const { data: blockedRow } = await getSupabase().from('email_suppression').select('email').eq('email', String(to).trim().toLowerCase()).maybeSingle();
                 if (blockedRow) return res.status(200).json({ success: false, skipped: 'do_not_email' });
@@ -15819,8 +15868,16 @@ Use this light markup where it genuinely helps: one or two callouts written as a
 
             if (!emailHtml && type && emailTemplates[type]) {
                 // NEW (2026-10-20): newsletter emails get a working, personal unsubscribe link.
-                const tplData = (type === 'newsletter' || type === 'newsletter_welcome')
-                    ? { ...(templateData || {}), unsubscribeUrl: newsletterUnsubUrl(to) }
+                // NEW (2026-11-04): a subscriber without a member account gets a gentle "create your free account" box in each newsletter.
+                let nlExtra = {};
+                if (type === 'newsletter') {
+                    try {
+                        const { data: nsub } = await getSupabase().from('newsletter_subscribers').select('user_id').eq('email', String(to).trim().toLowerCase()).maybeSingle();
+                        if (nsub && !nsub.user_id) nlExtra.registerUrl = `${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/sign-up?email=${encodeURIComponent(String(to).trim().toLowerCase())}&from=newsletter`;
+                    } catch { /* the box is optional */ }
+                }
+                const tplData = (type === 'newsletter' || type === 'newsletter_welcome' || type === 'newsletter_register_nudge')
+                    ? { ...(templateData || {}), ...nlExtra, unsubscribeUrl: newsletterUnsubUrl(to) }
                     : (templateData || {});
                 emailHtml = emailTemplates[type](tplData);
                 emailSubject = subject || 'ODUSBABA Notification';
@@ -15910,6 +15967,9 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             return res.status(400).json({ error: 'Please complete the human check and try again.' });
         }
         email = email.trim().toLowerCase();
+        if (/@(mailinator|yopmail|guerrillamail|sharklasers|10minutemail|tempmail|temp-mail|trashmail|getnada|throwawaymail|maildrop|dispostable)\./i.test(email)) {
+            return res.status(400).json({ error: 'Please use a permanent email address.' });
+        }
         name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 100) : null;
 
         // NEW (2026-10-13): this public action emails whatever address it is given, so it is limited per
@@ -15936,7 +15996,8 @@ Use this light markup where it genuinely helps: one or two callouts written as a
                         name: name || null,
                         subscribed_at: new Date().toISOString(),
                         status: 'pending',
-                        source: String((req.body || {}).source || 'form').slice(0, 40)
+                        source: String((req.body || {}).source || 'form').slice(0, 40),
+                        preferences: (() => { const p = (req.body || {}).preferences; if (!p || typeof p !== 'object') return null; const o = {}; for (const k of ['jobs', 'courses', 'assessments', 'products']) if (typeof p[k] === 'boolean') o[k] = p[k]; return Object.keys(o).length ? o : null; })()
                     });
                 if (error && error.code !== '23505') throw error;
             }
@@ -15954,6 +16015,149 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             return res.status(200).json({ success: true, message: 'Please check your email and confirm your subscription.' });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-11-04): registering is strongly recommended to subscribers, never required to keep the newsletter.
+    // Sends a friendly "create your free account" email to active subscribers without an account (up to 3 emails in all,
+    // at least 21 days apart). Nobody is paused or removed for not registering.
+    'admin-newsletter-nudge': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (!checkRateLimit(`nl-nudge:${auth.userId}`, 4)) return res.status(429).json({ success: false, error: 'Please wait a minute.' });
+        try {
+            if (await registrationNeedsInviteCode(supabaseClient)) {
+                return res.status(409).json({ success: false, error: 'Registration still needs an invite code. Set registration to Public in Admin > Tester Visibility first, so subscribers can actually create an account.' });
+            }
+            await supabaseClient.rpc('link_subscribers_to_members');
+            const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
+            const { data: subs, error } = await supabaseClient.from('newsletter_subscribers')
+                .select('email, name, nudge_count')
+                .eq('status', 'active').is('user_id', null).lt('nudge_count', 3)
+                .or(`nudged_at.is.null,nudged_at.lt.${cutoff}`).order('subscribed_at', { ascending: true }).limit(100);
+            if (error) throw error;
+            const { data: sup } = await supabaseClient.from('email_suppression').select('email').limit(50000);
+            const blocked = new Set((sup || []).map(r => String(r.email || '').toLowerCase()));
+            const site = (process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '');
+            let sent = 0, failed = 0, skipped = 0;
+            for (let i = 0; i < (subs || []).length; i += 5) {
+                await Promise.all((subs || []).slice(i, i + 5).map(async (s) => {
+                    const email = String(s.email || '').trim().toLowerCase();
+                    if (!email || blocked.has(email)) { skipped++; return; }
+                    try {
+                        const r = await fetch(`${site}/api/index?action=email`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
+                            body: JSON.stringify({ to: email, type: 'newsletter_register_nudge', subject: 'Get more from ODUSBABA with a free account',
+                                templateData: { name: s.name || 'there', registerUrl: `${site}/sign-up?email=${encodeURIComponent(email)}&from=newsletter` } })
+                        });
+                        const j = await r.json().catch(() => ({}));
+                        if (j.success) {
+                            sent++;
+                            await supabaseClient.from('newsletter_subscribers').update({ nudged_at: new Date().toISOString(), nudge_count: (s.nudge_count || 0) + 1 }).eq('email', s.email);
+                        } else failed++;
+                    } catch { failed++; }
+                }));
+            }
+            return res.status(200).json({ success: true, sent, failed, skipped, message: `Invitation sent to ${sent}. ${failed} failed, ${skipped} skipped (do-not-email list). Everyone keeps receiving the newsletter.` });
+        } catch (e) {
+            console.error('admin-newsletter-nudge error:', e);
+            return res.status(500).json({ success: false, error: e.message });
+        }
+    },
+
+    // Stops all email to an address that is a danger to others or to the site (abuse, scraping, spam sign-ups).
+    // The only way a subscriber is ever removed by us. Reversible: delete the row in email_suppression and set status back to active.
+    'admin-newsletter-block': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        const email = String((req.body || {}).email || '').trim().toLowerCase();
+        const reason = String((req.body || {}).reason || 'abuse').slice(0, 200);
+        if (!isValidEmail(email)) return res.status(400).json({ success: false, error: 'Enter a valid email address.' });
+        try {
+            await supabaseClient.from('newsletter_subscribers').update({ status: 'blocked' }).eq('email', email);
+            await supabaseClient.from('email_suppression').upsert({ email, reason: 'blocked_' + reason.replace(/[^a-z0-9 _-]/gi, '').slice(0, 60), source: 'admin_block' }, { onConflict: 'email' });
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'newsletter_block', tier: 'admin', wasAllowed: true });
+            return res.status(200).json({ success: true, message: `${email} is blocked from all email.` });
+        } catch (e) {
+            console.error('admin-newsletter-block error:', e);
+            return res.status(500).json({ success: false, error: e.message });
+        }
+    },
+
+    // NEW (2026-11-04): the unticked "send me the newsletter" box on the registration form. Only works for an address that has
+    // just registered (so nobody can use it to sign up other people), and the sign-up still needs the email confirmation click.
+    'newsletter-signup-optin': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const email = String((req.body || {}).email || '').trim().toLowerCase();
+        const ok = () => res.status(200).json({ success: true });
+        if (!email || email.length > 254 || !isValidEmail(email)) return ok();
+        const rate = await checkIpRateLimit(supabaseClient, `nl-optin:${getRequestIP(req)}`, 10);
+        if (!rate.allowed) return ok();
+        try {
+            const since = new Date(Date.now() - 24 * 3600000).toISOString();
+            const { data: member } = await supabaseClient.from('profiles').select('id, full_name').ilike('email', email).gte('created_at', since).maybeSingle();
+            if (!member) return ok();
+            const { data: existing } = await supabaseClient.from('newsletter_subscribers').select('status').eq('email', email).maybeSingle();
+            if (existing && existing.status !== 'pending') return ok();
+            if (!existing) {
+                const { error } = await supabaseClient.from('newsletter_subscribers').upsert({ email, name: member.full_name || null, subscribed_at: new Date().toISOString(), status: 'pending', user_id: member.id, source: 'signup_form' });
+                if (error && error.code !== '23505') throw error;
+            }
+            fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
+                body: JSON.stringify({ to: email, type: 'newsletter_confirm', subject: 'Please confirm your ODUSBABA newsletter subscription', templateData: { name: member.full_name || 'there', confirmUrl: newsletterConfirmUrl(email) } })
+            }).catch(() => {});
+            return ok();
+        } catch (e) { console.error('newsletter-signup-optin error:', e.message); return ok(); }
+    },
+
+    // NEW (2026-11-04): a signed-in member sees and changes their own newsletter choice (Settings).
+    'newsletter-member-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        const { data: me } = await supabaseClient.from('profiles').select('email').eq('id', auth.userId).maybeSingle();
+        const email = String(me?.email || '').trim().toLowerCase();
+        if (!email) return res.status(200).json({ success: true, status: 'none' });
+        const { data: row } = await supabaseClient.from('newsletter_subscribers').select('status').eq('email', email).maybeSingle();
+        return res.status(200).json({ success: true, status: row?.status || 'none' });
+    },
+
+    'newsletter-member-set': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await getAuthenticatedUser(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (!checkRateLimit(`nl-member-set:${auth.userId}`, 10)) return res.status(429).json({ success: false, error: 'Please wait a minute.' });
+        const { data: me } = await supabaseClient.from('profiles').select('email, full_name').eq('id', auth.userId).maybeSingle();
+        const email = String(me?.email || '').trim().toLowerCase();
+        if (!email) return res.status(400).json({ success: false, error: 'Your account has no email address.' });
+        const subscribe = (req.body || {}).subscribe === true;
+        try {
+            const { data: row } = await supabaseClient.from('newsletter_subscribers').select('status').eq('email', email).maybeSingle();
+            if (subscribe) {
+                if (row?.status === 'blocked') return res.status(403).json({ success: false, error: 'This address cannot receive the newsletter. Please contact support.' });
+                if (row?.status === 'unsubscribed') {
+                    await supabaseClient.from('email_suppression').delete().eq('email', email).eq('source', 'newsletter_link');
+                    const { data: still } = await supabaseClient.from('email_suppression').select('email').eq('email', email).maybeSingle();
+                    if (still) return res.status(409).json({ success: false, error: 'This address is on our do-not-email list for another reason. Please contact support.' });
+                }
+                if (row) await supabaseClient.from('newsletter_subscribers').update({ status: 'active', user_id: auth.userId, confirmed_at: new Date().toISOString() }).eq('email', email);
+                else {
+                    const { error } = await supabaseClient.from('newsletter_subscribers').upsert({ email, name: me.full_name || null, subscribed_at: new Date().toISOString(), confirmed_at: new Date().toISOString(), status: 'active', user_id: auth.userId, source: 'account' });
+                    if (error && error.code !== '23505') throw error;
+                }
+                return res.status(200).json({ success: true, status: 'active' });
+            }
+            if (row) await supabaseClient.from('newsletter_subscribers').update({ status: 'unsubscribed' }).eq('email', email).neq('status', 'blocked');
+            await supabaseClient.from('email_suppression').upsert({ email, reason: 'unsubscribed', source: 'newsletter_link' }, { onConflict: 'email' });
+            return res.status(200).json({ success: true, status: 'unsubscribed' });
+        } catch (e) {
+            console.error('newsletter-member-set error:', e.message);
+            return res.status(500).json({ success: false, error: 'Could not save your choice. Please try again.' });
         }
     },
 
@@ -15981,7 +16185,12 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             const { data: row } = await supabaseClient.from('newsletter_subscribers').select('status, name').eq('email', email).maybeSingle();
             if (!row) return res.status(200).send(page('Link not valid', 'We could not find this sign-up. Please subscribe again from the website.'));
             if (row.status === 'pending') {
-                await supabaseClient.from('newsletter_subscribers').update({ status: 'active', confirmed_at: new Date().toISOString() }).eq('email', email).eq('status', 'pending');
+                const { data: member } = await supabaseClient.from('profiles').select('id').ilike('email', email).maybeSingle();
+                await supabaseClient.from('newsletter_subscribers').update({ status: 'active', confirmed_at: new Date().toISOString(), user_id: member?.id || null }).eq('email', email).eq('status', 'pending');
+                if (!member) {
+                    const reg = `${inviteSiteUrl()}/sign-up?email=${encodeURIComponent(email)}&from=newsletter`;
+                    return res.status(200).send(page('You are subscribed', 'Thank you, you are subscribed. We strongly recommend creating a free account too: saved jobs, job alerts and a free skills assessment each month. It takes about a minute.', `<a href="${reg}" style="display:inline-block;margin-top:16px;background:#0B3C5D;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:15px;">Create my free account</a>`));
+                }
                 fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },

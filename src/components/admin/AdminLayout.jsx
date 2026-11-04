@@ -76,6 +76,7 @@ const ADMIN_NAV = [
     { section: 'Communications', items: [
         { path: '/admin/inbox', label: 'Inbox', icon: Mail, badgeKey: 'inbox' },
         { path: '/admin/newsletter', label: 'Newsletter', icon: Mail },
+        { path: '/admin/newsletter-subscribers', label: 'Subscribers', icon: Users },
         { path: '/admin/invitations', label: 'Invite People', icon: UserPlus },
         { path: '/admin/member-engagement', label: 'Member Engagement', icon: HeartHandshake },
         { path: '/admin/email-test', label: 'Email Test', icon: Mail },

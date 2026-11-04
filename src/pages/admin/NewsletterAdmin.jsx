@@ -30,6 +30,7 @@ import { useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import DOMPurify from 'dompurify';
 import LegalReviewButton from '../../components/admin/LegalReviewButton';
+import NewsletterAudiencePanel from '../../components/admin/NewsletterAudiencePanel';
 import {
     Mail, Send, Calendar, Users, Loader2, Eye, TrendingUp, 
     Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2,
@@ -518,6 +519,8 @@ export default function NewsletterAdmin() {
     return (
         <div>
             {/* Stats Cards */}
+            <NewsletterAudiencePanel onChanged={loadSubscribers} />
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 hover:border-primary-500/30 transition group">
                     <div className="flex items-center justify-between">
