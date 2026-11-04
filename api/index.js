@@ -1057,6 +1057,24 @@ function lessonVisualNudge(courseTitle, lessonTitle) {
     return ' This topic is numeric: include at least one :::chart, :::formula or worked {{= }} calculation wherever it makes the idea clearer.';
 }
 
+// NEW (2026-11-04): the digest goes to a mostly UK audience, so it features UK jobs first, then jobs whose employer is on an
+// official sponsor list or whose advert mentions sponsorship. Jobs that are neither (for example US-only roles) are never shown.
+async function pickDigestJobs(supabaseClient, since) {
+    const cols = 'id, title, company, location, country_code, visa_sponsorship, register_match, created_at';
+    const ukWords = /\b(uk|united kingdom|great britain|england|scotland|wales|northern ireland|london|manchester|birmingham|leeds|liverpool|bristol|sheffield|glasgow|edinburgh|cardiff|belfast|oxford|cambridge|nottingham|newcastle|leicester|southampton|reading|brighton)\b/i;
+    const score = (j) => {
+        const uk = String(j.country_code || '').toUpperCase() === 'GB' || ukWords.test(String(j.location || ''));
+        return (uk ? 3 : 0) + (j.register_match ? 2 : 0) + (j.visa_sponsorship ? 1 : 0);
+    };
+    const pick = (rows) => rows.map(j => ({ j, s: score(j) })).filter(x => x.s >= 2)
+        .sort((a, b) => b.s - a.s || String(b.j.created_at).localeCompare(String(a.j.created_at))).slice(0, 5).map(x => x.j);
+    const fresh = await supabaseClient.from('jobs').select(cols).eq('is_active', true).gte('created_at', since).order('created_at', { ascending: false }).limit(500);
+    const freshPick = pick(fresh.data || []);
+    if (freshPick.length > 0) return { rows: freshPick, isNew: true };
+    const older = await supabaseClient.from('jobs').select(cols).eq('is_active', true).order('created_at', { ascending: false }).limit(500);
+    return { rows: pick(older.data || []).slice(0, 3), isNew: false };
+}
+
 // NEW (2026-10-20): builds the preset weekly digest (used by the Generate button and the Monday draft job).
 async function buildWeeklyDigest(supabaseClient) {
             // REWRITTEN (2026-10-20): the digest is now a ready-to-send, value-led newsletter (HTML, which is what the
@@ -1077,7 +1095,7 @@ async function buildWeeklyDigest(supabaseClient) {
     };
 
     const [jobsR, coursesR, articlesR, trendingResponse] = await Promise.all([
-        latest('jobs', 'id, title, company, location', q => q.eq('is_active', true), 5),
+        pickDigestJobs(supabaseClient, since),
         latest('courses', 'id, title, description', q => q.eq('is_published', true), 3),
         latest('articles', 'title, excerpt, slug', q => q.eq('is_published', true), 3),
         (async () => {
@@ -1116,7 +1134,7 @@ async function buildWeeklyDigest(supabaseClient) {
     sections.push(`<p style="color:#cbd5e1;font-size:15px;line-height:1.65;margin:0 0 4px;">Here is a short round-up of what is new on ODUSBABA, with one tool worth trying this week.</p>`);
 
     if (jobs.length) {
-        sections.push(H(jobsR.isNew ? 'Jobs worth a look this week' : 'Latest openings', jobsR.isNew ? 'Added in the last 7 days' : 'The most recent verified listings') +
+        sections.push(H(jobsR.isNew ? 'Jobs worth a look this week' : 'Latest openings', jobsR.isNew ? 'UK and sponsor-friendly roles added in the last 7 days' : 'The most recent UK and sponsor-friendly roles') +
             jobs.map(j => card(`<div style="color:#e2e8f0;font-weight:600;">${esc(j.title)}</div><div style="color:#94a3b8;font-size:13px;margin-top:2px;">${esc([j.company, j.location].filter(Boolean).join(' · ') || 'View details')}</div><div style="margin-top:6px;font-size:13px;">${link(`${site}/jobs/${j.id}`, 'View and apply')}</div>`)).join('') +
             btn(`${site}/jobs`, 'See all jobs'));
     }
