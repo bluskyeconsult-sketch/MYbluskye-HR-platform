@@ -161,9 +161,13 @@ export default function SignInPage() {
         if (!formData.email.trim()) return;
         setResendingConfirmation(true);
         try {
+            // Supabase checks the human-check token on this call too once its CAPTCHA switch is on.
+            const resendToken = await loginCaptcha.current?.getToken();
+            loginCaptcha.current?.reset();
             const { error: resendErr } = await supabase.auth.resend({
                 type: 'signup',
-                email: formData.email.trim()
+                email: formData.email.trim(),
+                ...(resendToken ? { options: { captchaToken: resendToken } } : {})
             });
             if (resendErr) throw resendErr;
             setConfirmationResent(true);

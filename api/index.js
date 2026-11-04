@@ -7468,11 +7468,13 @@ ${siteContext}`;
             // Sends a real password-reset link so the new staff
             // member can set their own password on first access -
             // reuses the same, already-working recovery email flow.
-            await supabaseClient.auth.resetPasswordForEmail(email);
+            // NEW (2026-11-04): the result is now checked. If Supabase's CAPTCHA switch is on it can refuse this server-side
+            // reset, and the account would otherwise be created with no email and no warning.
+            const { error: resetMailErr } = await supabaseClient.auth.resetPasswordForEmail(email);
 
             logAuditEvent(supabaseClient, { userId: auth.userId, actionType: 'staff_user_created', tier: 'super_admin', wasAllowed: true }); // fire-and-forget
 
-            return res.status(200).json({ success: true, userId: newUser.user.id });
+            return res.status(200).json({ success: true, userId: newUser.user.id, ...(resetMailErr ? { emailSent: false, warning: 'The account was created, but the password email could not be sent. Ask the staff member to use "Forgot password" on the sign-in page.' } : {}) });
         } catch (error) {
             console.error('admin-create-staff-user error:', error);
             return res.status(500).json({ error: error.message });
