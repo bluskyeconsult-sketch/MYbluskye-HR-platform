@@ -1139,6 +1139,14 @@ function newsletterUnsubUrl(email) {
     return `${(process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=newsletter-unsubscribe&e=${encodeURIComponent(e)}&s=${sig}`;
 }
 
+// NEW (2026-11-04): signed link that confirms a newsletter sign-up (double opt-in).
+function newsletterConfirmUrl(email) {
+    const e = String(email || '').trim().toLowerCase();
+    const secret = process.env.UNSUBSCRIBE_SECRET || process.env.CRON_SECRET || '';
+    const sig = crypto.createHmac('sha256', secret).update('nlc:' + e).digest('hex').slice(0, 40);
+    return `${(process.env.SITE_URL || 'https://bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=newsletter-confirm&e=${encodeURIComponent(e)}&s=${sig}`;
+}
+
 function aiGuidanceBlock(raw) {
     const t = String(raw == null ? '' : raw)
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -2059,6 +2067,29 @@ const emailTemplates = {
         </div>
         <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
             <p style="color:#475569;font-size:12px;">You received this because you subscribed to the ODUSBABA newsletter. <a href="${data.unsubscribeUrl || (process.env.SITE_URL || 'https://bluskyeconsult.com')}" style="color:#10b981;">Unsubscribe</a></p>
+        </div>
+    </div>
+</body>
+</html>`,
+
+    newsletter_confirm: (data) => `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#020617;">
+    <div style="max-width:600px;margin:0 auto;background-color:#0f172a;color:#e2e8f0;border-radius:16px;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#0B3C5D,#0f172a);padding:20px;text-align:center;">
+            <h1 style="color:#10b981;margin:0;font-size:22px;">Please confirm your subscription</h1>
+        </div>
+        <div style="padding:24px;">
+            <p style="color:#94a3b8;">Hello ${escHtml(data.name || 'there')},</p>
+            <p style="color:#94a3b8;">Someone, hopefully you, asked to receive the ODUSBABA newsletter at this address. Please confirm so we know it was you.</p>
+            <div style="text-align:center;margin:24px 0;">
+                <a href="${data.confirmUrl || '#'}" style="display:inline-block;background-color:#0B3C5D;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Confirm my subscription</a>
+            </div>
+            <p style="color:#64748b;font-size:13px;">If this was not you, ignore this email and nothing will be sent to you.</p>
+        </div>
+        <div style="background-color:#0f172a;padding:16px;text-align:center;border-top:1px solid #1e293b;">
+            <p style="color:#475569;font-size:12px;margin:0;">BluSkye Integrated Consult — Creating Value for Partnership</p>
         </div>
     </div>
 </body>
@@ -15767,6 +15798,14 @@ Use this light markup where it genuinely helps: one or two callouts written as a
             return res.status(400).json({ error: 'Invalid email address' });
         }
 
+        // NEW (2026-11-04): newsletters never go to an address on the do-not-email list, whichever page sends them.
+        if (type === 'newsletter' || type === 'newsletter_welcome') {
+            try {
+                const { data: blockedRow } = await getSupabase().from('email_suppression').select('email').eq('email', String(to).trim().toLowerCase()).maybeSingle();
+                if (blockedRow) return res.status(200).json({ success: false, skipped: 'do_not_email' });
+            } catch (e) { console.error('email_suppression check failed:', e.message); }
+        }
+
         const rateLimitKey = `email:${to}:${type || 'general'}`;
         if (!checkRateLimit(rateLimitKey, 3)) {
             // NEW (2026-08-07): log the rate-limit violation as a security event.
@@ -15883,37 +15922,76 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         try {
             const { data: existingSub } = await supabaseClient
                 .from('newsletter_subscribers').select('status').eq('email', email).maybeSingle();
-            if (existingSub && existingSub.status && existingSub.status !== 'active') {
-                return res.status(200).json({ success: true });
+            // Unsubscribed addresses are never re-subscribed; already-active ones need nothing.
+            if (existingSub && existingSub.status && existingSub.status !== 'pending') {
+                return res.status(200).json({ success: true, message: existingSub.status === 'active' ? 'Already subscribed' : undefined });
             }
-            const { error } = await supabaseClient
-                .from('newsletter_subscribers')
-                .upsert({
-                    email,
-                    name: name || null,
-                    subscribed_at: new Date().toISOString(),
-                    status: 'active'
-                });
-            
-            if (error && error.code !== '23505') throw error;
-            
+            // NEW (2026-11-04): double opt-in. A new sign-up stays "pending" and receives nothing but a confirmation email
+            // until the address owner clicks the link, so nobody can be signed up by someone else.
+            if (!existingSub) {
+                const { error } = await supabaseClient
+                    .from('newsletter_subscribers')
+                    .upsert({
+                        email,
+                        name: name || null,
+                        subscribed_at: new Date().toISOString(),
+                        status: 'pending',
+                        source: String((req.body || {}).source || 'form').slice(0, 40)
+                    });
+                if (error && error.code !== '23505') throw error;
+            }
             fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
                 body: JSON.stringify({
                     to: email,
-                    type: 'newsletter_welcome',
-                    templateData: { name: name || 'there' }
+                    type: 'newsletter_confirm',
+                    subject: 'Please confirm your ODUSBABA newsletter subscription',
+                    templateData: { name: name || 'there', confirmUrl: newsletterConfirmUrl(email) }
                 })
             }).catch(() => {});
-            
-            return res.status(200).json({ 
-                success: true, 
-                message: error?.code === '23505' ? 'Already subscribed' : 'Subscribed successfully' 
-            });
+
+            return res.status(200).json({ success: true, message: 'Please check your email and confirm your subscription.' });
         } catch (error) {
             return res.status(500).json({ success: false, error: error.message });
         }
+    },
+
+    // NEW (2026-11-04): confirm link from the sign-up email. Opening it only shows a button (so email scanners cannot
+    // confirm by accident); pressing it makes the subscription active and sends the welcome email.
+    'newsletter-confirm': async (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Frame-Options', 'DENY');
+        const page = (title, msg, btn) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;"><div style="max-width:440px;margin:12vh auto;background:#fff;padding:32px;border-radius:14px;text-align:center;box-shadow:0 4px 24px rgba(15,23,42,.08);"><h2 style="color:#0B3C5D;margin:0 0 12px;">${title}</h2><p style="color:#475569;line-height:1.6;">${msg}</p>${btn || ''}</div></body></html>`;
+        const email = String(req.query.e || '').trim().toLowerCase();
+        const sig = String(req.query.s || '');
+        const secret = process.env.UNSUBSCRIBE_SECRET || process.env.CRON_SECRET || '';
+        const expected = crypto.createHmac('sha256', secret).update('nlc:' + email).digest('hex').slice(0, 40);
+        const sigOk = secret && sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+        if (!email || email.length > 254 || !sigOk || !checkRateLimit(`nl-confirm:${getClientIp(req)}`, 30)) {
+            return res.status(200).send(page('Link not valid', 'This link is invalid or has expired. Please subscribe again from the website.'));
+        }
+        if (req.method !== 'POST') {
+            const action = `${inviteSiteUrl()}/api/index?action=newsletter-confirm&e=${encodeURIComponent(email)}&s=${encodeURIComponent(sig)}`;
+            return res.status(200).send(page('Confirm your subscription', 'Click below to start receiving the ODUSBABA newsletter.', `<form method="POST" action="${action}"><button type="submit" style="margin-top:16px;background:#0B3C5D;color:#fff;border:0;padding:12px 24px;border-radius:8px;font-size:15px;cursor:pointer;">Confirm subscription</button></form>`));
+        }
+        try {
+            const supabaseClient = getSupabase();
+            const { data: row } = await supabaseClient.from('newsletter_subscribers').select('status, name').eq('email', email).maybeSingle();
+            if (!row) return res.status(200).send(page('Link not valid', 'We could not find this sign-up. Please subscribe again from the website.'));
+            if (row.status === 'pending') {
+                await supabaseClient.from('newsletter_subscribers').update({ status: 'active', confirmed_at: new Date().toISOString() }).eq('email', email).eq('status', 'pending');
+                fetch(`${(process.env.SITE_URL || 'https://www.bluskyeconsult.com').replace(/\/+$/, '')}/api/index?action=email`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.CRON_SECRET || '' },
+                    body: JSON.stringify({ to: email, type: 'newsletter_welcome', subject: 'You are subscribed to the ODUSBABA Newsletter', templateData: { name: row.name || 'there' } })
+                }).catch(() => {});
+            } else if (row.status !== 'active') {
+                return res.status(200).send(page('Not subscribed', 'This address has unsubscribed, so it cannot be confirmed again.'));
+            }
+        } catch (e) { console.error('newsletter-confirm error:', e.message); return res.status(200).send(page('Something went wrong', 'Please try the link again in a moment.')); }
+        return res.status(200).send(page('You are subscribed', 'Thank you. You will receive the ODUSBABA newsletter.'));
     },
 
     // ========== NEWSLETTER STATS ==========

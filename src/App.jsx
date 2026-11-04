@@ -127,7 +127,7 @@ function NewsletterSignup() {
             const data = await response.json();
             
             if (data.success) {
-                setStatus({ type: 'success', message: 'Successfully subscribed!' });
+                setStatus({ type: 'success', message: data.message || 'Please check your email and click the confirmation link.' });
                 setEmail('');
                 setName('');
             } else {

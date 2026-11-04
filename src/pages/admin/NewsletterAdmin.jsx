@@ -318,62 +318,30 @@ export default function NewsletterAdmin() {
                 return;
             }
             
-            let activeSubscribers;
-            
-            if (sendSegment === 'all') {
-                const { data, error: subError } = await supabase
-                    .from('newsletter_subscribers')
-                    .select('email')
-                    .eq('status', 'active');
-                if (subError) throw subError;
-                activeSubscribers = data;
-            } else if (sendSegment === 'tester') {
-                // FIXED (2026-08-27): confirmed same recurring bug already
-                // found and fixed in Navbar.jsx, UserDashboard.jsx, and
-                // AdminUsers.jsx this engagement - no account has ever had
-                // user_type literally equal to 'tester' under the real,
-                // rebuilt tester system (testers keep their real tier's
-                // user_type, flagged separately via the is_tester boolean).
-                // The "Testers" segment has always silently matched zero
-                // subscribers. Now correctly filters on is_tester.
-                const { data, error: subError } = await supabase
-                    .from('newsletter_subscribers')
-                    .select('email, profiles!inner(is_tester)')
-                    .eq('status', 'active')
-                    .eq('profiles.is_tester', true);
-
-                if (subError) {
-                    throw new Error(
-                        `Segment targeting isn't available: ${subError.message}. This likely means newsletter_subscribers doesn't have a user_id column linking to profiles — subscribers may be guest emails not tied to accounts. Use "All Active Subscribers" instead, or add that link if segmentation is needed.`
-                    );
-                }
-                activeSubscribers = data;
-            } else {
-                // Segment targeting requires newsletter_subscribers to link
-                // to profiles via user_id. If that column/relationship
-                // doesn't exist, this throws — caught below with a specific,
-                // actionable message rather than silently sending to nobody.
-                const { data, error: subError } = await supabase
-                    .from('newsletter_subscribers')
-                    .select('email, profiles!inner(user_type)')
-                    .eq('status', 'active')
-                    .eq('profiles.user_type', sendSegment);
-                
-                if (subError) {
-                    throw new Error(
-                        `Segment targeting isn't available: ${subError.message}. This likely means newsletter_subscribers doesn't have a user_id column linking to profiles — subscribers may be guest emails not tied to accounts. Use "All Active Subscribers" instead, or add that link if segmentation is needed.`
-                    );
-                }
-                activeSubscribers = data;
+            // UPDATED (2026-11-04): subscribers are not linked to member accounts (most signed up on the form only),
+            // so the old join-based segments could not work. Segments now match the subscriber's email to a member's email.
+            const { data: allActive, error: subError } = await supabase
+                .from('newsletter_subscribers')
+                .select('email')
+                .eq('status', 'active');
+            if (subError) throw subError;
+            let activeSubscribers = allActive || [];
+            if (sendSegment !== 'all') {
+                let q = supabase.from('profiles').select('email');
+                q = sendSegment === 'tester' ? q.eq('is_tester', true) : q.eq('user_type', sendSegment);
+                const { data: members, error: memErr } = await q.limit(20000);
+                if (memErr) throw memErr;
+                const wanted = new Set((members || []).map(m => String(m.email || '').trim().toLowerCase()));
+                activeSubscribers = activeSubscribers.filter(x => wanted.has(String(x.email || '').trim().toLowerCase()));
             }
-            
+
             if (!activeSubscribers || activeSubscribers.length === 0) {
                 alert('No active subscribers to send to for this segment.');
                 setSending(false);
                 return;
             }
             
-            let successCount = 0;
+            let successCount = 0, skippedCount = 0;
             for (const sub of activeSubscribers) {
                 try {
                     const res = await fetch('/api/index?action=email', {
@@ -388,6 +356,7 @@ export default function NewsletterAdmin() {
                     });
                     const data = await res.json();
                     if (data.success) successCount++;
+                    else if (data.skipped === 'do_not_email') skippedCount++;
                 } catch (sendErr) {
                     console.warn('Failed to send to', sub.email, sendErr);
                 }
@@ -407,7 +376,7 @@ export default function NewsletterAdmin() {
                 .update({ is_sent: true, sent_at: new Date().toISOString(), recipient_count: successCount })
                 .eq('id', newsletterId);
             
-            alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers (${segmentLabels[sendSegment]}).`);
+            alert(`Newsletter sent to ${successCount} of ${activeSubscribers.length} subscribers (${segmentLabels[sendSegment]}).` + (skippedCount ? ` ${skippedCount} skipped because they are on the do-not-email list.` : ''));
             await loadData();
         } catch (error) {
             console.error('Error sending newsletter:', error);
