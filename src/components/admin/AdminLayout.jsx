@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
+import { supabase } from '../../lib/supabase';
 import { FreshnessReminder } from '../../pages/admin/AdminDataFreshness';
 
 // Single source of truth for the admin nav — every real /admin/* route
@@ -92,6 +93,32 @@ const ADMIN_NAV = [
     ]},
 ];
 
+// NEW (2026-11-06): amber asterisk on a menu item when something there needs your attention.
+// Each check counts only rows waiting for a decision. A failed check shows nothing, never an error.
+const countRows = async (table, column, values) => {
+    try {
+        const { count } = await supabase.from(table).select('*', { count: 'exact', head: true }).in(column, values);
+        return count || 0;
+    } catch (e) { return 0; }
+};
+const ATTENTION_CHECKS = {
+    '/admin/external-jobs': () => countRows('external_jobs', 'status', ['pending_approval']),
+    '/admin/employer-verification': () => countRows('employer_verifications', 'verification_status', ['pending']),
+    '/admin/fraud-reports': () => countRows('fraud_reports', 'status', ['pending']),
+    '/admin/refund-requests': () => countRows('refund_requests', 'status', ['pending']),
+    '/admin/support-tickets': () => countRows('support_tickets', 'status', ['open']),
+    '/admin/affiliate-management': () => countRows('affiliate_withdrawals', 'status', ['pending']),
+    '/admin/employer-jobs': async () => {
+        try { const d = await authenticatedFetch('admin-employer-jobs-list', { status: 'pending' }); return (d.jobs || []).length; } catch (e) { return 0; }
+    },
+    '/admin/data-freshness': async () => {
+        try {
+            const { data } = await supabase.rpc('admin_freshness');
+            return (data || []).filter((r) => r.status && r.status !== 'ok').length;
+        } catch (e) { return 0; }
+    }
+};
+
 export default function AdminLayout({ children }) {
     const location = useLocation();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -110,6 +137,20 @@ export default function AdminLayout({ children }) {
         return () => { stop = true; clearInterval(t); };
     }, [location.pathname]);
 
+    // NEW (2026-11-06): counts of things waiting for you, keyed by menu path.
+    const [attention, setAttention] = useState({});
+    useEffect(() => {
+        let stop = false;
+        const load = async () => {
+            const entries = await Promise.all(Object.entries(ATTENTION_CHECKS).map(async ([path, fn]) => [path, await fn()]));
+            if (!stop) setAttention(Object.fromEntries(entries));
+        };
+        load();
+        const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 120000);
+        return () => { stop = true; clearInterval(t); };
+    }, [location.pathname]);
+    const anyAttention = inbox.count > 0 || Object.values(attention).some((n) => n > 0);
+
     const currentLabel = ADMIN_NAV
         .flatMap(section => section.items)
         .find(item => location.pathname.startsWith(item.path))?.label || 'Admin';
@@ -119,9 +160,10 @@ export default function AdminLayout({ children }) {
             {/* Mobile nav toggle */}
             <button
                 onClick={() => setMobileNavOpen(!mobileNavOpen)}
-                className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-white"
+                className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-white relative"
             >
                 {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {!mobileNavOpen && anyAttention && <span className="absolute -top-1 -right-1 text-amber-400 text-lg leading-none font-bold">*</span>}
             </button>
 
             {/* Sidebar */}
@@ -160,8 +202,14 @@ export default function AdminLayout({ children }) {
                                         >
                                             <Icon className="w-4 h-4 flex-shrink-0" />
                                             {item.label}
+                                            {attention[item.path] > 0 && (
+                                                <span className="ml-auto flex items-center gap-1 text-amber-400 font-bold" title={`${attention[item.path]} waiting for you`}>
+                                                    <span className="text-base leading-none">*</span>
+                                                    <span className="text-[10px] font-semibold">{attention[item.path] > 99 ? '99+' : attention[item.path]}</span>
+                                                </span>
+                                            )}
                                             {item.badgeKey === 'inbox' && inbox.count > 0 && (
-                                                <span className="ml-auto bg-primary-600 text-white text-[10px] font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{inbox.count > 99 ? '99+' : inbox.count}</span>
+                                                <span className="ml-auto flex items-center gap-1 bg-primary-600 text-white text-[10px] font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{inbox.count > 99 ? '99+' : inbox.count}</span>
                                             )}
                                         </Link>
                                     );
