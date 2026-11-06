@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { ExternalLink, AlertTriangle, CheckCircle, HelpCircle, ShieldAlert, Briefcase, Download, Printer } from 'lucide-react';
 
-const LAST_CHECKED = '25 October 2026';
+const LAST_CHECKED = '6 November 2026';
 
 const STATUS = {
     inforce:  { label: 'Confirmed on official page', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', Icon: CheckCircle },
@@ -23,8 +23,8 @@ const COUNTRIES = [
         id: 'CA', name: 'Canada', flag: '🇨🇦',
         headline: 'Care jobs exist, but recent changes to the low-wage employer-sponsored route may limit which employers can hire from abroad.',
         facts: [
-            { s: 'reported', t: 'The pay level that separates the high-wage and low-wage employer-sponsored routes (the LMIA) rose on 17 July 2026 in most provinces. One reported example: Ontario from $36.00 to $36.92 an hour. A job that was high-wage before may now be low-wage.' },
-            { s: 'reported', t: 'Low-wage LMIA applications are not processed in a city area where unemployment is 6% or higher. Rural employers outside those areas can hire a higher share of low-wage temporary foreign workers under a temporary measure running to March 2027.' },
+            { s: 'reported', t: 'The pay level that separates the high-wage and low-wage employer-sponsored routes (the LMIA) rose on 17 July 2026. The Ontario threshold is now $36.92 an hour (about $67,194 a year at 35 hours a week), per a law-firm report of the Employment and Social Development Canada change. A job that was high-wage before may now be low-wage.' },
+            { s: 'reported', t: 'Low-wage LMIA applications are not processed in a city area where unemployment is 6% or higher. The list of affected cities is updated every quarter (the July to October 2026 list covered 26 cities, and a new one was due from 10 October), so check the current list. Under a temporary measure, eligible employers outside city areas can hire low-wage temporary foreign workers for up to 15% of their workforce instead of the usual 10%. Check the end date of the measure on the official page.' },
             { s: 'reported', t: 'Many care roles (nurse aides, orderlies and patient service associates fall under occupation code NOC 33102) pay below the high-wage level, so these limits can affect which employers can sponsor. Whether they apply to a given job depends on its pay, location and the current rules.' },
             { s: 'reported', t: 'Canadian rules do not allow an employer to charge a worker for the LMIA or for the job. Confirm this for your case on an official page.' }
         ],
@@ -43,7 +43,7 @@ const COUNTRIES = [
         facts: [
             { s: 'reported', t: 'Aged or Disabled Carer and Personal Care Assistant are reported under occupation code ANZSCO 423111. Nursing Support Worker is reported as 423314.' },
             { s: 'reported', t: 'A provider can use the Aged Care Industry Labour Agreement only after it has been granted access. Access is for the provider, not for you, and is reported to need an agreement with a union (ANMF, HSU or UWU depending on the occupation) and a request to Home Affairs.' },
-            { s: 'reported', t: 'The agreement is reported to give a two-year route to permanent residence through the 186 visa, with lower English levels (reported as IELTS 5.0 overall for a standard provider). Age limits are reported to apply, but I have not been able to confirm the figure. Check Home Affairs.' },
+            { s: 'reported', t: 'A migration-sector guide last updated 3 July 2025 reports that the agreement gives a route to permanent residence through the 186 visa after two years of full-time work in a relevant care job in Australia. It reports an age limit of under 45 for the 186 visa (none for the temporary 482), and English of IELTS 5.5 for the 186 or 5.0 for the 482. That guide is more than a year old, so confirm every figure with Home Affairs.' },
             { s: 'reported', t: 'Employers are not allowed to recover recruitment or sponsorship costs from the worker (Regulation 2.87, as reported). If an employer or agent asks you to pay, treat that as a red flag.' },
             { s: 'reported', t: 'The core skills income threshold is reported as A$79,423 from 1 July 2026, but the sources I found disagree on how it applies to aged care, so confirm with Home Affairs or a registered migration agent.' }
         ],
@@ -60,7 +60,9 @@ const COUNTRIES = [
         id: 'NZ', name: 'New Zealand', flag: '🇳🇿',
         headline: 'There is a dedicated care workforce route to residence, but pay and employer rules apply. Read the official page before you rely on it.',
         facts: [
-            { s: 'reported', t: 'A "Care Workforce Work to Residence" visa is listed on the Immigration New Zealand website. I could not read its conditions when I checked, so please read the page yourself, including the pay rate it asks for.' },
+            { s: 'inforce', t: 'Care Workforce Work to Residence visa (Immigration New Zealand page, applications shown as open): you must be aged 55 or younger, and have worked in New Zealand for at least 24 months in a care workforce job within the 30 months before you apply, paid at least the care workforce wage rate in place at the start of that period.' },
+            { s: 'inforce', t: 'You also need a job or job offer in a care workforce role with an accredited employer, permanent or fixed-term for at least 12 months, English you can show by an English test no more than 2 years old (or other accepted proof), and good health and character.' },
+            { s: 'inforce', t: 'The visa lets you stay with travel conditions for 2 years. After 2 years in a row on it you can apply for a Permanent Resident Visa. The page does not state the wage rate, so read the official wage rates page.' },
             { s: 'reported', t: 'To work in most jobs on an Accredited Employer Work Visa, the employer must be accredited. Check the employer\'s name against Immigration New Zealand\'s official list before you accept any offer.' },
             { s: 'reported', t: 'Two new residence pathways under the Skilled Migrant Category started on 24 August 2026. See our Visa Pathways page for what we found.' },
             { s: 'reported', t: 'Pay rules apply to care roles under the work and residence visas. A job paid below the required rate may not count towards residence, so check the current rate on the official page.' }
@@ -79,8 +81,8 @@ const COUNTRIES = [
         headline: 'Healthcare assistants can apply under a lower-pay permit category. Check the current pay level and the training condition.',
         facts: [
             { s: 'reported', t: 'Healthcare assistants apply under the General Employment Permit. The employer must be trading in Ireland and registered with Revenue and the Companies Registration Office. A labour market needs test may apply.' },
-            { s: 'reported', t: 'A Level 5 QQI qualification, or a comparable one, is required, or must be obtained within two years of starting (Citizens Information, as reported in a guide updated 12 October 2026).' },
-            { s: 'reported', t: 'Healthcare assistants have a lower minimum pay level than other General Employment Permit roles. I could not confirm the current figure, so read the Department of Enterprise page.' }
+            { s: 'reported', t: 'The Department of Enterprise checklist says a relevant QQI Level 5 qualification should be attained after two years of employment in the State, and applies this at permit renewal rather than for a new permit. Confirm the current wording on the Department of Enterprise page.' },
+            { s: 'reported', t: 'The Department of Enterprise healthcare assistant checklist (undated) gives a minimum of EUR 32,691 a year for a 39-hour week (EUR 16.12 an hour), basic pay only, with the job advertised on JobsIreland for 28 days. Because the checklist has no date, confirm the figure on the Department of Enterprise page before relying on it.' }
         ],
         checks: [
             'Check the employer is registered in Ireland and ask how it will meet the labour market test, where required.',
