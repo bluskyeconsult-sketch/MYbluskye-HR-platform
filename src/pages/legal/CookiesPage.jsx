@@ -22,7 +22,7 @@ export default function CookiesPage() {
     <div className="min-h-screen bg-slate-950">
       <div className="max-w-4xl mx-auto px-4 py-12 prose prose-invert">
         <h1 className="text-3xl font-bold text-white mb-6">Cookie Policy</h1>
-        <p className="text-slate-400">Last updated: August 2026</p>
+        <p className="text-slate-400">Last updated: November 2026</p>
 
         <h2 className="text-xl font-semibold text-white mt-6">What Are Cookies</h2>
         <p>Cookies are small text files stored on your device when you visit a website. They help the site remember information about your visit, which can make it easier to use the site and make certain features work.</p>
@@ -34,6 +34,7 @@ export default function CookiesPage() {
         <ul className="list-disc list-inside space-y-1 text-slate-300">
           <li>Authentication and session cookies (keep you signed in, managed by our authentication provider, Supabase)</li>
           <li>Security cookies (help protect against fraud and unauthorized access)</li>
+          <li>Human check (Cloudflare Turnstile, used on some forms to tell people from automated programs; it may set cookies or use similar browser storage for this security purpose, under Cloudflare's own terms)</li>
           <li>Cookie consent preference (remembers your choices from our cookie consent banner)</li>
         </ul>
 
@@ -49,6 +50,7 @@ export default function CookiesPage() {
         <ul className="list-disc list-inside space-y-1 text-slate-300">
           <li>Session and page view tracking (anonymized where possible)</li>
           <li>Device and browser type, for compatibility and performance monitoring</li>
+          <li>Visits that look like automated crawlers are left out of our statistics</li>
         </ul>
 
         <h2 className="text-xl font-semibold text-white mt-6">Managing Cookies</h2>

@@ -41,6 +41,7 @@ export default function PrivacyPage() {
           items: [
             "IP address and approximate location data",
             "Device and browser information (type, version, OS)",
+            "Signals from our human check on forms (see Section 15)",
             "Usage data (pages visited, features used, time spent)",
             "Referring URLs and exit pages",
             "Cookies and similar tracking technologies (see Section 8)",
@@ -52,7 +53,7 @@ export default function PrivacyPage() {
           items: [
             "Authentication data (if you sign up via Google/LinkedIn)",
             "Payment confirmation from Stripe",
-            "Fraud prevention data from security services"
+            "Fraud prevention data from security services, including our human check provider (Cloudflare Turnstile)"
           ]
         }
       ]
@@ -65,9 +66,9 @@ export default function PrivacyPage() {
       items: [
         "Provide, maintain, and improve our services",
         "Process your VA tasks and assessments",
-        "Send job alerts and newsletters (you may opt out at any time)",
+        "Send job alerts and newsletters (newsletters are sent only after you confirm your subscription by email, and you may opt out at any time)",
         "Calculate trust scores and verify skills",
-        "Prevent fraud, abuse, and multiple account creation",
+        "Prevent fraud, abuse, spam, automated sign-ups and multiple account creation",
         "Comply with legal obligations",
         "Analyze usage patterns to improve user experience",
         "Communicate important service updates"
@@ -80,9 +81,9 @@ export default function PrivacyPage() {
       content: "Under GDPR, we process your data based on:",
       items: [
         "Contractual necessity: To provide services you request",
-        "Legitimate interests: To improve our platform and prevent fraud",
+        "Legitimate interests: To improve our platform, prevent fraud and automated abuse, and keep our email reputation healthy",
         "Legal obligations: To comply with tax and regulatory requirements",
-        "Consent: For marketing communications (which you can withdraw)"
+        "Consent: For marketing communications and the newsletter (confirmed by email, and which you can withdraw)"
       ]
     },
     {
@@ -103,6 +104,8 @@ export default function PrivacyPage() {
           items: [
             "Supabase (database and authentication)",
             "Stripe (payment processing)",
+            "Brevo (email delivery, including newsletters and account emails)",
+            "Cloudflare (Turnstile human check on forms)",
             "OpenAI (AI-powered VA tasks and assessments)",
             "Vercel (application hosting and infrastructure)",
             "Analytics providers (to improve our services)"
@@ -131,7 +134,9 @@ export default function PrivacyPage() {
         "Chat logs: Retained for 90 days for quality improvement",
         "Account data: Retained until account deletion",
         "Transaction records: Retained for 7 years (tax/legal compliance)",
-        "Marketing data: Retained until you unsubscribe"
+        "Marketing data: Retained until you unsubscribe",
+        "Suppression records (addresses that unsubscribed, bounced, complained or were blocked as automated): Retained so we do not email them again and so automated sign-ups cannot repeat",
+        "Form security records (IP address counters used to limit repeated submissions): Kept for a short period only"
       ],
       note: "You may request deletion of specific data by contacting privacy@bluskyeconsult.com"
     },
@@ -247,8 +252,21 @@ export default function PrivacyPage() {
       note: "Continued use of the platform after changes constitutes acceptance of the updated policy."
     },
     {
+      id: "newsletter-security",
+      title: "15. Newsletter, Human Checks and Blocked Addresses",
+      icon: Mail,
+      content: "To keep our services safe and our emails trustworthy we do the following:",
+      items: [
+        "Newsletter: when you subscribe we email you a confirmation link and send newsletters only after you confirm. You can choose your topics and unsubscribe at any time.",
+        "Human check: some forms (newsletter, contact, tester codes and, where enabled, sign-in and registration) use Cloudflare Turnstile, which checks signals such as your IP address and browser behaviour to tell people from automated programs. Cloudflare processes this under its own privacy terms. We use it only for security.",
+        "Blocked and suppressed addresses: if an address unsubscribes, bounces, complains or appears to be created by an automated process, we keep a record of the address and the reason so we do not email it again and so the sign-up cannot repeat.",
+        "Visitor statistics: we record pages viewed, approximate location, device, browser and visit length, and we leave out visits that look like automated crawlers so our figures are accurate."
+      ],
+      note: "If you think an address was blocked by mistake, email privacy@bluskyeconsult.com and we will review it."
+    },
+    {
       id: "contact-us",
-      title: "15. Contact Information",
+      title: "16. Contact Information",
       icon: Mail,
       content: "If you have questions about this Privacy Policy or your data:",
       contact: {
@@ -275,7 +293,7 @@ export default function PrivacyPage() {
               Privacy Policy
             </h1>
             <p className="text-slate-400">
-              Last updated: <span className="text-white">May 1, 2026</span>
+              Last updated: <span className="text-white">November 6, 2026</span>
             </p>
             <div className="flex items-center justify-center gap-4 mt-4 text-sm">
               <Link to="/legal/terms" className="text-primary-400 hover:text-primary-300 flex items-center gap-1">

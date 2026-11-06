@@ -5,7 +5,7 @@ import { FileText, Calendar, Mail, Scale, Shield, AlertTriangle, Users, Database
 
 export default function TermsPage() {
     const currentYear = new Date().getFullYear();
-    const lastUpdated = 'May 13, 2026';
+    const lastUpdated = 'November 6, 2026';
 
     return (
         <div className="min-h-screen bg-slate-950 py-12">
@@ -50,7 +50,7 @@ export default function TermsPage() {
                             <li>Harass, abuse, or threaten other users</li>
                             <li>Upload malicious code or viruses</li>
                             <li>Attempt to bypass security measures</li>
-                            <li>Use automated bots or scrapers</li>
+                            <li>Use automated bots or scrapers, or use automated means to create accounts, subscribe to our newsletter or submit forms</li>
                         </ul>
                     </div>
 
@@ -85,7 +85,17 @@ export default function TermsPage() {
                     </div>
 
                     <div>
-                        <h2 className="text-xl font-bold text-white mb-3">10. Contact Information</h2>
+                        <h2 className="text-xl font-bold text-white mb-3">10. Newsletter and Automated Sign-ups</h2>
+                        <p className="text-slate-400">We send our newsletter only after you confirm your subscription by email, and you can unsubscribe at any time using the link in every email. We may block or remove sign-ups, subscriptions and accounts that we reasonably believe are automated or abusive, and we keep a record of blocked addresses so that they cannot repeat the sign-up.</p>
+                    </div>
+
+                    <div>
+                        <h2 className="text-xl font-bold text-white mb-3">11. Immigration and Relocation Information</h2>
+                        <p className="text-slate-400">Information on our Visa Pathways and Care Relocation pages, in our AI chat and in our job listings is general information only and is not immigration or legal advice. Rules, fees and thresholds change, and some content describes proposals that are not yet law. Each page shows when it was last checked. You must confirm details on the official government website, or with an adviser regulated in the relevant country, before you act. We cannot promise that any employer, visa or job will be available to you.</p>
+                    </div>
+
+                    <div>
+                        <h2 className="text-xl font-bold text-white mb-3">12. Contact Information</h2>
                         <p className="text-slate-400">For legal inquiries: <a href="mailto:legal@bluskyeconsult.com" className="text-primary-400">legal@bluskyeconsult.com</a></p>
                     </div>
 
