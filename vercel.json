@@ -60,6 +60,19 @@
       "maxDuration": 30
     }
   },
+  "redirects": [
+    { "source": "/tag/:path*", "destination": "/blog", "permanent": true },
+    { "source": "/category/:path*", "destination": "/blog", "permanent": true },
+    { "source": "/author/:path*", "destination": "/blog", "permanent": true },
+    { "source": "/feed", "destination": "/blog", "permanent": true },
+    { "source": "/feed/", "destination": "/blog", "permanent": true },
+    { "source": "/comments/feed", "destination": "/blog", "permanent": true },
+    { "source": "/comments/feed/", "destination": "/blog", "permanent": true },
+    { "source": "/hidden-saboteurs-workplace-social-deception", "destination": "/blog", "permanent": true },
+    { "source": "/hidden-saboteurs-workplace-social-deception/", "destination": "/blog", "permanent": true },
+    { "source": "/changing-workforce-trends-uk-africa", "destination": "/blog", "permanent": true },
+    { "source": "/changing-workforce-trends-uk-africa/", "destination": "/blog", "permanent": true }
+  ],
   "rewrites": [
     {
       "source": "/.env",

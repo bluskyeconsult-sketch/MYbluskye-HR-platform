@@ -16,7 +16,7 @@
 import { useState } from 'react';
 import { ExternalLink, Search, AlertTriangle, CheckCircle, Clock, HelpCircle } from 'lucide-react';
 
-const LAST_CHECKED = '10 October 2026';
+const LAST_CHECKED = '6 November 2026';
 
 const STATUS = {
     inforce:  { label: 'In force',            cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', Icon: CheckCircle },
@@ -27,15 +27,16 @@ const STATUS = {
 const COUNTRIES = [
     {
         id: 'uk', name: 'United Kingdom', flag: '🇬🇧',
-        headline: 'Settlement rules are being reworked ("earned settlement"). The 10-year proposal is not law yet, so the current 5-year route still applies.',
+        headline: 'On 2 November 2026 the Home Office confirmed its "earned settlement" plan: a 10-year baseline. It is not law yet (rules are due to be laid from December 2026 and phased in over 2027), so check which rules apply to you.',
         facts: [
-            { s: 'inforce',  t: 'English at B2 (speaking and listening) will be required for settlement on affected routes from 26 March 2027.' },
+            { s: 'proposed', t: 'English at B2 is due to be required for settlement applications from 26 March 2027.' },
             { s: 'inforce',  t: 'Indefinite leave to remain (ILR) application fee: £3,226 per person from 8 April 2026, dependants pay the same.' },
-            { s: 'proposed', t: 'Baseline wait to settle would rise from 5 to 10 years of qualifying residence.' },
-            { s: 'proposed', t: 'Shorter routes: about 5 years for earnings above £50,270 (three years running); about 3 years above £125,140.' },
-            { s: 'proposed', t: 'Longer routes: up to 15 years for jobs below degree level (RQF 6), which would include much of health and care.' },
-            { s: 'proposed', t: 'A minimum taxable income of £12,570 across the qualifying window; the 10-year long-residence route would be removed.' },
-            { s: 'proposed', t: 'Whether people already in the UK are protected has not been decided. Start date: "later in 2026" at the earliest, no firm timetable.' },
+            { s: 'proposed', t: 'Baseline wait to settle rises from 5 to 10 years of qualifying residence, with an income test of £12,571 a year in 5 of the last 7 years.' },
+            { s: 'proposed', t: 'Shorter routes: 5 years for higher earners (above £50,271 in 3 of the last 5 years), eligible public service workers, or people with a British connection; 3 years for exceptional contribution (£125,141 or the Highest Talent group).' },
+            { s: 'proposed', t: '20 years for people with an adult immigration breach or public funds use. The earlier idea of 15 years for jobs below degree level has been dropped.' },
+            { s: 'proposed', t: 'Care workers who entered or switched to the route before 12 May 2025 and meet the £25,000 salary and sponsorship rules keep a 5-year route; later arrivals face 10 years. There is no general protection for everyone already in the UK.' },
+            { s: 'proposed', t: 'Time on Student, Graduate or visitor routes will not count, and good character, no outstanding government debt and the Life in the UK test are required.' },
+            { s: 'proposed', t: 'Timing: changes begin to be laid from the December 2026 Immigration Rules and are implemented over 2027. Detailed rules and any fee changes are still to come.' },
             { s: 'reported', t: 'Skilled Worker visa generally needs a graduate-level (RQF 6) job, a licensed sponsor and a salary of about £41,700 or the occupation\'s going rate, whichever is higher. The overseas care worker route closed to new applicants in July 2025.' }
         ],
         steps: [
@@ -83,8 +84,8 @@ const COUNTRIES = [
         headline: 'The Skills in Demand visa replaced the 482 visa on 7 December 2025.',
         facts: [
             { s: 'reported', t: 'Three streams: Core Skills (occupations on the Core Skills Occupation List), Specialist Skills (no list), and Labour Agreement (due to be renamed Essential Skills in 2026).' },
-            { s: 'reported', t: 'Core Skills Income Threshold: AUD 73,150 for 2025-26, indexed each year. Specialist Skills: at least AUD 135,000.' },
-            { s: 'reported', t: 'Visa lasts four years (five for Hong Kong and BNO passport holders). Application charge: AUD 3,115 for the main applicant.' },
+            { s: 'reported', t: 'Income thresholds are indexed each year. One source for 1 July 2026 gives Core Skills AUD 79,423 and Specialist Skills AUD 146,576; confirm on the Home Affairs site.' },
+            { s: 'reported', t: 'Visa lasts four years (five for Hong Kong and BNO passport holders). Application charge from 1 July 2026 is reported as AUD 4,015 for the main applicant; confirm on the Home Affairs site.' },
             { s: 'reported', t: 'Minimum work experience reduced from two years to one, gained within the last five years.' },
             { s: 'reported', t: 'Permanent residence is available through the Employer Nomination Scheme. Existing 482 holders can move to the new visa at their next renewal.' },
             { s: 'reported', t: 'Not confirmed in the sources checked: English requirements and current processing times. Use the Department of Home Affairs for these.' }

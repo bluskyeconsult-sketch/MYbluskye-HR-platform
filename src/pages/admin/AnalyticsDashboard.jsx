@@ -91,6 +91,16 @@ async function fetchAll(build) {
     return rows;
 }
 
+// NEW (2026-11-06): a visit with no identifiable browser, on a desktop, that viewed one page and stayed 0 seconds is almost
+// certainly a crawler or relay, not a person (on 6 Nov, 48 of the 50 latest visits fitted this, from one address range).
+// Mobile visits are never treated this way, because in-app browsers (Instagram, Facebook) also report no browser name.
+function isCrawlerLike(s) {
+    const browser = String(s.browser || '').toLowerCase();
+    const unidentified = !browser || browser === 'unknown';
+    const desktop = !s.device_type || s.device_type === 'desktop';
+    return unidentified && desktop && (s.page_count || 0) <= 1 && (s.duration_seconds || 0) <= 1;
+}
+
 export default function AnalyticsDashboard() {
     const [stats, setStats] = useState({ 
         totalUsers: 0, 
@@ -112,21 +122,36 @@ export default function AnalyticsDashboard() {
     const [days, setDays] = useState(30);
     const [activeTab, setActiveTab] = useState('overview');
     const [searchTerm, setSearchTerm] = useState('');
+    const [hideCrawlers, setHideCrawlers] = useState(true);
+    const [excludedCount, setExcludedCount] = useState(0);
 
     useEffect(() => {
         loadAllAnalytics();
-    }, [days]);
+    }, [days, hideCrawlers]);
 
     async function loadAllAnalytics() {
         setRefreshing(true);
         try {
+            // Read the sessions once, set aside the crawler-like ones (unless the switch is off), and give every
+            // panel the same cleaned set so all the numbers agree.
+            const cutoffAll = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+            const allSessions = await fetchAll(() => supabase
+                .from('analytics_sessions')
+                .select('id, session_id, duration_seconds, page_count, browser, device_type, country, city, start_time')
+                .gte('start_time', cutoffAll));
+            const crawlerIds = new Set();
+            const keep = hideCrawlers ? allSessions.filter(sess => {
+                if (isCrawlerLike(sess)) { crawlerIds.add(sess.session_id); return false; }
+                return true;
+            }) : allSessions;
+            setExcludedCount(allSessions.length - keep.length);
             await Promise.all([
-                loadBasicStats(),
-                loadPageViews(),
+                loadBasicStats(keep, crawlerIds),
+                loadPageViews(crawlerIds),
                 loadGrowthData(),
-                loadLocationStats(),
-                loadDeviceStats(),
-                loadRecentVisitors()
+                loadLocationStats(keep),
+                loadDeviceStats(keep),
+                loadRecentVisitors(crawlerIds)
             ]);
         } catch (error) {
             console.error('Error loading analytics:', error);
@@ -136,14 +161,13 @@ export default function AnalyticsDashboard() {
         }
     }
 
-    async function loadBasicStats() {
+    async function loadBasicStats(sessions, crawlerIds) {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
-        const [userCount, jobCount, appCount, pageCount] = await Promise.all([
+        const [userCount, jobCount, appCount] = await Promise.all([
             supabase.from('profiles').select('*', { count: 'exact', head: true }),
             supabase.from('jobs').select('*', { count: 'exact', head: true }),
-            supabase.from('job_applications').select('*', { count: 'exact', head: true }),
-            supabase.from('analytics_page_views').select('*', { count: 'exact', head: true }).gte('created_at', cutoff).not('page_path', 'like', '/admin%').not('page_path', 'like', '/secure-admin%')
+            supabase.from('job_applications').select('*', { count: 'exact', head: true })
         ]);
         
         // FIXED (2026-09-04): confirmed via direct schema query that
@@ -151,24 +175,22 @@ export default function AnalyticsDashboard() {
         // query was silently returning zero real rows. session_id is a
         // real column and a reasonable proxy for a unique visitor, since
         // each browser session corresponds to roughly one visitor.
-        const uniqueData = await fetchAll(() => supabase
+        const uniqueDataAll = await fetchAll(() => supabase
             .from('analytics_page_views')
             .select('id, session_id')
             .gte('created_at', cutoff)
             .not('page_path', 'like', '/admin%')
             .not('page_path', 'like', '/secure-admin%'));
         
+        const uniqueData = uniqueDataAll.filter(v => !crawlerIds.has(v.session_id));
         const uniqueVisitors = new Set(uniqueData.map(v => v.session_id)).size;
         
-        // Get session stats
-        const sessions = await fetchAll(() => supabase
-            .from('analytics_sessions')
-            .select('id, duration_seconds, page_count')
-            .gte('start_time', cutoff));
-        
+        // Session stats come from the cleaned set passed in. The average counts only visits that viewed 2 or more pages and
+        // lasted under 2 hours: a tab left open for days (or a one-page visit) would otherwise distort it.
         const totalSessions = sessions.length;
-        const avgDuration = sessions?.reduce((acc, s) => acc + (s.duration_seconds || 0), 0) / (totalSessions || 1);
-        const avgMinutes = Math.floor(avgDuration / 60);
+        const timed = sessions.filter(s => (s.page_count || 0) >= 2 && (s.duration_seconds || 0) > 0 && (s.duration_seconds || 0) <= 7200);
+        const avgDuration = timed.reduce((acc, s) => acc + (s.duration_seconds || 0), 0) / (timed.length || 1);
+        const avgMinutes = Math.round((avgDuration / 60) * 10) / 10;
         
         // Calculate bounce rate (sessions with only 1 page view)
         // A session with one page view (or none recorded) counts as a bounce
@@ -179,7 +201,7 @@ export default function AnalyticsDashboard() {
             totalUsers: userCount.count || 0,
             totalJobs: jobCount.count || 0,
             totalApplications: appCount.count || 0,
-            totalVisits: pageCount.count || 0,
+            totalVisits: uniqueData.length,
             uniqueVisitors: uniqueVisitors,
             totalSessions: totalSessions,
             avgSessionDuration: avgMinutes,
@@ -187,7 +209,7 @@ export default function AnalyticsDashboard() {
         });
     }
 
-    async function loadPageViews() {
+    async function loadPageViews(crawlerIds) {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
         // FIXED: confirmed real columns are page_path and time_on_page,
@@ -195,13 +217,13 @@ export default function AnalyticsDashboard() {
         // rows on every call.
         const pages = await fetchAll(() => supabase
             .from('analytics_page_views')
-            .select('id, page_path, time_on_page')
+            .select('id, page_path, time_on_page, session_id')
             .gte('created_at', cutoff)
             .not('page_path', 'like', '/admin%')
             .not('page_path', 'like', '/secure-admin%'));
         
         const pageStats = {};
-        (pages || []).forEach(p => {
+        (pages || []).filter(p => !crawlerIds.has(p.session_id)).forEach(p => {
             pageStats[p.page_path] = (pageStats[p.page_path] || 0) + 1;
         });
         
@@ -227,7 +249,7 @@ export default function AnalyticsDashboard() {
         setGrowthData(Object.entries(daily).slice(0, 14));
     }
 
-    async function loadLocationStats() {
+    async function loadLocationStats(sessions) {
         // FIXED (2026-09-20): confirmed via a fresh, direct schema
         // query that the earlier claim here was genuinely wrong -
         // analytics_sessions does have country/city/ip_address columns.
@@ -235,14 +257,8 @@ export default function AnalyticsDashboard() {
         // never having been built against the real, correct table.
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-        const sessions = await fetchAll(() => supabase
-            .from('analytics_sessions')
-            .select('id, country, city')
-            .gte('start_time', cutoff)
-            .not('country', 'is', null));
-
         const counts = {};
-        (sessions || []).forEach(s => {
+        (sessions || []).filter(s => s.country).forEach(s => {
             const key = s.country;
             counts[key] = (counts[key] || 0) + 1;
         });
@@ -255,7 +271,7 @@ export default function AnalyticsDashboard() {
         setLocationStats(sorted);
     }
 
-    async function loadDeviceStats() {
+    async function loadDeviceStats(sessions) {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
         // FIXED (2026-09-19): confirmed a real, direct contradiction -
@@ -267,11 +283,6 @@ export default function AnalyticsDashboard() {
         // analytics_sessions was never broken this way and is already
         // proven correct by Recent Visitors using it successfully -
         // switched to the same, genuinely reliable source.
-        const sessions = await fetchAll(() => supabase
-            .from('analytics_sessions')
-            .select('id, device_type')
-            .gte('start_time', cutoff));
-        
         const devices = { desktop: 0, mobile: 0, tablet: 0 };
         (sessions || []).forEach(s => {
             if (s.device_type === 'desktop') devices.desktop++;
@@ -287,7 +298,7 @@ export default function AnalyticsDashboard() {
         });
     }
 
-    async function loadRecentVisitors() {
+    async function loadRecentVisitors(crawlerIds) {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         
         const { data: sessions } = await supabase
@@ -295,7 +306,7 @@ export default function AnalyticsDashboard() {
             .select('*')
             .gte('start_time', cutoff)
             .order('start_time', { ascending: false })
-            .limit(50);
+            .limit(400);
         
         // FIXED (2026-09-30): confirmed these columns genuinely DO
         // exist and ARE populated - loadLocationStats above already
@@ -303,7 +314,7 @@ export default function AnalyticsDashboard() {
         // action genuinely inserts ip_address/country/city on every
         // new session. This mapping was simply never updated after
         // that confirmation to actually include them.
-        const visitors = (sessions || []).map(session => ({
+        const visitors = (sessions || []).filter(session => !crawlerIds.has(session.session_id)).slice(0, 50).map(session => ({
             time: session.start_time,
             device: session.device_type || 'desktop',
             browser: session.browser || 'unknown',
@@ -362,7 +373,11 @@ export default function AnalyticsDashboard() {
                     <h1 className="text-2xl font-bold text-white">Analytics Dashboard</h1>
                     <p className="text-slate-400">Visitor statistics, location tracking, IP logs, and user behavior</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="A desktop visit with no identifiable browser that viewed one page for 0 seconds">
+                        <input type="checkbox" checked={hideCrawlers} onChange={(e) => setHideCrawlers(e.target.checked)} />
+                        Hide likely crawlers{hideCrawlers && excludedCount > 0 ? ` (${excludedCount} left out)` : ''}
+                    </label>
                     <select 
                         value={days} 
                         onChange={(e) => setDays(parseInt(e.target.value))} 
