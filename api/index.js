@@ -255,6 +255,18 @@ function isValidEmail(email) {
     return emailRegex.test(email);
 }
 
+// NEW (2026-11-06): a genuine sign-up comes from a page on this site, so the browser sends our address as Origin or Referer.
+// Scripts that post straight to the API usually send neither. A determined attacker can fake both, so this is only one layer.
+function requestComesFromOurSite(req) {
+    const raw = String((req.headers && (req.headers.origin || req.headers.referer)) || '');
+    if (!raw) return false;
+    try {
+        const host = new URL(raw).hostname.toLowerCase();
+        const siteHost = new URL(process.env.SITE_URL || 'https://www.bluskyeconsult.com').hostname.toLowerCase().replace(/^www\./, '');
+        return host === siteHost || host === 'www.' + siteHost || host === 'bluskyeconsult.com' || host === 'www.bluskyeconsult.com' || host === 'localhost';
+    } catch { return false; }
+}
+
 // NEW (2026-11-04): signs of an automated or scraped newsletter sign-up. Only strong signals are used, so a real
 // person is very unlikely to be turned away: a Gmail address with 3 or more dots, a phone-number text-message address,
 // a random-looking name, a name with a run of 5 or more consonants, or a hidden trap field that only a script fills in.
@@ -265,7 +277,9 @@ function looksLikeBotSignup(email, name, trap) {
     if ((domain === 'gmail.com' || domain === 'googlemail.com') && (local.match(/\./g) || []).length >= 3) return 'gmail-dots';
     if (/^\+?\d{7,}$/.test(local)) return 'phone-address';
     const n = String(name || '').trim();
-    if (/^[A-Za-z0-9]{8,16}$/.test(n) && (n.slice(1).match(/[A-Z]/g) || []).length >= 2) return 'random-name';
+    // random strings such as "bu6w8q942G" or "DkgybUVkQC": one word, 8 to 16 letters/digits, either with a digit among
+    // letters or with two or more capitals after the first letter. Real names contain neither.
+    if (/^[A-Za-z0-9]{8,16}$/.test(n) && ((/\d/.test(n) && /[A-Za-z]/.test(n)) || (n.slice(1).match(/[A-Z]/g) || []).length >= 2)) return 'random-name';
     for (const tok of n.split(/\s+/)) {
         if (/^[A-Za-z]{5,}$/.test(tok) && /[^aeiouy]{5,}/i.test(tok)) return 'odd-name';
     }
@@ -16010,7 +16024,7 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 100) : null;
 
         // NEW (2026-11-04): drop automated sign-ups quietly (see looksLikeBotSignup). The sender gets the normal reply.
-        const botSign = looksLikeBotSignup(email, name, (req.body || {}).company_website);
+        const botSign = looksLikeBotSignup(email, name, (req.body || {}).company_website) || (requestComesFromOurSite(req) ? null : 'not-from-site');
         if (botSign) {
             console.warn('newsletter-subscribe: dropped automated sign-up (' + botSign + ')');
             return res.status(200).json({ success: true, message: 'Please check your email and confirm your subscription.' });
@@ -16021,6 +16035,12 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         const subRate = await checkIpRateLimit(supabaseClient, `newsletter:${getRequestIP(req)}`, 5);
         if (!subRate.allowed) {
             return res.status(429).json({ error: 'Too many sign-up attempts. Please try again later.' });
+        }
+        // NEW (2026-11-06): sitewide ceiling. Each sign-up sends a confirmation email to a stranger, so a flood is capped at
+        // 8 an hour for the whole site, however many addresses the sender rotates. Real sign-ups are far fewer than this.
+        const siteRate = await checkIpRateLimit(supabaseClient, 'newsletter-sitewide', 8);
+        if (!siteRate.allowed) {
+            return res.status(429).json({ error: 'We are receiving a lot of sign-ups right now. Please try again in an hour.' });
         }
         
         try {
