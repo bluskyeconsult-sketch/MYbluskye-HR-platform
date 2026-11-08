@@ -251,7 +251,7 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     const maxPerRun = Math.max(1, parseInt(process.env.ENGAGEMENT_MAX_PER_RUN || '100') || 100);
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
     try {
         const mode = await resolveEngagementMode(supabase);
         if (mode === 'off') return res.status(200).json({ success: true, mode, message: 'Member engagement emails are switched off.' });

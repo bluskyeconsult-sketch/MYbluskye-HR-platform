@@ -27,7 +27,7 @@ const daysFrom = (dateStr, today) => Math.round((new Date(dateStr + 'T00:00:00Z'
 export default async function handler(req, res) {
     // Refuse to run at all if the secret is not set, so "Bearer undefined" can never get in.
     if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
     try {
         const { data: settingsRows, error: sErr } = await supabase.from('finance_settings').select('key, value');
