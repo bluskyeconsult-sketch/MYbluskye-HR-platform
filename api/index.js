@@ -18980,10 +18980,24 @@ export default async function handler(req, res) {
         });
     }
     
+    // NEW (2026-11-08): a scanner sent GET requests with ?action= and no body, and many handlers read req.body without a
+    // default, so each one crashed with a 500. An empty body is now treated as {} for every action, and a leftover
+    // "body was missing" crash is answered with a 400 instead of a 500.
+    let noBody = false;
+    try {
+        const hasBody = req.body !== undefined && req.body !== null;
+        if (!hasBody) { noBody = true; try { req.body = {}; } catch (e) { Object.defineProperty(req, 'body', { value: {}, writable: true, configurable: true }); } }
+    } catch (e) { /* if the body cannot be set, the catch below still answers with a 400 */ }
+
     try {
         await handlers[action](req, res);
         if (!isCrawlerPreview && action !== 'honeypot') await threatGuard.after(req, res, requestIP); // counts repeated 403/429 answers
     } catch (error) {
+        if (noBody && error instanceof TypeError && /req\.body|destructure|undefined|null/i.test(String(error.message))) {
+            console.warn(`Request without a body for ${action} (answered 400)`);
+            if (!res.headersSent) return res.status(400).json({ error: 'This request needs data. Please use the website.' });
+            return;
+        }
         console.error(`Error in ${action}:`, error);
         // SECURITY (2026-10-13): do not show internal error text to the visitor.
         return res.status(500).json({ error: 'Something went wrong. Please try again.' });
