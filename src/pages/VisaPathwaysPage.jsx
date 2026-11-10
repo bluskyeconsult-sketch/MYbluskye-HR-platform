@@ -16,7 +16,7 @@
 import { useState } from 'react';
 import { ExternalLink, Search, AlertTriangle, CheckCircle, Clock, HelpCircle } from 'lucide-react';
 
-const LAST_CHECKED = '6 November 2026';
+const LAST_CHECKED = '9 November 2026';
 
 const STATUS = {
     inforce:  { label: 'In force',            cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', Icon: CheckCircle },
@@ -37,7 +37,7 @@ const COUNTRIES = [
             { s: 'proposed', t: 'Care workers who entered or switched to the route before 12 May 2025 and meet the £25,000 salary and sponsorship rules keep a 5-year route; later arrivals face 10 years. There is no general protection for everyone already in the UK.' },
             { s: 'proposed', t: 'Time on Student, Graduate or visitor routes will not count, and good character, no outstanding government debt and the Life in the UK test are required.' },
             { s: 'proposed', t: 'Timing: changes begin to be laid from the December 2026 Immigration Rules and are implemented over 2027. Detailed rules and any fee changes are still to come.' },
-            { s: 'reported', t: 'Skilled Worker visa generally needs a graduate-level (RQF 6) job, a licensed sponsor and a salary of about £41,700 or the occupation\'s going rate, whichever is higher. The overseas care worker route closed to new applicants in July 2025.' }
+            { s: 'reported', t: 'Skilled Worker visa generally needs a graduate-level (RQF 6) job, a licensed sponsor and a salary of at least £41,700 or the occupation\'s going rate, whichever is higher. Two independent sources (NHS Employers and a law-firm guide) agree the £41,700 level has applied since 22 July 2025. The overseas care worker route closed to new overseas applicants on 22 July 2025, and people already in the UK can switch to another sponsor until 22 July 2028 (law-firm report). We could not open gov.uk to check, so confirm there before you act.' }
         ],
         steps: [
             'Find a job that is on the eligible occupations list and an employer with a sponsor licence.',
@@ -84,8 +84,8 @@ const COUNTRIES = [
         headline: 'The Skills in Demand visa replaced the 482 visa on 7 December 2025.',
         facts: [
             { s: 'reported', t: 'Three streams: Core Skills (occupations on the Core Skills Occupation List), Specialist Skills (no list), and Labour Agreement (due to be renamed Essential Skills in 2026).' },
-            { s: 'reported', t: 'Income thresholds are indexed each year. One source for 1 July 2026 gives Core Skills AUD 79,423 and Specialist Skills AUD 146,576; confirm on the Home Affairs site.' },
-            { s: 'reported', t: 'Visa lasts four years (five for Hong Kong and BNO passport holders). Application charge from 1 July 2026 is reported as AUD 4,015 for the main applicant; confirm on the Home Affairs site.' },
+            { s: 'reported', t: 'Income thresholds are indexed each year. For 1 July 2026, law-firm alerts give Core Skills AUD 79,423 and Specialist Skills AUD 146,576; confirm on the Home Affairs site.' },
+            { s: 'reported', t: 'Visa lasts four years (five for Hong Kong and BNO passport holders). Application charge from 1 July 2026 is reported by two law firms as AUD 4,015 for the main applicant and each adult dependant, and AUD 1,005 for each child under 18; confirm on the Home Affairs site.' },
             { s: 'reported', t: 'Minimum work experience reduced from two years to one, gained within the last five years.' },
             { s: 'reported', t: 'Permanent residence is available through the Employer Nomination Scheme. Existing 482 holders can move to the new visa at their next renewal.' },
             { s: 'reported', t: 'Not confirmed in the sources checked: English requirements and current processing times. Use the Department of Home Affairs for these.' }

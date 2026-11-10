@@ -11,7 +11,56 @@ import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { ExternalLink, AlertTriangle, CheckCircle, HelpCircle, ShieldAlert, Briefcase, Download, Printer } from 'lucide-react';
 
-const LAST_CHECKED = '6 November 2026';
+const LAST_CHECKED = '9 November 2026';
+
+// NEW (2026-11-09): Rural Community Immigration Program (RCIP). IRCC publishes no national employer list: each community designates
+// its own employers and publishes its own list. We link to the community source, we do not copy the names (they go stale).
+// 'official' = a community or economic development page that we opened and that covers RCIP employers. null = not yet confirmed by us.
+// Confirmed 9 Nov 2026: Claresholm and Sudbury pages opened; North Bay page opened (explains designation); Brandon, Moose Jaw, Timmins, Peace Liard
+// links come from official sites or search titles but could not be fully opened. Pictou, Sault Ste. Marie, Steinbach, Altona/Rhineland,
+// West Kootenay, North Okanagan Shuswap and Thunder Bay still show a news report. Move each link to 'official' when you confirm it.
+// 'news' = a secondary news report that names the employers, shown only when no official page is confirmed.
+// To update: edit RCIP_CHECKED and RCIP_COMMUNITIES only.
+const RCIP_CHECKED = '9 November 2026';
+const RCIP_COMMUNITIES = [
+    { name: 'Pictou County', prov: 'Nova Scotia', official: null, news: 'https://www.cicnews.com/2025/08/peace-liard-north-okanagan-shuswap-and-pictou-county-reveal-designated-employers-for-rural-pathway-to-permanent-residence-0858929.html' },
+    { name: 'North Bay', prov: 'Ontario', official: 'https://nbrcip.ca/employers/', news: null, note: 'Reports monthly intake periods in 2026 with a limit on community recommendations. Employers may recommend up to 3 candidates a year (5 in healthcare). This page explains designation and does not itself show the employer list.' },
+    { name: 'Sudbury', prov: 'Ontario', official: 'https://investsudbury.ca/why-sudbury/newcomers/employers-and-rcip-fcip/', news: null, note: 'This community page explains how employers become designated. It does not itself list employers, so ask the Sudbury office or look for its list.' },
+    { name: 'Timmins', prov: 'Ontario', official: 'https://timminsedc.com/wp-content/uploads/2023/04/Designated-Employer-List-Timmins-Regional-RCIP-FCIP-1.pdf', news: null, note: 'This PDF has an older upload date. Check the Timmins economic development site for the current list.' },
+    { name: 'Sault Ste. Marie', prov: 'Ontario', official: null, news: 'https://www.cicnews.com/2025/05/sault-ste-marie-announces-designated-employers-for-rural-pathway-to-permanent-residence-0555019.html', note: 'Reported to open short application windows. Check the dates before you plan.' },
+    { name: 'Thunder Bay', prov: 'Ontario', official: null, news: 'https://www.canadim.com/news/thunder-bay-rcip-designated-employer-list/', note: 'A law-firm report says the list is on the Thunder Bay Community Economic Development Commission site (gotothunderbay.ca). We could not open that site to confirm.' },
+    { name: 'Steinbach', prov: 'Manitoba', official: null, news: 'https://www.cicnews.com/2025/05/steinbach-reveals-designated-employers-for-rural-pathway-to-permanent-residence-0555904.html' },
+    { name: 'Altona/Rhineland', prov: 'Manitoba', official: null, news: 'https://www.cicnews.com/2025/07/altona-rhineland-in-manitoba-announces-priority-sectors-and-designated-employers-for-rural-pathway-to-permanent-residence-0758247.html' },
+    { name: 'Brandon', prov: 'Manitoba', official: 'https://economicdevelopmentbrandon.com/rcip/rcip-list-of-designated-employers', news: null, note: 'Economic Development Brandon page titled List of Designated Employers. Its site blocked our automated check, so open it yourself to see the current list.' },
+    { name: 'Moose Jaw', prov: 'Saskatchewan', official: 'https://rcip.mjchamber.com/', news: null, note: 'The City of Moose Jaw immigration page links to this program site. We could not open it to check for an employer list.' },
+    { name: 'Claresholm', prov: 'Alberta', official: 'https://www.claresholm.ca/business/labour-resources/rural-community-immigration-pilot', news: null, note: 'Small yearly quota. Its health care employers were listed as not hiring when we checked.' },
+    { name: 'West Kootenay', prov: 'British Columbia', official: null, news: 'https://getgis.org/news/canadas-west-kootenay-reveals-designated-employers-for-rural-pr-pathway' },
+    { name: 'North Okanagan Shuswap', prov: 'British Columbia', official: null, news: 'https://www.cicnews.com/2025/08/peace-liard-north-okanagan-shuswap-and-pictou-county-reveal-designated-employers-for-rural-pathway-to-permanent-residence-0858929.html' },
+    { name: 'Peace Liard', prov: 'British Columbia', official: 'https://www.northernrockies.ca/media/file/one-pager', news: null, note: 'Program information from the Northern Rockies municipality (led by Community Futures Peace Liard and Northern Lights College). It does not mention a public employer list. More at northernrockies.ca/RCIP.' }
+];
+
+function RcipDirectory() {
+    const ext = 'text-primary-400 hover:text-primary-300 text-xs inline-flex items-center gap-1';
+    return (
+        <section className="mt-6 border-t border-slate-800 pt-5" aria-labelledby="rcip">
+            <h3 id="rcip" className="text-white font-semibold text-sm">Rural Community Immigration Program: employers by community</h3>
+            <p className="text-xs text-slate-400 mt-1">There is no single national list of employers. Each of the 14 communities designates its own employers and publishes its own list, so use the community's page and look for roles that match your care job. You apply to the employer directly, the employer must be designated, and the community recommends you. Nobody can sell you a job offer. Checked {RCIP_CHECKED}.</p>
+            <ul className="grid sm:grid-cols-2 gap-3 mt-3">
+                {RCIP_COMMUNITIES.map(x => (
+                    <li key={x.name} className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                        <p className="text-white text-sm font-medium">{x.name} <span className="text-slate-500 font-normal">{x.prov}</span></p>
+                        {x.official
+                            ? <a href={x.official} target="_blank" rel="noopener noreferrer" className={ext + ' mt-1'}>Community page with employer information <ExternalLink className="w-3 h-3" /></a>
+                            : <p className="text-xs text-slate-500 mt-1">We have not yet confirmed this community's own page. Search for its economic development office and RCIP.</p>}
+                        {!x.official && x.news && <a href={x.news} target="_blank" rel="noopener noreferrer" className={ext + ' mt-1'}>News report that names employers (not official, may be out of date) <ExternalLink className="w-3 h-3" /></a>}
+                        {x.note && <p className="text-xs text-amber-200 mt-1">{x.note}</p>}
+                    </li>
+                ))}
+            </ul>
+            <p className="text-xs text-slate-500 mt-3">Lists change and employers fill their places, so a name on a list does not mean there is a job. Confirm on the community page that the employer is currently hiring for your role.</p>
+        </section>
+    );
+}
 
 const STATUS = {
     inforce:  { label: 'Confirmed on official page', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', Icon: CheckCircle },
@@ -23,18 +72,22 @@ const COUNTRIES = [
         id: 'CA', name: 'Canada', flag: '🇨🇦',
         headline: 'Care jobs exist, but recent changes to the low-wage employer-sponsored route may limit which employers can hire from abroad.',
         facts: [
+            { s: 'inforce', t: 'On 9 November 2026 the Canadian government announced that the Rural Community Immigration pilot becomes a permanent program, with a levels-plan target of 5,500 spaces. The release gives no start date and does not say what happens to people already in the pilot. Until the permanent program starts, the pilot rules below apply and may change.' },
+            { s: 'inforce', t: 'Under the pilot, you need a full-time, year-round job offer from an employer designated by one of the participating communities, and the community recommends you. The program does not match candidates with jobs, so you approach employers yourself.' },
+            { s: 'inforce', t: 'Pilot requirements include about 1,560 paid hours of work experience in the past three years (not self-employed), an approved language test (CLB 5 for a TEER 3 job such as Personal Support Worker, NOC 33102), an educational credential or its foreign equivalent, and proof of funds. Check the official pages for your own case.' },
             { s: 'reported', t: 'The pay level that separates the high-wage and low-wage employer-sponsored routes (the LMIA) rose on 17 July 2026. The Ontario threshold is now $36.92 an hour (about $67,194 a year at 35 hours a week), per a law-firm report of the Employment and Social Development Canada change. A job that was high-wage before may now be low-wage.' },
             { s: 'reported', t: 'Low-wage LMIA applications are not processed in a city area where unemployment is 6% or higher. The list of affected cities is updated every quarter (the July to October 2026 list covered 26 cities, and a new one was due from 10 October), so check the current list. Under a temporary measure, eligible employers outside city areas can hire low-wage temporary foreign workers for up to 15% of their workforce instead of the usual 10%. Check the end date of the measure on the official page.' },
             { s: 'reported', t: 'Many care roles (nurse aides, orderlies and patient service associates fall under occupation code NOC 33102) pay below the high-wage level, so these limits can affect which employers can sponsor. Whether they apply to a given job depends on its pay, location and the current rules.' },
             { s: 'reported', t: 'Canadian rules do not allow an employer to charge a worker for the LMIA or for the job. Confirm this for your case on an official page.' }
         ],
         checks: [
+            'For the Rural Community Immigration route, confirm on the community page that the employer is designated and is hiring for your role now.',
             'Ask the employer for the job offer and its LMIA details in writing, and check them on the official Canadian pages.',
             'Find out whether the job is in a city area or a rural area, because the rules differ.',
             'Check whether the pay offered meets the current rate for that province.',
             'Do not pay anyone for an LMIA, a job offer or a place in a queue.'
         ],
-        links: [['Work in Canada (IRCC)', 'https://www.canada.ca/en/immigration-refugees-citizenship/services/work-canada.html'], ['Foreign workers (ESDC)', 'https://www.canada.ca/en/employment-social-development/services/foreign-workers.html'], ['Job Bank', 'https://www.jobbank.gc.ca/'], ['Moving2Canada: July 2026 wage threshold change (report)', 'https://moving2canada.com/2026/07/new-lmia-wage-threshold-july-17/']],
+        links: [['Rural Community Immigration: who can apply (IRCC)', 'https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/rural-franco-pilots/rural-immigration/eligibility.html'], ['Rural Community Immigration: hire a candidate (IRCC)', 'https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/rural-franco-pilots/hire/candidate.html'], ['Work in Canada (IRCC)', 'https://www.canada.ca/en/immigration-refugees-citizenship/services/work-canada.html'], ['Foreign workers (ESDC)', 'https://www.canada.ca/en/employment-social-development/services/foreign-workers.html'], ['Job Bank', 'https://www.jobbank.gc.ca/'], ['Moving2Canada: July 2026 wage threshold change (report)', 'https://moving2canada.com/2026/07/new-lmia-wage-threshold-july-17/']],
         advisers: 'Licensed immigration consultants are regulated by the College of Immigration and Citizenship Consultants. Lawyers are regulated by their provincial law society.'
     },
     {
@@ -98,7 +151,7 @@ const COUNTRIES = [
 const UK_NOW = {
     title: 'Already a sponsored care worker in the UK?',
     facts: [
-        { s: 'reported', t: 'As far as I know, the Health and Care Worker visa closed to new overseas care worker recruitment on 22 July 2025, and people already in the UK on that visa can generally change to another licensed sponsor until 22 July 2028. Please confirm both dates on gov.uk, because I could not re-check them today.' },
+        { s: 'reported', t: 'The Health and Care Worker visa closed to new overseas care worker recruitment on 22 July 2025, and people already in the UK on that visa can generally change to another licensed sponsor until 22 July 2028. A law-firm report (Pinsent Masons) gives both dates. We could not open gov.uk from our tools, so confirm both dates there before you act.' },
         { s: 'reported', t: 'If your sponsor loses its licence or your job ends, you generally have only a limited time to find a new sponsor or leave. Check the current rule on gov.uk before you resign or sign anything.' }
     ],
     links: [['Skilled Worker and Health and Care visas (gov.uk)', 'https://www.gov.uk/skilled-worker-visa'], ['Register of licensed sponsors', 'https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers'], ['UK settlement changes on our Visa Pathways page', '/visa-pathways']]
@@ -201,7 +254,7 @@ export default function CareRelocationPage() {
 
                 <div className="mt-4 flex gap-2 items-start bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p>General information only, not immigration advice. We are not immigration advisers and cannot say whether you qualify. Rules change often. Each point is labelled <b>Confirmed on official page</b> or <b>Reported - verify</b>, and where I could not confirm a figure the page links to the official source instead of guessing. Always check the official page and use a regulated adviser for your own case.</p>
+                    <p>General information only, not immigration advice. We are not immigration advisers and cannot say whether you qualify. Rules change often. Each point is labelled <b>Confirmed on official page</b> or <b>Reported - verify</b>, and where we could not confirm a figure the page links to the official source instead of guessing. Always check the official page and use a regulated adviser for your own case.</p>
                 </div>
 
                 <section className="mt-6 bg-red-500/10 border border-red-500/30 rounded-xl p-5" aria-labelledby="scam">
@@ -221,6 +274,7 @@ export default function CareRelocationPage() {
                     <Link to={`/jobs?country=${c.id}&care=1`} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm"><Briefcase className="w-4 h-4" />See care jobs in {c.name}</Link>
                     <p className="text-xs text-slate-500 mt-1">On the job board, "Verified sponsor employer" means we matched the employer to an official register. "Says it sponsors (unchecked)" means only the advert says so.</p>
                     <EmployerCheck key={c.id} country={c.id} />
+                    {c.id === 'CA' && <RcipDirectory />}
 
                     <h3 className="text-slate-300 text-sm font-semibold mt-5 mb-2">What to know</h3>
                     <ul className="space-y-2">{c.facts.map((x, i) => { const st = STATUS[x.s]; return (

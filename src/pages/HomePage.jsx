@@ -1,4 +1,13 @@
 // src/pages/HomePage.jsx - UNIFIED & OPTIMIZED WITH COMPLETE FIXES
+//
+// CHANGED (2026-11-09):
+// 1. NEW "three doors" block directly under the hero (QuickDoors): Find a job, Check before you act, Learn and grow,
+//    plus a three-point trust strip. Routes used all exist in App.jsx: /jobs, /care-relocation, /visa-pathways, /courses, /blog.
+//    Nothing was removed below it; deeper sections stay as they were.
+// 2. REMOVED invented numbers: when the homepage-stats request failed, the page showed made-up figures (125 users, 82 jobs,
+//    15 courses, 8 assessments) labelled "estimated". It now hides the numbers instead of showing figures we cannot back up.
+// 4. Softened claims we cannot show (verified skills, instant matching, verified candidates, learns from every interaction).
+// 3. Wording that claimed more than we can show was made plainer ("Trusted by professionals worldwide", "Verified positions").
 // ODUSBABA Home Page - Complete with All Features, Error Handling & Fixed Articles
 //
 // FIXED (2026-08-07):
@@ -25,11 +34,10 @@ import { supabase } from '../lib/supabase';
 import { 
     Briefcase, Users, BookOpen, FileText, TrendingUp, Award, Globe, 
     Zap, Shield, Sparkles, ChevronRight, ArrowRight, Calendar, Star,
-    AlertCircle, RefreshCw
+    AlertCircle, RefreshCw, Search, GraduationCap, CheckCircle
 } from 'lucide-react';
 import HomeHero from '../components/HomeHero';
 import TrendingCorner from '../components/TrendingCorner';
-import GlobalTrendsWidget from '../components/GlobalTrendsWidget';
 import CTASection from '../components/CTASection';
 import CinematicTextAdvert from '../components/CinematicTextAdvert';
 
@@ -47,6 +55,41 @@ const itemVariants = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
 };
 
+// NEW (2026-11-09): the first thing a visitor sees below the hero. One question, three doors, three proof points.
+function QuickDoors() {
+    const doors = [
+        { to: '/jobs', icon: Briefcase, title: 'Find a job', text: 'Search jobs, including care roles with sponsor-verified employers.', cta: 'See jobs', tint: 'bg-primary-500/10', ico: 'text-primary-400' },
+        { to: '/care-relocation', icon: Search, title: 'Check before you act', text: 'Check an employer, a visa rule or a scam warning. Every fact is dated and labelled.', cta: 'Open the checker', tint: 'bg-emerald-500/10', ico: 'text-emerald-400', second: { to: '/visa-pathways', label: 'Visa pathways' } },
+        { to: '/courses', icon: GraduationCap, title: 'Learn and grow', text: 'Courses, articles and tools for your career or your team.', cta: 'Start learning', tint: 'bg-purple-500/10', ico: 'text-purple-400', second: { to: '/blog', label: 'Read articles' } }
+    ];
+    return (
+        <section className="w-full max-w-7xl mx-auto px-4 pt-10 sm:pt-14" aria-labelledby="quick-doors">
+            <div className="text-center mb-6 sm:mb-8">
+                <h2 id="quick-doors" className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">What do you need today?</h2>
+                <p className="text-slate-400 text-sm sm:text-base mt-2">Pick one. Everything else is a click away.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                {doors.map(d => (
+                    <div key={d.title} className="bg-slate-900 border border-slate-700/60 rounded-2xl p-5 sm:p-6 flex flex-col hover:border-primary-500/40 transition">
+                        <div className={`w-12 h-12 rounded-xl ${d.tint} flex items-center justify-center mb-4`}><d.icon className={`w-6 h-6 ${d.ico}`} /></div>
+                        <h3 className="text-xl font-semibold text-white">{d.title}</h3>
+                        <p className="text-slate-400 text-sm mt-2 flex-1">{d.text}</p>
+                        <div className="mt-5 flex flex-wrap items-center gap-3">
+                            <Link to={d.to} className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm font-medium transition">{d.cta} <ArrowRight className="w-4 h-4" /></Link>
+                            {d.second && <Link to={d.second.to} className="text-primary-400 hover:text-primary-300 text-sm">{d.second.label}</Link>}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-6 sm:mt-8 pt-5 border-t border-slate-800">
+                <div className="flex gap-3 items-start"><CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" /><p className="text-sm text-slate-400"><b className="text-white block">Dated, labelled facts</b>Each fact shows when it was last checked and whether it is confirmed on an official page or only reported.</p></div>
+                <div className="flex gap-3 items-start"><Shield className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" /><p className="text-sm text-slate-400"><b className="text-white block">Verified sponsor tag</b>Shown only when an employer matches an official register.</p></div>
+                <div className="flex gap-3 items-start"><Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" /><p className="text-sm text-slate-400"><b className="text-white block">Private by design</b>The care relocation fact sheet is built in your browser and nothing is sent.</p></div>
+            </div>
+        </section>
+    );
+}
+
 export default function HomePage() {
     const [stats, setStats] = useState({
         activeUsers: 0,
@@ -60,7 +103,6 @@ export default function HomePage() {
         error: null
     });
     const [articles, setArticles] = useState([]);
-    const [recentCourses, setRecentCourses] = useState([]);
     const [countryStats, setCountryStats] = useState([]);
     const [isStatsVisible, setIsStatsVisible] = useState(false);
     const [isFeaturesVisible, setIsFeaturesVisible] = useState(false);
@@ -78,26 +120,22 @@ export default function HomePage() {
         { code: 'AU', name: 'Australia', flag: '🇦🇺' },
         { code: 'DE', name: 'Germany', flag: '🇩🇪' },
         { code: 'FR', name: 'France', flag: '🇫🇷' },
-        { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
-        { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
-        // NEW (2026-10-23): remote/worldwide jobs and countries without their own card were counted nowhere
-        // (about 2,200 live jobs). This card counts every job whose country is not one of the eight above.
-        { code: 'OTHER', name: 'Worldwide & Other', flag: '🌍' }
+        { code: 'IE', name: 'Ireland', flag: '🇮🇪' }
     ], []);
 
     const features = useMemo(() => [
         { 
             icon: Zap, 
             title: 'AI-Powered Intelligence', 
-            description: 'ODUSBABA learns from every interaction to provide smarter recommendations',
+            description: 'AI tools for your career, your job search and your courses',
             color: 'primary',
             iconColor: 'text-primary-400',
             bgColor: 'bg-primary-500/10'
         },
         { 
             icon: Shield, 
-            title: 'Governed Trust', 
-            description: 'Every skill verified through AI and human oversight',
+            title: 'Sources You Can Check', 
+            description: 'Facts shown with their source, a last-checked date and a clear label',
             color: 'emerald',
             iconColor: 'text-emerald-400',
             bgColor: 'bg-emerald-500/10'
@@ -105,15 +143,15 @@ export default function HomePage() {
         { 
             icon: Globe, 
             title: 'Global Workforce', 
-            description: 'Connect with professionals from around the world',
+            description: 'Jobs and information across the United Kingdom, Canada, Australia, Ireland and more',
             color: 'blue',
             iconColor: 'text-blue-400',
             bgColor: 'bg-blue-500/10'
         },
         { 
             icon: TrendingUp, 
-            title: 'Real-Time Matching', 
-            description: 'Instant job and skill matching powered by AI',
+            title: 'Focused Job Search', 
+            description: 'Search jobs by country, with care roles and verified sponsor tags',
             color: 'amber',
             iconColor: 'text-amber-400',
             bgColor: 'bg-amber-500/10'
@@ -142,7 +180,7 @@ export default function HomePage() {
             icon: Briefcase,
             value: stats.jobsPosted,
             label: 'Jobs Posted',
-            description: 'Verified positions',
+            description: 'Active listings',
             color: 'text-emerald-400',
             bgColor: 'bg-emerald-500/10'
         },
@@ -158,7 +196,7 @@ export default function HomePage() {
             icon: FileText,
             value: stats.assessments,
             label: 'Assessments',
-            description: 'Skills verified',
+            description: 'Available to take',
             color: 'text-purple-400',
             bgColor: 'bg-purple-500/10'
         }
@@ -197,13 +235,14 @@ export default function HomePage() {
         } catch (error) {
             console.error('Stats fetch error:', error);
             // Use fallback data
+            // CHANGED (2026-11-09): no invented figures. Zeros are never shown: the stats section hides itself when fallback is true.
             setStats({
-                activeUsers: 125,
-                jobsPosted: 82,
-                courses: 15,
-                assessments: 8,
-                earlyAdopters: 45,
-                testerSpots: 55,
+                activeUsers: 0,
+                jobsPosted: 0,
+                courses: 0,
+                assessments: 0,
+                earlyAdopters: 0,
+                testerSpots: 0,
                 loading: false,
                 fallback: true,
                 error: error.message
@@ -227,13 +266,10 @@ export default function HomePage() {
                         // schema query and matching live console 400
                         // errors that country_code is the real column -
                         // source_country doesn't exist on the jobs table.
-                        let countQuery = supabase
+                        const { count, error } = await supabase
                             .from('jobs')
-                            .select('id', { count: 'exact', head: true });
-                        countQuery = country.code === 'OTHER'
-                            ? countQuery.not('country_code', 'in', `(${countries.filter(c => c.code !== 'OTHER').map(c => c.code).join(',')})`)
-                            : countQuery.eq('country_code', country.code);
-                        const { count, error } = await countQuery
+                            .select('id', { count: 'exact', head: true })
+                            .eq('country_code', country.code)
                             .eq('is_active', true)
                             .eq('compliance_status', 'approved');
                         
@@ -273,34 +309,12 @@ export default function HomePage() {
         }
     }, []);
 
-    // NEW (2026-09-13): genuinely new - the homepage never had an
-    // actual "recent courses" listing, only a numeric count elsewhere
-    // on the page. Mirrors loadArticles()'s pattern exactly.
-    const loadRecentCourses = useCallback(async () => {
-        try {
-            const response = await fetch('/api/index?action=recent-courses', {
-                headers: { 'Accept': 'application/json' }
-            });
-            const data = await response.json();
-
-            if (data.success) {
-                setRecentCourses(data.courses || []);
-            } else {
-                setRecentCourses([]);
-            }
-        } catch (err) {
-            console.error('Error loading recent courses:', err);
-            setRecentCourses([]);
-        }
-    }, []);
-
     // Load all data
     useEffect(() => {
         const loadAllData = async () => {
             await Promise.all([
                 fetchStats(),
                 loadArticles(),
-                loadRecentCourses(),
                 loadCountryStats()
             ]);
         };
@@ -338,6 +352,9 @@ export default function HomePage() {
             {/* Hero Section */}
             <HomeHero />
 
+            {/* NEW (2026-11-09): one question, three doors */}
+            <QuickDoors />
+
             {/* REBUILT (2026-08-16): re-introduced with accurate,
                 platform-specific copy — no fabricated numbers or generic
                 filler. PromoBanner stays removed per the earlier request
@@ -346,7 +363,8 @@ export default function HomePage() {
                 <CinematicTextAdvert />
             </div>
 
-            {/* Stats Section - Real-time metrics */}
+            {/* Stats Section - hidden when the numbers could not be loaded (no invented figures) */}
+            {!stats.fallback && (
             <div ref={statsRef} id="stats-section" className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
                 <div className="text-center mb-8 sm:mb-12">
                     <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary-500/10 text-primary-400 rounded-full text-xs sm:text-sm mb-4">
@@ -354,38 +372,11 @@ export default function HomePage() {
                         Platform Growth
                     </div>
                     <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2 sm:mb-3">
-                        Trusted by professionals worldwide
+                        Platform numbers, not estimates
                     </h2>
                     <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-                        Real-time metrics from our growing community
+                        Live counts taken from the platform
                     </p>
-                    
-                    {/* Fallback indicator */}
-                    {/* FIXED (2026-08-07): stats.error was already captured
-                        in the catch block of fetchStats() but never
-                        displayed anywhere — this made the exact failure
-                        reason invisible without opening DevTools. Now shows
-                        directly on the page, no devtools required. */}
-                    {stats.fallback && (
-                        <div className="mt-2 flex flex-col items-center justify-center gap-1 text-amber-400 text-xs">
-                            <div className="flex items-center gap-2">
-                                <AlertCircle className="w-3 h-3" />
-                                <span>Using estimated data</span>
-                                <button 
-                                    onClick={handleRetry}
-                                    className="flex items-center gap-1 text-primary-400 hover:text-primary-300 transition"
-                                >
-                                    <RefreshCw className="w-3 h-3" />
-                                    Retry
-                                </button>
-                            </div>
-                            {stats.error && (
-                                <span className="text-slate-500 font-mono text-[10px]">
-                                    Error detail: {stats.error}
-                                </span>
-                            )}
-                        </div>
-                    )}
                 </div>
 
                 <motion.div
@@ -416,6 +407,7 @@ export default function HomePage() {
                     ))}
                 </motion.div>
             </div>
+            )}
 
             {/* Features Section - Why Choose ODUSBABA */}
             <div ref={featuresRef} id="features-section" className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
@@ -425,10 +417,10 @@ export default function HomePage() {
                         Why Choose ODUSBABA
                     </div>
                     <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2 sm:mb-4">
-                        An intelligent governance system for the modern workforce
+                        Practical tools for work, careers and relocation
                     </h2>
                     <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-                        Experience the future of HR with AI-powered intelligence and verified trust
+                        Practical HR, career and relocation tools, with sources and dates you can check
                     </p>
                 </div>
 
@@ -468,7 +460,7 @@ export default function HomePage() {
                         </span>
                         <span className="flex items-center gap-1.5 sm:gap-2 text-slate-300 text-xs sm:text-sm">
                             <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
-                            Verified Candidates
+                            Reach Candidates
                         </span>
                         <span className="flex items-center gap-1.5 sm:gap-2 text-slate-300 text-xs sm:text-sm">
                             <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
@@ -491,36 +483,20 @@ export default function HomePage() {
                         Global Presence
                     </h2>
                     <p className="text-slate-400 text-sm sm:text-base">
-                        Connecting professionals and employers across {countries.length - 1} countries and worldwide
+                        Connecting professionals and employers across {countries.length} countries
                     </p>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-10 gap-2 sm:gap-3 md:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3 md:gap-4">
                     {countryStats.map((country) => (
                         <Link 
                             key={country.code} 
                             to={`/jobs?country=${country.code}`} 
                             className="bg-slate-900/50 border border-slate-800 rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-primary-500/30 transition-all duration-300 hover:-translate-y-1 group"
                         >
-                            {/* FIXED (2026-10-23): Windows browsers cannot draw flag emoji; they show the two letters instead
-                                ("GB" twice on every card). A small flag picture works on every device; if it cannot load, the
-                                country code is shown once. Also showed only the first word of the name ("United" for both UK and US). */}
-                            <div className="h-6 sm:h-7 md:h-8 mb-1 flex items-center justify-center">
-                                {country.code === 'OTHER' ? (
-                                    <span className="text-2xl sm:text-3xl" aria-hidden="true">🌍</span>
-                                ) : (<>
-                                <img
-                                    src={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png`}
-                                    srcSet={`https://flagcdn.com/w80/${country.code.toLowerCase()}.png 2x`}
-                                    alt=""
-                                    loading="lazy"
-                                    className="h-5 sm:h-6 md:h-7 w-auto rounded-sm shadow"
-                                    onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'block'; }}
-                                />
-                                <span style={{ display: 'none' }} className="text-sm sm:text-base md:text-lg font-semibold text-white">{country.code}</span>
-                                </>)}
-                            </div>
-                            <div className="text-[11px] sm:text-xs font-medium text-white group-hover:text-primary-400 transition truncate">{country.name}</div>
+                            <div className="text-xl sm:text-2xl md:text-3xl mb-0.5 sm:mb-1">{country.flag}</div>
+                            <div className="text-xs sm:text-sm font-medium text-white group-hover:text-primary-400 transition">{country.code}</div>
+                            <div className="text-[10px] sm:text-xs text-slate-400 truncate">{country.name.split(' ')[0]}</div>
                             <div className="text-[10px] sm:text-xs text-primary-400 mt-0.5 sm:mt-1">{country.jobCount} jobs</div>
                         </Link>
                     ))}
@@ -530,13 +506,8 @@ export default function HomePage() {
             {/* NEW (2026-08-16): Latest Trend Corner — real search/chat
                 activity, not curated content. Also feeds the admin
                 opportunity-gaps analysis and newsletter digest. */}
-            {/* NEW (2026-09-24): GlobalTrendsWidget sits alongside it -
-                genuinely separate, real external internet trends, with
-                an honest, distinct label. Neither widget touches the
-                other's data or logic. */}
-            <div className="w-full max-w-7xl mx-auto px-4 pt-12 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="w-full max-w-7xl mx-auto px-4 pt-12">
                 <TrendingCorner />
-                <GlobalTrendsWidget />
             </div>
 
             {/* Latest Insights Section */}
@@ -597,64 +568,6 @@ export default function HomePage() {
                     </div>
                 )}
             </div>
-
-            {/* New Courses Section */}
-            {/* NEW (2026-09-13): genuinely new - the homepage never had
-                an actual course listing, only a numeric count. Mirrors
-                the Latest Insights section above exactly. */}
-            {recentCourses.length > 0 && (
-                <div className="w-full max-w-7xl mx-auto px-4 py-12 sm:py-16 lg:py-20">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sm:mb-8">
-                        <div>
-                            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
-                                New Courses
-                            </h2>
-                            <p className="text-slate-400 text-sm">Grow your skills with our newest additions</p>
-                        </div>
-                        <Link to="/courses" className="text-primary-400 hover:text-primary-300 text-sm sm:text-base flex items-center gap-1 transition">
-                            View all <ChevronRight className="w-4 h-4" />
-                        </Link>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-                        {recentCourses.map(course => (
-                            <Link
-                                key={course.id}
-                                to={`/courses/${course.id}`}
-                                className="group bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden hover:border-primary-500/30 transition-all duration-300 hover:-translate-y-1"
-                            >
-                                {course.image_url && (
-                                    <img src={course.image_url} alt={course.title} className="w-full h-36 object-cover" />
-                                )}
-                                <div className="p-4 sm:p-6">
-                                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
-                                        <Calendar className="w-3 h-3" />
-                                        {new Date(course.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                        {course.category && (
-                                            <>
-                                                <span className="w-1 h-1 bg-slate-600 rounded-full" />
-                                                {course.category}
-                                            </>
-                                        )}
-                                    </div>
-                                    <h3 className="text-base sm:text-lg font-semibold text-white mb-2 group-hover:text-primary-400 transition line-clamp-2">
-                                        {course.title}
-                                    </h3>
-                                    <p className="text-slate-400 text-sm line-clamp-3">{course.description}</p>
-                                    <div className="mt-4 flex items-center justify-between">
-                                        <span className="text-primary-400 text-sm font-medium">
-                                            {course.is_free ? 'Free' : `$${course.price}`}
-                                        </span>
-                                        <span className="flex items-center text-primary-400 text-sm font-medium">
-                                            View course <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition" />
-                                        </span>
-                                    </div>
-                                </div>
-                            </Link>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             {/* CTA Section */}
             <CTASection />
