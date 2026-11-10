@@ -250,6 +250,27 @@ async function logSecurityEvent(eventType, ip, severity = 'info', metadata = {})
     }
 }
 
+// NEW (2026-11-10): the approved-admin list that api/cron/security-watch.js checks every 10 minutes. An admin that is
+// not on it is demoted and the owner is emailed. Creating staff through the admin page adds them here automatically.
+// Failing to write the list must never stop the staff account being created, so errors are swallowed.
+async function registerKnownAdmin(supabaseClient, userId) {
+    try {
+        const { data } = await supabaseClient.from('system_config').select('id, config_value').eq('config_key', 'known_admin_ids').maybeSingle();
+        let list = [];
+        if (data && data.config_value !== null && data.config_value !== undefined) {
+            let v = data.config_value;
+            if (typeof v === 'string') { try { v = JSON.parse(v); } catch { v = []; } }
+            if (Array.isArray(v)) list = v.map(String);
+        }
+        if (!list.includes(String(userId))) list.push(String(userId));
+        const text = JSON.stringify(list);
+        if (data) await supabaseClient.from('system_config').update({ config_value: text, updated_at: new Date().toISOString() }).eq('config_key', 'known_admin_ids');
+        else await supabaseClient.from('system_config').insert({ config_key: 'known_admin_ids', config_value: text });
+    } catch (err) {
+        console.warn('registerKnownAdmin failed:', err.message);
+    }
+}
+
 function isValidEmail(email) {
     const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
     return emailRegex.test(email);
@@ -7199,10 +7220,16 @@ ${siteContext}`;
                 safe(() => supabaseClient.from('user_activity_log').select('created_at, details').eq('user_id', userId).eq('action_type', 'admin_user_inspect').order('created_at', { ascending: false }).limit(15))
             ]);
 
+            // SECURITY (2026-11-10): this used to return the whole profile row. An unauthorised super admin looked
+            // at the owner's account on 8 Nov and received every column, including 2FA secrets and tokens. Those
+            // are never needed to review an account, so they are removed before anything leaves the server.
+            const safeProfile = { ...profile };
+            ['two_factor_secret', 'two_factor_backup_codes', 'verification_token'].forEach((k) => { delete safeProfile[k]; });
+
             return res.status(200).json({
                 success: true,
                 includeContent: content,
-                profile,
+                profile: safeProfile,
                 credits: Array.isArray(credits) ? null : (credits?.balance ?? null),
                 job_applications: jobApps,
                 tracked_applications: careerApps,
@@ -7479,6 +7506,8 @@ ${siteContext}`;
                     updated_at: new Date().toISOString()
                 });
             if (permError) throw permError;
+
+            await registerKnownAdmin(supabaseClient, newUser.user.id); // NEW (2026-11-10): approved, so the security watch leaves them alone
 
             // Sends a real password-reset link so the new staff
             // member can set their own password on first access -

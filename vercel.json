@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/sync-mailboxes",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/security-watch",
+      "schedule": "*/10 * * * *"
     }
   ],
   "functions": {
