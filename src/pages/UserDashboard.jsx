@@ -697,6 +697,11 @@ export default function UserDashboard() {
                             <span className="text-white text-xs">Messages</span>
                         </Link>
                     )}
+                    {/* NEW (2026-11-10): private documents and spreadsheets */}
+                    <Link to="/my-documents" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
+                        <FileText className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
+                        <span className="text-white text-xs">My Documents</span>
+                    </Link>
                     <Link to="/hire-va" className="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition group">
                         <Bot className="w-5 h-5 text-primary-400 mx-auto mb-1 group-hover:scale-110 transition" />
                         <span className="text-white text-xs">Hire VA</span>

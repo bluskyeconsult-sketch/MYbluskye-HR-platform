@@ -631,6 +631,7 @@ function ProtectedRoute({ children, requireAdmin = false }) {
 // LAZY LOADED PAGES (All from 1st code)
 // ============================================
 const HomePage = lazy(() => import('./pages/HomePage'));
+const MyDocumentsPage = lazy(() => import('./pages/MyDocumentsPage'));
 const JobsPage = lazy(() => import('./pages/JobsPage'));
 const VerifiedEmployersPage = lazy(() => import('./pages/VerifiedEmployersPage'));
 // NEW (2026-08-28): this admin page never existed at all until now - the
@@ -1099,6 +1100,8 @@ function AppContent() {
                             <Route path="/settings/security" element={<ProtectedRoute><TwoFactorSettings /></ProtectedRoute>} />
                             <Route path="/settings/profile" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
                             <Route path="/saved-jobs" element={<ProtectedRoute><SavedJobsPage /></ProtectedRoute>} />
+                            {/* NEW (2026-11-10): private word processor and spreadsheet */}
+                            <Route path="/my-documents" element={<ProtectedRoute><MyDocumentsPage /></ProtectedRoute>} />
                             <Route path="/job-alerts" element={<ProtectedRoute><JobAlertsPage /></ProtectedRoute>} />
                             <Route path="/affiliate" element={<ProtectedRoute><AffiliateDashboard /></ProtectedRoute>} />
                             <Route path="/learning" element={<ProtectedRoute><LearnerDashboard /></ProtectedRoute>} />
