@@ -1,0 +1,654 @@
+// src/pages/admin/AnalyticsDashboard.jsx
+// COMPLETE ANALYTICS DASHBOARD - Fixed version with direct Supabase queries
+
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { 
+    Users, Eye, Globe, Loader2, RefreshCw, 
+    TrendingUp, Clock, MapPin, Monitor, Smartphone,
+    Tablet, BarChart3, Activity, User, Calendar,
+    Download, Filter, Search, ChevronDown, Briefcase, 
+    FileText, Award, Zap, Shield, AlertCircle, CheckCircle
+} from 'lucide-react';
+
+// NEW (2026-09-23): maps real route paths to human-readable labels -
+// confirmed real bug that the Pages table only ever showed raw paths
+// (e.g. "/admin/external-jobs") as the only label, with no readable
+// name at all. Covers every known, static route; dynamic routes (a
+// job/article/course detail page with a real ID in the path) get a
+// genuine, honest fallback describing the page type rather than a
+// meaningless label.
+const PAGE_NAME_MAP = {
+    '/': 'Homepage',
+    '/jobs': 'Jobs Listing',
+    '/courses': 'Courses Listing',
+    '/assessments': 'Assessments',
+    '/workforce': 'Workforce Marketplace',
+    '/hire-va': 'Hire Virtual Assistant',
+    '/books': 'Books Listing',
+    '/blog': 'Blog',
+    '/hr-tools': 'HR Tools',
+    '/contact': 'Contact',
+    '/sign-in': 'Sign In',
+    '/sign-up': 'Sign Up',
+    '/dashboard': 'User Dashboard',
+    '/learning': 'My Learning',
+    '/my-learning': 'Favorites, Cart & Applications',
+    '/pricing': 'Pricing',
+    '/faq': 'FAQ',
+    '/admin/dashboard': 'Admin Dashboard',
+    '/admin/health': 'Admin: System Health',
+    '/admin/readiness-check': 'Admin: Readiness Check',
+    '/admin/diagnostics': 'Admin: Diagnostics',
+    '/admin/analytics': 'Admin: Analytics',
+    '/admin/usage-meter': 'Admin: Usage Meter',
+    '/admin/security': 'Admin: Security',
+    '/admin/audit': 'Admin: Audit Log',
+    '/admin/users': 'Admin: Users',
+    '/admin/employer-verification': 'Admin: Employer Verification',
+    '/admin/fraud-reports': 'Admin: Fraud Reports',
+    '/admin/jobs': 'Admin: Job Management',
+    '/admin/external-jobs': 'Admin: External Jobs',
+    '/admin/employer-sources': 'Admin: Employer Sources',
+    '/admin/banner-messages': 'Admin: Banner Messages',
+    '/admin/workforce': 'Admin: Workforce Marketplace',
+    '/admin/courses': 'Admin: Courses',
+    '/admin/ai-course-builder': 'Admin: AI Course Builder',
+    '/admin/articles': 'Admin: Articles',
+    '/admin/books': 'Admin: Books',
+    '/admin/assessments': 'Admin: Assessments',
+    '/admin/virtual-assistants': 'Admin: Virtual Assistants',
+    '/admin/hr-tool-builder': 'Admin: HR Tool Builder',
+    '/admin/skills': 'Admin: Skills',
+    '/admin/newsletter': 'Admin: Newsletter'
+};
+
+function getReadablePageName(path) {
+    if (PAGE_NAME_MAP[path]) return PAGE_NAME_MAP[path];
+
+    // Genuine, honest fallback for dynamic routes with a real ID -
+    // names the page type rather than showing a meaningless label.
+    if (/^\/jobs\/[^/]+$/.test(path)) return 'Job Detail Page';
+    if (/^\/courses\/[^/]+$/.test(path)) return 'Course Detail Page';
+    if (/^\/learning\/[^/]+$/.test(path)) return 'Course Learning Page';
+    if (/^\/books\/[^/]+$/.test(path)) return 'Book Detail Page';
+    if (/^\/articles\/[^/]+$/.test(path)) return 'Article Page';
+
+    return path;
+}
+
+// NEW (2026-10-20): Supabase returns at most 1,000 rows per request, so every statistic built from a plain
+// select() silently stopped growing at 1,000 rows (unique visitors, sessions, average time, bounce rate, top
+// pages, countries, devices, signups). This reads all pages (ordered by id so pages never overlap), up to 100,000.
+async function fetchAll(build) {
+    const rows = [];
+    for (let from = 0; from < 100000; from += 1000) {
+        const { data, error } = await build().order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+    }
+    return rows;
+}
+
+// NEW (2026-11-06): a visit with no identifiable browser, on a desktop, that viewed one page and stayed 0 seconds is almost
+// certainly a crawler or relay, not a person (on 6 Nov, 48 of the 50 latest visits fitted this, from one address range).
+// Mobile visits are never treated this way, because in-app browsers (Instagram, Facebook) also report no browser name.
+function isCrawlerLike(s) {
+    const browser = String(s.browser || '').toLowerCase();
+    const unidentified = !browser || browser === 'unknown';
+    const desktop = !s.device_type || s.device_type === 'desktop';
+    return unidentified && desktop && (s.page_count || 0) <= 1 && (s.duration_seconds || 0) <= 1;
+}
+
+export default function AnalyticsDashboard() {
+    const [stats, setStats] = useState({ 
+        totalUsers: 0, 
+        totalJobs: 0, 
+        totalApplications: 0, 
+        totalVisits: 0,
+        uniqueVisitors: 0,
+        totalSessions: 0,
+        avgSessionDuration: 0,
+        bounceRate: 0
+    });
+    const [pageViews, setPageViews] = useState([]);
+    const [growthData, setGrowthData] = useState([]);
+    const [locationStats, setLocationStats] = useState([]);
+    const [deviceStats, setDeviceStats] = useState({ desktop: 0, mobile: 0, tablet: 0 });
+    const [recentVisitors, setRecentVisitors] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [days, setDays] = useState(30);
+    const [activeTab, setActiveTab] = useState('overview');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [hideCrawlers, setHideCrawlers] = useState(true);
+    const [excludedCount, setExcludedCount] = useState(0);
+
+    useEffect(() => {
+        loadAllAnalytics();
+    }, [days, hideCrawlers]);
+
+    async function loadAllAnalytics() {
+        setRefreshing(true);
+        try {
+            // Read the sessions once, set aside the crawler-like ones (unless the switch is off), and give every
+            // panel the same cleaned set so all the numbers agree.
+            const cutoffAll = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+            const allSessions = await fetchAll(() => supabase
+                .from('analytics_sessions')
+                .select('id, session_id, duration_seconds, page_count, browser, device_type, country, city, start_time')
+                .gte('start_time', cutoffAll));
+            const crawlerIds = new Set();
+            const keep = hideCrawlers ? allSessions.filter(sess => {
+                if (isCrawlerLike(sess)) { crawlerIds.add(sess.session_id); return false; }
+                return true;
+            }) : allSessions;
+            setExcludedCount(allSessions.length - keep.length);
+            await Promise.all([
+                loadBasicStats(keep, crawlerIds),
+                loadPageViews(crawlerIds),
+                loadGrowthData(),
+                loadLocationStats(keep),
+                loadDeviceStats(keep),
+                loadRecentVisitors(crawlerIds)
+            ]);
+        } catch (error) {
+            console.error('Error loading analytics:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }
+
+    async function loadBasicStats(sessions, crawlerIds) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        const [userCount, jobCount, appCount] = await Promise.all([
+            supabase.from('profiles').select('*', { count: 'exact', head: true }),
+            supabase.from('jobs').select('*', { count: 'exact', head: true }),
+            supabase.from('job_applications').select('*', { count: 'exact', head: true })
+        ]);
+        
+        // FIXED (2026-09-04): confirmed via direct schema query that
+        // ip_address doesn't exist on analytics_page_views at all - this
+        // query was silently returning zero real rows. session_id is a
+        // real column and a reasonable proxy for a unique visitor, since
+        // each browser session corresponds to roughly one visitor.
+        const uniqueDataAll = await fetchAll(() => supabase
+            .from('analytics_page_views')
+            .select('id, session_id')
+            .gte('created_at', cutoff)
+            .not('page_path', 'like', '/admin%')
+            .not('page_path', 'like', '/secure-admin%'));
+        
+        const uniqueData = uniqueDataAll.filter(v => !crawlerIds.has(v.session_id));
+        const uniqueVisitors = new Set(uniqueData.map(v => v.session_id)).size;
+        
+        // Session stats come from the cleaned set passed in. The average counts only visits that viewed 2 or more pages and
+        // lasted under 2 hours: a tab left open for days (or a one-page visit) would otherwise distort it.
+        const totalSessions = sessions.length;
+        const timed = sessions.filter(s => (s.page_count || 0) >= 2 && (s.duration_seconds || 0) > 0 && (s.duration_seconds || 0) <= 7200);
+        const avgDuration = timed.reduce((acc, s) => acc + (s.duration_seconds || 0), 0) / (timed.length || 1);
+        const avgMinutes = Math.round((avgDuration / 60) * 10) / 10;
+        
+        // Calculate bounce rate (sessions with only 1 page view)
+        // A session with one page view (or none recorded) counts as a bounce
+        const bounceCount = sessions.filter(s => (s.page_count || 0) <= 1).length;
+        const bounceRate = totalSessions > 0 ? Math.round((bounceCount / totalSessions) * 100) : 0;
+        
+        setStats({
+            totalUsers: userCount.count || 0,
+            totalJobs: jobCount.count || 0,
+            totalApplications: appCount.count || 0,
+            totalVisits: uniqueData.length,
+            uniqueVisitors: uniqueVisitors,
+            totalSessions: totalSessions,
+            avgSessionDuration: avgMinutes,
+            bounceRate: bounceRate
+        });
+    }
+
+    async function loadPageViews(crawlerIds) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        // FIXED: confirmed real columns are page_path and time_on_page,
+        // not page_url/view_duration_seconds - this was returning zero
+        // rows on every call.
+        const pages = await fetchAll(() => supabase
+            .from('analytics_page_views')
+            .select('id, page_path, time_on_page, session_id')
+            .gte('created_at', cutoff)
+            .not('page_path', 'like', '/admin%')
+            .not('page_path', 'like', '/secure-admin%'));
+        
+        const pageStats = {};
+        (pages || []).filter(p => !crawlerIds.has(p.session_id)).forEach(p => {
+            pageStats[p.page_path] = (pageStats[p.page_path] || 0) + 1;
+        });
+        
+        setPageViews(Object.entries(pageStats).map(([path, views]) => ({ path, views })).sort((a,b) => b.views - a.views));
+    }
+
+    async function loadGrowthData() {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        const profiles = await fetchAll(() => supabase
+            .from('profiles')
+            .select('id, created_at')
+            .gte('created_at', cutoff));
+        
+        // newest first, so the 14 days shown are the most recent ones
+        profiles.sort((x, y) => new Date(y.created_at) - new Date(x.created_at));
+        const daily = {};
+        (profiles || []).forEach(p => {
+            const date = new Date(p.created_at).toLocaleDateString();
+            daily[date] = (daily[date] || 0) + 1;
+        });
+        
+        setGrowthData(Object.entries(daily).slice(0, 14));
+    }
+
+    async function loadLocationStats(sessions) {
+        // FIXED (2026-09-20): confirmed via a fresh, direct schema
+        // query that the earlier claim here was genuinely wrong -
+        // analytics_sessions does have country/city/ip_address columns.
+        // The real issue was never a missing schema, just this query
+        // never having been built against the real, correct table.
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+        const counts = {};
+        (sessions || []).filter(s => s.country).forEach(s => {
+            const key = s.country;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+
+        const sorted = Object.entries(counts)
+            .map(([country, count]) => ({ country, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        setLocationStats(sorted);
+    }
+
+    async function loadDeviceStats(sessions) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        // FIXED (2026-09-19): confirmed a real, direct contradiction -
+        // this showed 100% desktop / 0% mobile despite Recent Visitors
+        // (below) genuinely showing a mobile visit in the same window.
+        // Root cause: analytics_page_views' device_type insert was
+        // silently failing on every call before an earlier fix,
+        // meaning its historical data is genuinely sparse/missing.
+        // analytics_sessions was never broken this way and is already
+        // proven correct by Recent Visitors using it successfully -
+        // switched to the same, genuinely reliable source.
+        const devices = { desktop: 0, mobile: 0, tablet: 0 };
+        (sessions || []).forEach(s => {
+            if (s.device_type === 'desktop') devices.desktop++;
+            else if (s.device_type === 'mobile') devices.mobile++;
+            else if (s.device_type === 'tablet') devices.tablet++;
+        });
+        
+        const total = devices.desktop + devices.mobile + devices.tablet;
+        setDeviceStats({
+            desktop: total > 0 ? Math.round((devices.desktop / total) * 100) : 0,
+            mobile: total > 0 ? Math.round((devices.mobile / total) * 100) : 0,
+            tablet: total > 0 ? Math.round((devices.tablet / total) * 100) : 0
+        });
+    }
+
+    async function loadRecentVisitors(crawlerIds) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        
+        const { data: sessions } = await supabase
+            .from('analytics_sessions')
+            .select('*')
+            .gte('start_time', cutoff)
+            .order('start_time', { ascending: false })
+            .limit(400);
+        
+        // FIXED (2026-09-30): confirmed these columns genuinely DO
+        // exist and ARE populated - loadLocationStats above already
+        // proved this on 2026-09-20, and the backend's track-page-view
+        // action genuinely inserts ip_address/country/city on every
+        // new session. This mapping was simply never updated after
+        // that confirmation to actually include them.
+        const visitors = (sessions || []).filter(session => !crawlerIds.has(session.session_id)).slice(0, 50).map(session => ({
+            time: session.start_time,
+            device: session.device_type || 'desktop',
+            browser: session.browser || 'unknown',
+            pages: session.page_count || 0,
+            duration: session.duration_seconds || 0,
+            ipAddress: session.ip_address || null,
+            country: session.country || null,
+            city: session.city || null
+        }));
+        
+        setRecentVisitors(visitors);
+    }
+
+    async function exportAnalytics() {
+        const exportData = {
+            stats,
+            pageViews,
+            growthData,
+            locationStats,
+            deviceStats,
+            recentVisitors,
+            exported_at: new Date().toISOString(),
+            date_range_days: days
+        };
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analytics_export_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+            </div>
+        );
+    }
+
+    // FIXED (2026-09-05): city/country removed from the filter - the
+    // visitor object no longer has them, since neither field exists on
+    // analytics_sessions.
+    const filteredVisitors = recentVisitors.filter(v => 
+        v.device?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        v.browser?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return (
+        <div className="p-6 space-y-6 max-w-full overflow-x-auto">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-white">Analytics Dashboard</h1>
+                    <p className="text-slate-400">Visitor statistics, location tracking, IP logs, and user behavior</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="A desktop visit with no identifiable browser that viewed one page for 0 seconds">
+                        <input type="checkbox" checked={hideCrawlers} onChange={(e) => setHideCrawlers(e.target.checked)} />
+                        Hide likely crawlers{hideCrawlers && excludedCount > 0 ? ` (${excludedCount} left out)` : ''}
+                    </label>
+                    <select 
+                        value={days} 
+                        onChange={(e) => setDays(parseInt(e.target.value))} 
+                        className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                    >
+                        <option value={7}>Last 7 Days</option>
+                        <option value={30}>Last 30 Days</option>
+                        <option value={90}>Last 90 Days</option>
+                    </select>
+                    <button 
+                        onClick={exportAnalytics} 
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export
+                    </button>
+                    <button 
+                        onClick={loadAllAnalytics} 
+                        disabled={refreshing} 
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 flex items-center gap-2"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex gap-2 border-b border-slate-800 pb-2 flex-wrap">
+                <button 
+                    onClick={() => setActiveTab('overview')}
+                    className={`px-4 py-2 rounded-lg transition ${activeTab === 'overview' ? 'bg-primary-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                    <BarChart3 className="w-4 h-4 inline mr-2" />
+                    Overview
+                </button>
+                <button 
+                    onClick={() => setActiveTab('visitors')}
+                    className={`px-4 py-2 rounded-lg transition ${activeTab === 'visitors' ? 'bg-primary-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                    <Globe className="w-4 h-4 inline mr-2" />
+                    Visitors & Location
+                </button>
+                <button 
+                    onClick={() => setActiveTab('pages')}
+                    className={`px-4 py-2 rounded-lg transition ${activeTab === 'pages' ? 'bg-primary-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                    <Eye className="w-4 h-4 inline mr-2" />
+                    Pages
+                </button>
+            </div>
+
+            {/* OVERVIEW TAB */}
+            {activeTab === 'overview' && (
+                <>
+                    {/* Summary Stats Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Total Users</p><p className="text-2xl font-bold text-white">{stats.totalUsers}</p></div>
+                                <Users className="w-8 h-8 text-primary-400 opacity-50" />
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Total Jobs</p><p className="text-2xl font-bold text-white">{stats.totalJobs}</p></div>
+                                <Briefcase className="w-8 h-8 text-emerald-400 opacity-50" />
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Applications</p><p className="text-2xl font-bold text-white">{stats.totalApplications}</p></div>
+                                <FileText className="w-8 h-8 text-amber-400 opacity-50" />
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Page Views</p><p className="text-2xl font-bold text-white">{stats.totalVisits}</p></div>
+                                <Eye className="w-8 h-8 text-blue-400 opacity-50" />
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Unique Visitors</p><p className="text-2xl font-bold text-white">{stats.uniqueVisitors}</p></div>
+                                <Activity className="w-8 h-8 text-purple-400 opacity-50" />
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between">
+                                <div><p className="text-slate-400 text-sm">Bounce Rate</p><p className="text-2xl font-bold text-white">{stats.bounceRate}%</p></div>
+                                <TrendingUp className="w-8 h-8 text-red-400 opacity-50" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Two Column Layout */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* User Growth */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-primary-400" />
+                                User Growth (Last {days} Days)
+                            </h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {growthData.map(([date, count], idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-2 border-b border-slate-800">
+                                        <span className="text-slate-400 text-sm">{date}</span>
+                                        <span className="text-white text-sm font-medium">+{count} users</span>
+                                    </div>
+                                ))}
+                                {growthData.length === 0 && (
+                                    <p className="text-slate-400 text-center py-4">No growth data available</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Device Breakdown */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <Monitor className="w-4 h-4 text-primary-400" />
+                                Device Breakdown
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2"><Monitor className="w-4 h-4 text-blue-400" /><span className="text-slate-300">Desktop</span></div>
+                                    <div className="flex items-center gap-3 flex-1 ml-4">
+                                        <div className="flex-1 bg-slate-700 rounded-full h-2 max-w-48">
+                                            <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${deviceStats.desktop}%` }}></div>
+                                        </div>
+                                        <span className="text-white text-sm font-medium w-12">{deviceStats.desktop}%</span>
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2"><Smartphone className="w-4 h-4 text-emerald-400" /><span className="text-slate-300">Mobile</span></div>
+                                    <div className="flex items-center gap-3 flex-1 ml-4">
+                                        <div className="flex-1 bg-slate-700 rounded-full h-2 max-w-48">
+                                            <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${deviceStats.mobile}%` }}></div>
+                                        </div>
+                                        <span className="text-white text-sm font-medium w-12">{deviceStats.mobile}%</span>
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2"><Tablet className="w-4 h-4 text-purple-400" /><span className="text-slate-300">Tablet</span></div>
+                                    <div className="flex items-center gap-3 flex-1 ml-4">
+                                        <div className="flex-1 bg-slate-700 rounded-full h-2 max-w-48">
+                                            <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${deviceStats.tablet}%` }}></div>
+                                        </div>
+                                        <span className="text-white text-sm font-medium w-12">{deviceStats.tablet}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* VISITORS & LOCATION TAB */}
+            {activeTab === 'visitors' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Visitors by Country */}
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                        <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                            <Globe className="w-4 h-4 text-primary-400" />
+                            Visitors by Country
+                        </h3>
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                            {locationStats.map(({ country, count }) => (
+                                <div key={country} className="flex justify-between items-center p-2 border-b border-slate-800">
+                                    <span className="text-slate-300">{country}</span>
+                                    <div className="flex items-center gap-3 flex-1 ml-4">
+                                        <div className="flex-1 bg-slate-700 rounded-full h-2 max-w-32">
+                                            <div className="bg-primary-500 h-2 rounded-full" style={{ width: `${Math.min(100, (count / stats.uniqueVisitors) * 100)}%` }}></div>
+                                        </div>
+                                        <span className="text-white text-sm font-medium">{count} visitors</span>
+                                    </div>
+                                </div>
+                            ))}
+                            {locationStats.length === 0 && (
+                                <p className="text-slate-400 text-center py-4">No location data available</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Recent Visitors Table */}
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                        <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                            <User className="w-4 h-4 text-primary-400" />
+                            Recent Visitors
+                        </h3>
+                        <div className="mb-4 flex items-center gap-2">
+                            <Search className="w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="Filter by location or device..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                            />
+                        </div>
+                        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-slate-800/50 sticky top-0">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left text-white">Time</th>
+                                        <th className="px-3 py-2 text-left text-white">IP Address</th>
+                                        <th className="px-3 py-2 text-left text-white">Location</th>
+                                        <th className="px-3 py-2 text-left text-white">Browser</th>
+                                        <th className="px-3 py-2 text-left text-white">Device</th>
+                                        <th className="px-3 py-2 text-left text-white">Pages</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredVisitors.map((visitor, idx) => (
+                                        <tr key={idx} className="border-b border-slate-800 hover:bg-slate-800/30">
+                                            <td className="px-3 py-2 text-slate-400 text-xs">{new Date(visitor.time).toLocaleString()}</td>
+                                            {/* FIXED (2026-09-30): confirmed these columns genuinely
+                                                DO exist and ARE populated - the Sept 5 removal was
+                                                based on a schema check that a later, separate fix
+                                                (loadLocationStats, Sept 20) already proved outdated. */}
+                                            <td className="px-3 py-2 text-slate-400 text-xs font-mono">{visitor.ipAddress || '—'}</td>
+                                            <td className="px-3 py-2 text-slate-400 text-xs">{[visitor.city, visitor.country].filter(Boolean).join(', ') || '—'}</td>
+                                            <td className="px-3 py-2 capitalize">{visitor.browser}</td>
+                                            <td className="px-3 py-2 capitalize">{visitor.device}</td>
+                                            <td className="px-3 py-2">{visitor.pages} pages</td>
+                                        </tr>
+                                    ))}
+                                    {filteredVisitors.length === 0 && (
+                                        <tr><td colSpan="6" className="px-3 py-8 text-center text-slate-400">No visitor data available</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PAGES TAB */}
+            {activeTab === 'pages' && (
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                    <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-primary-400" />
+                        Top Pages
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-slate-800/50">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-white text-sm">#</th>
+                                    <th className="px-4 py-2 text-left text-white text-sm">Page</th>
+                                    <th className="px-4 py-2 text-right text-white text-sm">Views</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pageViews.slice(0, 20).map((page, idx) => (
+                                    <tr key={idx} className="border-b border-slate-800">
+                                        <td className="px-4 py-2 text-slate-500 text-sm">{idx + 1}</td>
+                                        <td className="px-4 py-2 text-sm">
+                                            <p className="text-slate-200">{getReadablePageName(page.path)}</p>
+                                            <p className="text-slate-500 text-xs font-mono">{page.path}</p>
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-300 text-sm text-right font-medium">{page.views}</td>
+                                    </tr>
+                                ))}
+                                {pageViews.length === 0 && (
+                                    <tr><td colSpan="3" className="px-4 py-8 text-center text-slate-400">No page view data available</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

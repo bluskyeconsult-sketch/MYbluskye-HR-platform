@@ -1,0 +1,623 @@
+// src/pages/admin/EmployerSourcesManager.jsx
+// NEW (2026-08-28) — this page did not exist at all until now. The real
+// backend actions (admin-add-employer-source, admin-bulk-import-employer-
+// sources, admin-list-employer-sources, admin-deactivate-employer-source,
+// admin-scrape-employer-sources) were built and working, but there was
+// never a frontend page to actually use them - not an unrouted page like
+// TwoFactorSettings was, but genuinely no frontend at all. Built here,
+// wired into App.jsx and the admin nav dropdown so it's actually
+// discoverable this time.
+
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
+import {
+    Building2, Upload, Plus, Loader2, AlertCircle, CheckCircle,
+    Trash2, RefreshCw, FileText, X, ShieldCheck, Mail
+} from 'lucide-react';
+
+export default function EmployerSourcesManager() {
+    const [sources, setSources] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [message, setMessage] = useState(null);
+
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [adding, setAdding] = useState(false);
+    const [newSource, setNewSource] = useState({
+        companyName: '', websiteUrl: '', careersPageUrl: '',
+        isVerifiedSponsor: false, sponsorLicenseType: '', countryCode: 'GB'
+    });
+
+    const [csvText, setCsvText] = useState('');
+    const [importing, setImporting] = useState(false);
+    const [importResult, setImportResult] = useState(null);
+    const [importProgress, setImportProgress] = useState(null);
+    // NEW (2026-10-16): the list and the import error list show 30 per page instead of one endless list
+    const PAGE_SIZE = 30;
+    const [page, setPage] = useState(0);
+    const [filterText, setFilterText] = useState('');
+    const [errPage, setErrPage] = useState(0);
+    const fileInputRef = useRef(null);
+
+    const [scraping, setScraping] = useState(false);
+    const [inviting, setInviting] = useState(false);
+    const [inviteResult, setInviteResult] = useState(null);
+
+    // NEW (2026-10-10): contact email finder - looks up the addresses a
+    // company has itself published on its own website. Nothing is sent
+    // or saved until an admin clicks Save on a specific address.
+    const [finder, setFinder] = useState(null); // { source, loading, result, error, savedEmail }
+
+    async function handleFindEmails(source) {
+        setFinder({ source, loading: true, result: null, error: null, savedEmail: null });
+        try {
+            const result = await authenticatedFetch('admin-find-contact-emails', { sourceId: source.id });
+            setFinder(f => f && ({ ...f, loading: false, result }));
+        } catch (err) {
+            setFinder(f => f && ({ ...f, loading: false, error: err.message }));
+        }
+    }
+
+    async function handleSaveEmail(email) {
+        try {
+            await authenticatedFetch('admin-save-contact-email', { sourceId: finder.source.id, email });
+            setFinder(f => ({ ...f, savedEmail: email }));
+            setSources(list => list.map(x => x.id === finder.source.id ? { ...x, contact_email: email } : x));
+        } catch (err) {
+            setFinder(f => ({ ...f, error: err.message }));
+        }
+    }
+
+    async function handleSuppressEmail(email) {
+        if (!window.confirm(`Add ${email} to the do-not-contact list? It will never be offered again.`)) return;
+        try {
+            await authenticatedFetch('admin-suppress-contact-email', { email });
+            setFinder(f => ({ ...f, result: { ...f.result, emails: f.result.emails.filter(e => e.email !== email) } }));
+        } catch (err) {
+            setFinder(f => ({ ...f, error: err.message }));
+        }
+    }
+
+    useEffect(() => { loadSources(); }, []);
+    useEffect(() => { setPage(0); }, [filterText]);
+
+    const filteredSources = filterText.trim()
+        ? sources.filter(x => (x.company_name || '').toLowerCase().includes(filterText.trim().toLowerCase()))
+        : sources;
+    const pageCount = Math.max(1, Math.ceil(filteredSources.length / PAGE_SIZE));
+    const safePage = Math.min(page, pageCount - 1);
+    const pageRows = filteredSources.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+    async function loadSources() {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await authenticatedFetch('admin-list-employer-sources', {}, { method: 'POST' });
+            setSources(data.sources || []);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function handleAddSource(e) {
+        e.preventDefault();
+        if (!newSource.companyName || !newSource.websiteUrl) {
+            setError('Company name and website URL are required.');
+            return;
+        }
+        setAdding(true);
+        setError(null);
+        try {
+            await authenticatedFetch('admin-add-employer-source', newSource);
+            setMessage(`Added ${newSource.companyName}.`);
+            setNewSource({ companyName: '', websiteUrl: '', careersPageUrl: '', isVerifiedSponsor: false, sponsorLicenseType: '', countryCode: 'GB' });
+            setShowAddForm(false);
+            await loadSources();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setAdding(false);
+        }
+    }
+
+    async function handleDeactivate(sourceId, companyName) {
+        if (!confirm(`Deactivate ${companyName}? It will stop being scraped and will disappear from the public directory.`)) return;
+        try {
+            await authenticatedFetch('admin-deactivate-employer-source', { sourceId });
+            await loadSources();
+        } catch (err) {
+            alert('Failed to deactivate: ' + err.message);
+        }
+    }
+
+    // NEW (2026-09-13): the genuine, legal alternative to scraping -
+    // sends a real invitation to employers with a known email who
+    // haven't been invited yet, one batch of 50 at a time (out of
+    // 2,413 total with a real email), so this can be safely re-run
+    // from the UI rather than one massive, fragile operation.
+    async function handleInviteEmployers() {
+        setInviting(true);
+        setInviteResult(null);
+        try {
+            const result = await authenticatedFetch('admin-invite-verified-employers', { batchSize: 50 });
+            setInviteResult(result);
+        } catch (err) {
+            setInviteResult({ success: false, error: err.message });
+        }
+        setInviting(false);
+    }
+
+    async function handleForceScrape() {
+        setScraping(true);
+        setMessage(null);
+        setError(null);
+        try {
+            const result = await authenticatedFetch('admin-scrape-employer-sources', {}, { method: 'POST' });
+            setMessage(`Scrape complete. ${JSON.stringify(result).replace(/[{}"]/g, '').replace(/,/g, ', ')}`);
+            await loadSources();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setScraping(false);
+        }
+    }
+
+    // Real CSV parsing - handles a header row (company_name,website_url,
+    // careers_page_url,sponsor_license_type,country_code) or plain rows in
+    // that same order without a header. Deliberately simple (split on
+    // comma) rather than pulling in a CSV library for this one admin
+    // page - real sponsor register exports are plain, comma-separated,
+    // unquoted rows in practice.
+    function parseCSV(text) {
+        const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length === 0) return [];
+
+        const firstLineLower = lines[0].toLowerCase();
+        const hasHeader = firstLineLower.includes('company') && firstLineLower.includes('website');
+        const dataLines = hasHeader ? lines.slice(1) : lines;
+
+        return dataLines.map(line => {
+            const cols = line.split(',').map(c => c.trim());
+            return {
+                companyName: cols[0] || '',
+                websiteUrl: cols[1] || '',
+                careersPageUrl: cols[2] || undefined,
+                sponsorLicenseType: cols[3] || undefined,
+                countryCode: cols[4] || 'GB',
+                sector: cols[5] || undefined,
+                town: cols[6] || undefined
+            };
+        // FIXED (2026-09-13): confirmed real, exact cause of "0 valid
+        // rows detected" - this required BOTH companyName AND
+        // websiteUrl to be non-empty. A real, genuine bulk-import CSV
+        // (compiled from official UK government sponsor register data)
+        // had company names but no website URLs at all, since that
+        // data simply wasn't available at compile time - every single
+        // row was silently filtered out, not because of any extra
+        // columns (those were already correctly ignored, read only by
+        // position 0-4). Relaxed to only require a company name -
+        // website URLs can genuinely be added to a record later.
+        }).filter(c => c.companyName);
+    }
+
+    function handleFileSelect(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => setCsvText(event.target.result);
+        reader.readAsText(file);
+    }
+
+    async function handleBulkImport() {
+        const companies = parseCSV(csvText);
+        if (companies.length === 0) {
+            setError('No valid rows found. Expected columns: company_name, website_url, careers_page_url (optional), sponsor_license_type (optional), country_code (optional).');
+            return;
+        }
+
+        if (!confirm(`Import ${companies.length} companies as verified sponsors?`)) return;
+
+        setImporting(true);
+        setError(null);
+        setImportResult(null); setErrPage(0);
+
+        // FIXED (2026-09-13): confirmed real, live bug - a genuine
+        // 45,189-row CSV exceeded Vercel's hard 4.5MB request body
+        // limit, returning a plain-text 413 the backend never turns
+        // into JSON, which authenticatedFetch then failed to parse
+        // ("Unexpected token 'R'... Request Entity Too Large").
+        // Chunking into safe-sized batches well under that limit, and
+        // continuing through remaining batches even if one fails,
+        // rather than aborting the entire import on one bad chunk.
+        const CHUNK_SIZE = 1000;
+        const chunks = [];
+        for (let i = 0; i < companies.length; i += CHUNK_SIZE) {
+            chunks.push(companies.slice(i, i + CHUNK_SIZE));
+        }
+
+        const aggregate = { added: 0, skipped: 0, errors: [] };
+        setImportProgress({ current: 0, total: chunks.length });
+
+        for (let i = 0; i < chunks.length; i++) {
+            try {
+                const result = await authenticatedFetch('admin-bulk-import-employer-sources', { companies: chunks[i] });
+                aggregate.added += result.added || 0;
+                aggregate.skipped += result.skipped || 0;
+                if (result.errors?.length) aggregate.errors.push(...result.errors);
+            } catch (err) {
+                // A whole batch failing (e.g. a transient network error)
+                // doesn't stop the remaining batches - it's recorded as
+                // an honest, visible failure instead.
+                aggregate.errors.push({ company: `Batch ${i + 1} (${chunks[i].length} rows)`, error: err.message });
+            }
+            setImportProgress({ current: i + 1, total: chunks.length });
+        }
+
+        setImportResult(aggregate);
+        setImportProgress(null);
+        setCsvText('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        await loadSources();
+        setImporting(false);
+    }
+
+    return (
+        <div className="p-6 max-w-6xl mx-auto">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                        <Building2 className="w-6 h-6 text-primary-400" /> Verified Employer Sources
+                    </h1>
+                    <p className="text-slate-400 text-sm mt-1">
+                        Manage companies scraped for the public Verified Employer Directory and job sourcing.
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleForceScrape}
+                        disabled={scraping}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {scraping ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        Scrape All Now
+                    </button>
+                    <button
+                        onClick={handleInviteEmployers}
+                        disabled={inviting}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 flex items-center gap-2"
+                        title="Invite employers with a known email to claim their listing and post real jobs directly - the legal alternative to scraping companies with no known URL"
+                    >
+                        {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                        Invite Employers
+                    </button>
+                    <button
+                        onClick={() => setShowAddForm(!showAddForm)}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" /> Add One
+                    </button>
+                </div>
+            </div>
+
+            {inviteResult && (
+                <div className={`mb-6 p-3 rounded-lg text-sm ${inviteResult.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                    {inviteResult.success
+                        ? `✓ Sent ${inviteResult.sent} invitations. ${inviteResult.remaining} more remaining with a known email - click again to continue.`
+                        : `Failed: ${inviteResult.error}`}
+                </div>
+            )}
+
+            {error && (
+                <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-red-400 text-sm">{error}</p>
+                </div>
+            )}
+            {message && (
+                <div className="mb-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-3">
+                    <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-emerald-400 text-sm">{message}</p>
+                </div>
+            )}
+
+            {/* Single add form */}
+            {showAddForm && (
+                <form onSubmit={handleAddSource} className="mb-6 p-5 bg-slate-900/50 border border-slate-800 rounded-xl space-y-3">
+                    <h2 className="text-white font-semibold mb-2">Add a single company</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <input
+                            type="text" placeholder="Company name *" required
+                            value={newSource.companyName}
+                            onChange={e => setNewSource({ ...newSource, companyName: e.target.value })}
+                            className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        />
+                        <input
+                            type="url" placeholder="Website URL *" required
+                            value={newSource.websiteUrl}
+                            onChange={e => setNewSource({ ...newSource, websiteUrl: e.target.value })}
+                            className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        />
+                        <input
+                            type="url" placeholder="Careers page URL (optional, scraped if given)"
+                            value={newSource.careersPageUrl}
+                            onChange={e => setNewSource({ ...newSource, careersPageUrl: e.target.value })}
+                            className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        />
+                        <input
+                            type="text" placeholder="Country code (e.g. GB, NG, US)"
+                            value={newSource.countryCode}
+                            onChange={e => setNewSource({ ...newSource, countryCode: e.target.value.toUpperCase() })}
+                            className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        />
+                        <input
+                            type="text" placeholder="Sponsor license type (optional)"
+                            value={newSource.sponsorLicenseType}
+                            onChange={e => setNewSource({ ...newSource, sponsorLicenseType: e.target.value })}
+                            className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                        />
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                            <input
+                                type="checkbox"
+                                checked={newSource.isVerifiedSponsor}
+                                onChange={e => setNewSource({ ...newSource, isVerifiedSponsor: e.target.checked })}
+                                className="rounded border-slate-600"
+                            />
+                            Verified sponsor
+                        </label>
+                    </div>
+                    <button type="submit" disabled={adding} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2">
+                        {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        Add Company
+                    </button>
+                </form>
+            )}
+
+            {/* Bulk CSV import - the feature that was missing */}
+            <div className="mb-6 p-5 bg-slate-900/50 border border-slate-800 rounded-xl">
+                <h2 className="text-white font-semibold mb-1 flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-primary-400" /> Bulk Import from CSV
+                </h2>
+                <p className="text-slate-400 text-xs mb-3">
+                    Columns: company_name, website_url, careers_page_url (optional), sponsor_license_type (optional), country_code (optional).
+                    Bulk-imported companies are automatically marked as verified sponsors.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 mb-3">
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition flex items-center gap-2 text-sm"
+                    >
+                        <FileText className="w-4 h-4" /> Choose CSV File
+                    </button>
+                    <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileSelect} className="hidden" />
+                    {csvText && (
+                        <span className="text-xs text-slate-500 self-center">
+                            {parseCSV(csvText).length} valid rows detected
+                        </span>
+                    )}
+                </div>
+                <textarea
+                    value={csvText}
+                    onChange={e => setCsvText(e.target.value)}
+                    rows={6}
+                    placeholder={"Or paste CSV rows directly here, e.g.:\ncompany_name,website_url,careers_page_url,sponsor_license_type,country_code\nAcme Ltd,https://acme.com,https://acme.com/careers,A-rated,GB"}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <button
+                    onClick={handleBulkImport}
+                    disabled={importing || !csvText.trim()}
+                    className="mt-3 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                    {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Import {csvText.trim() ? `${parseCSV(csvText).length} Companies` : ''}
+                </button>
+
+                {importProgress && (
+                    <div className="mt-3">
+                        <p className="text-sm text-slate-400 mb-1">
+                            Importing batch {importProgress.current} of {importProgress.total}...
+                        </p>
+                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-primary-500 transition-all"
+                                style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {importResult && (
+                    <div className="mt-3 p-3 bg-slate-800/50 rounded-lg text-sm">
+                        <p className="text-emerald-400">✓ Added: {importResult.added}</p>
+                        <p className="text-slate-400">Skipped (already existed or invalid): {importResult.skipped}</p>
+                        {importResult.errors?.length > 0 && (() => {
+                            const errs = importResult.errors;
+                            const groups = {};
+                            errs.forEach(e => { const k = String(e.error || '').replace(/"[^"]*"/g, '"…"'); groups[k] = (groups[k] || 0) + 1; });
+                            const errPages = Math.max(1, Math.ceil(errs.length / PAGE_SIZE));
+                            const ep = Math.min(errPage, errPages - 1);
+                            return (
+                                <div className="mt-2 text-xs">
+                                    <p className="text-red-300 font-medium">{errs.length} row{errs.length === 1 ? '' : 's'} not imported:</p>
+                                    <ul className="text-red-400 mt-1 mb-2">
+                                        {Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([msg, n]) => <li key={msg}>• {n} × {msg}</li>)}
+                                    </ul>
+                                    <div className="text-red-400">
+                                        {errs.slice(ep * PAGE_SIZE, ep * PAGE_SIZE + PAGE_SIZE).map((e, i) => (
+                                            <p key={i}>• {e.company}: {e.error}</p>
+                                        ))}
+                                    </div>
+                                    {errPages > 1 && (
+                                        <div className="flex items-center gap-3 mt-2 text-slate-300">
+                                            <button disabled={ep === 0} onClick={() => setErrPage(ep - 1)} className="px-2 py-1 bg-slate-700 rounded disabled:opacity-40">Previous</button>
+                                            <span>Page {ep + 1} of {errPages}</span>
+                                            <button disabled={ep >= errPages - 1} onClick={() => setErrPage(ep + 1)} className="px-2 py-1 bg-slate-700 rounded disabled:opacity-40">Next</button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                )}
+            </div>
+
+            {/* Search + count */}
+            {!loading && sources.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <input
+                        value={filterText}
+                        onChange={e => setFilterText(e.target.value)}
+                        placeholder="Search companies by name"
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white w-full sm:w-72"
+                    />
+                    <span className="text-xs text-slate-500">{filteredSources.length.toLocaleString('en-GB')} compan{filteredSources.length === 1 ? 'y' : 'ies'}{filterText.trim() ? ' match' : ''}</span>
+                </div>
+            )}
+
+            {/* Existing sources table */}
+            <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-x-auto">
+                {loading ? (
+                    <div className="p-12 text-center">
+                        <Loader2 className="w-8 h-8 text-primary-400 animate-spin mx-auto" />
+                    </div>
+                ) : sources.length === 0 ? (
+                    <div className="p-12 text-center text-slate-400">
+                        No employer sources added yet. Use the form above or bulk-import a CSV to get started.
+                    </div>
+                ) : (
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b border-slate-800 text-left text-slate-500">
+                                <th className="p-3">Company</th>
+                                <th className="p-3">Country</th>
+                                <th className="p-3">Sponsor</th>
+                                <th className="p-3">Last Scraped</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pageRows.map(source => (
+                                <tr key={source.id} className="border-b border-slate-800/50">
+                                    <td className="p-3 text-white">
+                                        <a href={source.website_url} target="_blank" rel="noopener noreferrer" className="hover:text-primary-400">
+                                            {source.company_name}
+                                        </a>
+                                    </td>
+                                    <td className="p-3 text-slate-400">{source.country_code}</td>
+                                    <td className="p-3">
+                                        {source.is_verified_sponsor ? (
+                                            <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
+                                                <ShieldCheck className="w-3 h-3" /> Verified
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-500 text-xs">—</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-slate-400 text-xs">
+                                        {source.last_scraped_at ? new Date(source.last_scraped_at).toLocaleString() : 'Never'}
+                                        {source.last_scrape_status && (
+                                            <span className={`ml-2 ${source.last_scrape_status === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                ({source.last_scrape_status})
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="p-3">
+                                        {source.is_active ? (
+                                            <span className="text-emerald-400 text-xs">Active</span>
+                                        ) : (
+                                            <span className="text-slate-500 text-xs">Inactive</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 whitespace-nowrap">
+                                        <button
+                                            onClick={() => handleFindEmails(source)}
+                                            className="mr-3 text-slate-400 hover:text-primary-400 transition text-xs inline-flex items-center gap-1"
+                                            title={source.contact_email ? `Saved: ${source.contact_email}` : 'Find contact emails published on this company\'s website'}
+                                        >
+                                            <Mail className="w-4 h-4" /> {source.contact_email ? 'Emails' : 'Find emails'}
+                                        </button>
+                                        {source.is_active && (
+                                            <button
+                                                onClick={() => handleDeactivate(source.id, source.company_name)}
+                                                className="text-slate-500 hover:text-red-400 transition"
+                                                title="Deactivate"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
+            {!loading && filteredSources.length > PAGE_SIZE && (
+                <div className="flex items-center justify-center gap-3 mt-3 text-sm text-slate-300">
+                    <button disabled={safePage === 0} onClick={() => setPage(0)} className="px-2.5 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">First</button>
+                    <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="px-3 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Previous</button>
+                    <span>Page {safePage + 1} of {pageCount}</span>
+                    <button disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} className="px-3 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Next</button>
+                    <button disabled={safePage >= pageCount - 1} onClick={() => setPage(pageCount - 1)} className="px-2.5 py-1.5 bg-slate-800 rounded-lg disabled:opacity-40">Last</button>
+                </div>
+            )}
+
+            {finder && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setFinder(null)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                                <h3 className="text-white font-semibold">Contact emails - {finder.source.company_name}</h3>
+                                <p className="text-slate-500 text-xs mt-0.5">Only addresses the company has published on its own website. Nothing is sent from here.</p>
+                            </div>
+                            <button onClick={() => setFinder(null)} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+                        </div>
+
+                        {finder.loading && <p className="text-slate-400 text-sm flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking the contact, about and careers pages...</p>}
+                        {finder.error && <p className="text-red-400 text-sm">{finder.error}</p>}
+                        {finder.savedEmail && <p className="text-emerald-400 text-sm mb-2">Saved {finder.savedEmail} to this company.</p>}
+
+                        {finder.result && (
+                            <>
+                                {finder.result.emails.length === 0 ? (
+                                    <p className="text-slate-400 text-sm">No published email found on {finder.result.pagesChecked.length} page(s) checked. Many sites use a contact form instead - open the site and look for one.</p>
+                                ) : (
+                                    <ul className="space-y-2">
+                                        {finder.result.emails.map(e => (
+                                            <li key={e.email} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-white text-sm break-all">{e.email}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        <span className={e.kind.startsWith('Personal') ? 'text-amber-400' : e.kind.startsWith('Recruit') ? 'text-emerald-400' : ''}>{e.kind}</span>
+                                                        {!e.sameSite && <span className="text-amber-400"> - different domain from the website</span>}
+                                                        {' - found on '}<a href={e.foundOn} target="_blank" rel="noopener noreferrer" className="underline">{new URL(e.foundOn).pathname || '/'}</a>
+                                                    </p>
+                                                </div>
+                                                <div className="flex gap-2 shrink-0">
+                                                    <button onClick={() => handleSaveEmail(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-primary-600 text-white hover:bg-primary-500">Save</button>
+                                                    <button onClick={() => navigator.clipboard?.writeText(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-slate-700 text-white hover:bg-slate-600">Copy</button>
+                                                    <button onClick={() => handleSuppressEmail(e.email)} className="px-2.5 py-1 text-xs rounded-md bg-slate-800 text-red-300 hover:bg-slate-700" title="Never offer or contact this address">Do not contact</button>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {finder.result.skipped?.length > 0 && (
+                                    <details className="mt-3 text-xs text-slate-500">
+                                        <summary className="cursor-pointer">{finder.result.skipped.length} page(s) not read</summary>
+                                        <ul className="mt-1 space-y-0.5">{finder.result.skipped.map((p, i) => <li key={i}>{p.url} - {p.reason}</li>)}</ul>
+                                    </details>
+                                )}
+                                <p className="text-slate-600 text-[11px] mt-3">Personal addresses (name@) are shown with a warning: under UK PECR / UK GDPR, cold emailing named individuals needs more care than role addresses such as careers@. Always include an opt-out and honour it.</p>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
