@@ -761,6 +761,7 @@ const AdminWorkforce = lazy(() => import('./pages/admin/AdminWorkforce'));
 const AffiliateManagement = lazy(() => import('./pages/admin/AffiliateManagement'));
 const UsageMeter = lazy(() => import('./pages/admin/UsageMeter'));
 const AdminAudit = lazy(() => import('./pages/admin/AdminAudit'));
+const AdminAccessLog = lazy(() => import('./pages/admin/AdminAccessLog'));
 const InsightEngine = lazy(() => import('./pages/admin/InsightEngine'));
 const EmployerVerification = lazy(() => import('./pages/EmployerVerification'));
 const AdminEmployerVerification = lazy(() => import('./pages/admin/AdminEmployerVerification'));
@@ -1056,6 +1057,7 @@ function AppContent() {
                             <Route path="/admin/affiliate-management" element={<ProtectedRoute requireAdmin><AdminLayout><AffiliateManagement /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><AdminLayout><UsageMeter /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAudit /></AdminLayout></ProtectedRoute>} />
+                            <Route path="/admin/access-log" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAccessLog /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/insight-engine" element={<ProtectedRoute requireAdmin><AdminLayout><InsightEngine /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/employer-sources" element={<ProtectedRoute requireAdmin><AdminLayout><EmployerSourcesManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/banner-messages" element={<ProtectedRoute requireAdmin><AdminLayout><AdminBannerMessages /></AdminLayout></ProtectedRoute>} />

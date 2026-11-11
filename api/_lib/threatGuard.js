@@ -14,6 +14,10 @@
 //  * Your own IPs: SECURITY_ALLOWLIST_IPS (comma separated). Private/local addresses and Vercel cron are exempt.
 //  * Nothing here reads request bodies except one narrow exploit-string check.
 
+// INCIDENT MODE (11 Nov 2026): after the 8 Nov break-in every automatic block is PERMANENT (no expiry) and scripted
+// clients (python-urllib, curl, wget ...) are blocked on sight. Switch off with the Vercel variable SECURITY_INCIDENT_MODE=off.
+const INCIDENT = String(process.env.SECURITY_INCIDENT_MODE || 'on').toLowerCase() !== 'off';
+const FAR_FUTURE_MINUTES = 100 * 365 * 24 * 60;
 const WINDOW_MINUTES = 15;
 const BLOCK_SCORE = 100;
 const ESCALATION_MINUTES = [60, 24 * 60, 7 * 24 * 60, 30 * 24 * 60];
@@ -22,6 +26,8 @@ const ESCALATION_MINUTES = [60, 24 * 60, 7 * 24 * 60, 30 * 24 * 60];
 export const RULES = {
     // ---- new signals recorded by this file ----
     threat_attack_tool_ua:   { weight: 100, certain: true,  why: 'User-agent of a known hacking or scanning tool' },
+    threat_scripted_client_ua:{ weight: 100, certain: INCIDENT, why: 'Scripted client (python-urllib, curl, wget ...) talking to the API: the 8 Nov attacker used python-urllib' },
+    threat_no_user_agent:    { weight: 60,  certain: false, why: 'Request with no user-agent: real browsers always send one' },
     threat_honeypot:         { weight: 100, certain: true,  why: 'Visited a decoy page no real visitor can reach (/.env, /wp-login.php ...)' },
     threat_exploit_url:      { weight: 100, certain: true,  why: 'Exploit string in the URL (directory traversal, Log4Shell)' },
     threat_injection_url:    { weight: 60,  certain: false, why: 'SQL/script injection pattern in the URL' },
@@ -39,6 +45,18 @@ export const RULES = {
     malicious_file_upload_blocked:     { weight: 60,  certain: false, why: 'Tried to upload a dangerous file' }
 };
 
+const SCRIPT_UA = /(python-urllib|python-requests|python-httpx|python\/\d|aiohttp|urllib3|go-http-client|libwww-perl|lwp-|okhttp|java\/\d|apache-httpclient|scrapy|\bcurl\/|\bwget\/|httpie|postmanruntime|insomnia\/|guzzlehttp|php\/\d|mechanize|powershell|phantomjs|ruby|restsharp|http_request2|node-superfetch)/i;
+if (INCIDENT) {
+    Object.assign(RULES.threat_injection_url, { weight: 100, certain: true });
+    Object.assign(RULES.threat_exploit_body, { weight: 100, certain: true });
+    Object.assign(RULES.threat_unknown_action, { weight: 25 });
+    Object.assign(RULES.threat_forbidden, { weight: 10 });
+    Object.assign(RULES.threat_too_many_requests, { weight: 10 });
+    Object.assign(RULES.admin_login_failed, { weight: 34 });
+    Object.assign(RULES.user_login_failed, { weight: 6 });
+    Object.assign(RULES.suspicious_message_content, { weight: 34 });
+    Object.assign(RULES.malicious_file_upload_blocked, { weight: 100, certain: true });
+}
 const TOOL_UA = /(sqlmap|nikto|nmap|masscan|acunetix|nessus|openvas|wpscan|havij|dirbuster|gobuster|feroxbuster|ffuf|nuclei|zgrab|hydra|metasploit|w3af|arachni|zaproxy|owasp[ _-]?zap|burpsuite|netsparker|appscan|jaeles|dirsearch|commix|xsstrike|fuzz faster)/i;
 const EXPLOIT_URL = /(\.\.\/|\.\.%2f|%2e%2e(%2f|\/)|\/etc\/passwd|\/etc\/shadow|\$\{jndi:|%24%7bjndi|\bwin\.ini\b|\/proc\/self)/i;
 const INJECTION_URL = /(union(\s|\+|%20)+(all(\s|\+|%20)+)?select|<script|%3cscript|javascript:|(\bor\b|%20or%20)(\s|\+|%20)*['"]?1['"]?(\s|\+|%20)*=(\s|\+|%20)*['"]?1|information_schema|sleep\((\s|%20)*\d|benchmark\(|;(\s|%20)*drop(\s|%20)+table|xp_cmdshell|load_file\()/i;
@@ -58,6 +76,8 @@ export function inspectRequest(req, action) {
     const out = [];
     const ua = String(req.headers?.['user-agent'] || '');
     if (TOOL_UA.test(ua)) out.push({ event: 'threat_attack_tool_ua', details: { ua: ua.slice(0, 120) } });
+    else if (SCRIPT_UA.test(ua)) out.push({ event: 'threat_scripted_client_ua', details: { ua: ua.slice(0, 120), action: action || null } });
+    else if (!ua.trim() && action && action !== 'share-preview') out.push({ event: 'threat_no_user_agent', details: { action: action || null } });
     let url = String(req.url || '');
     try { url = decodeURIComponent(url); } catch { /* keep raw */ }
     const raw = String(req.url || '');
@@ -70,9 +90,20 @@ export function inspectRequest(req, action) {
 }
 
 export function buildThreatGuard({ getSupabase, notify, env = process.env, now = () => Date.now() }) {
-    const mode = () => { const m = String(env.SECURITY_AUTOBLOCK || 'certain').toLowerCase(); return ['off', 'certain', 'on'].includes(m) ? m : 'certain'; };
+    const mode = () => { const m = String(env.SECURITY_AUTOBLOCK || (INCIDENT ? 'on' : 'certain')).toLowerCase(); return ['off', 'certain', 'on'].includes(m) ? m : (INCIDENT ? 'on' : 'certain'); };
     const allow = () => new Set(String(env.SECURITY_ALLOWLIST_IPS || '').split(',').map(s => s.trim()).filter(Boolean));
     const alertTimes = [];
+    // IPs you trusted in the database (security_trusted_ips) are never blocked; looked up at most every 5 minutes.
+    let trustedCache = { at: 0, set: new Set() };
+    async function dbTrusted(sb, ip) {
+        try {
+            if (now() - trustedCache.at > 300000) {
+                const { data } = await sb.from('security_trusted_ips').select('ip');
+                trustedCache = { at: now(), set: new Set((data || []).map(r => String(r.ip))) };
+            }
+        } catch { /* keep the old list */ }
+        return trustedCache.set.has(ip);
+    }
 
     function exempt(req, ip) {
         if (isPrivateOrInvalidIp(ip)) return true;
@@ -93,16 +124,18 @@ export function buildThreatGuard({ getSupabase, notify, env = process.env, now =
     async function block(sb, ip, reason, counts) {
         const { data: prior } = await sb.from('security_events').select('id', { count: 'exact', head: false }).eq('ip_address', ip).eq('event_type', 'threat_auto_block').gte('created_at', new Date(now() - 90 * 86400000).toISOString()).limit(10);
         const strikes = Math.min((prior || []).length, ESCALATION_MINUTES.length - 1);
-        const minutes = ESCALATION_MINUTES[strikes];
+        const minutes = INCIDENT ? FAR_FUTURE_MINUTES : ESCALATION_MINUTES[strikes];
         const { data: active } = await sb.from('blocked_ips').select('id').eq('ip_address', ip).gt('expires_at', new Date(now()).toISOString()).limit(1);
         if (!active || active.length === 0) {
-            const { error } = await sb.from('blocked_ips').insert({ ip_address: ip, reason: `auto: ${reason}`.slice(0, 200), block_reason: `auto: ${reason}`.slice(0, 200), expires_at: new Date(now() + minutes * 60000).toISOString() });
+            const { error } = await sb.from('blocked_ips').insert({ ip_address: ip, reason: `auto: ${reason}`.slice(0, 200), block_reason: `auto: ${reason}`.slice(0, 200), expires_at: new Date(now() + minutes * 60000).toISOString(), ...(INCIDENT ? { is_permanent: true } : {}) });
             if (error) throw error;
+        } else if (INCIDENT) {
+            await sb.from('blocked_ips').update({ is_permanent: true, expires_at: new Date(now() + minutes * 60000).toISOString() }).eq('id', active[0].id); // upgrade a temporary block
         }
         await sb.from('security_events').insert({ event_type: 'threat_auto_block', ip_address: ip, severity: 'critical', details: { reason, minutes, strikes: strikes + 1, signals: counts }, created_at: new Date(now()).toISOString() });
         if (notify) {
             const t = now(); while (alertTimes.length && t - alertTimes[0] > 3600000) alertTimes.shift();
-            if (alertTimes.length < 5) { alertTimes.push(t); try { await notify(`ODUSBABA blocked an IP automatically (${ip})`, `Reason: ${reason}\nBlocked for: ${minutes} minutes (strike ${strikes + 1})\nSignals in the last ${WINDOW_MINUTES} minutes: ${JSON.stringify(counts)}\n\nReview or lift it in Admin > Security. Block emails are limited to 5 an hour.`); } catch { /* alerts must never break a request */ } }
+            if (alertTimes.length < 5) { alertTimes.push(t); try { await notify(`ODUSBABA blocked an IP automatically (${ip})`, `Reason: ${reason}\nBlocked for: ${INCIDENT ? 'PERMANENTLY (incident mode)' : minutes + ' minutes'} (strike ${strikes + 1})\nSignals in the last ${WINDOW_MINUTES} minutes: ${JSON.stringify(counts)}\n\nReview or lift it in Admin > Security. Block emails are limited to 5 an hour.`); } catch { /* alerts must never break a request */ } }
         }
         return { minutes };
     }
@@ -112,6 +145,7 @@ export function buildThreatGuard({ getSupabase, notify, env = process.env, now =
         try {
             if (!signals.length || exempt(req, ip)) return { blocked: false };
             const sb = getSupabase();
+            if (await dbTrusted(sb, ip)) return { blocked: false };
             const rows = signals.map(s => ({ event_type: s.event, ip_address: ip, severity: RULES[s.event]?.weight >= 60 ? 'warning' : 'info', details: { ...(s.details || {}), ...(userId ? { userId } : {}) }, created_at: new Date(now()).toISOString() }));
             const { error } = await sb.from('security_events').insert(rows);
             if (error) throw error;

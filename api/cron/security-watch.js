@@ -19,7 +19,10 @@ import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 
 const ALERT_EVENTS = ['privilege_escalation_attempt', 'privileged_signup_blocked', 'signup_flood_blocked',
-    'unknown_admin_contained', 'admin_login_lockout_triggered', 'incident_ip_flagged'];
+    'unknown_admin_contained', 'admin_login_lockout_triggered', 'incident_ip_flagged',
+    'threat_auto_block', 'stray_swept', 'stray_account_swept', 'rogue_cron_job_removed',
+    'blocked_domain_signup', 'fake_domain_signup_blocked', 'threat_scripted_client_ua', 'threat_attack_tool_ua', 'threat_honeypot'];
+const FAR_FUTURE = '2999-01-01T00:00:00.000Z'; // incident mode: blocks never expire
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -86,7 +89,7 @@ export default async function handler(req, res) {
                         if (safe.has(ip)) continue;
                         const { data: live } = await sb.from('blocked_ips').select('id').eq('ip_address', ip).gt('expires_at', nowIso).limit(1);
                         if (!live || !live.length) {
-                            await sb.from('blocked_ips').insert({ ip_address: ip, expires_at: new Date(Date.now() + 30 * 86400000).toISOString(), reason: 'unknown_admin_account' });
+                            await sb.from('blocked_ips').insert({ ip_address: ip, expires_at: FAR_FUTURE, is_permanent: true, reason: 'unknown_admin_account' });
                         }
                     }
                     contained++;
@@ -98,6 +101,33 @@ export default async function handler(req, res) {
                 lines.push(`UNKNOWN ADMIN ${autoOff ? 'FOUND (automatic action is off)' : 'FOUND AND DEMOTED + BANNED'}: ${a.email || a.id} (was ${a.user_type}). IPs linked: ${[...ips].join(', ') || 'none recorded'}.`);
             }
         }
+
+        // ---- 1b. Sweeps, tripwire and rogue scheduled jobs (file 48 creates these functions) ----------------
+        try {
+            const { data: strays } = await sb.rpc('security_sweep_strays');
+            if (Number(strays) > 0) lines.push(`${strays} stray IP address(es) swept into the permanent block list (scanners, scripts, probing, floods).`);
+        } catch (e) { console.warn('stray sweep skipped:', e.message); }
+        try {
+            const { data: banned } = await sb.rpc('security_sweep_accounts');
+            if (Number(banned) > 0) lines.push(`${banned} account(s) on throwaway or blocked email domains were banned.`);
+        } catch (e) { console.warn('account sweep skipped:', e.message); }
+        try {
+            const { data: rogue } = await sb.rpc('security_cron_enforce');
+            if (rogue) lines.push(`ROGUE SCHEDULED JOB REMOVED from the database: ${rogue}`);
+        } catch (e) { console.warn('cron enforce skipped:', e.message); }
+        try {
+            const { data: drift } = await sb.rpc('security_integrity_check');
+            if (Array.isArray(drift) && drift.length) {
+                const sig = drift.map(d => `${d.kind}|${d.name}|${d.problem}`).sort().join(';');
+                const lastSig = String(await getConfig(sb, 'security_integrity_last_alert') ?? '');
+                if (sig !== lastSig) {
+                    lines.push(`DATABASE CHANGE DETECTED (${drift.length}): ` + drift.slice(0, 8).map(d => `${d.problem} ${d.kind} ${d.name}`).join('; ') +
+                        (drift.length > 8 ? ' ...' : '') + '. If YOU made this change, run: select public.security_integrity_snapshot();  If not, treat it as a break-in.');
+                    await setConfig(sb, 'security_integrity_last_alert', sig);
+                    await sb.from('security_events').insert({ event_type: 'integrity_drift', ip_address: null, severity: 'critical', details: { count: drift.length, items: drift.slice(0, 20) }, created_at: nowIso });
+                }
+            }
+        } catch (e) { console.warn('integrity check skipped:', e.message); }
 
         // ---- 2. New critical events from the database guards -----------------------------------------------
         const last = await getConfig(sb, 'security_watch_last_run');

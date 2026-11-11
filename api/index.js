@@ -530,8 +530,47 @@ async function getAuthenticatedUser(req, supabaseClient) {
         return { authorized: false, status: 401, error: 'Invalid or expired session' };
     }
 
-    return { authorized: true, userId: user.id };
+    return { authorized: true, userId: user.id, sessionId: jwtClaim(token, 'session_id') };
 }
+
+// NEW (2026-11-11): read one claim from a JWT that getUser() has ALREADY verified (no signature check here).
+function jwtClaim(token, key) {
+    try {
+        const part = String(token || '').split('.')[1];
+        if (!part) return null;
+        const obj = JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+        return obj && obj[key] !== undefined ? obj[key] : null;
+    } catch (e) { return null; }
+}
+
+// NEW (2026-11-11): SERVER-SIDE TWO-FACTOR PROOF FOR THE ADMIN AREA.
+// Why: until now the 2FA code was never checked at sign-in and never checked by this API, so a stolen or self-made admin
+// session could use every admin action without it (the 8 Nov attacker did exactly that). Now an admin action needs a
+// signed proof that the TOTP code was entered for THIS sign-in session. The proof is bound to the user and the session
+// and lasts 12 hours. Set ADMIN_2FA_ENFORCE=off in Vercel only as an emergency switch.
+const ADMIN_PROOF_TTL_MS = 12 * 3600 * 1000;
+function adminProofSecret() {
+    return process.env.ADMIN_PROOF_SECRET || crypto.createHash('sha256').update('admin-proof|' + (process.env.SUPABASE_SERVICE_ROLE_KEY || 'no-key')).digest('hex');
+}
+function signAdminProof(userId, sessionId) {
+    const payload = Buffer.from(JSON.stringify({ u: String(userId), s: String(sessionId || ''), e: Date.now() + ADMIN_PROOF_TTL_MS })).toString('base64url');
+    const sig = crypto.createHmac('sha256', adminProofSecret()).update(payload).digest('base64url');
+    return payload + '.' + sig;
+}
+function verifyAdminProof(proof, userId, sessionId) {
+    try {
+        const [payload, sig] = String(proof || '').split('.');
+        if (!payload || !sig) return false;
+        const expect = crypto.createHmac('sha256', adminProofSecret()).update(payload).digest('base64url');
+        const a = Buffer.from(sig), b = Buffer.from(expect);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+        const d = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+        if (d.u !== String(userId) || Number(d.e) < Date.now()) return false;
+        if (d.s && sessionId && d.s !== String(sessionId)) return false;
+        return true;
+    } catch (e) { return false; }
+}
+const admin2faEnforced = () => String(process.env.ADMIN_2FA_ENFORCE || 'on').toLowerCase() !== 'off';
 
 // FIXED (2026-08-27): confirmed a real, systemic gap - 33 handlers across
 // this file destructure userId directly from req.body and trust it as-is,
@@ -779,14 +818,27 @@ async function requireAdmin(req, supabaseClient) {
     const authCheck = await getAuthenticatedUser(req, supabaseClient);
     if (!authCheck.authorized) return authCheck;
 
+    req._adminCall = true; // lets the access log mark this request as an admin call, reads included
     const { data: profile } = await supabaseClient
         .from('profiles')
-        .select('user_type')
+        .select('user_type, two_factor_enabled')
         .eq('id', authCheck.userId)
         .single();
 
     if (profile?.user_type !== 'admin' && profile?.user_type !== 'super_admin') {
         return { authorized: false, status: 403, error: 'Admin access required' };
+    }
+
+    // NEW (2026-11-11): the admin area needs a server-checked two-factor proof (see the block above).
+    if (admin2faEnforced()) {
+        if (!profile.two_factor_enabled) {
+            req._skipThreat = true; req._adminDenied = true;
+            return { authorized: false, status: 403, error: 'ADMIN_2FA_SETUP_REQUIRED: set up two-factor sign-in at /settings/security before using the admin area.' };
+        }
+        if (!verifyAdminProof(req.headers['x-admin-proof'], authCheck.userId, authCheck.sessionId)) {
+            req._skipThreat = true; req._adminDenied = true;
+            return { authorized: false, status: 403, error: 'ADMIN_2FA_REQUIRED: enter your two-factor code to use the admin area.' };
+        }
     }
 
     return { authorized: true, userId: authCheck.userId, userType: profile.user_type };
@@ -17135,7 +17187,10 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                     .from('profiles')
                     .update({ two_factor_last_verified: new Date().toISOString() })
                     .eq('id', userId);
-                return res.status(200).json({ valid: true, method: 'totp' });
+                // NEW (2026-11-11): a signed proof for the admin area, only when the caller is signed in AS this user.
+                let proof = null;
+                try { const who = await getAuthenticatedUser(req, supabaseClient); if (who.authorized && who.userId === userId) proof = signAdminProof(userId, who.sessionId); } catch (e) { /* optional */ }
+                return res.status(200).json({ valid: true, method: 'totp', proof });
             }
 
             // Not a valid TOTP code — check backup codes.
@@ -17156,15 +17211,58 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
                 .update({ two_factor_last_verified: new Date().toISOString() })
                 .eq('id', userId);
 
+            let backupProof = null;
+            try { const who = await getAuthenticatedUser(req, supabaseClient); if (who.authorized && who.userId === userId) backupProof = signAdminProof(userId, who.sessionId); } catch (e) { /* optional */ }
             return res.status(200).json({
                 valid: true,
                 method: 'backup_code',
-                remainingBackupCodes: remainingCodes.length
+                remainingBackupCodes: remainingCodes.length,
+                proof: backupProof
             });
         } catch (error) {
             console.error('2FA verify error:', error);
             return res.status(500).json({ valid: false, error: error.message });
         }
+    },
+
+    // NEW (2026-11-11): tells the admin screens whether this session still needs its two-factor code.
+    'admin-2fa-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const authCheck = await getAuthenticatedUser(req, supabaseClient);
+        if (!authCheck.authorized) return res.status(authCheck.status || 401).json({ error: authCheck.error || 'Not signed in' });
+        const { data: profile } = await supabaseClient.from('profiles').select('user_type, two_factor_enabled').eq('id', authCheck.userId).single();
+        const isAdmin = profile?.user_type === 'admin' || profile?.user_type === 'super_admin';
+        if (!isAdmin) return res.status(200).json({ isAdmin: false });
+        const verified = verifyAdminProof(req.headers['x-admin-proof'], authCheck.userId, authCheck.sessionId);
+        return res.status(200).json({ isAdmin: true, enforced: admin2faEnforced(), enrolled: !!profile.two_factor_enabled, verified, userId: authCheck.userId });
+    },
+
+    // NEW (2026-11-11): super-admin view of the permanent record (api requests, sign-in sessions, Supabase auth events).
+    'admin-access-log': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const adminCheck = await requireAdmin(req, supabaseClient);
+        if (!adminCheck.authorized) return res.status(adminCheck.status).json({ error: adminCheck.error });
+        if (adminCheck.userType !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
+        const b = req.body || {};
+        const view = ['api', 'sessions', 'auth'].includes(b.view) ? b.view : 'api';
+        const limit = Math.min(Math.max(parseInt(b.limit, 10) || 100, 1), 1000);
+        const offset = Math.max(parseInt(b.offset, 10) || 0, 0);
+        const table = view === 'api' ? 'api_audit_log' : view === 'sessions' ? 'session_history' : 'auth_audit_archive';
+        const orderCol = view === 'sessions' ? 'started_at' : 'created_at';
+        let q = supabaseClient.from(table).select('*', { count: 'exact' }).order(orderCol, { ascending: false }).range(offset, offset + limit - 1);
+        const ipCol = view === 'auth' ? 'ip_address' : 'ip';
+        if (b.ip) q = q.eq(ipCol, String(b.ip).slice(0, 64));
+        if (view === 'api') {
+            if (b.userId) q = q.eq('user_id', String(b.userId));
+            if (b.action) q = q.eq('action', String(b.action).slice(0, 80));
+            if (b.adminOnly) q = q.eq('is_admin_call', true);
+            if (b.deniedOnly) q = q.eq('denied', true);
+        }
+        if (view === 'sessions' && b.userId) q = q.eq('user_id', String(b.userId));
+        if (b.since) q = q.gte(orderCol, String(b.since));
+        const { data, error, count } = await q;
+        if (error) return res.status(500).json({ error: 'Could not read the log' });
+        return res.status(200).json({ view, rows: data || [], total: count || 0 });
     },
 
     'disable-2fa': async (req, res) => {
@@ -18970,6 +19068,40 @@ handlers['honeypot'] = async (req, res) => {
 // ============================================
 // MAIN HANDLER
 // ============================================
+// NEW (2026-11-11): permanent access record. Written after the response is sent, never delays or breaks a request.
+// It stores WHO (user id, session id, role claim), WHAT (action, target id, field NAMES only - never values), FROM WHERE
+// (IP, browser) and the RESULT. Signed-in calls, admin calls (reads too) and every refused or failed call are recorded.
+function logApiAccess(req, res, ip, action, startedAt) {
+    try {
+        const auth = String(req.headers?.authorization || '');
+        const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+        const status = res.statusCode || 0;
+        const isAdminCall = !!req._adminCall;
+        const denied = status >= 400 || !!req._adminDenied;
+        if (!token && !isAdminCall && !denied) return;
+        const body = (req.body && typeof req.body === 'object') ? req.body : {};
+        const sub = token ? jwtClaim(token, 'sub') : null;
+        const target = body.userId || body.id || body.targetUserId || body.threadId || body.messageId || req.query?.id || null;
+        const row = {
+            ip: String(ip || '').slice(0, 64),
+            user_agent: String(req.headers?.['user-agent'] || '').slice(0, 300),
+            method: req.method,
+            action: String(action || '').slice(0, 80),
+            status,
+            ms: Math.min(Date.now() - startedAt, 2147483000),
+            user_id: /^[0-9a-f-]{36}$/i.test(String(sub || '')) ? sub : null,
+            role_claim: token ? String(jwtClaim(token, 'role') || '').slice(0, 30) : null,
+            session_id: token ? String(jwtClaim(token, 'session_id') || '').slice(0, 64) : null,
+            is_admin_call: isAdminCall,
+            denied,
+            target: target ? String(target).slice(0, 80) : null,
+            body_keys: Object.keys(body).slice(0, 40),
+            referer: String(req.headers?.referer || '').slice(0, 200)
+        };
+        Promise.resolve(getSupabase().from('api_audit_log').insert(row)).catch(() => {});
+    } catch (e) { /* the log must never break a request */ }
+}
+
 export default async function handler(req, res) {
     setCors(req, res);
     
@@ -19032,9 +19164,11 @@ export default async function handler(req, res) {
         if (!hasBody) { noBody = true; try { req.body = {}; } catch (e) { Object.defineProperty(req, 'body', { value: {}, writable: true, configurable: true }); } }
     } catch (e) { /* if the body cannot be set, the catch below still answers with a 400 */ }
 
+    const accessStart = Date.now();
+    if (!isCrawlerPreview && action !== 'honeypot') res.on('finish', () => logApiAccess(req, res, requestIP, action, accessStart));
     try {
         await handlers[action](req, res);
-        if (!isCrawlerPreview && action !== 'honeypot') await threatGuard.after(req, res, requestIP); // counts repeated 403/429 answers
+        if (!isCrawlerPreview && action !== 'honeypot' && !req._skipThreat) await threatGuard.after(req, res, requestIP); // counts repeated 403/429 answers
     } catch (error) {
         if (noBody && error instanceof TypeError && /req\.body|destructure|undefined|null/i.test(String(error.message))) {
             console.warn(`Request without a body for ${action} (answered 400)`);

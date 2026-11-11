@@ -20,6 +20,8 @@ import { useState, useEffect } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
 import { supabase } from '../../lib/supabase';
 import { FreshnessReminder } from '../../pages/admin/AdminDataFreshness';
+import Admin2FAGate from './Admin2FAGate';
+import '../../lib/adminProof';
 
 // Single source of truth for the admin nav — every real /admin/* route
 // confirmed in the project brief, in one place. Adding a new admin page
@@ -34,6 +36,7 @@ const ADMIN_NAV = [
         { path: '/admin/usage-meter', label: 'Usage Meter', icon: Gauge },
         { path: '/admin/security', label: 'Security', icon: Shield },
         { path: '/admin/audit', label: 'Audit Log', icon: FileSearch },
+        { path: '/admin/access-log', label: 'Access Log (permanent)', icon: Eye },
     ]},
     { section: 'People', items: [
         { path: '/admin/users', label: 'Users', icon: Users },
@@ -156,6 +159,7 @@ export default function AdminLayout({ children }) {
         .find(item => location.pathname.startsWith(item.path))?.label || 'Admin';
 
     return (
+        <Admin2FAGate>
         <div className="min-h-screen bg-slate-950 flex">
             {/* Mobile nav toggle */}
             <button
@@ -238,5 +242,6 @@ export default function AdminLayout({ children }) {
                 <FreshnessReminder />
             </main>
         </div>
+        </Admin2FAGate>
     );
 }
