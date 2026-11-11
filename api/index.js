@@ -13944,6 +13944,10 @@ Use this light markup where it genuinely helps: one or two callouts written as a
         if (!userId || !actionType) {
             return res.status(400).json({ error: 'userId and actionType are required' });
         }
+        // NEW (2026-11-10): the sign-up case below is allowed without a token, so cap it per address.
+        if (!checkRateLimit(`log-activity:${getRequestIP(req)}`, 60)) {
+            return res.status(200).json({ success: true, skipped: 'rate' });
+        }
 
         const supabaseClient = getSupabase();
 
@@ -15734,7 +15738,10 @@ Use this light markup where it genuinely helps: one or two callouts written as a
     // ========== ASSESSMENTS DEBUG (Enhanced with mock data) ==========
     'assessments-debug': async (req, res) => {
         const supabaseClient = getSupabase();
-        
+        // SECURITY (2026-11-10): a public debug endpoint tells a stranger how the database is set up. Admin only now.
+        const dbgAuth = await requireAdmin(req, supabaseClient);
+        if (!dbgAuth.authorized) return res.status(dbgAuth.status).json({ error: dbgAuth.error });
+
         try {
             const { data: assessmentsData, error } = await supabaseClient
                 .from('assessments')
@@ -17418,6 +17425,12 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
 
         if (!code || typeof code !== 'string' || !code.trim()) {
             return res.status(400).json({ success: false, valid: false, error: 'Invite code is required' });
+        }
+
+        // NEW (2026-11-10): this action had no limit at all, so a script could guess invite codes or burn through
+        // the uses of a real one (each check consumes a use). Ten tries a minute per address is plenty for a person.
+        if (code.length > 64 || !checkRateLimit(`invite-code:${getRequestIP(req)}`, 10)) {
+            return res.status(429).json({ success: false, valid: false, error: 'Too many attempts. Please wait a minute and try again.' });
         }
 
         try {
