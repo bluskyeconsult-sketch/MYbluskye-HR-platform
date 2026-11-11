@@ -17911,6 +17911,16 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             console.warn('VA lookup failed:', err.message);
         }
 
+        // NEW (2026-11-11): on 8 Nov the attacker sent one request here with no account, the made-up assistant id
+        // 00000000-0000-4000-8000-000000000000 and the input "x"; it ran a real, billed OpenAI call. An assistant that does
+        // not exist is now refused before any AI call, input must be text of a sane length, and guest use can be
+        // switched off with the Vercel variable VA_GUEST_ACCESS=off.
+        if (!va) return res.status(404).json({ success: false, error: 'That assistant was not found.' });
+        if (typeof input !== 'string' || input.length > 20000) return res.status(400).json({ success: false, error: 'Please send your request as text of up to 20,000 characters.' });
+        if (!userId && String(process.env.VA_GUEST_ACCESS || 'on').toLowerCase() === 'off') {
+            return res.status(401).json({ success: false, error: 'Please sign in to use this assistant.' });
+        }
+
         const executionType = va?.execution_type || 'single_turn';
 
         // NEW (2026-08-23): the actual, cost-justified reason
