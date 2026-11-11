@@ -505,9 +505,10 @@ export default function SignUpPage() {
                     id: authData.user.id,
                     email: formData.email,
                     full_name: formData.full_name,
-                    user_type: userType,
-                    tier: tier,
-                    is_tester: isTestingMode || false,
+                    // SECURITY (11 Nov 2026): user_type, tier and is_tester are NO LONGER
+                    // written from the browser. The database sign-up trigger sets them
+                    // from a checked allow-list, and the database now refuses browser
+                    // writes to those columns (file 45).
                     country_code: 'GB',
                     // NEW (2026-08-16): referral attribution — only set
                     // when a real ?ref= code was present, so this never
@@ -552,18 +553,9 @@ export default function SignUpPage() {
             // separate, tier-independent cap in tester_allocations, enforced
             // in va-execute; this va_credits balance is for consistency with
             // any other credit-gated feature that isn't tester-cap-aware.
-            const initialCredits = TIER_DEFAULT_CREDITS[tier] ?? 5;
-
-            const { error: creditsError } = await supabase
-                .from('va_credits')
-                .upsert({
-                    user_id: authData.user.id,
-                    balance: initialCredits
-                });
-
-            if (creditsError) {
-                console.warn('Credit initialization warning:', creditsError);
-            }
+            // SECURITY (11 Nov 2026): the browser no longer writes the credit balance.
+            // The database sign-up trigger (file 42) creates the va_credits row with the
+            // allowance for the tier actually granted, and members cannot write balances.
 
             // Create company profile for employers (both testers and real
             // signups — a tester testing the employer tier needs a company
