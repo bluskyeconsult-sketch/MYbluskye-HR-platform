@@ -37,6 +37,7 @@ const ADMIN_NAV = [
         { path: '/admin/security', label: 'Security', icon: Shield },
         { path: '/admin/audit', label: 'Audit Log', icon: FileSearch },
         { path: '/admin/access-log', label: 'Access Log (permanent)', icon: Eye },
+        { path: '/admin/documents', label: 'My Documents (Word & Sheets)', icon: FolderOpen },
     ]},
     { section: 'People', items: [
         { path: '/admin/users', label: 'Users', icon: Users },

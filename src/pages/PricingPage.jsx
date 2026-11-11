@@ -246,8 +246,8 @@ const benefitCategories = [
 
 export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState('monthly');
-  // NEW (2026-08-16): Free Access Mode notice — checks the same
-  // system_config flag the backend uses to bypass payment, so users
+  // UPDATED (2026-11-11): testing-period notice — checks the ONE testing switch (system_config testing_mode),
+  // the same flag the backend uses to skip payment, so users
   // actually know upgrades are free right now and payment is coming later.
   const [freeAccessMode, setFreeAccessMode] = useState(false);
   // NEW (2026-10-23): regional price for the Professional (individual) plan only. Null means the standard price applies.
@@ -257,9 +257,9 @@ export default function PricingPage() {
     supabase
       .from('system_config')
       .select('config_value')
-      .eq('config_key', 'free_access_mode')
+      .eq('config_key', 'testing_mode')
       .maybeSingle()
-      .then(({ data }) => setFreeAccessMode(data?.config_value?.enabled === true))
+      .then(({ data }) => setFreeAccessMode(data?.config_value === 'enabled'))
       .catch(() => {});
     // Sent with the sign-in token when there is one, so the quote matches what checkout will charge.
     supabase.auth.getSession().then(({ data: { session } }) => fetch('/api/index?action=pricing-quote', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }, body: '{}' }))

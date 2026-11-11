@@ -22,8 +22,7 @@
 // capabilities via GovernanceContext.jsx with no payment ever happening. Now:
 // the account is created at a safe 'registered' tier instead, the user is still
 // redirected to /pricing to complete payment, and only testing mode or an
-// explicit promo_mode toggle (new — mirrors the existing testing_mode pattern,
-// flip it in system_config to run a promotion) grants the requested tier
+// the ONE testing switch (system_config testing_mode; promo_mode was removed 2026-11-11) grants the requested tier
 // immediately. Admin accounts are never created through this public signup form
 // at all — that carve-out is structural, not something this file needs to handle.
 // TODO (Stage 3 / Stripe integration): once payment exists, upgrade profiles.tier
@@ -40,7 +39,7 @@
 //     userType='tester', tier='free', discarding whichever tier they'd
 //     selected — so a tester could never actually test the employer or
 //     business experience). Paid tiers are granted immediately during
-//     testing mode, same as promo_mode already does, since a tester isn't
+//     testing mode, since a tester isn't
 //     expected to pay. A separate is_tester flag marks the account so a
 //     hard, tier-independent OpenAI usage cap applies (enforced in
 //     va-execute via tester_allocations — see tester-system-setup.sql) —
@@ -287,11 +286,6 @@ export default function SignUpPage() {
             
             const isTestingMode = data?.config_value === 'enabled';
             setTestingMode(isTestingMode);
-            
-            // Also check localStorage fallback
-            if (!data && localStorage.getItem('testing_mode') === 'enabled') {
-                setTestingMode(true);
-            }
 
             // NEW (2026-08-21): fetch the real, admin-configurable tester
             // cap values — these were previously never read at all.
@@ -324,29 +318,7 @@ export default function SignUpPage() {
             }
         } catch (err) {
             console.error('Error checking testing mode:', err);
-            // Fallback to localStorage
-            const saved = localStorage.getItem('testing_mode');
-            setTestingMode(saved === 'enabled');
-        }
-    }
-
-    // NEW: checks the promo_mode toggle in system_config — same pattern as
-    // testing_mode. When enabled, paid tiers are granted immediately without
-    // payment, for running a promotion. Defaults to disabled/false if the key
-    // doesn't exist, so this is safe even before anyone sets it up.
-    async function checkPromoMode() {
-        try {
-            const { data, error } = await supabase
-                .from('system_config')
-                .select('config_value')
-                .eq('config_key', 'promo_mode')
-                .maybeSingle();
-            
-            if (error) throw error;
-            return data?.config_value === 'enabled';
-        } catch (err) {
-            console.warn('Error checking promo mode (defaulting to disabled):', err);
-            return false;
+            setTestingMode(false);   // if the switch cannot be read, behave as normal (no free paid plans)
         }
     }
 
@@ -425,8 +397,6 @@ export default function SignUpPage() {
                 }
             }
 
-            const isPromoActive = isTestingMode ? false : await checkPromoMode();
-            
             // REBUILT (2026-08-21): testers now keep their real selected
             // tier's user_type and capabilities — previously this branch
             // forced userType='tester', tier='free' unconditionally,
@@ -438,15 +408,15 @@ export default function SignUpPage() {
             const selectedTierInfo = tiers.find(t => t.id === formData.selectedTier);
             const needsPayment = selectedTierInfo?.requiresPayment === true;
 
-            if (needsPayment && !isPromoActive && !isTestingMode) {
-                // Paid tier requested, no promo active, not a tester, and
+            if (needsPayment && !isTestingMode) {
+                // Paid tier requested, testing period not running, and
                 // payment isn't wired up yet — grant a safe free tier now
                 // instead of full paid access. User still gets redirected
                 // to /pricing below.
                 tier = 'registered';
                 downgraded = true;
             } else {
-                // Free tier, a paid tier during an active promo, or ANY
+                // Free tier, or ANY
                 // tier during testing mode (testers aren't expected to
                 // pay) — grant as requested.
                 tier = formData.selectedTier;
@@ -687,7 +657,7 @@ export default function SignUpPage() {
                     navigate('/tester-login');
                 } else {
                     const selected = tiers.find(t => t.id === formData.selectedTier);
-                    if (selected?.requiresPayment && !isPromoActive) {
+                    if (selected?.requiresPayment) {
                         navigate('/pricing', { state: { selectedTier: formData.selectedTier } });
                     } else {
                         navigate('/sign-in');

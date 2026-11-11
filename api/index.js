@@ -5804,7 +5804,9 @@ Return ONLY a JSON object: {
     // UI existed to add real chapter content at all, which is exactly
     // why "Convert to Course" always failed with "no chapters with
     // real content yet" for every book on the platform.
-    'get-book-chapters': async (req, res) => {
+    // RENAMED (2026-11-11): was a second 'get-book-chapters', which the public handler further down silently replaced,
+    // so the admin chapter editor received "bookId is required". Now its own action; ManageBookChapters.jsx calls this name.
+    'admin-get-book-chapters': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requirePermission(req, supabaseClient, 'can_manage_books');
         if (!auth.authorized) return res.status(auth.status).json({ error: auth.error });
@@ -7740,33 +7742,45 @@ ${siteContext}`;
         }
     },
 
-    // NEW (2026-10-20): saves the money-related switches on the Admin Dashboard on the server, so a refused write
-    // is reported (the browser version showed "on" even when nothing was saved) and every change is audited.
-    'admin-set-config': async (req, res) => {
+    // UPDATED (2026-11-11): ONE switch for the whole testing period (replaces admin-set-config, which saved the old
+    // free_access_mode / free_access_end_date switches). All the logic lives in the database (SQL 58): this only
+    // calls it, for a Super Admin, and writes an audit entry for every change.
+    //   op 'status'          -> { enabled, end_date, on_testing_plans, paying }
+    //   op 'start'           -> testing ON (clears any end date)
+    //   op 'schedule'+date   -> announce the end date, notify everyone on a testing plan now (date '' clears it)
+    //   op 'end-now'         -> testing OFF, everyone who has not paid goes to the free Registered level
+    'admin-testing-period': async (req, res) => {
         const supabaseClient = getSupabase();
         const auth = await requireAdmin(req, supabaseClient);
         if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
         if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Only a Super Admin can change this.' });
-        const key = String(req.body?.key || '');
-        const value = req.body?.value;
-        let config_value;
-        if (key === 'free_access_mode') {
-            if (typeof value !== 'boolean') return res.status(400).json({ success: false, error: 'Invalid value.' });
-            config_value = { enabled: value };
-        } else if (key === 'free_access_end_date') {
-            if (value !== null && value !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return res.status(400).json({ success: false, error: 'Use a date like 2026-12-31.' });
-            config_value = { date: value || null };
-        } else {
-            return res.status(400).json({ success: false, error: 'That setting cannot be changed here.' });
-        }
+        const op = String(req.body?.op || '');
         try {
-            const { error } = await supabaseClient.from('system_config').upsert({ config_key: key, config_value }, { onConflict: 'config_key' });
-            if (error) throw error;
-            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: `config_${key}`, tier: 'super_admin', wasAllowed: true });
-            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'admin_config_changed', details: { key, value: config_value } });
-            return res.status(200).json({ success: true, key, config_value });
+            let result;
+            if (op === 'status') {
+                const { data, error } = await supabaseClient.rpc('testing_period_status');
+                if (error) throw error;
+                return res.status(200).json({ success: true, status: data });
+            } else if (op === 'start') {
+                const { data, error } = await supabaseClient.rpc('start_testing_period');
+                if (error) throw error; result = data;
+            } else if (op === 'schedule') {
+                const date = req.body?.date ? String(req.body.date) : null;
+                if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, error: 'Use a date like 2026-12-31.' });
+                const { data, error } = await supabaseClient.rpc('announce_testing_end', { p_date: date });
+                if (error) throw error; result = data;
+            } else if (op === 'end-now') {
+                const { data, error } = await supabaseClient.rpc('end_testing_period', { p_force: true });
+                if (error) throw error; result = data;
+            } else {
+                return res.status(400).json({ success: false, error: 'Unknown action.' });
+            }
+            logAuditEvent(supabaseClient, { userId: auth.userId, actionType: `testing_period_${op}`, tier: 'super_admin', wasAllowed: true });
+            logUserActivity(supabaseClient, req, { userId: auth.userId, actionType: 'admin_testing_period', details: { op, result } });
+            const { data: status } = await supabaseClient.rpc('testing_period_status');
+            return res.status(200).json({ success: true, result, status });
         } catch (error) {
-            console.error('admin-set-config error:', error);
+            console.error('admin-testing-period error:', error);
             return res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -9300,21 +9314,11 @@ Keep the tone professional and constructive throughout - direct about issues whe
         const idCheck = await verifyClaimedUserId(req, supabaseClient, userId);
         if (!idCheck.verified) return res.status(idCheck.status).json({ success: false, error: idCheck.error });
 
-        // NEW (2026-08-16): Free Access Mode — distinct from Enforcement
-        // Mode. Tier-based feature gating stays fully real and testable;
-        // this only removes the payment requirement to obtain a tier.
-        // When enabled, grants the selected tier directly and skips
-        // Stripe entirely. Flip system_config.free_access_mode off any
-        // time to resume real payment collection immediately, with no
-        // code changes.
+        // UPDATED (2026-11-11): during the testing period (the ONE switch, system_config testing_mode) a plan is granted
+        // directly and Stripe is skipped. Tier rules and limits stay fully real. The period ends in one place
+        // (database function end_testing_period, SQL 58), which moves everyone who has not paid to the free level.
         try {
-            const { data: config } = await supabaseClient
-                .from('system_config')
-                .select('config_value')
-                .eq('config_key', 'free_access_mode')
-                .maybeSingle();
-
-            if (config?.config_value?.enabled) {
+            if (await isTestingModeOn(supabaseClient)) {
                 const { error: upgradeError } = await supabaseClient
                     .from('profiles')
                     .update({ user_type: tierName, tier: tierName, subscription_status: 'free_access' })
@@ -9330,7 +9334,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 });
             }
         } catch (freeAccessError) {
-            console.error('Free access mode check failed, falling through to real checkout:', freeAccessError);
+            console.error('Testing-period plan grant failed, falling through to real checkout:', freeAccessError);
             // Falls through to real Stripe checkout below rather than
             // blocking the user entirely on a config-read failure.
         }

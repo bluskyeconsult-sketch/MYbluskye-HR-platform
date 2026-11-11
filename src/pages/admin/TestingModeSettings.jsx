@@ -37,6 +37,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { authenticatedFetch } from '../../lib/authFetch';
 import { 
     FlaskConical, Loader2, CheckCircle, XCircle, AlertCircle, 
     RefreshCw, Users, Calendar, Clock, Award, TrendingUp
@@ -114,21 +115,15 @@ export default function TestingModeSettings() {
                 .maybeSingle();
             
             if (!error && data) {
-                const enabled = data.config_value === 'enabled';
-                setTestingMode(enabled);
-                localStorage.setItem('testing_mode', enabled ? 'enabled' : 'disabled');
+                setTestingMode(data.config_value === 'enabled');
                 setSyncStatus('success');
             } else {
-                const saved = localStorage.getItem('testing_mode');
-                const enabled = saved === 'enabled';
-                setTestingMode(enabled);
+                setTestingMode(false);
                 setSyncStatus('error');
-                console.warn('Failed to load from database, using localStorage fallback');
             }
         } catch (error) {
             console.error('Error loading settings:', error);
-            const saved = localStorage.getItem('testing_mode');
-            setTestingMode(saved === 'enabled');
+            setTestingMode(false);
             setSyncStatus('error');
         } finally {
             setLoading(false);
@@ -210,50 +205,31 @@ export default function TestingModeSettings() {
         }
     }
 
+    // UPDATED (2026-11-11): this is the SAME single switch as the Admin Dashboard card. Turning it ON starts testing;
+    // turning it OFF ends the testing period properly on the server (everyone who has not paid moves to the free
+    // Registered level). Super Admin only. Nothing is stored in the browser.
     async function toggleTestingMode() {
         if (!isAdmin) {
             alert('Admin access required to change testing mode');
             return;
         }
-        
+        const turningOn = !testingMode;
+        if (!turningOn && !confirm('End the testing period now? Testing switches OFF immediately. Everyone who has not paid moves to the free Registered level, loses their plan, tester status and spare credits, and is notified. People who paid keep their plan.')) return;
         setSaving(true);
-        const newValue = !testingMode;
-        const stringValue = newValue ? 'enabled' : 'disabled';
-        
         try {
-            const { error: dbError } = await supabase
-                .from('system_config')
-                .upsert({
-                    config_key: 'testing_mode',
-                    config_value: stringValue,
-                    updated_at: new Date().toISOString()
-                    // FIXED (2026-08-29): confirmed real bug - updated_by
-                    // isn't a real column on system_config (confirmed via
-                    // a direct query of the actual schema: id, config_key,
-                    // config_value, updated_at, created_at, description
-                    // only). Referencing a nonexistent column in an
-                    // upsert is a real, independent cause of a 400,
-                    // separate from the config_value type mismatch.
-                }, { onConflict: 'config_key' });
-            
-            if (dbError) throw dbError;
-            
+            await authenticatedFetch('admin-testing-period', { op: turningOn ? 'start' : 'end-now' });
             setSyncStatus('success');
-            setTestingMode(newValue);
-            localStorage.setItem('testing_mode', stringValue);
-            
-            // FIXED (2026-08-21): was a hardcoded "10 free uses / 30 days" —
-            // now reflects the real configured cap.
-            alert(`✅ Testing mode ${newValue ? 'enabled' : 'disabled'}.\n\nNew registrations will ${newValue ? `be able to test any plan, capped at ${testerConfig.aiCallCap} AI-assisted requests for ${testerConfig.accessDays} days` : 'be regular users (free tier with 5 AI credits)'}.`);
-            
-        } catch (dbError) {
-            console.error('Failed to save to database:', dbError);
-            localStorage.setItem('testing_mode', stringValue);
+            setTestingMode(turningOn);
+            alert(turningOn
+                ? `✅ Testing period started.\n\nNew registrations can test any plan, capped at ${testerConfig.aiCallCap} AI-assisted requests for ${testerConfig.accessDays} days.`
+                : '✅ Testing period ended. Everyone who has not paid is now on the free Registered level.');
+        } catch (err) {
+            console.error('Failed to change the testing period:', err);
             setSyncStatus('error');
-            setTestingMode(newValue);
-            alert(`⚠️ Testing mode ${newValue ? 'enabled' : 'disabled'} (local only). Database sync may be unavailable.`);
+            alert('Not changed: ' + err.message);
         } finally {
             setSaving(false);
+            await loadSettings();
             await loadTesterStats();
         }
     }
@@ -268,7 +244,7 @@ export default function TestingModeSettings() {
         if (syncStatus === 'success') {
             alert('✅ Settings synced from database successfully');
         } else {
-            alert('⚠️ Could not sync from database. Using localStorage fallback.');
+            alert('⚠️ Could not sync from the database.');
         }
     }
 
@@ -321,7 +297,7 @@ export default function TestingModeSettings() {
                 <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
                     <p className="text-amber-400 text-sm">
-                        Using localStorage fallback. Database connection may be unavailable.
+                        Could not read the setting from the database.
                     </p>
                 </div>
             )}
@@ -421,10 +397,10 @@ export default function TestingModeSettings() {
                             <p className="text-slate-400 text-sm mt-1">
                                 {testingMode 
                                     ? `✨ New testers pick any plan and get its real capabilities, capped at ${testerConfig.aiCallCap} AI-assisted requests for ${testerConfig.accessDays} days regardless of tier.`
-                                    : '👤 New users will register as regular users (free tier with 5 AI credits).'}
+                                    : '👤 New users will register as regular users.'}
                             </p>
                             <p className="text-xs text-slate-500 mt-2">
-                                Setting is stored in database and localStorage. Changes persist across page refreshes.
+                                This is the one testing switch for the whole site. Changes persist across page refreshes.
                             </p>
                         </div>
                     </div>
@@ -442,7 +418,7 @@ export default function TestingModeSettings() {
                                 <li>Testers keep their selected tier's real capabilities — the AI-request cap applies regardless of which tier they picked</li>
                                 <li>Cap is currently {testerConfig.aiCallCap} requests / {testerConfig.accessDays} days — adjustable via system_config (tester_ai_call_cap, tester_access_days)</li>
                                 <li>Whether an invite code is required is a separate toggle — see Tester Visibility Settings</li>
-                                <li>Setting is automatically synced between database and localStorage</li>
+                                <li>Turning it OFF ends the testing period: everyone who has not paid moves to the free Registered level (it is the same switch as the Admin Dashboard card)</li>
                                 <li>Admin access required to change this setting</li>
                             </ul>
                         </div>

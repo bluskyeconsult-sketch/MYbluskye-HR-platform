@@ -2,9 +2,10 @@
 // NEW (2026-11-10): "My Documents" - a private, moderate word processor and spreadsheet for members.
 // No extra libraries: the editor uses the browser's own editing, the spreadsheet uses src/lib/sheetEngine.js.
 // Saved to the user_documents table (SQL 37): only the owner can read or change a row. Limits are enforced by the database.
-//   Documents: headings, bold/italic/underline, lists, alignment, links, tables. Import .txt/.html. Export Word (.doc), print or save as PDF.
-//   Spreadsheets: up to 200 rows by 26 columns, formulas (SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS and + - * / ^). Import/export CSV.
-// Not included: .docx or .xlsx import/export, images, macros, pivot tables, charts.
+//   Documents: headings, bold/italic/underline, lists, alignment, links, tables. Import .docx/.txt/.html. Export Word (.docx), print or save as PDF.
+//   Spreadsheets: up to 200 rows by 26 columns, formulas (SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS and + - * / ^). Import/export .xlsx and CSV.
+// UPDATE (2026-11-11): real Word (.docx) and Excel (.xlsx) import/export via src/lib/officeFiles.js (loaded only when used).
+// Not included: images, macros, pivot tables, charts.
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
@@ -331,11 +332,20 @@ export default function MyDocumentsPage() {
     };
 
     // ---- exports and imports
-    const exportWord = () => {
-        const html = sanitizeHtml(editorRef.current ? editorRef.current.innerHTML : '');
-        const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'
-            + escapeHtml(current.title) + '</title></head><body>' + html + '</body></html>';
-        downloadBlob(safeFileName(current.title, 'doc'), '﻿' + doc, 'application/msword');
+    const exportWord = async () => {
+        setError('');
+        try {
+            const html = sanitizeHtml(editorRef.current ? editorRef.current.innerHTML : '');
+            const { docxFromHtml } = await import('../lib/officeFiles');
+            downloadBlob(safeFileName(current.title, 'docx'), docxFromHtml(html, current.title), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        } catch (err) { setError('Could not create the Word file. Please try again.'); }
+    };
+    const exportExcel = async () => {
+        setError('');
+        try {
+            const { xlsxFromCells } = await import('../lib/officeFiles');
+            downloadBlob(safeFileName(current.title, 'xlsx'), xlsxFromCells(sheet.cells, sheet.rows, sheet.cols, current.title), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        } catch (err) { setError('Could not create the Excel file. Please try again.'); }
     };
     const printDoc = () => {
         const html = sanitizeHtml(editorRef.current ? editorRef.current.innerHTML : '');
@@ -357,16 +367,39 @@ export default function MyDocumentsPage() {
         const file = e.target.files && e.target.files[0];
         e.target.value = '';
         if (!file || !current) return;
-        if (file.size > 900000) { setError('That file is too large to import (limit about 900 KB).'); return; }
-        const text = await file.text();
         const name = file.name.toLowerCase();
+        const isOffice = name.endsWith('.docx') || name.endsWith('.xlsx');
+        if (file.size > (isOffice ? 3 * 1024 * 1024 : 900000)) { setError('That file is too large to import (limit about ' + (isOffice ? '3 MB' : '900 KB') + ').'); return; }
+        if (name.endsWith('.doc') || name.endsWith('.xls')) { setError('Old-style .doc and .xls files cannot be opened. In Word or Excel choose Save As and pick .docx or .xlsx, then import that.'); return; }
+        if (current.kind === 'doc' && name.endsWith('.docx')) {
+            try {
+                const { htmlFromDocx } = await import('../lib/officeFiles');
+                const html = await htmlFromDocx(await file.arrayBuffer());
+                editorRef.current.innerHTML = html; markDirty();
+            } catch (err) { setError((err && err.message) || 'That Word file could not be opened.'); }
+            return;
+        }
+        if (current.kind === 'sheet' && name.endsWith('.xlsx')) {
+            try {
+                const { cellsFromXlsx } = await import('../lib/officeFiles');
+                const { sheet: imported, notes } = await cellsFromXlsx(await file.arrayBuffer());
+                setSheet(imported); markDirty();
+                const msgs = [];
+                if (notes.truncated) msgs.push('Only the first 200 rows and 26 columns were imported.');
+                if (notes.formulasValueOnly) msgs.push(notes.formulasValueOnly + ' formula(s) use features not supported here, so their last calculated values were imported instead.');
+                msgs.push('Only the first sheet is imported. Dates appear as numbers.');
+                setError(msgs.join(' '));
+            } catch (err) { setError((err && err.message) || 'That Excel file could not be opened.'); }
+            return;
+        }
+        const text = await file.text();
         if (current.kind === 'doc') {
             if (name.endsWith('.txt')) { editorRef.current.innerHTML = textToHtml(text); markDirty(); }
             else if (name.endsWith('.html') || name.endsWith('.htm')) { editorRef.current.innerHTML = sanitizeHtml(text) || '<p><br></p>'; markDirty(); }
-            else setError('Documents can import .txt or .html files. For Word files, save as .html or copy and paste the text.');
+            else setError('Documents can import .docx, .txt or .html files.');
         } else {
             if (name.endsWith('.csv')) { const imported = csvToCells(text); setSheet(imported); markDirty(); }
-            else setError('Spreadsheets can import .csv files. In Excel choose Save As, then CSV.');
+            else setError('Spreadsheets can import .xlsx or .csv files.');
         }
     };
 
@@ -420,7 +453,7 @@ export default function MyDocumentsPage() {
                                 ))}
                             </ul>
                         )}
-                        <p className="text-xs text-slate-500 mt-6">Free and registered accounts can save 5 items; professional and business plans can save 50. Each item can be about 1 MB. Word export uses the .doc format that Word opens directly.</p>
+                        <p className="text-xs text-slate-500 mt-6">Free and registered accounts can save 5 items; professional and business plans can save 50. Each item can be about 1 MB. Import and download real Word (.docx) and Excel (.xlsx) files.</p>
                     </>
                 ) : (
                     <>
@@ -433,15 +466,18 @@ export default function MyDocumentsPage() {
                         </div>
                         {error && <div role="alert" className="mb-3 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg p-3 text-sm">{error}</div>}
                         <div className="flex flex-wrap gap-2 mb-3">
-                            <input ref={fileRef} type="file" className="hidden" onChange={importFile} accept={current.kind === 'doc' ? '.txt,.html,.htm' : '.csv'} />
-                            <button onClick={() => fileRef.current && fileRef.current.click()} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Upload className="w-4 h-4" /> Import {current.kind === 'doc' ? '.txt or .html' : '.csv'}</button>
+                            <input ref={fileRef} type="file" className="hidden" onChange={importFile} accept={current.kind === 'doc' ? '.docx,.txt,.html,.htm' : '.xlsx,.csv'} />
+                            <button onClick={() => fileRef.current && fileRef.current.click()} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Upload className="w-4 h-4" /> Import {current.kind === 'doc' ? 'Word (.docx), .txt or .html' : 'Excel (.xlsx) or .csv'}</button>
                             {current.kind === 'doc' ? (
                                 <>
-                                    <button onClick={exportWord} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Download className="w-4 h-4" /> Download for Word</button>
+                                    <button onClick={exportWord} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Download className="w-4 h-4" /> Download Word (.docx)</button>
                                     <button onClick={printDoc} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Printer className="w-4 h-4" /> Print or save as PDF</button>
                                 </>
                             ) : (
-                                <button onClick={exportCsv} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Download className="w-4 h-4" /> Download for Excel (.csv)</button>
+                                <>
+                                    <button onClick={exportExcel} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Download className="w-4 h-4" /> Download Excel (.xlsx)</button>
+                                    <button onClick={exportCsv} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-sm"><Download className="w-4 h-4" /> Download .csv</button>
+                                </>
                             )}
                         </div>
                         {current.kind === 'doc'

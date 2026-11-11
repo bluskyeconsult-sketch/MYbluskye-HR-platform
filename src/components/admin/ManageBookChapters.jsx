@@ -61,7 +61,7 @@ export default function ManageBookChapters({ bookId, bookTitle }) {
         setLoading(true);
         try {
             const headers = await authHeaders();
-            const response = await fetch(`/api/index?action=get-book-chapters&bookId=${bookId}`, { headers });
+            const response = await fetch(`/api/index?action=admin-get-book-chapters&bookId=${bookId}`, { headers });
             const data = await response.json();
             if (!data.success) throw new Error(data.error);
             setChapters(data.chapters || []);

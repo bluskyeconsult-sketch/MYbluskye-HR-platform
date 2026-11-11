@@ -1058,6 +1058,8 @@ function AppContent() {
                             <Route path="/admin/usage-meter" element={<ProtectedRoute requireAdmin><AdminLayout><UsageMeter /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/audit" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAudit /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/access-log" element={<ProtectedRoute requireAdmin><AdminLayout><AdminAccessLog /></AdminLayout></ProtectedRoute>} />
+                            {/* NEW (2026-11-11): admin's own private word processor and spreadsheet, inside the admin shell */}
+                            <Route path="/admin/documents" element={<ProtectedRoute requireAdmin><AdminLayout><MyDocumentsPage /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/insight-engine" element={<ProtectedRoute requireAdmin><AdminLayout><InsightEngine /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/employer-sources" element={<ProtectedRoute requireAdmin><AdminLayout><EmployerSourcesManager /></AdminLayout></ProtectedRoute>} />
                             <Route path="/admin/banner-messages" element={<ProtectedRoute requireAdmin><AdminLayout><AdminBannerMessages /></AdminLayout></ProtectedRoute>} />
