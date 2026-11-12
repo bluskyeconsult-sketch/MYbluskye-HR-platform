@@ -5,6 +5,7 @@
 //   - remote images are blocked until the admin clicks "Show images" (they can track you)
 //   - links are limited to web, mail and phone links, and open in a new tab
 //   - the message sits in a sandboxed frame with its own content policy, apart from the admin page
+// UPDATED (2026-11-12): style attributes with CSS escape codes are dropped; look-alike (xn--) link addresses are flagged red.
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
@@ -35,9 +36,13 @@ export function prepareEmailHtml(html, text, showImages) {
     });
     doc.querySelectorAll('[style]').forEach((el) => {
         const st = el.getAttribute('style') || '';
-        if (/url\s*\(|expression|@import|javascript:/i.test(st)) el.removeAttribute('style');
+        // UPDATED (2026-11-12): a backslash is also refused - CSS lets a web address be written with escape codes (u\72l(...))
+        // that slip past a plain "url(" check. The frame's content policy already blocks the fetch; this closes the gap
+        // for the moment you click "Show images".
+        if (/url\s*\(|expression|@import|javascript:|\\/i.test(st)) el.removeAttribute('style');
     });
     let mismatched = 0;
+    let lookalike = 0;
     doc.querySelectorAll('a').forEach((a) => {
         const href = (a.getAttribute('href') || '').trim();
         if (!/^(https?:|mailto:|tel:)/i.test(href)) { a.removeAttribute('href'); return; }
@@ -49,8 +54,11 @@ export function prepareEmailHtml(html, text, showImages) {
             const looksLikeUrl = /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/|$|\s)/i.test(shown);
             let shownHost = '';
             if (looksLikeUrl) { try { shownHost = new URL(/^https?:/i.test(shown) ? shown.split(/\s/)[0] : `https://${shown.split(/\s|\//)[0]}`).hostname.replace(/^www\./, ''); } catch (e) { /* ignore */ } }
-            const bad = looksLikeUrl && shownHost && host && shownHost !== host && !host.endsWith('.' + shownHost);
-            if (bad) mismatched++;
+            // UPDATED (2026-11-12): an address written with foreign look-alike letters (xn-- form) is flagged too
+            const mismatch = looksLikeUrl && shownHost && host && shownHost !== host && !host.endsWith('.' + shownHost);
+            const idn = /(^|\.)xn--/i.test(host);
+            const bad = mismatch || idn;
+            if (mismatch) mismatched++; else if (idn) lookalike++;
             // every link shows where it really goes
             const tag = doc.createElement('span');
             tag.textContent = ` [goes to ${host || 'unknown'}]`;
@@ -59,7 +67,7 @@ export function prepareEmailHtml(html, text, showImages) {
             a.setAttribute('title', href);
         }
     });
-    return { html: doc.body.innerHTML, blocked, mismatched };
+    return { html: doc.body.innerHTML, blocked, mismatched, lookalike };
 }
 
 export default function MailMessageFrame({ html, text }) {
@@ -88,6 +96,11 @@ export default function MailMessageFrame({ html, text }) {
             {prepared.mismatched > 0 && (
                 <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2 mb-2">
                     {prepared.mismatched} link{prepared.mismatched === 1 ? '' : 's'} in this message show one web address but lead to another. That is a common phishing trick. Do not click them.
+                </div>
+            )}
+            {prepared.lookalike > 0 && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2 mb-2">
+                    {prepared.lookalike} link{prepared.lookalike === 1 ? '' : 's'} in this message go to a web address written with look-alike foreign letters, a known impersonation trick. Do not click {prepared.lookalike === 1 ? 'it' : 'them'}.
                 </div>
             )}
             {prepared.blocked > 0 && !showImages && (

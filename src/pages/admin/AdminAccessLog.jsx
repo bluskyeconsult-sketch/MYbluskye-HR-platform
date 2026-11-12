@@ -2,6 +2,8 @@
 // The permanent record: every signed-in or admin request to the API (reads included), every sign-in session with
 // its IP and browser, and Supabase's own sign-in events. Super Admin only. Built after the 8 Nov 2026 incident,
 // when reads and short-lived sessions left no trace.
+// UPDATED (2026-11-12): also lists (and exports to CSV) the security events written by the site's guards and the
+// blocked IP addresses, so every record can be downloaded from this one page.
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Download, RefreshCw } from 'lucide-react';
 import { authenticatedFetch } from '../../lib/authFetch';
@@ -9,7 +11,9 @@ import { authenticatedFetch } from '../../lib/authFetch';
 const VIEWS = [
     { key: 'api', label: 'API requests' },
     { key: 'sessions', label: 'Sign-in sessions' },
-    { key: 'auth', label: 'Supabase sign-in events' }
+    { key: 'auth', label: 'Supabase sign-in events' },
+    { key: 'security', label: 'Security events' },
+    { key: 'blocked', label: 'Blocked IPs' }
 ];
 const PAGE = 100;
 
@@ -26,14 +30,14 @@ export default function AdminAccessLog() {
     const [offset, setOffset] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [f, setF] = useState({ ip: '', userId: '', action: '', since: '', adminOnly: false, deniedOnly: false });
+    const [f, setF] = useState({ ip: '', userId: '', action: '', since: '', adminOnly: false, deniedOnly: false, importantOnly: false });
 
     const load = useCallback(async (off = 0, limit = PAGE) => {
         setLoading(true); setError('');
         try {
             const d = await authenticatedFetch('admin-access-log', {
                 view, limit, offset: off, ip: f.ip || undefined, userId: f.userId || undefined, action: f.action || undefined,
-                since: f.since ? new Date(f.since).toISOString() : undefined, adminOnly: f.adminOnly || undefined, deniedOnly: f.deniedOnly || undefined
+                since: f.since ? new Date(f.since).toISOString() : undefined, adminOnly: f.adminOnly || undefined, deniedOnly: f.deniedOnly || undefined, importantOnly: f.importantOnly || undefined
             });
             return d;
         } catch (e) { setError(e.message || 'Could not load the log'); return null; }
@@ -67,7 +71,11 @@ export default function AdminAccessLog() {
         ? ['created_at', 'ip', 'action', 'status', 'user_id', 'is_admin_call', 'denied', 'target', 'body_keys', 'user_agent']
         : view === 'sessions'
             ? ['started_at', 'last_seen', 'email', 'ip', 'aal', 'user_agent']
-            : ['created_at', 'ip_address', 'action', 'payload'];
+            : view === 'auth'
+                ? ['created_at', 'ip_address', 'action', 'payload']
+                : view === 'security'
+                    ? ['created_at', 'event_type', 'severity', 'ip_address', 'details']
+                    : ['ip_address', 'reason', 'expires_at', 'is_permanent', 'unblocked_at'];
     const cell = (r, c) => {
         const v = r[c];
         if (v === null || v === undefined) return '';
@@ -80,7 +88,7 @@ export default function AdminAccessLog() {
     return (
         <div className="px-6 pb-10">
             <h1 className="text-white text-2xl font-bold mb-1">Access Log (permanent)</h1>
-            <p className="text-slate-400 text-sm mb-4">Who used the site API, from where, and with what result. Field names are recorded, never field values or passwords. Admin and refused calls are kept for 2 years; other calls for 90 days.</p>
+            <p className="text-slate-400 text-sm mb-4">Who used the site API, from where, and with what result. Field names are recorded, never field values or passwords. Admin and refused calls are kept for 2 years; other calls for 90 days. "Security events" leaves out routine api_request rows unless you type that event type; "Blocked IPs" shows every address the site has blocked, with the reason and expiry.</p>
 
             <div className="flex flex-wrap gap-2 mb-3">
                 {VIEWS.map((v) => (
@@ -90,10 +98,11 @@ export default function AdminAccessLog() {
 
             <div className="flex flex-wrap items-end gap-2 mb-3 text-sm">
                 <input placeholder="IP address" value={f.ip} onChange={(e) => setF({ ...f, ip: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white w-40" />
-                {view !== 'auth' && <input placeholder="User id" value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white w-72" />}
-                {view === 'api' && <input placeholder="Action" value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white w-44" />}
-                <input type="datetime-local" value={f.since} onChange={(e) => setF({ ...f, since: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white" />
+                {(view === 'api' || view === 'sessions') && <input placeholder="User id" value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white w-72" />}
+                {(view === 'api' || view === 'security') && <input placeholder={view === 'security' ? 'Event type (e.g. threat_honeypot)' : 'Action'} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white w-64" />}
+                {view !== 'blocked' && <input type="datetime-local" value={f.since} onChange={(e) => setF({ ...f, since: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white" />}
                 {view === 'api' && <label className="text-slate-300 flex items-center gap-1"><input type="checkbox" checked={f.adminOnly} onChange={(e) => setF({ ...f, adminOnly: e.target.checked })} /> Admin calls only</label>}
+                {view === 'security' && <label className="text-slate-300 flex items-center gap-1"><input type="checkbox" checked={f.importantOnly} onChange={(e) => setF({ ...f, importantOnly: e.target.checked })} /> Critical &amp; warning only</label>}
                 {view === 'api' && <label className="text-slate-300 flex items-center gap-1"><input type="checkbox" checked={f.deniedOnly} onChange={(e) => setF({ ...f, deniedOnly: e.target.checked })} /> Refused / failed only</label>}
                 <button onClick={refresh} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded"><RefreshCw className="w-4 h-4" /> Apply</button>
                 <button onClick={exportCsv} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded"><Download className="w-4 h-4" /> CSV (up to 1,000)</button>

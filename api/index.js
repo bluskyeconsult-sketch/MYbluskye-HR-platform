@@ -9992,11 +9992,177 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 .select('id');
             if (error) throw error;
             if (!lifted || lifted.length === 0) return res.status(404).json({ success: false, error: 'That block no longer exists.' });
-            logSecurityEvent('admin_manual_ip_unblock', row?.ip_address || 'unknown', 'info', { by: auth.userId });
-            return res.status(200).json({ success: true });
+            // UPDATED (2026-11-12): the 10-minute security watcher re-blocks any address that has attack-type events in the
+            // last 30 days, so a plain unblock was undone within minutes. The old events are kept as history but renamed
+            // (event_type + '_cleared'), exactly as database file 61 does, so a deliberate unblock stays unblocked. If the
+            // address misbehaves again, new events are written and it is blocked again.
+            let cleared = 0;
+            const ipText = String(row?.ip_address || '').split('/')[0];
+            if (ipText) {
+                try {
+                    const sweepTypes = ['threat_attack_tool_ua', 'threat_scripted_client_ua', 'threat_honeypot', 'threat_exploit_url', 'threat_exploit_body', 'threat_injection_url',
+                        'privilege_escalation_attempt', 'privileged_signup_blocked', 'admin_login_unauthorized_role', 'signup_flood_blocked', 'fake_domain_signup_blocked',
+                        'blocked_domain_signup', 'malicious_file_upload_blocked', 'unknown_admin_contained', 'incident_ip_flagged', 'rate_abuse_lockout_triggered', 'threat_auto_block',
+                        'threat_unknown_action', 'threat_forbidden', 'threat_too_many_requests', 'admin_login_failed', 'user_login_failed', 'suspicious_message_content'];
+                    const since30 = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+                    const { data: evs } = await supabaseClient.from('security_events').select('id, event_type')
+                        .eq('ip_address', ipText).in('event_type', sweepTypes).gte('created_at', since30).limit(1000);
+                    // one update per event type (not per row), so even a busy address clears in a few quick calls
+                    const idsByType = {};
+                    for (const ev of (evs || [])) (idsByType[ev.event_type] = idsByType[ev.event_type] || []).push(ev.id);
+                    for (const [type, ids] of Object.entries(idsByType)) {
+                        const { error: upErr } = await supabaseClient.from('security_events').update({ event_type: `${type}_cleared` }).in('id', ids);
+                        if (!upErr) cleared += ids.length;
+                    }
+                } catch (clearErr) {
+                    console.warn('admin-unblock-ip: could not clear old events:', clearErr.message);
+                }
+            }
+            logSecurityEvent('admin_manual_ip_unblock', row?.ip_address || 'unknown', 'info', { by: auth.userId, old_events_cleared: cleared });
+            return res.status(200).json({ success: true, cleared });
         } catch (error) {
             console.error('admin-unblock-ip error:', error);
             return res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // NEW (2026-11-12): one-click full security report for the owner to keep and to hand to Claude at the next review.
+    // Super Admin only, read-only. Returns everything a review needs in one file: counts, every non-routine security event,
+    // every block (live and lifted), the trusted-IP list, the busiest visitors, admin and denied calls, sign-in events and
+    // sign-in sessions for the chosen window (1, 7 or 30 days). Routine "api_request" rows are counted and summarised by
+    // visitor, not listed one by one. Every section says how many rows exist and how many were returned, so nothing is
+    // silently cut short.
+    'admin-security-report': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Super admin access required' });
+        if (!checkRateLimit(`admin-security-report:${auth.userId}`, 6)) {
+            return res.status(429).json({ success: false, error: 'Too many report requests - wait a minute and try again.' });
+        }
+        try {
+            const days = [1, 7, 30].includes(parseInt(req.body?.days, 10)) ? parseInt(req.body.days, 10) : 7;
+            const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+            const nowIso = new Date().toISOString();
+            const notes = [];
+
+            // read up to maxRows rows, 1000 at a time (the database returns at most 1000 per request)
+            const readAll = async (build, maxRows) => {
+                const out = [];
+                let total = null;
+                for (let from = 0; from < maxRows; from += 1000) {
+                    const { data, error, count } = await build().range(from, Math.min(from + 999, maxRows - 1));
+                    if (error) throw error;
+                    if (total === null) total = count;
+                    out.push(...(data || []));
+                    if (!data || data.length < 1000) break;
+                }
+                return { rows: out, total: total === null ? out.length : total };
+            };
+            const section = async (name, fn) => {
+                try { return await fn(); } catch (e) { notes.push(`${name}: could not be read (${e.message || e})`); return null; }
+            };
+
+            const [securityEvents, routineCount, blocked, trusted, apiRows, adminCalls, deniedCalls, authEvents, sessions] = await Promise.all([
+                section('security events', () => readAll(() => supabaseClient.from('security_events').select('created_at, event_type, severity, ip_address, details', { count: 'exact' })
+                    .gte('created_at', sinceIso).neq('event_type', 'api_request').order('created_at', { ascending: false }), 5000)),
+                section('routine request count', async () => {
+                    const { count, error } = await supabaseClient.from('security_events').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso).eq('event_type', 'api_request');
+                    if (error) throw error; return count || 0;
+                }),
+                section('blocked IPs', () => readAll(() => supabaseClient.from('blocked_ips').select('*', { count: 'exact' }).order('expires_at', { ascending: false }), 2000)),
+                section('trusted IPs', () => readAll(() => supabaseClient.from('security_trusted_ips').select('*', { count: 'exact' }), 500)),
+                section('api requests', () => readAll(() => supabaseClient.from('api_audit_log').select('ip, action, status, user_id, is_admin_call, denied, created_at', { count: 'exact' })
+                    .gte('created_at', sinceIso).order('created_at', { ascending: false }), 20000)),
+                section('admin calls', () => readAll(() => supabaseClient.from('api_audit_log').select('created_at, ip, action, status, user_id, role_claim, session_id, denied, target, body_keys', { count: 'exact' })
+                    .gte('created_at', sinceIso).eq('is_admin_call', true).order('created_at', { ascending: false }), 2000)),
+                section('denied calls', () => readAll(() => supabaseClient.from('api_audit_log').select('created_at, ip, action, status, user_id, role_claim, user_agent, target', { count: 'exact' })
+                    .gte('created_at', sinceIso).eq('denied', true).order('created_at', { ascending: false }), 2000)),
+                section('sign-in events', () => readAll(() => supabaseClient.from('auth_audit_archive').select('created_at, ip_address, action, payload', { count: 'exact' })
+                    .gte('created_at', sinceIso).order('created_at', { ascending: false }), 2000)),
+                section('sign-in sessions', () => readAll(() => supabaseClient.from('session_history').select('started_at, last_seen, user_id, email, ip, user_agent, aal', { count: 'exact' })
+                    .gte('started_at', sinceIso).order('started_at', { ascending: false }), 1000))
+            ]);
+
+            const countBy = (rows, key) => {
+                const m = {};
+                for (const r of rows || []) { const k = r[key] === null || r[key] === undefined ? 'unknown' : String(r[key]); m[k] = (m[k] || 0) + 1; }
+                return m;
+            };
+            const evRows = securityEvents?.rows || [];
+
+            // busiest visitors: calls, distinct actions, denied calls, first and last seen
+            const byIp = {};
+            for (const r of apiRows?.rows || []) {
+                const k = r.ip || 'unknown';
+                const e = byIp[k] || (byIp[k] = { ip: k, calls: 0, denied: 0, admin_calls: 0, signed_in_calls: 0, actions: {}, first_seen: r.created_at, last_seen: r.created_at });
+                e.calls++;
+                if (r.denied) e.denied++;
+                if (r.is_admin_call) e.admin_calls++;
+                if (r.user_id) e.signed_in_calls++;
+                e.actions[r.action || 'unknown'] = (e.actions[r.action || 'unknown'] || 0) + 1;
+                if (r.created_at < e.first_seen) e.first_seen = r.created_at;
+                if (r.created_at > e.last_seen) e.last_seen = r.created_at;
+            }
+            const busiest = Object.values(byIp).sort((a, b) => b.calls - a.calls).slice(0, 60).map(e => ({
+                ...e, actions: Object.fromEntries(Object.entries(e.actions).sort((a, b) => b[1] - a[1]).slice(0, 15))
+            }));
+
+            const blockedRows = blocked?.rows || [];
+            const live = blockedRows.filter(b => b.expires_at > nowIso && !b.unblocked_at);
+            const lifted = blockedRows.filter(b => !!b.unblocked_at).slice(0, 200);
+
+            const report = {
+                report: 'ODUSBABA security report',
+                generated_at: nowIso,
+                window: { days, from: sinceIso, to: nowIso },
+                requested_from_ip: getRequestIP(req),
+                how_to_read: 'Give this whole file to Claude at the next review. Times are UTC. "details" holds what the site recorded about each event. Each section lists total rows that exist and rows returned.',
+                problems_reading_data: notes,
+                summary: {
+                    security_events_excluding_routine: securityEvents ? securityEvents.total : null,
+                    routine_api_request_events: routineCount,
+                    events_by_severity: countBy(evRows, 'severity'),
+                    events_by_type: Object.fromEntries(Object.entries(countBy(evRows, 'event_type')).sort((a, b) => b[1] - a[1])),
+                    blocked_ips_live_now: live.length,
+                    admin_calls: adminCalls ? adminCalls.total : null,
+                    denied_calls: deniedCalls ? deniedCalls.total : null,
+                    sign_in_events: authEvents ? authEvents.total : null,
+                    sign_in_sessions: sessions ? sessions.total : null,
+                    api_requests_in_window: apiRows ? apiRows.total : null,
+                    api_requests_summarised_below: apiRows ? apiRows.rows.length : 0
+                },
+                blocked_ips_live: live,
+                blocked_ips_lifted_recent: lifted,
+                trusted_ips: trusted ? trusted.rows : null,
+                busiest_visitors: busiest,
+                security_events: { total: securityEvents ? securityEvents.total : null, returned: evRows.length, rows: evRows },
+                admin_calls: { total: adminCalls ? adminCalls.total : null, returned: adminCalls ? adminCalls.rows.length : 0, rows: adminCalls ? adminCalls.rows : [] },
+                denied_calls: { total: deniedCalls ? deniedCalls.total : null, returned: deniedCalls ? deniedCalls.rows.length : 0, rows: deniedCalls ? deniedCalls.rows : [] },
+                sign_in_events: { total: authEvents ? authEvents.total : null, returned: authEvents ? authEvents.rows.length : 0, rows: authEvents ? authEvents.rows : [] },
+                sign_in_sessions: { total: sessions ? sessions.total : null, returned: sessions ? sessions.rows.length : 0, rows: sessions ? sessions.rows : [] }
+            };
+            // The hosting platform refuses responses over about 4.5 MB, so if the report is too big the lowest-value rows
+            // are trimmed (and the report says so) rather than the whole download failing.
+            const LIMIT = 3900000;
+            const size = () => JSON.stringify(report).length;
+            if (size() > LIMIT) {
+                for (const r of report.sign_in_events.rows) { if (r && r.payload) r.payload = undefined; }
+                report.problems_reading_data.push('The report was large, so the detailed payload of each sign-in event was left out. Narrow the window to see it.');
+            }
+            for (const key of ['security_events', 'sign_in_events', 'sign_in_sessions', 'admin_calls', 'denied_calls']) {
+                let guard = 0;
+                while (size() > LIMIT && report[key].rows.length > 200 && guard++ < 8) {
+                    report[key].rows = report[key].rows.slice(0, Math.floor(report[key].rows.length * 0.6));
+                    report[key].returned = report[key].rows.length;
+                    report.problems_reading_data.push(`${key}: only the newest ${report[key].returned} of ${report[key].total} rows are included because the report was too large. Choose a shorter window for the rest.`);
+                }
+            }
+            logSecurityEvent('admin_security_report_downloaded', getRequestIP(req), 'info', { by: auth.userId, days });
+            return res.status(200).json({ success: true, report });
+        } catch (error) {
+            console.error('admin-security-report error:', error);
+            return res.status(500).json({ success: false, error: 'Could not build the report.' });
         }
     },
 
@@ -17242,19 +17408,21 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
     },
 
     // NEW (2026-11-11): super-admin view of the permanent record (api requests, sign-in sessions, Supabase auth events).
+    // UPDATED (2026-11-12): two more views so every record can be exported from this one place: the security events the
+    // site's own guards wrote ('security') and the list of blocked IP addresses ('blocked'). Read-only, Super Admin only.
     'admin-access-log': async (req, res) => {
         const supabaseClient = getSupabase();
         const adminCheck = await requireAdmin(req, supabaseClient);
         if (!adminCheck.authorized) return res.status(adminCheck.status).json({ error: adminCheck.error });
         if (adminCheck.userType !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
         const b = req.body || {};
-        const view = ['api', 'sessions', 'auth'].includes(b.view) ? b.view : 'api';
+        const view = ['api', 'sessions', 'auth', 'security', 'blocked'].includes(b.view) ? b.view : 'api';
         const limit = Math.min(Math.max(parseInt(b.limit, 10) || 100, 1), 1000);
         const offset = Math.max(parseInt(b.offset, 10) || 0, 0);
-        const table = view === 'api' ? 'api_audit_log' : view === 'sessions' ? 'session_history' : 'auth_audit_archive';
-        const orderCol = view === 'sessions' ? 'started_at' : 'created_at';
+        const table = { api: 'api_audit_log', sessions: 'session_history', auth: 'auth_audit_archive', security: 'security_events', blocked: 'blocked_ips' }[view];
+        const orderCol = view === 'sessions' ? 'started_at' : view === 'blocked' ? 'expires_at' : 'created_at';
         let q = supabaseClient.from(table).select('*', { count: 'exact' }).order(orderCol, { ascending: false }).range(offset, offset + limit - 1);
-        const ipCol = view === 'auth' ? 'ip_address' : 'ip';
+        const ipCol = (view === 'auth' || view === 'security' || view === 'blocked') ? 'ip_address' : 'ip';
         if (b.ip) q = q.eq(ipCol, String(b.ip).slice(0, 64));
         if (view === 'api') {
             if (b.userId) q = q.eq('user_id', String(b.userId));
@@ -17262,8 +17430,14 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             if (b.adminOnly) q = q.eq('is_admin_call', true);
             if (b.deniedOnly) q = q.eq('denied', true);
         }
+        if (view === 'security') {
+            // routine "api_request" rows are about 98% of this table, so they are left out unless asked for by name
+            if (b.action) q = q.eq('event_type', String(b.action).slice(0, 80));
+            else q = q.neq('event_type', 'api_request');
+            if (b.importantOnly) q = q.in('severity', ['critical', 'warning']);
+        }
         if (view === 'sessions' && b.userId) q = q.eq('user_id', String(b.userId));
-        if (b.since) q = q.gte(orderCol, String(b.since));
+        if (b.since && view !== 'blocked') q = q.gte(orderCol, String(b.since));
         const { data, error, count } = await q;
         if (error) return res.status(500).json({ error: 'Could not read the log' });
         return res.status(200).json({ view, rows: data || [], total: count || 0 });

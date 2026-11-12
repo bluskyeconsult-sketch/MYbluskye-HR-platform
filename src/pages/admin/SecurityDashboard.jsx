@@ -13,10 +13,17 @@
 // against blocking your own address (a block covers the whole API, so it
 // would lock you out of the admin area too), and a one-click "Block this
 // IP" on an event row.
+//
+// UPDATED (2026-11-12): "Download full report" - one file (JSON, for handing
+// to Claude at the next review) or a spreadsheet of the events (CSV), for the
+// last 24 hours, 7 days or 30 days. Built by the admin-security-report action
+// (Super Admin only). Also: Unblock now says how many old attack events it
+// cleared, because the 10-minute security watcher would otherwise re-block the
+// address, and it warns before lifting a permanent block.
 
 import { useState, useEffect, useCallback } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
-import { Shield, AlertTriangle, Ban, Eye, Loader2, RefreshCw, Plus, Trash2, Info } from 'lucide-react';
+import { Shield, AlertTriangle, Ban, Eye, Loader2, RefreshCw, Plus, Trash2, Info, Download } from 'lucide-react';
 
 const DURATIONS = [
     { hours: 1, label: '1 hour' },
@@ -25,6 +32,27 @@ const DURATIONS = [
     { hours: 24 * 7, label: '7 days' },
     { hours: 24 * 30, label: '30 days' }
 ];
+
+const REPORT_WINDOWS = [
+    { days: 1, label: 'Last 24 hours' },
+    { days: 7, label: 'Last 7 days' },
+    { days: 30, label: 'Last 30 days' }
+];
+
+// A spreadsheet cell: text that starts with = + - @ is defused so Excel cannot run it as a formula.
+const csvCell = (v) => {
+    let t = v === null || v === undefined ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return '"' + t.replace(/"/g, '""') + '"';
+};
+
+function saveFile(name, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 
 const SEVERITY_STYLES = {
     critical: 'bg-red-500/20 text-red-400',
@@ -47,6 +75,8 @@ export default function SecurityDashboard() {
     const [blocking, setBlocking] = useState(false);
     const [severityFilter, setSeverityFilter] = useState('all');
     const [expandedId, setExpandedId] = useState(null);
+    const [reportDays, setReportDays] = useState(7);
+    const [reportBusy, setReportBusy] = useState('');
 
     const loadData = useCallback(async () => {
         setRefreshing(true);
@@ -104,14 +134,41 @@ export default function SecurityDashboard() {
     }
 
     async function handleUnblockIP(ip) {
-        if (!confirm(`Unblock ${ip.ip_address}?`)) return;
+        const longBlock = ip.is_permanent || new Date(ip.expires_at).getFullYear() > 2100;
+        const warn = longBlock ? '\n\nThis is a PERMANENT block, usually set automatically after attack-type activity or during an incident. Only unblock it if you are sure the address is genuine (for example a link-preview crawler or your own device).' : '';
+        if (!confirm(`Unblock ${ip.ip_address}?${warn}`)) return;
         setNotice(null);
         try {
-            await authenticatedFetch('admin-unblock-ip', { id: ip.id });
-            setNotice({ type: 'ok', text: `${ip.ip_address} is unblocked.` });
+            const r = await authenticatedFetch('admin-unblock-ip', { id: ip.id });
+            const cleared = r && r.cleared ? ` ${r.cleared} old attack-type event${r.cleared === 1 ? '' : 's'} for it were marked cleared (kept as history) so the automatic watcher does not re-block it. New bad behaviour will block it again.` : '';
+            setNotice({ type: 'ok', text: `${ip.ip_address} is unblocked.${cleared}` });
             await loadData();
         } catch (error) {
             setNotice({ type: 'error', text: error.message });
+        }
+    }
+
+    async function downloadReport(kind) {
+        setReportBusy(kind);
+        setNotice(null);
+        try {
+            const d = await authenticatedFetch('admin-security-report', { days: reportDays });
+            const report = d && d.report;
+            if (!report) throw new Error('The server returned no report.');
+            const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+            if (kind === 'json') {
+                saveFile(`odusbaba-security-report-${reportDays}d-${stamp}.json`, JSON.stringify(report, null, 2), 'application/json');
+            } else {
+                const head = ['created_at', 'event_type', 'severity', 'ip_address', 'details'];
+                const lines = [head.map(csvCell).join(',')].concat((report.security_events.rows || []).map(r => head.map(h => csvCell(r[h])).join(',')));
+                saveFile(`odusbaba-security-events-${reportDays}d-${stamp}.csv`, '\ufeff' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+            }
+            const problems = (report.problems_reading_data || []).length;
+            setNotice({ type: problems ? 'error' : 'ok', text: problems ? `Report downloaded, but: ${report.problems_reading_data.join(' ')}` : `Report downloaded (${report.security_events.returned} security events, ${report.blocked_ips_live.length} live blocks).` });
+        } catch (error) {
+            setNotice({ type: 'error', text: error.message || 'Could not build the report.' });
+        } finally {
+            setReportBusy('');
         }
     }
 
@@ -137,6 +194,26 @@ export default function SecurityDashboard() {
                     <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                     Refresh
                 </button>
+            </div>
+
+            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                        <h3 className="text-white font-semibold flex items-center gap-2"><Download className="w-4 h-4 text-primary-400" /> Download the full security report</h3>
+                        <p className="text-xs text-slate-400 mt-1">One file with the counts, every security event, every live and lifted block, the busiest visitors, admin and refused calls, and sign-in events and sessions. Keep it, and give it to Claude at your next review. Super Admin only. It contains IP addresses and email addresses, so do not share it publicly.</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                        <select value={reportDays} onChange={(e) => setReportDays(parseInt(e.target.value, 10))} className="px-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm">
+                            {REPORT_WINDOWS.map(w => <option key={w.days} value={w.days}>{w.label}</option>)}
+                        </select>
+                        <button onClick={() => downloadReport('json')} disabled={!!reportBusy} className="px-3 py-1.5 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                            {reportBusy === 'json' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Full report (.json)
+                        </button>
+                        <button onClick={() => downloadReport('csv')} disabled={!!reportBusy} className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600 disabled:opacity-50 flex items-center justify-center gap-1">
+                            {reportBusy === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Events (.csv)
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {loadError && (
@@ -261,7 +338,7 @@ export default function SecurityDashboard() {
                                 <div className="min-w-0">
                                     <p className="text-white font-mono text-sm">{ip.ip_address}</p>
                                     <p className="text-slate-500 text-xs">Expires: {new Date(ip.expires_at).toLocaleString()}</p>
-                                    {(ip.reason || ip.block_reason) && <p className="text-slate-500 text-xs truncate">Reason: {(ip.reason || ip.block_reason).replace(/_/g, ' ')}</p>}
+                                    {ip.reason && <p className="text-slate-500 text-xs truncate">Reason: {ip.reason.replace(/_/g, ' ')}</p>}
                                 </div>
                                 <button onClick={() => handleUnblockIP(ip)} className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-xs hover:bg-emerald-700 flex-shrink-0">
                                     <Trash2 className="w-3 h-3 inline mr-1" /> Unblock

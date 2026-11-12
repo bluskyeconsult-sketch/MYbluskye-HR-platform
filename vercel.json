@@ -99,10 +99,6 @@
       "destination": "/api/index?action=honeypot&p=wp-admin"
     },
     {
-      "source": "/wp-content/:path*",
-      "destination": "/api/index?action=honeypot&p=wp-content"
-    },
-    {
       "source": "/xmlrpc.php",
       "destination": "/api/index?action=honeypot&p=xmlrpc"
     },
