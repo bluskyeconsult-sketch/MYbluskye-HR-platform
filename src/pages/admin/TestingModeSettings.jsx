@@ -4,6 +4,8 @@
 // ✅ Tester statistics dashboard
 // ✅ Admin-only access with proper authentication
 // ✅ Persists across page refreshes
+// UPDATED (2026-11-13): the description under "Testing Mode" no longer says new registrations always need an invite code; it
+// now says every new sign-up becomes a tester and that the invite code is a separate setting (Tester Visibility Settings).
 //
 // FIXED (2026-08-07):
 // 1. Removed a hardcoded admin-email backdoor (6th confirmed instance
@@ -359,7 +361,7 @@ export default function TestingModeSettings() {
                         </div>
                         <div>
                             <h2 className="text-xl font-semibold text-white">Testing Mode</h2>
-                            <p className="text-slate-400 text-sm">When enabled, new registrations require an invite code (configurable in Tester Visibility Settings) and can test any plan at no cost</p>
+                            <p className="text-slate-400 text-sm">When enabled, every new sign-up becomes a tester and can try any plan at no cost, within the tester cap. Whether an invite code is also asked for is a separate setting in Tester Visibility Settings.</p>
                         </div>
                     </div>
                     <button
