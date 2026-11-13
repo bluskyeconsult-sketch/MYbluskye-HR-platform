@@ -313,7 +313,9 @@ export default function SignUpPage() {
 
                 // Default true (matching TesterVisibilitySettings.jsx's own
                 // default) if the row hasn't been saved yet at all.
-                const visibilitySettings = visibilityData?.config_value;
+                // UPDATED (2026-11-13): read the setting whether the database returns an object or JSON text.
+                let visibilitySettings = visibilityData?.config_value;
+                if (typeof visibilitySettings === 'string') { try { visibilitySettings = JSON.parse(visibilitySettings); } catch { visibilitySettings = null; } }
                 setRequireInviteCode(visibilitySettings?.require_invite_code !== false);
             }
         } catch (err) {

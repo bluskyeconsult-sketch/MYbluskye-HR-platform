@@ -543,6 +543,34 @@ function jwtClaim(token, key) {
     } catch (e) { return null; }
 }
 
+// NEW (2026-11-13): ACCOUNT HOLD. A member whose behaviour looks automated (see database file 67 and the Security page) is put
+// "on hold": they can still sign in and see one page, but every action except the verification form is refused here, which
+// also freezes every credit (all credit use goes through this API). One cached check per member per 30 seconds; if the
+// database cannot be read the request is allowed (fail open, like the other guards).
+const HOLD_ALLOWED_ACTIONS = new Set(['hold-status', 'submit-hold-verification', 'honeypot', 'share-preview']);
+const holdCache = new Map();
+async function accountOnHold(userId) {
+    const hit = holdCache.get(userId);
+    if (hit && Date.now() - hit.at < 30000) return hit.held;
+    try {
+        const { data, error } = await getSupabase().from('profiles').select('account_hold').eq('id', userId).maybeSingle();
+        if (error) return false;
+        const held = !!(data && data.account_hold);
+        holdCache.set(userId, { held, at: Date.now() });
+        if (holdCache.size > 5000) holdCache.clear();
+        return held;
+    } catch (e) { return false; }
+}
+// true when this request carries a sign-in token of a member who is on hold
+async function requestIsFromHeldAccount(req) {
+    const auth = String(req.headers?.authorization || '');
+    if (!auth.startsWith('Bearer ')) return false;
+    const token = auth.slice(7);
+    const sub = jwtClaim(token, 'sub');
+    if (!/^[0-9a-f-]{36}$/i.test(String(sub || '')) || jwtClaim(token, 'role') === 'service_role') return false;
+    return accountOnHold(String(sub));
+}
+
 // NEW (2026-11-11): SERVER-SIDE TWO-FACTOR PROOF FOR THE ADMIN AREA.
 // Why: until now the 2FA code was never checked at sign-in and never checked by this API, so a stolen or self-made admin
 // session could use every admin action without it (the 8 Nov attacker did exactly that). Now an admin action needs a
@@ -10026,6 +10054,136 @@ Keep the tone professional and constructive throughout - direct about issues whe
         }
     },
 
+    // NEW (2026-11-13): ACCOUNT HOLD - what the member sees and does (database file 67 creates the tables and functions).
+    // hold-status: is my account on hold, and have I already sent my verification?
+    'hold-status': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const a = await getAuthenticatedUser(req, supabaseClient);
+        if (!a.authorized) return res.status(a.status).json({ held: false, error: a.error });
+        req._skipThreat = true;
+        if (!checkRateLimit(`hold-status:${a.userId}`, 40)) return res.status(429).json({ held: true, error: 'Please wait a moment.' });
+        try {
+            const { data: p } = await supabaseClient.from('profiles').select('account_hold').eq('id', a.userId).maybeSingle();
+            if (!p || !p.account_hold) return res.status(200).json({ held: false });
+            const { data: c } = await supabaseClient.from('account_hold_cases').select('status, verification_at').eq('user_id', a.userId)
+                .in('status', ['held', 'verification_sent']).order('created_at', { ascending: false }).limit(1).maybeSingle();
+            return res.status(200).json({ held: true, status: c ? c.status : 'held', submitted: !!(c && c.verification_at) });
+        } catch (error) {
+            return res.status(200).json({ held: false });
+        }
+    },
+
+    // submit-hold-verification: the member proves they are a real person and says how they use the site. Goes to the owner by email
+    // and shows in Admin > Security. Needs the human check, and cannot be spammed (one submission every 10 minutes).
+    'submit-hold-verification': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const a = await getAuthenticatedUser(req, supabaseClient);
+        if (!a.authorized) return res.status(a.status).json({ success: false, error: a.error });
+        req._skipThreat = true;
+        const ip = getRequestIP(req);
+        if (!checkRateLimit(`hold-verify:${a.userId}`, 3)) return res.status(429).json({ success: false, error: 'Please wait a minute and try again.' });
+        const human = await verifyTurnstile((req.body || {}).captchaToken, ip);
+        if (!human.ok) return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
+        const message = String((req.body || {}).message || '').replace(/\s+/g, ' ').trim();
+        if (message.length < 20) return res.status(400).json({ success: false, error: 'Please write at least a couple of sentences about how you plan to use ODUSBABA.' });
+        if (message.length > 1000) return res.status(400).json({ success: false, error: 'Please keep your message under 1000 characters.' });
+        try {
+            const { data: c } = await supabaseClient.from('account_hold_cases').select('id, email, verification_at').eq('user_id', a.userId)
+                .in('status', ['held', 'verification_sent']).order('created_at', { ascending: false }).limit(1).maybeSingle();
+            if (!c) return res.status(400).json({ success: false, error: 'Your account is not on hold.' });
+            if (c.verification_at && Date.now() - new Date(c.verification_at).getTime() < 10 * 60000) {
+                return res.status(429).json({ success: false, error: 'You already sent a message a moment ago. We will reply by email.' });
+            }
+            const { error } = await supabaseClient.from('account_hold_cases').update({ status: 'verification_sent', user_message: message, verification_at: new Date().toISOString() }).eq('id', c.id);
+            if (error) throw error;
+            logSecurityEvent('hold_verification_submitted', ip, 'info', { user_id: a.userId, case_id: c.id });
+            try {
+                await getTransporter().sendMail({
+                    from: `"ODUSBABA Security" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
+                    to: 'support@bluskyeconsult.com',
+                    subject: `Held account sent a verification message: ${c.email || a.userId}`,
+                    text: `A member whose account is on hold passed the human check and wrote:\n\n"${message}"\n\nMember: ${c.email || a.userId}\nReview, then Release or Expel in Admin > Security > Accounts on hold.`
+                });
+            } catch (mailErr) { console.warn('hold verification email failed:', mailErr.message); }
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('submit-hold-verification error:', error);
+            return res.status(500).json({ success: false, error: 'Could not send your message. Please try again.' });
+        }
+    },
+
+    // admin-hold-list: every open case and the recent closed ones (Super Admin only, read-only)
+    'admin-hold-list': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Super admin access required' });
+        try {
+            const since = new Date(Date.now() - 30 * 86400000).toISOString();
+            const { data, error } = await supabaseClient.from('account_hold_cases').select('*')
+                .or(`status.in.(held,verification_sent),created_at.gte.${since}`).order('created_at', { ascending: false }).limit(200);
+            if (error) throw error;
+            const ids = [...new Set((data || []).map(c => c.user_id))];
+            let who = {};
+            if (ids.length) {
+                const { data: ps } = await supabaseClient.from('profiles').select('id, tier, is_tester').in('id', ids);
+                who = Object.fromEntries((ps || []).map(p => [p.id, p]));
+            }
+            const cases = (data || []).map(c => ({ ...c, tier: who[c.user_id]?.tier || null, is_tester: !!who[c.user_id]?.is_tester }));
+            return res.status(200).json({ success: true, cases, open: cases.filter(c => c.status === 'held' || c.status === 'verification_sent').length });
+        } catch (error) {
+            console.error('admin-hold-list error:', error);
+            return res.status(500).json({ success: false, error: 'Could not load the held accounts. Has database file 67 been run?' });
+        }
+    },
+
+    // admin-hold-release / admin-hold-expel: the two buttons. Super Admin only. The database functions do the work in one step.
+    'admin-hold-release': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Super admin access required' });
+        const caseId = String(req.body?.caseId || '');
+        if (!/^[0-9a-f-]{36}$/i.test(caseId)) return res.status(400).json({ success: false, error: 'caseId is required' });
+        try {
+            const { data, error } = await supabaseClient.rpc('security_release_hold', { p_case: caseId, p_by: auth.userId, p_note: String(req.body?.note || '').slice(0, 500) });
+            if (error) throw error;
+            if (!data || !data.ok) return res.status(409).json({ success: false, error: (data && data.error) || 'Could not release this account.' });
+            holdCache.delete(String(data.user_id));
+            if (data.email && isValidEmail(data.email)) {
+                try {
+                    await getTransporter().sendMail({
+                        from: `"ODUSBABA" <${process.env.SMTP_SENDER_EMAIL || process.env.VITE_EMAIL_SENDER || process.env.EMAIL_SENDER_ADDRESS || 'noreply@bluskyeconsult.com'}>`,
+                        to: data.email, subject: 'Your ODUSBABA account is active again',
+                        text: 'Thank you for confirming. Your ODUSBABA account is active again and you can carry on using the site as normal.\n\nODUSBABA support'
+                    });
+                } catch (mailErr) { console.warn('hold release email failed:', mailErr.message); }
+            }
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('admin-hold-release error:', error);
+            return res.status(500).json({ success: false, error: 'Could not release this account.' });
+        }
+    },
+    'admin-hold-expel': async (req, res) => {
+        const supabaseClient = getSupabase();
+        const auth = await requireAdmin(req, supabaseClient);
+        if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
+        if (auth.userType !== 'super_admin') return res.status(403).json({ success: false, error: 'Super admin access required' });
+        const caseId = String(req.body?.caseId || '');
+        if (!/^[0-9a-f-]{36}$/i.test(caseId)) return res.status(400).json({ success: false, error: 'caseId is required' });
+        try {
+            const { data, error } = await supabaseClient.rpc('security_expel_account', { p_case: caseId, p_by: auth.userId, p_note: String(req.body?.note || '').slice(0, 500) });
+            if (error) throw error;
+            if (!data || !data.ok) return res.status(409).json({ success: false, error: (data && data.error) || 'Could not expel this account.' });
+            holdCache.delete(String(data.user_id));
+            return res.status(200).json({ success: true, ips_blocked: data.ips_blocked || 0 });
+        } catch (error) {
+            console.error('admin-hold-expel error:', error);
+            return res.status(500).json({ success: false, error: 'Could not expel this account.' });
+        }
+    },
+
     // NEW (2026-11-12): one-click full security report for the owner to keep and to hand to Claude at the next review.
     // Super Admin only, read-only. Returns everything a review needs in one file: counts, every non-routine security event,
     // every block (live and lifted), the trusted-IP list, the busiest visitors, admin and denied calls, sign-in events and
@@ -10063,7 +10221,7 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 try { return await fn(); } catch (e) { notes.push(`${name}: could not be read (${e.message || e})`); return null; }
             };
 
-            const [securityEvents, routineCount, blocked, trusted, apiRows, adminCalls, deniedCalls, authEvents, sessions] = await Promise.all([
+            const [securityEvents, routineCount, blocked, trusted, apiRows, adminCalls, deniedCalls, authEvents, sessions, heldCases] = await Promise.all([
                 section('security events', () => readAll(() => supabaseClient.from('security_events').select('created_at, event_type, severity, ip_address, details', { count: 'exact' })
                     .gte('created_at', sinceIso).neq('event_type', 'api_request').order('created_at', { ascending: false }), 5000)),
                 section('routine request count', async () => {
@@ -10081,7 +10239,9 @@ Keep the tone professional and constructive throughout - direct about issues whe
                 section('sign-in events', () => readAll(() => supabaseClient.from('auth_audit_archive').select('created_at, ip_address, action, payload', { count: 'exact' })
                     .gte('created_at', sinceIso).order('created_at', { ascending: false }), 2000)),
                 section('sign-in sessions', () => readAll(() => supabaseClient.from('session_history').select('started_at, last_seen, user_id, email, ip, user_agent, aal', { count: 'exact' })
-                    .gte('started_at', sinceIso).order('started_at', { ascending: false }), 1000))
+                    .gte('started_at', sinceIso).order('started_at', { ascending: false }), 1000)),
+                section('held accounts', () => readAll(() => supabaseClient.from('account_hold_cases').select('*', { count: 'exact' })
+                    .or(`created_at.gte.${sinceIso},status.in.(held,verification_sent)`).order('created_at', { ascending: false }), 500))
             ]);
 
             const countBy = (rows, key) => {
@@ -10129,12 +10289,14 @@ Keep the tone professional and constructive throughout - direct about issues whe
                     denied_calls: deniedCalls ? deniedCalls.total : null,
                     sign_in_events: authEvents ? authEvents.total : null,
                     sign_in_sessions: sessions ? sessions.total : null,
+                    accounts_on_hold_or_decided: heldCases ? heldCases.total : null,
                     api_requests_in_window: apiRows ? apiRows.total : null,
                     api_requests_summarised_below: apiRows ? apiRows.rows.length : 0
                 },
                 blocked_ips_live: live,
                 blocked_ips_lifted_recent: lifted,
                 trusted_ips: trusted ? trusted.rows : null,
+                held_accounts: heldCases ? heldCases.rows : null,
                 busiest_visitors: busiest,
                 security_events: { total: securityEvents ? securityEvents.total : null, returned: evRows.length, rows: evRows },
                 admin_calls: { total: adminCalls ? adminCalls.total : null, returned: adminCalls ? adminCalls.rows.length : 0, rows: adminCalls ? adminCalls.rows : [] },
@@ -17522,6 +17684,11 @@ Return a JSON object with a "questions" array. Each item must have: "question" (
             return res.status(400).json({ success: false, error: 'Please complete the human check and try again.' });
         }
 
+        // NEW (2026-11-13): when registration is open no code exists to request. Say so instead of emailing a code nobody needs.
+        if (!(await registrationNeedsInviteCode(supabaseClient))) {
+            return res.status(200).json({ success: true, noCodeNeeded: true, message: 'No invite code is needed right now. Just create your free account on the sign-up page.' });
+        }
+
         if (!email || !isValidEmail(email)) {
             return res.status(400).json({ success: false, error: 'A valid email address is required.' });
         }
@@ -19354,6 +19521,10 @@ export default async function handler(req, res) {
 
     const accessStart = Date.now();
     if (!isCrawlerPreview && action !== 'honeypot') res.on('finish', () => logApiAccess(req, res, requestIP, action, accessStart));
+    // NEW (2026-11-13): a member on hold can only reach the hold page's own two actions. Not counted as bad behaviour by the IP guard.
+    if (!isCrawlerPreview && !HOLD_ALLOWED_ACTIONS.has(action) && await requestIsFromHeldAccount(req)) {
+        return res.status(403).json({ error: 'Your account is on hold. Please open the site and follow the steps on the account page, or contact support.', code: 'ACCOUNT_ON_HOLD' });
+    }
     try {
         await handlers[action](req, res);
         if (!isCrawlerPreview && action !== 'honeypot' && !req._skipThreat) await threatGuard.after(req, res, requestIP); // counts repeated 403/429 answers

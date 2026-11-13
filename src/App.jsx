@@ -902,11 +902,42 @@ function useAnalyticsTracking() {
 }
 
 // ============================================
+// ACCOUNT HOLD CHECK  (NEW 2026-11-13)
+// ============================================
+// When the security system has put the signed-in member's account on hold (profiles.account_hold, set by database file 67),
+// the whole site is replaced by one "Account on hold" page until an admin releases it. Checked on every page change; if the flag
+// cannot be read (not signed in, setting missing, network) the site works as normal. The server enforces the hold separately.
+function useAccountHold(pathname) {
+    const [held, setHeld] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session?.user) { if (!cancelled) setHeld(false); return; }
+                const { data } = await supabase.from('profiles').select('account_hold').eq('id', session.user.id).maybeSingle();
+                if (!cancelled) setHeld(!!(data && data.account_hold));
+            } catch { if (!cancelled) setHeld(false); }
+        })();
+        return () => { cancelled = true; };
+    }, [pathname]);
+    useEffect(() => {
+        const { data: sub } = supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') setHeld(false); });
+        return () => { try { sub?.subscription?.unsubscribe(); } catch { /* ignore */ } };
+    }, []);
+    return held;
+}
+const HOLD_OPEN_PATHS = /^\/(sign-in|sign-up|contact|legal\/|safety-tips|report-fraud|confirm|reset-password)/;
+const AccountOnHoldPage = lazy(() => import('./pages/AccountOnHoldPage'));
+
+// ============================================
 // MAIN APP CONTENT
 // ============================================
 function AppContent() {
     const location = useLocation();
     useAnalyticsTracking();
+    const accountHeld = useAccountHold(location.pathname);
+    const showHoldPage = accountHeld && !HOLD_OPEN_PATHS.test(location.pathname);
     // NEW (2026-08-16): BrainstormPartner is an internal team tool (its own
     // header calls it out as such), not something to expose to every
     // visitor — gated here rather than inside the component itself.
@@ -954,6 +985,7 @@ function AppContent() {
                     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <Suspense fallback={<PageLoader />}>
                         {/* ✅ Removed AnimatePresence to prevent flickering (From Code 2) */}
+                        {showHoldPage ? <AccountOnHoldPage /> : (
                         <Routes location={location} key={location.pathname}>
                             {/* Public Routes */}
                             <Route path="/" element={<AnimatedPage><HomePage /></AnimatedPage>} />
@@ -1144,6 +1176,7 @@ function AppContent() {
                             {/* 404 */}
                             <Route path="*" element={<NotFoundPage />} />
                         </Routes>
+                        )}
                     </Suspense>
                 </div>
             </main>

@@ -11,6 +11,8 @@
 //   2. Collects new critical events written by the database guards (privilege attempts, blocked admin sign-ups,
 //      sign-up floods, lockouts) since the last run.
 //   3. Emails the owner ONE summary if anything was found. Sends nothing when all is quiet.
+//   UPDATED (2026-11-13): also runs the behaviour watch (database file 67, security_behaviour_watch). A member whose behaviour looks
+//   automated is put ON HOLD (not banned) and listed in the email; you decide in Admin > Security > Accounts on hold.
 //
 // Approving a new staff member: create them in Admin > Staff (that adds them to the list automatically).
 // If you ever create an admin directly in the database, add their id to "known_admin_ids" first.
@@ -21,7 +23,8 @@ import nodemailer from 'nodemailer';
 const ALERT_EVENTS = ['privilege_escalation_attempt', 'privileged_signup_blocked', 'signup_flood_blocked',
     'unknown_admin_contained', 'admin_login_lockout_triggered', 'incident_ip_flagged',
     'threat_auto_block', 'stray_swept', 'stray_account_swept', 'rogue_cron_job_removed',
-    'blocked_domain_signup', 'fake_domain_signup_blocked', 'threat_scripted_client_ua', 'threat_attack_tool_ua', 'threat_honeypot'];
+    'blocked_domain_signup', 'fake_domain_signup_blocked', 'threat_scripted_client_ua', 'threat_attack_tool_ua', 'threat_honeypot',
+    'account_held', 'hold_verification_submitted', 'account_expelled'];
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'; // incident mode: blocks never expire
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -111,6 +114,10 @@ export default async function handler(req, res) {
             const { data: banned } = await sb.rpc('security_sweep_accounts');
             if (Number(banned) > 0) lines.push(`${banned} account(s) on throwaway or blocked email domains were banned.`);
         } catch (e) { console.warn('account sweep skipped:', e.message); }
+        try {
+            // the individual holds are listed below as "account_held" events (with the member's email), so no separate line here
+            await sb.rpc('security_behaviour_watch');
+        } catch (e) { console.warn('behaviour watch skipped:', e.message); }
         try {
             const { data: rogue } = await sb.rpc('security_cron_enforce');
             if (rogue) lines.push(`ROGUE SCHEDULED JOB REMOVED from the database: ${rogue}`);

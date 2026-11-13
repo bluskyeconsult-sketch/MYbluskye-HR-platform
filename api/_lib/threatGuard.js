@@ -121,21 +121,29 @@ export function buildThreatGuard({ getSupabase, notify, env = process.env, now =
         return { total, counts };
     }
 
+    // NEW (2026-11-13): addresses many real people share (Cloudflare and WARP; list kept in the database table
+    // security_shared_networks) are never blocked forever, even in incident mode: 24 hours, then they are judged again.
+    async function isSharedNetwork(sb, ip) {
+        try { const { data, error } = await sb.rpc('security_is_shared_ip', { p_ip: ip }); return !error && data === true; } catch { return false; }
+    }
+
     async function block(sb, ip, reason, counts) {
         const { data: prior } = await sb.from('security_events').select('id', { count: 'exact', head: false }).eq('ip_address', ip).eq('event_type', 'threat_auto_block').gte('created_at', new Date(now() - 90 * 86400000).toISOString()).limit(10);
         const strikes = Math.min((prior || []).length, ESCALATION_MINUTES.length - 1);
-        const minutes = INCIDENT ? FAR_FUTURE_MINUTES : ESCALATION_MINUTES[strikes];
+        const shared = INCIDENT ? await isSharedNetwork(sb, ip) : false;
+        const permanent = INCIDENT && !shared;
+        const minutes = permanent ? FAR_FUTURE_MINUTES : (INCIDENT ? 24 * 60 : ESCALATION_MINUTES[strikes]);
         const { data: active } = await sb.from('blocked_ips').select('id').eq('ip_address', ip).gt('expires_at', new Date(now()).toISOString()).limit(1);
         if (!active || active.length === 0) {
-            const { error } = await sb.from('blocked_ips').insert({ ip_address: ip, reason: `auto: ${reason}`.slice(0, 200), block_reason: `auto: ${reason}`.slice(0, 200), expires_at: new Date(now() + minutes * 60000).toISOString(), ...(INCIDENT ? { is_permanent: true } : {}) });
+            const { error } = await sb.from('blocked_ips').insert({ ip_address: ip, reason: `auto: ${reason}`.slice(0, 200), block_reason: `auto: ${reason}`.slice(0, 200), expires_at: new Date(now() + minutes * 60000).toISOString(), ...(permanent ? { is_permanent: true } : {}) });
             if (error) throw error;
-        } else if (INCIDENT) {
+        } else if (permanent) {
             await sb.from('blocked_ips').update({ is_permanent: true, expires_at: new Date(now() + minutes * 60000).toISOString() }).eq('id', active[0].id); // upgrade a temporary block
         }
-        await sb.from('security_events').insert({ event_type: 'threat_auto_block', ip_address: ip, severity: 'critical', details: { reason, minutes, strikes: strikes + 1, signals: counts }, created_at: new Date(now()).toISOString() });
+        await sb.from('security_events').insert({ event_type: 'threat_auto_block', ip_address: ip, severity: 'critical', details: { reason, minutes, strikes: strikes + 1, signals: counts, shared_network: shared }, created_at: new Date(now()).toISOString() });
         if (notify) {
             const t = now(); while (alertTimes.length && t - alertTimes[0] > 3600000) alertTimes.shift();
-            if (alertTimes.length < 5) { alertTimes.push(t); try { await notify(`ODUSBABA blocked an IP automatically (${ip})`, `Reason: ${reason}\nBlocked for: ${INCIDENT ? 'PERMANENTLY (incident mode)' : minutes + ' minutes'} (strike ${strikes + 1})\nSignals in the last ${WINDOW_MINUTES} minutes: ${JSON.stringify(counts)}\n\nReview or lift it in Admin > Security. Block emails are limited to 5 an hour.`); } catch { /* alerts must never break a request */ } }
+            if (alertTimes.length < 5) { alertTimes.push(t); try { await notify(`ODUSBABA blocked an IP automatically (${ip})`, `Reason: ${reason}\nBlocked for: ${permanent ? 'PERMANENTLY (incident mode)' : (shared ? '24 hours (shared network address, so not permanent)' : minutes + ' minutes')} (strike ${strikes + 1})\nSignals in the last ${WINDOW_MINUTES} minutes: ${JSON.stringify(counts)}\n\nReview or lift it in Admin > Security. Block emails are limited to 5 an hour.`); } catch { /* alerts must never break a request */ } }
         }
         return { minutes };
     }

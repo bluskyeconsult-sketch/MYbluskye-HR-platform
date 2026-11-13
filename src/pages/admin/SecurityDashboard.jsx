@@ -20,10 +20,15 @@
 // (Super Admin only). Also: Unblock now says how many old attack events it
 // cleared, because the 10-minute security watcher would otherwise re-block the
 // address, and it warns before lifting a permanent block.
+//
+// UPDATED (2026-11-13): "Accounts on hold" panel. The security watcher puts a member on hold when their behaviour looks automated
+// (database file 67). Each case shows when, the score and the signals, what the member wrote, and two buttons: Release (the member
+// can use the site again) and Expel (sign-in banned, addresses linked to them blocked). Calls admin-hold-list, admin-hold-release and
+// admin-hold-expel (Super Admin only). The held accounts are also included in the downloaded report.
 
 import { useState, useEffect, useCallback } from 'react';
 import { authenticatedFetch } from '../../lib/authFetch';
-import { Shield, AlertTriangle, Ban, Eye, Loader2, RefreshCw, Plus, Trash2, Info, Download } from 'lucide-react';
+import { Shield, AlertTriangle, Ban, Eye, Loader2, RefreshCw, Plus, Trash2, Info, Download, UserX, UserCheck } from 'lucide-react';
 
 const DURATIONS = [
     { hours: 1, label: '1 hour' },
@@ -77,6 +82,21 @@ export default function SecurityDashboard() {
     const [expandedId, setExpandedId] = useState(null);
     const [reportDays, setReportDays] = useState(7);
     const [reportBusy, setReportBusy] = useState('');
+    const [holds, setHolds] = useState([]);
+    const [holdsNote, setHoldsNote] = useState('');
+    const [holdBusy, setHoldBusy] = useState('');
+    const [showClosedHolds, setShowClosedHolds] = useState(false);
+
+    const loadHolds = useCallback(async () => {
+        try {
+            const d = await authenticatedFetch('admin-hold-list');
+            setHolds(d.cases || []);
+            setHoldsNote('');
+        } catch (error) {
+            setHolds([]);
+            setHoldsNote(/file 67|403|Super admin/i.test(String(error.message)) ? error.message : 'Held accounts could not be loaded. If database file 67 has not been run yet, run it first.');
+        }
+    }, []);
 
     const loadData = useCallback(async () => {
         setRefreshing(true);
@@ -98,11 +118,32 @@ export default function SecurityDashboard() {
 
     useEffect(() => {
         loadData();
+        loadHolds();
         const interval = setInterval(() => {
-            if (!document.hidden) loadData();
+            if (!document.hidden) { loadData(); loadHolds(); }
         }, 30000);
         return () => clearInterval(interval);
-    }, [loadData]);
+    }, [loadData, loadHolds]);
+
+    async function decideHold(c, kind) {
+        const who = c.email || c.user_id;
+        const text = kind === 'release'
+            ? `Release ${who}?\n\nThey can use the site again and get an email saying so. They will not be put on hold again for 7 days unless a serious warning sign appears.`
+            : `EXPEL ${who}?\n\nTheir sign-in is banned, their sessions end, and the addresses linked to them are blocked (permanently, except shared networks such as Cloudflare, which get 7 days). Use this only when you are sure it is an attacker or a bot.`;
+        if (!confirm(text)) return;
+        const note = window.prompt('Optional note for your records (what you checked):', '') || '';
+        setHoldBusy(c.id);
+        setNotice(null);
+        try {
+            const r = await authenticatedFetch(kind === 'release' ? 'admin-hold-release' : 'admin-hold-expel', { caseId: c.id, note });
+            setNotice({ type: 'ok', text: kind === 'release' ? `${who} is released.` : `${who} is expelled${r && r.ips_blocked ? `; ${r.ips_blocked} address${r.ips_blocked === 1 ? '' : 'es'} blocked` : ''}.` });
+            await Promise.all([loadHolds(), loadData()]);
+        } catch (error) {
+            setNotice({ type: 'error', text: error.message });
+        } finally {
+            setHoldBusy('');
+        }
+    }
 
     async function blockIp(ip, reason, hours) {
         setBlocking(true);
@@ -215,6 +256,54 @@ export default function SecurityDashboard() {
                     </div>
                 </div>
             </div>
+
+            {(() => {
+                const open = holds.filter(c => c.status === 'held' || c.status === 'verification_sent');
+                const closed = holds.filter(c => c.status === 'released' || c.status === 'expelled');
+                const reasonText = (sig) => Object.keys(sig || {}).map(k => k.replace(/_/g, ' ')).join(', ') || 'no detail';
+                return (
+                    <div className={`border rounded-xl p-4 ${open.length ? 'bg-amber-500/5 border-amber-500/30' : 'bg-slate-900/50 border-slate-800'}`}>
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <h3 className="text-white font-semibold flex items-center gap-2"><UserX className="w-4 h-4 text-amber-400" /> Accounts on hold ({open.length})</h3>
+                            {closed.length > 0 && (
+                                <button onClick={() => setShowClosedHolds(v => !v)} className="text-xs text-primary-400 hover:underline">
+                                    {showClosedHolds ? 'Hide' : 'Show'} decided in the last 30 days ({closed.length})
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                            The security watcher pauses a member whose behaviour looks automated: they keep their data but cannot use tools or spend credits until you decide.
+                            They can write to you from a page that asks for a human check. Release if they look genuine; expel if it is an attacker or a bot.
+                        </p>
+                        {holdsNote && <p className="text-xs text-amber-300 mt-2">{holdsNote}</p>}
+                        <div className="mt-3 space-y-2">
+                            {open.map((c) => (
+                                <div key={c.id} className="p-3 bg-slate-800/50 rounded-lg">
+                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-white text-sm font-medium break-all">{c.email || c.user_id}{c.tier ? <span className="ml-2 text-xs text-slate-400">({c.tier}{c.is_tester ? ', tester' : ''})</span> : null}</p>
+                                            <p className="text-xs text-slate-500">Held {new Date(c.created_at).toLocaleString()} · score {c.score} · {c.status === 'verification_sent' ? 'HAS WRITTEN TO YOU' : 'no message yet'}</p>
+                                            <p className="text-xs text-slate-400 mt-1">Why: {reasonText(c.signals)}</p>
+                                            {c.ips && c.ips.length > 0 && <p className="text-xs text-slate-500 font-mono mt-0.5 break-all">Addresses: {c.ips.join(', ')}</p>}
+                                            {c.user_message && <p className="text-sm text-slate-200 mt-2 p-2 bg-slate-900/70 rounded whitespace-pre-wrap break-words">"{c.user_message}"</p>}
+                                        </div>
+                                        <div className="flex gap-2 flex-shrink-0">
+                                            <button onClick={() => decideHold(c, 'release')} disabled={holdBusy === c.id} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5"><UserCheck className="w-4 h-4" /> Release</button>
+                                            <button onClick={() => decideHold(c, 'expel')} disabled={holdBusy === c.id} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5"><UserX className="w-4 h-4" /> Expel</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {open.length === 0 && !holdsNote && <p className="text-slate-400 text-sm">No accounts are on hold.</p>}
+                            {showClosedHolds && closed.map((c) => (
+                                <div key={c.id} className="p-2 bg-slate-800/30 rounded-lg text-xs text-slate-400">
+                                    <span className="text-slate-300">{c.email || c.user_id}</span> · {c.status} {c.resolved_at ? new Date(c.resolved_at).toLocaleString() : ''}{c.admin_note ? ` · "${c.admin_note}"` : ''}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {loadError && (
                 <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-sm">

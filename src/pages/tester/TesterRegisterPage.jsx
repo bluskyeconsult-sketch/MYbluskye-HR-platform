@@ -1,5 +1,10 @@
 // src/pages/tester/TesterRegisterPage.jsx
 //
+// UPDATED (2026-11-13): registration is now open (no invite code), so there is no code to request. When the saved setting is
+// "public" this page simply sends the visitor to /sign-up. It still works exactly as before when an admin sets registration back
+// to "Invite only" in Admin > Tester Visibility. The setting is also read safely whether the database hands it back as an
+// object or as text (the earlier version only understood an object, and fell back to "invite only" on text).
+//
 // REBUILT (2026-08-30) — this page previously just redirected to
 // /sign-up, since it had no real purpose of its own after the earlier
 // hardcoded-master-code vulnerability was removed. It now has a real,
@@ -18,7 +23,7 @@
 // invite-code + consume_invite_code() system) actually redeems one.
 
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import TurnstileBox from '../../components/TurnstileBox';
 import { Mail, Loader2, CheckCircle, Clock, AlertCircle, XCircle } from 'lucide-react';
@@ -46,7 +51,9 @@ export default function TesterRegisterPage() {
                     .select('config_value')
                     .eq('config_key', 'tester_visibility')
                     .maybeSingle();
-                setRegistrationMode(data?.config_value?.registration_mode || 'invite_only');
+                let v = data?.config_value;
+                if (typeof v === 'string') { try { v = JSON.parse(v); } catch { v = null; } }
+                setRegistrationMode(v?.registration_mode || 'invite_only');
             } catch (err) {
                 console.warn('Could not check registration mode, defaulting to invite_only:', err.message);
                 setRegistrationMode('invite_only');
@@ -97,6 +104,11 @@ export default function TesterRegisterPage() {
                 <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
             </div>
         );
+    }
+
+    // Registration is open: nothing to request, go straight to sign-up.
+    if (registrationMode === 'public') {
+        return <Navigate to="/sign-up" replace />;
     }
 
     if (registrationMode === 'hidden') {
@@ -181,6 +193,15 @@ export default function TesterRegisterPage() {
                                     <p className="text-slate-400 text-sm mb-4">{result.message}</p>
                                     <Link to="/sign-in" className="text-primary-400 hover:text-primary-300 text-sm font-medium">
                                         Go to Sign In →
+                                    </Link>
+                                </>
+                            ) : result.noCodeNeeded ? (
+                                <>
+                                    <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
+                                    <h2 className="text-xl font-semibold text-white mb-2">No code needed</h2>
+                                    <p className="text-slate-400 text-sm mb-4">{result.message}</p>
+                                    <Link to="/sign-up" className="text-primary-400 hover:text-primary-300 text-sm font-medium">
+                                        Create your free account →
                                     </Link>
                                 </>
                             ) : result.success ? (
